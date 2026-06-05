@@ -1,4 +1,4 @@
-package com.sharecost.core
+package da.chelimo.sharecost
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

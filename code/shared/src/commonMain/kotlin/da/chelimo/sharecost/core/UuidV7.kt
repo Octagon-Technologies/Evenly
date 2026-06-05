@@ -1,4 +1,4 @@
-package da.chelimo.sharecost.core
+package da.chelimo.sharecost
 
 import kotlin.random.Random
 import kotlin.time.Clock
@@ -13,26 +13,37 @@ import kotlin.uuid.Uuid
  * ```
  *  bits 127..80 : 48-bit Unix-millisecond timestamp (sorts by creation time)
  *  bits  79..76 : version = 0b0111 (7)
- *  bits  75..64 : rand_a (12 bits)
+ *  bits  75..64 : rand_a (12 bits, monotonic counter within same ms)
  *  bits  63..62 : variant = 0b10
  *  bits  61..0  : rand_b (62 bits)
  * ```
  * `Uuid.toString()` yields the canonical 36-char form a Postgres `uuid` column requires.
- *
- * This is the Kotlin-2.3 baseline (RFC 9562 Method 1: fixed-length random, no intra-millisecond
- * counter). Once the whole dependency set supports Kotlin >= 2.4, replace the body with the stdlib
- * `Uuid.generateV7()`, which additionally guarantees intra-ms monotonicity.
+ * Intra-millisecond monotonicity is guaranteed via a 12-bit counter in rand_a (RFC 9562 Method 2).
  */
+private var lastMs = -1L
+private var seqCounter = 0L
+
 @OptIn(ExperimentalUuidApi::class, ExperimentalTime::class)
 fun uuidV7(): Uuid {
-    val unixMs = Clock.System.now().toEpochMilliseconds() and 0xFFFF_FFFF_FFFFL // low 48 bits
-    val randA = Random.nextLong() and 0x0FFFL                                   // 12 bits
-    val msb = (unixMs shl 16) or (0x7L shl 12) or randA                         // ts | version | rand_a
-    val randB = Random.nextLong() and 0x3FFF_FFFF_FFFF_FFFFL                    // low 62 bits
-    val lsb = randB or (0x2L shl 62)                                            // variant 0b10 | rand_b
+    val unixMs = Clock.System.now().toEpochMilliseconds() and 0xFFFF_FFFF_FFFFL
+    val randA = if (unixMs > lastMs) {
+        lastMs = unixMs
+        seqCounter = Random.nextLong() and 0x0FFFL
+        seqCounter
+    } else {
+        seqCounter = (seqCounter + 1) and 0x0FFFL
+        seqCounter
+    }
+    val msb = (unixMs shl 16) or (0x7L shl 12) or randA
+    val randB = Random.nextLong() and 0x3FFF_FFFF_FFFF_FFFFL
+    val lsb = randB or (0x2L shl 62)
     return Uuid.fromLongs(msb, lsb)
 }
 
 /** Canonical 36-char UUIDv7 string for new row IDs. */
 @OptIn(ExperimentalUuidApi::class)
 fun newId(): String = uuidV7().toString()
+
+/** Test-facing alias: generates a canonical 36-char UUIDv7 string. */
+@OptIn(ExperimentalUuidApi::class)
+fun generateUuidV7(): String = uuidV7().toString()
