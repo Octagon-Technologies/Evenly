@@ -5,7 +5,21 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import da.chelimo.sharecost.data.db.dao.ExpenseDao
+import da.chelimo.sharecost.data.db.dao.FxRateDao
+import da.chelimo.sharecost.data.db.dao.GroupDao
+import da.chelimo.sharecost.data.db.dao.MemberDao
+import da.chelimo.sharecost.data.db.dao.SettlementDao
+import da.chelimo.sharecost.data.db.dao.ShareDao
 import da.chelimo.sharecost.data.db.dao.UserDao
+import da.chelimo.sharecost.data.db.entity.ExpenseEntity
+import da.chelimo.sharecost.data.db.entity.FxBakedEntity
+import da.chelimo.sharecost.data.db.entity.FxRateEntity
+import da.chelimo.sharecost.data.db.entity.GroupEntity
+import da.chelimo.sharecost.data.db.entity.MemberEntity
+import da.chelimo.sharecost.data.db.entity.SettlementAllocationEntity
+import da.chelimo.sharecost.data.db.entity.SettlementEntity
+import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.data.db.entity.UserEntity
 
 /**
@@ -25,6 +39,14 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
 @Database(
     entities = [
         UserEntity::class,
+        GroupEntity::class,
+        MemberEntity::class,
+        ExpenseEntity::class,
+        ShareEntity::class,
+        SettlementEntity::class,
+        SettlementAllocationEntity::class,
+        FxRateEntity::class,
+        FxBakedEntity::class,
     ],
     version = 1,
     exportSchema = true,
@@ -32,6 +54,12 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
 @ConstructedBy(ShareCostDatabaseConstructor::class)
 abstract class ShareCostDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
+    abstract fun groupDao(): GroupDao
+    abstract fun memberDao(): MemberDao
+    abstract fun expenseDao(): ExpenseDao
+    abstract fun shareDao(): ShareDao
+    abstract fun settlementDao(): SettlementDao
+    abstract fun fxRateDao(): FxRateDao
 }
 
 /**
