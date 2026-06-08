@@ -6,9 +6,24 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
+}
+
+// Room (KMP) — the compiler reads @Entity/@Dao in commonMain and generates one
+// implementation per target. schemaDirectory() makes Room export a JSON schema per
+// version so migrations can be diffed/tested in CI (Room fails the build without it).
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 kotlin {
+    // Room KMP generates an `actual object` for @ConstructedBy; expect/actual classes are still
+    // marked Beta, so opt in explicitly to keep the build warning-free.
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     listOf(
         iosArm64(),
         iosSimulatorArm64()
@@ -104,6 +119,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
@@ -113,4 +129,10 @@ kotlin {
 
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
+
+    // Room is a KSP processor; it must be added to EACH target's ksp configuration
+    // separately (commonMain has no ksp config — the codegen runs per platform).
+    add("kspAndroid", libs.room.compiler)
+    add("kspIosArm64", libs.room.compiler)
+    add("kspIosSimulatorArm64", libs.room.compiler)
 }
