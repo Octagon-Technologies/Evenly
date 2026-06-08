@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.Dispatchers
 import da.chelimo.sharecost.data.db.dao.ExpenseDao
 import da.chelimo.sharecost.data.db.dao.FxRateDao
 import da.chelimo.sharecost.data.db.dao.GroupDao
@@ -80,6 +81,10 @@ expect object ShareCostDatabaseConstructor : RoomDatabaseConstructor<ShareCostDa
 fun getRoomDatabase(builder: RoomDatabase.Builder<ShareCostDatabase>): ShareCostDatabase =
     builder
         .setDriver(BundledSQLiteDriver())
+        // Run suspend queries off the caller's thread so a DB read never blocks the UI. We use
+        // Dispatchers.Default because Dispatchers.IO isn't declared in commonMain; a platform
+        // builder may override this with IO for genuinely blocking file I/O.
+        .setQueryCoroutineContext(Dispatchers.Default)
         .build()
 
 /** Local DB file name, shared by the Android and iOS builders. */

@@ -27,9 +27,9 @@ This is where the business rules live. All testable without any platform.
 |---|---|---|---|---|
 | D-1 | ✅ | Itemized split (tax + tip modes) | 03 §1.4, AC-M2-016/017/018 | `domain/expense/ItemizedAllocator.kt` |
 | D-2 | ✅ | Bilateral balances (never simplified) | 03 §2.2, AC-M2-040/041/042 | `domain/balance/BilateralBalance.kt` |
-| D-3 | ⬜ | Admin transfer rule | 03 §7.5, AC-M1-015/016 | `domain/group/AdminTransfer.kt` |
-| D-4 | ⬜ | Apply settlement (same-currency) | 03 §4.1/4.3.1, AC-M3-003/004/005 | `domain/settlement/ApplySettlement.kt` |
-| D-5 | ⬜ | Payment-app deep link builder | 03 §5.1/5.2, AC-M3-030/031 | `domain/settlement/DeepLinkBuilder.kt` |
+| D-3 | ✅ | Admin transfer rule | 03 §7.5, AC-M1-015/016 | `domain/group/AdminTransfer.kt` |
+| D-4 | ✅ | Apply settlement (same-currency) | 03 §4.1/4.3.1, AC-M3-003/004/005 | `domain/settlement/Settlement.kt` |
+| D-5 | ✅ | Payment-app deep link builder | 03 §5.1/5.2, AC-M3-030/031 | `domain/settlement/DeepLinkBuilder.kt` |
 
 ---
 
@@ -39,11 +39,16 @@ Each cycle = one entity group + its DAO + an in-memory Room test.
 
 | # | Status | What | Spec | Key files |
 |---|---|---|---|---|
-| R-1 | ⬜ | User entity + DAO | 02 §3.2, AC-M1-020/021 | `data/db/UserEntity.kt`, `UserDao.kt` |
-| R-2 | ⬜ | Group + Member entities + DAOs | 02 §3.4/3.5 | `data/db/GroupEntity.kt`, `MemberEntity.kt` |
-| R-3 | ⬜ | Expense + Share entities + DAOs | 02 §3.7/3.8 | `data/db/ExpenseEntity.kt`, `ShareEntity.kt` |
-| R-4 | ⬜ | Settlement + Allocation entities + DAOs | 02 §3.11/3.12 | `data/db/SettlementEntity.kt` |
-| R-5 | ⬜ | FX rate entity + DAO (baked snapshot) | 02 §3.18, 03 §6.1/6.2 | `data/db/FxRateEntity.kt` |
+| R-1 | ✅ | User entity + DAO (+ Room/KSP wiring, DB scaffold) | 02 §3.2, AC-M1-020/021 | `data/db/entity/UserEntity.kt`, `dao/UserDao.kt`, `ShareCostDatabase.kt` |
+| R-2 | ✅ | Group + Member entities + DAOs | 02 §3.4/3.5 | `data/db/entity/GroupEntity.kt`, `MemberEntity.kt` |
+| R-3 | ✅ | Expense + Share entities + DAOs (+ status recompute) | 02 §3.7/3.8, §6/§7.5 | `data/db/entity/ExpenseEntity.kt`, `ShareEntity.kt`, `ExpenseStatus.kt` |
+| R-4 | ✅ | Settlement + Allocation entities + DAOs | 02 §3.9 | `data/db/entity/SettlementEntity.kt`, `SettlementAllocationEntity.kt` |
+| R-5 | ✅ | FX rate entity + DAO (baked snapshot) | 02 §3.14, §7, 03 §6.1/6.2 | `data/db/entity/FxRateEntity.kt`, `FxBakedEntity.kt` |
+
+> **Deferred to later cycles (not blocking MVP data layer):** `categories`/`subcategories` (§3.6),
+> `payment_app_handles` (§3.3, needed before U-7 settle), `receipts`/`comments`/`history_events`,
+> and the Room-only sync tables `pending_mutations` + `sync_state` (§7) which land with S-1.
+> DB tests run on the iOS simulator (Android *unit* tests have no `Context` for Room).
 
 ---
 
