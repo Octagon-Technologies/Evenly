@@ -18,23 +18,34 @@ import kotlin.uuid.Uuid
  *  bits  61..0  : rand_b (62 bits)
  * ```
  * `Uuid.toString()` yields the canonical 36-char form a Postgres `uuid` column requires.
- * Intra-millisecond monotonicity is guaranteed via a 12-bit counter in rand_a (RFC 9562 Method 2).
+ * Intra-millisecond monotonicity is guaranteed via a 12-bit counter in rand_a
+ * (RFC 9562 Method 1: a fixed-length dedicated counter seeded to 0 each new ms).
+ * If the counter saturates within a single ms, the logical timestamp is advanced so
+ * output stays strictly increasing; 62 bits of rand_b still guarantee uniqueness.
  */
 private var lastMs = -1L
 private var seqCounter = 0L
 
 @OptIn(ExperimentalUuidApi::class, ExperimentalTime::class)
 fun uuidV7(): Uuid {
-    val unixMs = Clock.System.now().toEpochMilliseconds() and 0xFFFF_FFFF_FFFFL
-    val randA = if (unixMs > lastMs) {
-        lastMs = unixMs
-        seqCounter = Random.nextLong() and 0x0FFFL
-        seqCounter
+    val now = Clock.System.now().toEpochMilliseconds() and 0xFFFF_FFFF_FFFFL
+    val ts: Long
+    val randA: Long
+    if (now > lastMs) {
+        lastMs = now
+        seqCounter = 0L
     } else {
-        seqCounter = (seqCounter + 1) and 0x0FFFL
-        seqCounter
+        // Same ms (or a backwards clock): keep advancing the counter monotonically.
+        seqCounter += 1L
+        if (seqCounter > 0x0FFFL) {
+            // 12-bit counter exhausted — roll into the next logical ms, reset counter.
+            lastMs += 1L
+            seqCounter = 0L
+        }
     }
-    val msb = (unixMs shl 16) or (0x7L shl 12) or randA
+    ts = lastMs
+    randA = seqCounter
+    val msb = (ts shl 16) or (0x7L shl 12) or randA
     val randB = Random.nextLong() and 0x3FFF_FFFF_FFFF_FFFFL
     val lsb = randB or (0x2L shl 62)
     return Uuid.fromLongs(msb, lsb)
