@@ -77,16 +77,36 @@ Each cycle = one repository. These bring in Supabase for the first time.
 ---
 
 ## Layer 5 — platform/ (expect/actual)
-This is your Android learning zone. Write the androidMain actual yourself.
-Each cycle = one expect declaration + both actuals (Android + iOS stub).
+The Android/iOS boundary. Each cycle = one `expect` declaration + both actuals (Android + iOS).
 
-| # | Status | What | Android API you'll learn | Spec |
-|---|---|---|---|---|
-| E-1 | ⬜ | SecureStorage | EncryptedSharedPreferences, the keystore model | 06 §5.2 |
-| E-2 | ⬜ | ConnectivityObserver | ConnectivityManager.NetworkCallback → Flow | 06 §5.6 |
-| E-3 | ⬜ | UrlOpener | Intent(ACTION_VIEW), ActivityNotFoundException | 06 §5.5 |
-| E-4 | ⬜ | PushService | FCM, POST_NOTIFICATIONS runtime permission | 06 §5.4 |
-| E-5 | ⬜ | FilePicker | ActivityResultContracts.OpenDocument | 06 §5.1 |
+| # | Status | What | Android API | Spec | Key files |
+|---|---|---|---|---|---|
+| E-1 | ✅ | SecureStorage | AndroidKeyStore AES/GCM + SharedPreferences (no security-crypto) | 06 §5.2 | `platform/SecureStorage.kt` (+ `.android`/`.ios`) |
+| E-2 | ✅ | ConnectivityObserver | ConnectivityManager.NetworkCallback → Flow | 06 §5.7 | `platform/ConnectivityObserver.kt` |
+| E-3 | ✅ | UrlOpener | Intent(ACTION_VIEW), ActivityNotFoundException | 06 §5.6 | `platform/UrlOpener.kt` |
+| E-4 | ✅ | PushService | Firebase Messaging, POST_NOTIFICATIONS | 06 §5.4 | `platform/PushService.kt` (+ `PushBus`) |
+| E-5 | ✅ | FilePicker | ActivityResultContracts.OpenDocument | 06 §5.1 | `platform/FilePicker.kt` |
+
+> **Scope as built.** All five `expect` surfaces live in `commonMain/.../platform/` with **both** actuals.
+> **E-1** rolls the deprecated-`EncryptedSharedPreferences` wrapper by hand: an `AndroidKeyStore` AES-256-GCM
+> key encrypts to a private `SharedPreferences` (Android); a `kSecClassGenericPassword` Keychain item,
+> `AfterFirstUnlockThisDeviceOnly` (iOS). iOS Keychain failures **degrade, not crash** (token read failure ⇒
+> re-auth). **E-2** seeds current status then emits on change (`VALIDATED` capability / `NWPathMonitor`
+> `satisfied`). **E-4** is FCM both sides: Android reads the token off the SDK; iOS reads a token bridged
+> from the Swift `MessagingDelegate` ([IosPushTokenHolder]); both re-expose a shared `PushBus` that the
+> host notification entry points feed. **E-5** uses the foreground-Activity tracker (`installActivityTracking`,
+> wired in `ShareCostApplication`) on Android and `UIDocumentPickerViewController` on iOS. DI: all five are
+> bound in `platformModule()` per platform. Manifest gains `INTERNET` / `ACCESS_NETWORK_STATE` /
+> `POST_NOTIFICATIONS`. **Verified:** both targets compile (`compileAndroidMain`, iOS sim) + `:androidApp:assembleDebug`;
+> the iOS Keychain actual has a 7-test round-trip suite (`iosSimulatorArm64Test`, 115 total green) gated on a
+> functional probe since a bare simulator test binary has no Keychain entitlement.
+>
+> **Deferred (host wiring, lands with the screens/push feature that needs it):** the Android
+> `FirebaseMessagingService` + iOS `AppDelegate` plumbing that *feeds* `PushBus`; `Info.plist`
+> `LSApplicationQueriesSchemes` for `venmo://`/`cashapp://` (U-7); the richer `PHPickerViewController` image
+> path (the document picker already reaches Photos). **Not in this layer:** `WebAuthSession` (§5.5),
+> `ImageProcessor` (§5.9), `Analytics`/`CrashReporter` (§5.10), `BackgroundScheduler` (§5.12) — they arrive
+> with the auth, receipt, and sync cycles that use them.
 
 ---
 
