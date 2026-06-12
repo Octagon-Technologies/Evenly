@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
 import da.chelimo.sharecost.data.db.entity.MemberEntity
+import da.chelimo.sharecost.data.db.projection.MemberWithUserRow
 import kotlinx.coroutines.flow.Flow
 
 /** DAO for `members` (02 §3.5). */
@@ -43,4 +44,25 @@ interface MemberDao {
         """
     )
     suspend fun activeMembersByTenure(groupId: String): List<MemberEntity>
+
+    /**
+     * Active roster joined to each member's user for display (oldest-join first). LEFT JOIN so a
+     * member whose `users` row has not synced yet still appears (null display name) — out-of-order
+     * sync is expected (02 §7).
+     */
+    @Query(
+        """
+        SELECT m.user_id, u.display_name, COALESCE(u.is_placeholder, 0) AS is_placeholder,
+               m.is_admin, m.joined_at
+        FROM members m
+        LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.group_id = :groupId AND m.status = 'ACTIVE'
+        ORDER BY m.joined_at ASC, m.id ASC
+        """
+    )
+    fun observeActiveMembersWithUser(groupId: String): Flow<List<MemberWithUserRow>>
+
+    /** Archive/unarchive a member's view of a group (04 §2.3 `set_archive`). */
+    @Query("UPDATE members SET archived_at = :archivedAt, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId")
+    suspend fun setArchived(groupId: String, userId: String, archivedAt: Long?, ts: Long)
 }

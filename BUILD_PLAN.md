@@ -58,10 +58,21 @@ Each cycle = one repository. These bring in Supabase for the first time.
 
 | # | Status | What | Spec | Key files |
 |---|---|---|---|---|
-| P-1 | ⬜ | GroupRepository impl | 06 §3.1, 04 §2 | `data/repository/GroupRepositoryImpl.kt` |
-| P-2 | ⬜ | ExpenseRepository impl | 06 §3.1, 04 §2 | `data/repository/ExpenseRepositoryImpl.kt` |
-| P-3 | ⬜ | SettlementRepository impl | 06 §3.1 | `data/repository/SettlementRepositoryImpl.kt` |
-| P-4 | ⬜ | FxRepository impl (Frankfurter fetch + Room cache) | 03 §6.1/6.2, 04 §5 | `data/repository/FxRepositoryImpl.kt` |
+| P-1 | ✅ | GroupRepository impl | 06 §3.1, 04 §2 | `data/repository/GroupRepositoryImpl.kt` |
+| P-2 | ✅ | ExpenseRepository impl | 06 §3.1, 04 §2 | `data/repository/ExpenseRepositoryImpl.kt` |
+| P-3 | ✅ | SettlementRepository impl | 06 §3.1 | `data/repository/SettlementRepositoryImpl.kt` |
+| P-4 | ✅ | FxRepository impl (Frankfurter fetch + Room cache) | 03 §6.1/6.2, 04 §5 | `data/repository/FxRepositoryImpl.kt` |
+
+> **Scope of this layer as built (local-first; Supabase push deferred to S-1).** Repository
+> *interfaces* live in `domain/repository/` (read = `Flow` off Room, write = `suspend → AppResult`,
+> per 06 §3.1); impls in `data/repository/` are **local-first**: reads stream from Room, writes land
+> in Room immediately (04 §6.2 steps 1–4) with a UUIDv7 id + stamped timestamps. The architecture
+> (04 §6.1) puts Supabase RPC calls in the **sync worker**, not the repos — so enqueue + RPC + remote
+> reconcile (steps 5–7) land with **S-1** alongside `pending_mutations`/`sync_state`. The one real
+> network call in this layer is **FxRepository → Frankfurter** (04 §5; public, no auth), injected
+> behind `FxRateFetcher` so it is testable without the wire. All four repos are verified by
+> `iosSimulatorArm64Test` (28 new tests, in-memory Room + fakes). `join_group_by_token` resolves the
+> local cache only for now (server join is S-1).
 
 ---
 

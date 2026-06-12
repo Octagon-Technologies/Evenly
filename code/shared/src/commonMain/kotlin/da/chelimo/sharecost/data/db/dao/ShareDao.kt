@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
 import da.chelimo.sharecost.data.db.entity.ShareEntity
+import da.chelimo.sharecost.data.db.projection.OutstandingShareForPair
 import da.chelimo.sharecost.data.db.projection.OutstandingShareRow
 import kotlinx.coroutines.flow.Flow
 
@@ -47,4 +48,32 @@ interface ShareDao {
         """
     )
     fun observeOutstandingShares(groupId: String): Flow<List<OutstandingShareRow>>
+
+    /**
+     * Outstanding shares that [fromUserId] (the participant who owes) still owes [toUserId] (the
+     * expense payer), oldest expense first — the exact input the settlement allocator walks
+     * (03 §4.2/§4.3.1). Excludes settled shares and soft-deleted expenses.
+     */
+    @Query(
+        """
+        SELECT s.id, s.expense_id, e.currency, s.remaining_subunits, e.expense_date
+        FROM shares s
+        INNER JOIN expenses e ON e.id = s.expense_id
+        WHERE e.group_id = :groupId
+          AND e.deleted_at IS NULL
+          AND e.payer_user_id = :toUserId
+          AND s.user_id = :fromUserId
+          AND s.remaining_subunits > 0
+        ORDER BY e.expense_date ASC, s.expense_id ASC, s.id ASC
+        """
+    )
+    suspend fun outstandingForPair(
+        groupId: String,
+        fromUserId: String,
+        toUserId: String,
+    ): List<OutstandingShareForPair>
+
+    /** Distinct parent expenses of the given shares — the set to re-status when voiding a settlement. */
+    @Query("SELECT DISTINCT expense_id FROM shares WHERE id IN (:shareIds)")
+    suspend fun expenseIdsForShares(shareIds: List<String>): List<String>
 }

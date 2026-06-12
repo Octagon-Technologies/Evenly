@@ -4,19 +4,22 @@ import org.koin.core.context.startKoin
 import org.koin.dsl.KoinAppDeclaration
 import org.koin.dsl.module
 
-/** Koin modules (06 §3). Populated as repositories / use cases / view models land. */
+/** App-wide singletons (06 §3). Use-case / view-model wiring lands here as later layers arrive. */
 val appModule = module {
-    // intentionally empty for the skeleton
+    // intentionally empty for now — the data layer is wired in [dataModule] + [platformModule].
 }
 
 private var koinStarted = false
 
-/** Idempotent Koin start — safe to call from each platform entry point (Android + iOS). */
+/**
+ * Idempotent Koin start — safe to call from each platform entry point. Android starts via
+ * [initKoinAndroid] (which binds the `Context`); iOS calls this directly.
+ */
 fun initKoin(appDeclaration: KoinAppDeclaration = {}) {
     if (koinStarted) return
     koinStarted = true
     startKoin {
         appDeclaration()
-        modules(appModule)
+        modules(appModule, dataModule, platformModule())
     }
 }

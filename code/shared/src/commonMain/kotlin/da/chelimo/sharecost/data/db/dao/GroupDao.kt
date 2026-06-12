@@ -2,11 +2,13 @@ package da.chelimo.sharecost.data.db.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import da.chelimo.sharecost.data.db.entity.GroupEntity
+import da.chelimo.sharecost.data.db.entity.MemberEntity
 import kotlinx.coroutines.flow.Flow
 
-/** DAO for `groups` (02 §3.4). */
+/** DAO for `groups` (02 §3.4). Also owns a few cross-table writes that must be atomic with a group. */
 @Dao
 interface GroupDao {
 
@@ -42,4 +44,56 @@ interface GroupDao {
         """
     )
     fun observeGroupsForUser(userId: String): Flow<List<GroupEntity>>
+
+    // --- Writes ---------------------------------------------------------------------------------
+
+    /** Member upsert declared here so [createGroupWithAdmin] can write group + member atomically. */
+    @Upsert
+    suspend fun upsertMember(member: MemberEntity)
+
+    @Query("UPDATE groups SET name = :name, updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
+    suspend fun updateName(id: String, name: String, ts: Long)
+
+    /** Reassign (or clear, when abandoned) a group's admin. */
+    @Query("UPDATE groups SET admin_user_id = :adminUserId, updated_at = :ts, row_version = row_version + 1 WHERE id = :groupId")
+    suspend fun setGroupAdmin(groupId: String, adminUserId: String?, ts: Long)
+
+    /** Soft-leave: mark a membership LEFT and drop any admin flag it held. */
+    @Query("UPDATE members SET status = 'LEFT', left_at = :ts, is_admin = 0, updated_at = :ts, row_version = row_version + 1 WHERE id = :memberId")
+    suspend fun markMemberLeft(memberId: String, ts: Long)
+
+    /** Promote a member to admin (the inheritor when an admin leaves, 03 §7.5). */
+    @Query("UPDATE members SET is_admin = 1, updated_at = :ts, row_version = row_version + 1 WHERE id = :memberId")
+    suspend fun promoteMember(memberId: String, ts: Long)
+
+    // --- Transactions ---------------------------------------------------------------------------
+
+    /** Create a group and its creator membership (active admin) in one transaction. */
+    @Transaction
+    suspend fun createGroupWithAdmin(group: GroupEntity, admin: MemberEntity) {
+        upsert(group)
+        upsertMember(admin)
+    }
+
+    /**
+     * Apply a member leaving (03 §7.5): mark them LEFT, and — only when the leaver was the admin
+     * ([reassignAdmin]) — hand admin to the next member ([newAdminUserId]/[newAdminMemberId]) or
+     * abandon the group (both null → admin_user_id = NULL, AC-INV-005). A non-admin leaving never
+     * rewrites the group row. The caller picks the inheritor via `determineNextAdmin`.
+     */
+    @Transaction
+    suspend fun applyLeave(
+        leaverMemberId: String,
+        groupId: String,
+        reassignAdmin: Boolean,
+        newAdminUserId: String?,
+        newAdminMemberId: String?,
+        ts: Long,
+    ) {
+        markMemberLeft(leaverMemberId, ts)
+        if (reassignAdmin) {
+            setGroupAdmin(groupId, newAdminUserId, ts)
+            if (newAdminMemberId != null) promoteMember(newAdminMemberId, ts)
+        }
+    }
 }

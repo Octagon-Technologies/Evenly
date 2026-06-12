@@ -1,0 +1,84 @@
+package da.chelimo.sharecost.domain.expense
+
+import da.chelimo.sharecost.core.id.ExpenseId
+import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.core.id.UserId
+
+/**
+ * Domain view of an expense (02 §3.7). [amountSubunits] is always positive (a refund's meaning is
+ * carried by `kind` + participants, not a sign). [expenseDate] is the local calendar date as an
+ * ISO-8601 string ("YYYY-MM-DD"). [status] is the denormalized value owned by
+ * [da.chelimo.sharecost.data.db.computeExpenseStatus].
+ */
+data class Expense(
+    val id: ExpenseId,
+    val groupId: GroupId,
+    val title: String,
+    val amountSubunits: Long,
+    val currency: String,
+    val expenseDate: String,
+    val payerUserId: UserId?,
+    val payerOutsideName: String?,
+    val splitMode: String,
+    val status: String,
+    val notes: String?,
+    val createdBy: UserId,
+    val createdAt: Long,
+    val rowVersion: Long,
+)
+
+/** One participant's portion of an expense (02 §3.8). [remainingSubunits] is what is still unpaid. */
+data class ExpenseShare(
+    val id: String,
+    val userId: UserId,
+    val owedSubunits: Long,
+    val remainingSubunits: Long,
+)
+
+/** An expense with its participant shares — the detail view (05 §4). */
+data class ExpenseWithShares(
+    val expense: Expense,
+    val shares: List<ExpenseShare>,
+)
+
+/**
+ * One participant's owed amount for a new/edited expense. The caller (a use case / the split editor)
+ * has already run the allocator (03 §1.2); the repository only persists the result and enforces the
+ * sum invariant (AC-INV-001).
+ */
+data class NewShare(
+    val userId: UserId,
+    val owedSubunits: Long,
+)
+
+/** Input to add an expense in one transaction (04 §2.3 `add_expense`). */
+data class NewExpense(
+    val groupId: GroupId,
+    val title: String,
+    val amountSubunits: Long,
+    val currency: String,
+    val expenseDate: String,
+    val payerUserId: UserId?,
+    val splitMode: String,
+    val createdBy: UserId,
+    val shares: List<NewShare>,
+    val payerOutsideName: String? = null,
+    val notes: String? = null,
+)
+
+/**
+ * Input to edit an expense (04 §2.3 `edit_expense`). Replaces the editable fields and the full share
+ * set. MVP assumes the expense carries no prior settlement allocations when edited; reconciling an
+ * edit against existing settlements is a server/sync concern (S-1).
+ */
+data class EditExpense(
+    val title: String,
+    val amountSubunits: Long,
+    val currency: String,
+    val expenseDate: String,
+    val payerUserId: UserId?,
+    val splitMode: String,
+    val shares: List<NewShare>,
+    val payerOutsideName: String? = null,
+    val notes: String? = null,
+)
