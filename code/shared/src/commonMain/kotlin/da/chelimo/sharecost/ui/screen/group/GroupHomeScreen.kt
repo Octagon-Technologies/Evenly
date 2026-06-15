@@ -27,6 +27,10 @@ fun GroupHomeScreen(
     groupId: String = "1",
     initialTab: GroupTab = GroupTab.Expenses,
     conflictCount: Int = 2,
+    groupName: String = "Tulum Trip",
+    groupEmoji: String = "🏝️",
+    expensesState: ExpensesState = ExpensesState.Populated,
+    expenseDays: List<ExpenseDayUi> = GroupSamples.days,
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
     onSearch: () -> Unit = {},
@@ -43,6 +47,7 @@ fun GroupHomeScreen(
         Box(Modifier.weight(1f)) {
             when (tab) {
                 GroupTab.Expenses -> GroupExpensesTab(
+                    groupEmoji = groupEmoji, groupName = groupName, state = expensesState, days = expenseDays, drafts = 0,
                     onOpenGroup = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense,
                     onSearch = onSearch, onFilter = onFilter,
                 )

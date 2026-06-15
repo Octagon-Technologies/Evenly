@@ -53,3 +53,16 @@ fun formatAmount(value: Double): String {
 
 /** `$1,234.56` — currency symbol prefix + [formatAmount]. */
 fun money(value: Double, currency: String = "$"): String = currency + formatAmount(value)
+
+/** Symbol for an ISO currency code (the common ones); falls back to the bare code. */
+fun currencySymbol(code: String): String = when (code.uppercase()) {
+    "USD", "CAD", "AUD", "MXN", "NZD", "SGD", "HKD" -> "$"
+    "EUR" -> "€"
+    "GBP" -> "£"
+    "JPY", "CNY" -> "¥"
+    "INR" -> "₹"
+    else -> "$code "
+}
+
+/** Format an amount stored in minor units (e.g. cents) for a currency code. */
+fun moneySubunits(subunits: Long, currency: String): String = currencySymbol(currency) + formatAmount(subunits / 100.0)

@@ -82,7 +82,7 @@ fun ShareCostNavHost(
         // ── Group ───────────────────────────────────────────────────────
         composable<Route.GroupHome> { entry ->
             val r = entry.toRoute<Route.GroupHome>()
-            GroupHomeScreen(
+            GroupHomeRoute(
                 groupId = r.groupId,
                 initialTab = r.tab,
                 onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
@@ -90,8 +90,9 @@ fun ShareCostNavHost(
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
                 onFilter = { navController.navigate(Route.Filter(r.groupId)) },
                 onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
-                onSettle = { d -> navController.navigate(Route.SettlePerson(r.groupId, d.to)) },
-                onInclude = { navController.navigate(Route.IncludeMember(r.groupId, "e1", "tyler")) },
+                onSettleNav = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
+                onIncludeNav = { navController.navigate(Route.IncludeMember(r.groupId, "e1", "tyler")) },
+                onExport = {},
             )
         }
         composable<Route.Filter> {
@@ -105,13 +106,16 @@ fun ShareCostNavHost(
         // ── Expense ─────────────────────────────────────────────────────
         composable<Route.ExpenseDetail> { entry ->
             val r = entry.toRoute<Route.ExpenseDetail>()
-            ExpenseDetailScreen(
+            ExpenseDetailRoute(
+                groupId = r.groupId,
+                expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onSettleThis = { navController.navigate(Route.SettleExpense(r.groupId, r.expenseId)) },
             )
         }
-        composable<Route.AddExpense> {
-            AddExpenseScreen(onBack = { navController.popBackStack() }, onSave = { navController.popBackStack() })
+        composable<Route.AddExpense> { entry ->
+            val r = entry.toRoute<Route.AddExpense>()
+            AddExpenseRoute(groupId = r.groupId, onBack = { navController.popBackStack() }, onSaved = { navController.popBackStack() })
         }
 
         // ── Settle ──────────────────────────────────────────────────────

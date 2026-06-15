@@ -54,6 +54,7 @@ data class ExpenseItemUi(
     val original: Double,
     val settled: Boolean = false,
     val unread: Boolean = false,
+    val currencySymbol: String = "$",
 )
 
 data class ExpenseDayUi(val label: String, val items: List<ExpenseItemUi>)
@@ -143,8 +144,8 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
         title = it.title,
         sub = it.sub,
         icon = it.icon,
-        remaining = money(it.remaining),
-        original = money(it.original),
+        remaining = money(it.remaining, it.currencySymbol),
+        original = money(it.original, it.currencySymbol),
         settled = it.settled,
         unread = it.unread,
         onClick = { onOpen(it.id) },

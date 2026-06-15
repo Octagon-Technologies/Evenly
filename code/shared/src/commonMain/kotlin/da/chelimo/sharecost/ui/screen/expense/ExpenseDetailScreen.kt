@@ -50,7 +50,7 @@ import da.chelimo.sharecost.ui.components.ScProgress
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScSkeleton
 import da.chelimo.sharecost.ui.components.ScSkeletonRow
-import da.chelimo.sharecost.ui.components.money
+import da.chelimo.sharecost.ui.components.moneySubunits
 import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
@@ -58,29 +58,40 @@ import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
 enum class ExpenseDetailState { Loading, Content, Error }
 
-private data class ShareRowUi(val name: String, val remaining: Double, val paid: Double, val of: Double, val me: Boolean = false, val payer: Boolean = false)
+data class DetailShareUi(
+    val name: String,
+    val owedSubunits: Long,
+    val paidSubunits: Long,
+    val remainingSubunits: Long,
+    val me: Boolean = false,
+    val payer: Boolean = false,
+)
 
 /** 12 · Expense detail (design/src/screens-expense.jsx). */
 @Composable
 fun ExpenseDetailScreen(
     state: ExpenseDetailState = ExpenseDetailState.Content,
+    title: String = "Dinner at La Negra",
+    category: String = "Food & Drink",
+    payerName: String = "Andrew",
+    dateLabel: String = "May 23 · 8:40 PM",
+    amountSubunits: Long = 9600,
+    remainingSubunits: Long = 4800,
+    currencyCode: String = "USD",
+    splitLabel: String = "Split between 4 · even",
+    splitRows: List<DetailShareUi> = DemoSplit,
     onBack: () -> Unit = {},
     onSettleThis: () -> Unit = {},
     onReload: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var overflow by remember { mutableStateOf(false) }
-    val split = listOf(
-        ShareRowUi("You", 24.0, 0.0, 24.0, me = true),
-        ShareRowUi("Andrew", 0.0, 24.0, 24.0, payer = true),
-        ShareRowUi("Bob", 24.0, 0.0, 24.0),
-        ShareRowUi("Maya", 8.0, 16.0, 24.0),
-    )
+    val split = splitRows
 
     Column(Modifier.fillMaxSize().background(if (state == ExpenseDetailState.Content) c.surface else c.page).systemBarsPadding()) {
         ScTopBarDetail(
-            title = if (state == ExpenseDetailState.Error) "" else "Dinner at La Negra",
-            sub = if (state == ExpenseDetailState.Content) "Food & Drink" else null,
+            title = if (state == ExpenseDetailState.Error) "" else title,
+            sub = if (state == ExpenseDetailState.Content) category.ifBlank { null } else null,
             onBack = onBack,
             onMore = if (state == ExpenseDetailState.Content) ({ overflow = true }) else null,
         )
@@ -96,19 +107,23 @@ fun ExpenseDetailScreen(
                 ScCard(padded = true) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
-                            Text("\$96.00", style = ShareCostTheme.amounts.original.copy(fontSize = 14.sp), color = c.ink3)
-                            Text("\$48.00", style = ShareCostTheme.amounts.hero, color = c.ink)
+                            if (remainingSubunits != amountSubunits) {
+                                Text(moneySubunits(amountSubunits, currencyCode), style = ShareCostTheme.amounts.original.copy(fontSize = 14.sp), color = c.ink3)
+                            }
+                            Text(moneySubunits(remainingSubunits, currencyCode), style = ShareCostTheme.amounts.hero, color = c.ink)
                             Text("remaining of original", color = c.ink2, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                         }
-                        ScChip("Food", variant = ChipVariant.Blue, leadingIcon = ScIcons.Food, large = true)
+                        if (category.isNotBlank()) {
+                            ScChip(category.substringBefore(" "), variant = ChipVariant.Blue, leadingIcon = ScIcons.Food, large = true)
+                        }
                     }
                     ScDivider(Modifier.padding(vertical = 14.dp))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ScAvatar("Andrew", size = AvatarSize.Sm)
-                            Text(buildAnnotatedString { withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("Andrew") }; append(" paid") }, color = c.ink, fontSize = 14.sp)
+                            ScAvatar(payerName, me = payerName == "You", size = AvatarSize.Sm)
+                            Text(buildAnnotatedString { withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(payerName) }; append(" paid") }, color = c.ink, fontSize = 14.sp)
                         }
-                        Text("May 23 · 8:40 PM", color = c.ink2, fontSize = 12.sp)
+                        Text(dateLabel, color = c.ink2, fontSize = 12.sp)
                     }
                 }
 
@@ -130,7 +145,7 @@ fun ExpenseDetailScreen(
 
                 // split breakdown
                 Column {
-                    ScSectionLabel("Split between 4 · even")
+                    ScSectionLabel(splitLabel)
                     ScCard {
                         split.forEachIndexed { i, s ->
                             Row(
@@ -149,13 +164,13 @@ fun ExpenseDetailScreen(
                                         color = c.ink, fontSize = 15.sp,
                                     )
                                     Row(Modifier.padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Box(Modifier.width(100.dp)) { ScProgress(if (s.of > 0) (s.paid / s.of).toFloat() else 0f) }
-                                        Text("Paid ${money(s.paid)} of ${money(s.of)}", color = c.ink3, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily)
+                                        Box(Modifier.width(100.dp)) { ScProgress(if (s.owedSubunits > 0) s.paidSubunits.toFloat() / s.owedSubunits else 0f) }
+                                        Text("Paid ${moneySubunits(s.paidSubunits, currencyCode)} of ${moneySubunits(s.owedSubunits, currencyCode)}", color = c.ink3, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily)
                                     }
                                 }
                                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(money(s.remaining), color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
-                                    if (s.me && s.remaining > 0) ScButton("Settle this", onSettleThis, small = true)
+                                    Text(moneySubunits(s.remainingSubunits, currencyCode), color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
+                                    if (s.me && s.remainingSubunits > 0) ScButton("Settle this", onSettleThis, small = true)
                                 }
                             }
                         }
@@ -268,6 +283,13 @@ private fun ErrorContent(onReload: () -> Unit) {
         }
     }
 }
+
+private val DemoSplit = listOf(
+    DetailShareUi("You", owedSubunits = 2400, paidSubunits = 0, remainingSubunits = 2400, me = true),
+    DetailShareUi("Andrew", owedSubunits = 2400, paidSubunits = 2400, remainingSubunits = 0, payer = true),
+    DetailShareUi("Bob", owedSubunits = 2400, paidSubunits = 0, remainingSubunits = 2400),
+    DetailShareUi("Maya", owedSubunits = 2400, paidSubunits = 1600, remainingSubunits = 800),
+)
 
 @Preview
 @Composable
