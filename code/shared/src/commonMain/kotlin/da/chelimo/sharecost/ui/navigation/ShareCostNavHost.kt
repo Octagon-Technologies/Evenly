@@ -47,27 +47,27 @@ fun ShareCostNavHost(
             })
         }
         composable<Route.MagicLink> {
-            MagicLinkScreen(
+            MagicLinkRoute(
                 onBack = { navController.popBackStack() },
-                onSend = { navController.navigate(Route.Home) { popUpTo(Route.SignIn) { inclusive = true } } },
+                onSent = { navController.navigate(Route.Home) { popUpTo(Route.SignIn) { inclusive = true } } },
             )
         }
         composable<Route.Onboarding> {
-            OnboardingScreen(onFinish = { navController.navigate(Route.Home) { popUpTo(Route.SignIn) { inclusive = true } } })
+            OnboardingRoute(onFinished = { navController.navigate(Route.Home) { popUpTo(Route.SignIn) { inclusive = true } } })
         }
 
         // ── Home ────────────────────────────────────────────────────────
         composable<Route.Home> {
-            HomeScreen(
+            HomeRoute(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
                 onNewGroup = { navController.navigate(Route.NewGroup) },
                 onOpenProfile = { navController.navigate(Route.Profile) },
             )
         }
         composable<Route.NewGroup> {
-            NewGroupSheet(
+            NewGroupRoute(
                 onDismiss = { navController.popBackStack() },
-                onCreate = { navController.navigate(Route.GroupHome("new")) { popUpTo(Route.Home) } },
+                onCreated = { id -> navController.navigate(Route.GroupHome(id)) { popUpTo(Route.Home) } },
             )
         }
         composable<Route.Archived> { ArchivedScreen(onBack = { navController.popBackStack() }) }
@@ -144,9 +144,9 @@ fun ShareCostNavHost(
         // ── Settings / reconcile ────────────────────────────────────────
         composable<Route.GroupSettings> { GroupSettingsScreen(onBack = { navController.popBackStack() }) }
         composable<Route.Profile> {
-            ProfileScreen(
+            ProfileRoute(
                 onBack = { navController.popBackStack() },
-                onSignOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
+                onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
             )
         }
         composable<Route.Reconcile> {

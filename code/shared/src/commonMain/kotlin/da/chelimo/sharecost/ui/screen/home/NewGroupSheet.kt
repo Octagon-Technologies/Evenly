@@ -37,7 +37,7 @@ import da.chelimo.sharecost.ui.theme.ShareCostTheme
 /** 5 · New group sheet (design/src/screens-home.jsx). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NewGroupSheet(onDismiss: () -> Unit = {}, onCreate: () -> Unit = {}) {
+fun NewGroupSheet(onDismiss: () -> Unit = {}, onCreate: (name: String, emoji: String) -> Unit = { _, _ -> }) {
     val c = ShareCostTheme.colors
     val emojis = listOf("💸", "🏝️", "🏠", "🍝", "✈️", "🎉", "⛷️", "🎂")
     var sel by remember { mutableStateOf("💸") }
@@ -66,7 +66,7 @@ fun NewGroupSheet(onDismiss: () -> Unit = {}, onCreate: () -> Unit = {}) {
                 ScField("Base currency") {
                     ScSelectField("USD — US Dollar", {}, leading = { ScIcon(ScIcons.Globe, size = 18.dp, tint = c.ink2) })
                 }
-                ScButton("Create group", onCreate, leadingIcon = ScIcons.Check)
+                ScButton("Create group", { onCreate(name, sel) }, leadingIcon = ScIcons.Check)
             }
         }
     }

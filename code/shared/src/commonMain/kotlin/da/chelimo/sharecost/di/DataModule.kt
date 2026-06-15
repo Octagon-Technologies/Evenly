@@ -22,6 +22,7 @@ import org.koin.dsl.module
  */
 val dataModule: Module = module {
     // DAOs
+    single { get<ShareCostDatabase>().userDao() }
     single { get<ShareCostDatabase>().groupDao() }
     single { get<ShareCostDatabase>().memberDao() }
     single { get<ShareCostDatabase>().expenseDao() }
