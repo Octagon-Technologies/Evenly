@@ -82,15 +82,16 @@ fun ShareCostNavHost(
         // ── Group ───────────────────────────────────────────────────────
         composable<Route.GroupHome> { entry ->
             val r = entry.toRoute<Route.GroupHome>()
-            GroupHomeRoute(
+            GroupHomeScreen(
                 groupId = r.groupId,
                 initialTab = r.tab,
+                conflictCount = 0,
                 onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
                 onFilter = { navController.navigate(Route.Filter(r.groupId)) },
                 onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
-                onSettleNav = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
+                onSettlePeer = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
                 onIncludeNav = { navController.navigate(Route.IncludeMember(r.groupId, "e1", "tyler")) },
                 onExport = {},
             )
@@ -129,11 +130,11 @@ fun ShareCostNavHost(
         }
         composable<Route.SettlePerson> { entry ->
             val r = entry.toRoute<Route.SettlePerson>()
-            SettlePersonScreen(
-                peer = r.peerUserId,
+            SettlePersonRoute(
+                groupId = r.groupId,
+                peerUserId = r.peerUserId,
                 onBack = { navController.popBackStack() },
-                onOpenApp = { navController.navigate(Route.SettleConfirm(r.groupId, r.peerUserId, money(56.5))) },
-                onMarkPaid = { navController.popBackStack() },
+                onSettled = { navController.popBackStack() },
             )
         }
         composable<Route.SettleConfirm> { entry ->
@@ -146,7 +147,9 @@ fun ShareCostNavHost(
         }
 
         // ── Settings / reconcile ────────────────────────────────────────
-        composable<Route.GroupSettings> { GroupSettingsScreen(onBack = { navController.popBackStack() }) }
+        composable<Route.GroupSettings> { entry ->
+            GroupSettingsRoute(groupId = entry.toRoute<Route.GroupSettings>().groupId, onBack = { navController.popBackStack() })
+        }
         composable<Route.Profile> {
             ProfileRoute(
                 onBack = { navController.popBackStack() },

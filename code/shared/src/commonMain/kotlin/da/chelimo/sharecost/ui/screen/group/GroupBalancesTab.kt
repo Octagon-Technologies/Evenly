@@ -34,7 +34,7 @@ import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-data class DebtUi(val from: String, val to: String, val amount: Double, val owedToYou: Boolean = false)
+data class DebtUi(val from: String, val to: String, val amount: Double, val owedToYou: Boolean = false, val peerUserId: String = "")
 data class CategorySpendUi(val icon: ImageVector, val label: String, val amount: Double, val fraction: Float)
 
 /** 9 · Group · Balances tab (design/src/screens-group.jsx). */

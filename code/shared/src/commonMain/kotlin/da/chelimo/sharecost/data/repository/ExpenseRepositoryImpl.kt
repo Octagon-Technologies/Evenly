@@ -6,10 +6,14 @@ import da.chelimo.sharecost.core.error.asErr
 import da.chelimo.sharecost.core.error.asOk
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.data.db.computeExpenseStatus
 import da.chelimo.sharecost.data.db.dao.ExpenseDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
+import da.chelimo.sharecost.domain.balance.Debt
+import da.chelimo.sharecost.domain.balance.Share as BalanceShare
+import da.chelimo.sharecost.domain.balance.buildBilateralBalances
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.domain.expense.EditExpense
@@ -46,6 +50,22 @@ class ExpenseRepositoryImpl(
             shareDao.observeByExpense(expenseId.value),
         ) { expense, shares ->
             expense?.let { ExpenseWithShares(it.toDomain(), shares.map { s -> s.toDomain() }) }
+        }
+
+    override fun observeBalances(groupId: GroupId): Flow<List<Debt>> =
+        shareDao.observeOutstandingShares(groupId.value).map { rows ->
+            buildBilateralBalances(
+                rows.mapNotNull { r ->
+                    val payer = r.payerUserId ?: return@mapNotNull null
+                    BalanceShare(
+                        expenseId = r.expenseId,
+                        currency = r.currency,
+                        payerUserId = UserId(payer),
+                        participantUserId = UserId(r.participantUserId),
+                        remainingSubunits = r.remainingSubunits,
+                    )
+                },
+            )
         }
 
     override suspend fun addExpense(input: NewExpense): AppResult<Expense> {

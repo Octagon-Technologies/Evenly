@@ -30,51 +30,6 @@ import org.koin.compose.koinInject
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
-/** Group home, wired: streams the group + its expenses into the Expenses tab. */
-@OptIn(ExperimentalTime::class)
-@Composable
-fun GroupHomeRoute(
-    groupId: String,
-    initialTab: GroupTab,
-    onAdd: () -> Unit,
-    onOpenExpense: (String) -> Unit,
-    onSearch: () -> Unit,
-    onFilter: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onSettleNav: (String) -> Unit,
-    onIncludeNav: () -> Unit,
-    onExport: () -> Unit,
-) {
-    val expenses = koinInject<ExpenseRepository>()
-    val groups = koinInject<GroupRepository>()
-    val auth = koinInject<AuthSession>()
-    val gid = remember(groupId) { GroupId(groupId) }
-    val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
-    val expenseList by remember(gid) { expenses.observeExpenses(gid) }.collectAsStateWithLifecycle(emptyList())
-    val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
-    val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    val today = remember { Clock.System.todayUtc() }
-
-    val ui = buildGroupExpenses(group, expenseList, members, userId, today)
-    GroupHomeScreen(
-        groupId = groupId,
-        initialTab = initialTab,
-        conflictCount = 0,
-        groupName = ui.groupName,
-        groupEmoji = ui.groupEmoji,
-        expensesState = ui.state,
-        expenseDays = ui.days,
-        onAdd = onAdd,
-        onOpenExpense = onOpenExpense,
-        onSearch = onSearch,
-        onFilter = onFilter,
-        onOpenSettings = onOpenSettings,
-        onSettle = { onSettleNav(it.to) },
-        onInclude = { onIncludeNav() },
-        onExport = onExport,
-    )
-}
-
 /** Add expense, wired: real members as participants; Save runs the allocator and persists (EVEN). */
 @OptIn(ExperimentalTime::class)
 @Composable
@@ -98,9 +53,10 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
         currencyCode = currency,
         saving = saving,
         onBack = onBack,
-        onSave = { amountSubunits, title, selectedIds ->
-            val payer = userId
-            if (payer != null && selectedIds.isNotEmpty()) {
+        onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name) } },
+        onSave = { amountSubunits, title, payerUserId, selectedIds ->
+            val me = userId
+            if (me != null && selectedIds.isNotEmpty()) {
                 saving = true
                 scope.launch {
                     val shares = allocate(amountSubunits, selectedIds.map { UserId(it) to 1L })
@@ -111,9 +67,9 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
                         amountSubunits = amountSubunits,
                         currency = currency,
                         expenseDate = Clock.System.todayUtc(),
-                        payerUserId = payer,
+                        payerUserId = UserId(payerUserId),
                         splitMode = "EVEN",
-                        createdBy = payer,
+                        createdBy = me,
                         shares = shares,
                     )
                     when (expenses.addExpense(input)) {

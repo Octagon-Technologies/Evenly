@@ -32,7 +32,7 @@ import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScDebtRow
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScTopBar
-import da.chelimo.sharecost.ui.components.money
+import da.chelimo.sharecost.ui.components.moneySubunits
 import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
@@ -42,14 +42,22 @@ import da.chelimo.sharecost.ui.theme.ShareCostTheme
 fun GroupOverviewTab(
     groupEmoji: String = "🏝️",
     groupName: String = "Tulum Trip",
+    byDay: List<Pair<String, Long>> = listOf("Mon" to 4000L, "Tue" to 9600L, "Wed" to 13200L, "Thu" to 5800L, "Fri" to 21000L, "Sat" to 18000L, "Sun" to 6400L),
+    byMember: List<Pair<String, Long>> = listOf("You" to 19800L, "Andrew" to 26400L, "Bob" to 14200L, "Maya" to 21000L, "Tyler" to 10000L),
+    totalSubunits: Long = 91400L,
+    expenseCount: Int = 14,
+    perPersonSubunits: Long = 18280L,
+    currencyCode: String = "USD",
+    balances: List<Triple<String, String, Long>> = listOf(
+        Triple("Bob", "You", 4200L),
+        Triple("Maya", "Andrew", 9800L),
+        Triple("Tyler", "You", 3100L),
+    ),
     onExport: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
-    val byDay = listOf("Mon" to 40, "Tue" to 96, "Wed" to 132, "Thu" to 58, "Fri" to 210, "Sat" to 180, "Sun" to 64)
-    val byMember = listOf("You" to 198, "Andrew" to 264, "Bob" to 142, "Maya" to 210, "Tyler" to 100)
-    val maxD = 220f
-    val maxM = 280f
-    val balances = GroupBalanceSamples.debts.take(3)
+    val maxD = (byDay.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
+    val maxM = (byMember.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
 
     Column(Modifier.fillMaxSize().background(c.surface)) {
         ScTopBar("Overview", actions = { ScChip("Export", variant = ChipVariant.Ghost, leadingIcon = ScIcons.Download) })
@@ -65,9 +73,9 @@ fun GroupOverviewTab(
                         ScChip("May 21 – 27", variant = ChipVariant.Ghost)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatChip("Total spend", "\$914.00", Modifier.weight(1f))
-                        StatChip("Expenses", "14", Modifier.weight(1f))
-                        StatChip("Per person", "\$182.80", Modifier.weight(1f))
+                        StatChip("Total spend", moneySubunits(totalSubunits, currencyCode), Modifier.weight(1f))
+                        StatChip("Expenses", expenseCount.toString(), Modifier.weight(1f))
+                        StatChip("Per person", moneySubunits(perPersonSubunits, currencyCode), Modifier.weight(1f))
                     }
                 }
             }
@@ -78,7 +86,7 @@ fun GroupOverviewTab(
                     Row(Modifier.fillMaxWidth().height(120.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         byDay.forEach { (d, v) ->
                             Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
-                                Box(Modifier.width(22.dp).height(((v / maxD) * 96f).dp).clip(RoundedCornerShape(6.dp)).background(if (v >= maxD) c.blue else c.blueTint2))
+                                Box(Modifier.width(22.dp).height(((v.toFloat() / maxD) * 96f).dp).clip(RoundedCornerShape(6.dp)).background(if (v >= maxD) c.blue else c.blueTint2))
                                 Text(d, color = c.ink2, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
                             }
                         }
@@ -93,9 +101,9 @@ fun GroupOverviewTab(
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(n, color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(56.dp))
                             Box(Modifier.weight(1f).height(22.dp).clip(RoundedCornerShape(6.dp)).background(c.surface)) {
-                                Box(Modifier.fillMaxWidth(v / maxM).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(c.blue))
+                                Box(Modifier.fillMaxWidth(v.toFloat() / maxM).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(c.blue))
                             }
-                            Text("\$$v", color = c.ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, textAlign = TextAlign.End, modifier = Modifier.width(44.dp))
+                            Text(moneySubunits(v, currencyCode), color = c.ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
                         }
                     }
                 }
@@ -104,9 +112,9 @@ fun GroupOverviewTab(
             Column {
                 ScSectionLabel("Resulting balances")
                 ScCard {
-                    balances.forEachIndexed { i, d ->
+                    balances.forEachIndexed { i, (debtor, creditor, amountSubunits) ->
                         Box(if (i > 0) Modifier.topHairline(c.border) else Modifier) {
-                            ScDebtRow(d.from, d.to, money(d.amount), owedToYou = d.owedToYou)
+                            ScDebtRow(debtor, creditor, moneySubunits(amountSubunits, currencyCode))
                         }
                     }
                 }

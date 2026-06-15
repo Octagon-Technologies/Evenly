@@ -51,27 +51,31 @@ import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-/** A member as shown on the Group settings roster. */
-private data class MemberUi(val name: String, val role: String = "", val me: Boolean = false)
+/** A member as shown on the Group settings roster. [role] is "Admin", "Placeholder", or "". */
+data class MemberRowUi(val name: String, val role: String = "", val isMe: Boolean = false)
 
 /** 17 · Group settings (design/src/screens-settings.jsx). */
 @Composable
-fun GroupSettingsScreen(onBack: () -> Unit = {}) {
+fun GroupSettingsScreen(
+    groupName: String = "Tulum Trip",
+    groupEmoji: String = "🏝️",
+    baseCurrency: String = "USD",
+    members: List<MemberRowUi> = listOf(
+        MemberRowUi("Alex Rivera", "Admin", isMe = true),
+        MemberRowUi("Andrew Park", "Admin"),
+        MemberRowUi("Bob Lin"),
+        MemberRowUi("Maya Kapoor"),
+        MemberRowUi("Tyler Reed", "Placeholder"),
+        MemberRowUi("Nina Alvarez"),
+        MemberRowUi("Omar Haddad"),
+        MemberRowUi("Priya Singh"),
+        MemberRowUi("Quentin Lee"),
+        MemberRowUi("Rosa Mendez"),
+    ),
+    onBack: () -> Unit = {},
+) {
     val c = ShareCostTheme.colors
     var reminder by remember { mutableStateOf("Weekly") }
-    val members = listOf(
-        MemberUi("Alex Rivera", "Admin", me = true),
-        MemberUi("Andrew Park", "Admin"),
-        MemberUi("Bob Lin"),
-        MemberUi("Maya Kapoor"),
-        MemberUi("Tyler Reed", "Placeholder"),
-        MemberUi("Sam Cole", "Left"),
-        MemberUi("Nina Alvarez"),
-        MemberUi("Omar Haddad"),
-        MemberUi("Priya Singh"),
-        MemberUi("Quentin Lee"),
-        MemberUi("Rosa Mendez"),
-    )
 
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         ScTopBar(
@@ -84,8 +88,8 @@ fun GroupSettingsScreen(onBack: () -> Unit = {}) {
         ) {
             // ── About ──────────────────────────────────────────
             SettingsGroup("About") {
-                SettingsRow(icon = ScIcons.Sparkle, label = "Emoji & name", value = "🏝️ Tulum Trip")
-                SettingsRow(icon = ScIcons.Globe, label = "Base currency", value = "USD", last = true)
+                SettingsRow(icon = ScIcons.Sparkle, label = "Emoji & name", value = "$groupEmoji $groupName")
+                SettingsRow(icon = ScIcons.Globe, label = "Base currency", value = baseCurrency, last = true)
             }
             Text(
                 "Changing base currency re-converts past expenses at today's rate.",
@@ -150,10 +154,10 @@ fun GroupSettingsScreen(onBack: () -> Unit = {}) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        ScAvatar(m.name, me = m.me, size = AvatarSize.Sm)
+                        ScAvatar(m.name, me = m.isMe, size = AvatarSize.Sm)
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                             Text(m.name, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            if (m.me) Text(" · you", color = c.ink2, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            if (m.isMe) Text(" · you", color = c.ink2, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                         }
                         if (m.role.isNotEmpty()) {
                             ScChip(

@@ -18,8 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,10 +38,12 @@ import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.AvatarSize
 import da.chelimo.sharecost.ui.components.ChipVariant
 import da.chelimo.sharecost.ui.components.ScAvatar
+import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScField
 import da.chelimo.sharecost.ui.components.ScIconButton
+import da.chelimo.sharecost.ui.components.ScModalScaffold
 import da.chelimo.sharecost.ui.components.ScParticipantChip
 import da.chelimo.sharecost.ui.components.ScSegmented
 import da.chelimo.sharecost.ui.components.ScSelectField
@@ -70,7 +74,8 @@ fun AddExpenseScreen(
     currencyCode: String = "USD",
     saving: Boolean = false,
     onBack: () -> Unit = {},
-    onSave: (amountSubunits: Long, title: String, selectedUserIds: List<String>) -> Unit = { _, _, _ -> },
+    onSave: (amountSubunits: Long, title: String, payerUserId: String, selectedUserIds: List<String>) -> Unit = { _, _, _, _ -> },
+    onAddPlaceholder: (String) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     val symbol = currencySymbol(currencyCode)
@@ -78,6 +83,20 @@ fun AddExpenseScreen(
     var title by remember { mutableStateOf("") }
     var split by remember { mutableStateOf("Even") }
     var selected by remember { mutableStateOf(participants.map { it.userId }.toSet()) }
+    var known by remember { mutableStateOf(participants.map { it.userId }.toSet()) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var payerId by remember { mutableStateOf("") }
+    var showPayerDialog by remember { mutableStateOf(false) }
+    val effectivePayerId = participants.firstOrNull { it.userId == payerId }?.userId
+        ?: participants.firstOrNull { it.isMe }?.userId
+        ?: participants.firstOrNull()?.userId
+        ?: ""
+    val payer = participants.firstOrNull { it.userId == effectivePayerId }
+    // Auto-select members that appear after a placeholder is added, without re-selecting ones the user deselected.
+    LaunchedEffect(participants) {
+        val fresh = participants.map { it.userId }.toSet() - known
+        if (fresh.isNotEmpty()) { selected = selected + fresh; known = known + fresh }
+    }
 
     val amountSubunits = parseAmountSubunits(amountText)
     val selectedList = participants.filter { it.userId in selected }
@@ -93,7 +112,7 @@ fun AddExpenseScreen(
                 val fg = if (canSave) c.onAccent else c.disabledInk
                 Box(
                     Modifier.clip(RoundedCornerShape(11.dp)).background(bg)
-                        .then(if (canSave) Modifier.clickable { onSave(amountSubunits, title.trim(), selected.toList()) } else Modifier)
+                        .then(if (canSave) Modifier.clickable { onSave(amountSubunits, title.trim(), effectivePayerId, selected.toList()) } else Modifier)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { Text("Save", color = fg, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
             },
@@ -126,7 +145,7 @@ fun AddExpenseScreen(
             ScField("Title") { ScTextField(title, { title = it }, placeholder = "What was it for?") }
 
             ScField("Paid by") {
-                ScSelectField(participants.firstOrNull { it.isMe }?.name ?: "You", {}, leading = { ScAvatar("You", me = true, size = AvatarSize.Sm) })
+                ScSelectField(payer?.name ?: "You", { showPayerDialog = true }, leading = { ScAvatar(payer?.name ?: "You", me = payer?.isMe == true, size = AvatarSize.Sm) })
             }
 
             // participants
@@ -142,6 +161,7 @@ fun AddExpenseScreen(
                             onClick = { selected = if (on) selected - p.userId else selected + p.userId },
                         )
                     }
+                    ScParticipantChip("Add", selected = false, leading = { ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue) }, onClick = { showAddDialog = true })
                 }
             }
 
@@ -165,8 +185,36 @@ fun AddExpenseScreen(
                         Text("Add at least one participant", color = c.ink3, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
                     }
                 }
-                if (split != "Even") {
-                    Text("Share / % / Exact splits arrive in a follow-up — this saves as an even split.", color = c.ink3, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                if (split == "Share" || split == "%" || split == "Exact") {
+                    Text("Share / % / Exact arrive next — this saves as an even split for now.", color = c.ink3, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        var newName by remember { mutableStateOf("") }
+        ScModalScaffold(onDismiss = { showAddDialog = false }) {
+            Text("Add a participant", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+            ScField("Name") { ScTextField(newName, { newName = it }, placeholder = "e.g. Bob") }
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                ScButton("Add", { if (newName.isNotBlank()) { onAddPlaceholder(newName.trim()); showAddDialog = false } }, enabled = newName.isNotBlank())
+            }
+        }
+    }
+
+    if (showPayerDialog) {
+        ScModalScaffold(onDismiss = { showPayerDialog = false }) {
+            Text("Who paid?", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+            participants.forEach { p ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { payerId = p.userId; showPayerDialog = false }.padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ScAvatar(p.name, me = p.isMe, size = AvatarSize.Sm)
+                    Text(p.name, color = c.ink, fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (p.userId == effectivePayerId) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
                 }
             }
         }

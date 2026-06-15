@@ -42,4 +42,7 @@ interface GroupRepository {
 
     /** Archive/unarchive a group for the calling user (per-member view, 04 §2.3 `set_archive`). */
     suspend fun setArchived(groupId: GroupId, userId: UserId, archived: Boolean): AppResult<Unit>
+
+    /** Add a placeholder participant (free-text name). They split in expenses but never sign in (01 §3.2). */
+    suspend fun addPlaceholder(groupId: GroupId, name: String): AppResult<Member>
 }

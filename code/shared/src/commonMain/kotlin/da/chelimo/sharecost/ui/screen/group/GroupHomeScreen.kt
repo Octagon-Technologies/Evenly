@@ -11,33 +11,31 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import da.chelimo.sharecost.ui.components.BottomNavItem
 import da.chelimo.sharecost.ui.components.ScBottomNav
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.navigation.GroupTab
+import da.chelimo.sharecost.ui.navigation.OverviewRoute
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
 /**
  * Group home host (design §0). The four tabs (Expenses/Balances/Conflicts/Overview) are state inside
- * this one destination — the bottom nav switches them; the back stack is unaffected.
+ * this one destination — the bottom nav switches them; the back stack is unaffected. Each tab is a
+ * self-contained smart route that streams its own data, so this host is DI-driven (no `@Preview`; the
+ * individual tabs have their own previews).
  */
 @Composable
 fun GroupHomeScreen(
     groupId: String = "1",
     initialTab: GroupTab = GroupTab.Expenses,
-    conflictCount: Int = 2,
-    groupName: String = "Tulum Trip",
-    groupEmoji: String = "🏝️",
-    expensesState: ExpensesState = ExpensesState.Populated,
-    expenseDays: List<ExpenseDayUi> = GroupSamples.days,
+    conflictCount: Int = 0,
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
     onSearch: () -> Unit = {},
     onFilter: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    onSettle: (DebtUi) -> Unit = {},
-    onInclude: (ConflictUi) -> Unit = {},
+    onSettlePeer: (String) -> Unit = {},
+    onIncludeNav: () -> Unit = {},
     onExport: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
@@ -46,14 +44,10 @@ fun GroupHomeScreen(
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         Box(Modifier.weight(1f)) {
             when (tab) {
-                GroupTab.Expenses -> GroupExpensesTab(
-                    groupEmoji = groupEmoji, groupName = groupName, state = expensesState, days = expenseDays, drafts = 0,
-                    onOpenGroup = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense,
-                    onSearch = onSearch, onFilter = onFilter,
-                )
-                GroupTab.Balances -> GroupBalancesTab(onSettle = onSettle)
-                GroupTab.Conflicts -> GroupConflictsTab(onInclude = onInclude)
-                GroupTab.Overview -> GroupOverviewTab(onExport = onExport)
+                GroupTab.Expenses -> GroupExpensesRoute(groupId, onOpenSettings, onAdd, onOpenExpense, onSearch, onFilter)
+                GroupTab.Balances -> GroupBalancesRoute(groupId, onSettleNav = onSettlePeer)
+                GroupTab.Conflicts -> GroupConflictsRoute(onIncludeNav = onIncludeNav)
+                GroupTab.Overview -> OverviewRoute(groupId, onExport = onExport)
             }
         }
         val items = buildList {
@@ -75,10 +69,4 @@ fun GroupHomeScreen(
             },
         )
     }
-}
-
-@Preview
-@Composable
-private fun GroupHomePreview() {
-    ShareCostTheme { GroupHomeScreen() }
 }

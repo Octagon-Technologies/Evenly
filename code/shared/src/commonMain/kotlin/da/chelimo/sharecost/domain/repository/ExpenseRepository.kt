@@ -3,6 +3,7 @@ package da.chelimo.sharecost.domain.repository
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.domain.balance.Debt
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.ExpenseWithShares
@@ -21,6 +22,9 @@ interface ExpenseRepository {
 
     /** A single expense with its shares, or null once deleted (the detail screen). */
     fun observeExpense(expenseId: ExpenseId): Flow<ExpenseWithShares?>
+
+    /** Bilateral debts for the group (03 §2.2) — pairwise nets of outstanding shares, never simplified. */
+    fun observeBalances(groupId: GroupId): Flow<List<Debt>>
 
     /** Add an expense + shares in one transaction. Rejects when `sum(shares) != amount` (AC-INV-001). */
     suspend fun addExpense(input: NewExpense): AppResult<Expense>

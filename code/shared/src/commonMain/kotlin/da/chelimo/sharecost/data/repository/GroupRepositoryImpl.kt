@@ -9,8 +9,10 @@ import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.MemberDao
+import da.chelimo.sharecost.data.db.dao.UserDao
 import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.MemberEntity
+import da.chelimo.sharecost.data.db.entity.UserEntity
 import da.chelimo.sharecost.domain.group.Group
 import da.chelimo.sharecost.domain.group.Member
 import da.chelimo.sharecost.domain.group.MemberSnapshot
@@ -32,8 +34,40 @@ import kotlin.time.ExperimentalTime
 class GroupRepositoryImpl(
     private val groupDao: GroupDao,
     private val memberDao: MemberDao,
+    private val userDao: UserDao,
     private val clock: Clock = Clock.System,
 ) : GroupRepository {
+
+    override suspend fun addPlaceholder(groupId: GroupId, name: String): AppResult<Member> {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return validationErr("name", AppError.Validation.Reason.Required)
+        val now = clock.nowEpochMillis()
+        val userId = newId()
+        userDao.upsert(
+            UserEntity(
+                id = userId,
+                isPlaceholder = true,
+                displayName = trimmed,
+                email = null,
+                placeholderGroupId = groupId.value,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        memberDao.upsert(
+            MemberEntity(
+                id = newId(),
+                groupId = groupId.value,
+                userId = userId,
+                status = MemberEntity.STATUS_ACTIVE,
+                isAdmin = false,
+                joinedAt = now,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        return Member(UserId(userId), displayName = trimmed, isPlaceholder = true, isAdmin = false, joinedAt = now).asOk()
+    }
 
     override fun observeGroupsForUser(userId: UserId): Flow<List<Group>> =
         groupDao.observeGroupsForUser(userId.value).map { groups -> groups.map { it.toDomain() } }

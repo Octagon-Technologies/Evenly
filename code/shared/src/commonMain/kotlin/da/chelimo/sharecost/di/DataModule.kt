@@ -34,7 +34,7 @@ val dataModule: Module = module {
     single<FxRateFetcher> { FrankfurterFxFetcher(get()) }
 
     // Repositories
-    single<GroupRepository> { GroupRepositoryImpl(get(), get()) }
+    single<GroupRepository> { GroupRepositoryImpl(get(), get(), get()) }
     single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get()) }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get()) }
     single<FxRepository> { FxRepositoryImpl(get(), get()) }

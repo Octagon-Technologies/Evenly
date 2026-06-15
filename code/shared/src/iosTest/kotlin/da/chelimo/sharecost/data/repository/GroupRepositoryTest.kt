@@ -31,7 +31,7 @@ class GroupRepositoryTest {
     @BeforeTest
     fun setUp() {
         db = inMemoryTestDatabase()
-        repo = GroupRepositoryImpl(db.groupDao(), db.memberDao(), clockAt("2026-06-12"))
+        repo = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), clockAt("2026-06-12"))
     }
 
     @AfterTest
