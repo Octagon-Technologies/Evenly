@@ -31,7 +31,7 @@ fun HomeScreen() {
             Text(
                 text = "Architecture skeleton is wired up.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = ShareCostTheme.colors.textMuted,
+                color = ShareCostTheme.colors.ink2,
                 textAlign = TextAlign.Center,
             )
         }

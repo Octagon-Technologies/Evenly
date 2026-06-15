@@ -2,34 +2,61 @@ package da.chelimo.sharecost.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// --- Brand / semantic ---
-val BrandGreen = Color(0xFF37D39A)      // "settled" / selection / positive accent (05 §14)
-val BrandGreenDark = Color(0xFF1F8C66)
-val OnBrand = Color(0xFF06251A)
-val LightOnBrand = Color(0xFFFFFFFF)
-val DangerRed = Color(0xFFE5484D)
-val WarningAmber = Color(0xFFF5A623)
-val PositiveGreen = Color(0xFF37D39A)
-val NegativeOrange = Color(0xFFE5704D)
+/**
+ * Design tokens for the ShareCost "blue-led monochrome" system (see `design/src/design.css :root`).
+ * One chromatic color — blue — expressed by weight; everything else is a neutral ink/surface ramp.
+ * Principle: *calm blue for success — never green.*
+ *
+ * The **light** values are verbatim from the design export. The **dark** values are derived (the
+ * export ships light only): same hue identity, inverted luminance, blue lifted so it keeps WCAG AA
+ * contrast on a dark page, and the soft tints become low-luminance washes of the same hue.
+ */
 
-// --- Dark neutrals (default theme) ---
-val DarkBackground = Color(0xFF0E0F11)
-val DarkSurface = Color(0xFF15171A)
-val DarkSurfaceContainer = Color(0xFF1C1F23)
-val DarkSurfaceContainerHigh = Color(0xFF24282D)
-val DarkOnSurface = Color(0xFFECEEF0)
-val DarkOnSurfaceVariant = Color(0xFFA7AEB5)
-val DarkTextMuted = Color(0xFF6E767E)
-val DarkOutline = Color(0xFF343A40)
-val DarkOutlineVariant = Color(0xFF4A525A)
+// ── Light (design export, verbatim) ─────────────────────────────────────────
+val ScBlue = Color(0xFF2563EB)            // --blue (the only chroma)
+val ScBluePressed = Color(0xFF1E40AF)     // --blue-press
+val ScBlueTint = Color(0xFFEFF4FF)        // --blue-tint
+val ScBlueTint2 = Color(0xFFDBE6FF)       // --blue-tint-2
 
-// --- Light neutrals ---
-val LightBackground = Color(0xFFF7F8F9)
-val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceContainer = Color(0xFFF0F2F4)
-val LightSurfaceContainerHigh = Color(0xFFE8EBEE)
-val LightOnSurface = Color(0xFF14171A)
-val LightOnSurfaceVariant = Color(0xFF4A525A)
-val LightTextMuted = Color(0xFF8A9298)
-val LightOutline = Color(0xFFD4D9DE)
-val LightOutlineVariant = Color(0xFFBFC6CC)
+val ScPage = Color(0xFFFFFFFF)            // --page
+val ScSurface = Color(0xFFF6F8FB)         // --surface
+val ScBorder = Color(0xFFE6EAF0)          // --border
+val ScBorderStrong = Color(0xFFD6DCE6)    // --border-strong
+
+val ScInk = Color(0xFF0B1220)             // --ink
+val ScInk2 = Color(0xFF5B6577)            // --ink-2
+val ScInk3 = Color(0xFF9AA3B2)            // --ink-3
+
+val ScRed = Color(0xFFE0686B)             // --red (reserved: errors / "off by")
+val ScRedTint = Color(0xFFFDEEED)         // --red-tint
+val ScAmber = Color(0xFF687590)           // --amber (a muted slate, not yellow)
+val ScAmberTint = Color(0xFFEEF1F8)       // --amber-tint
+
+val ScOnAccent = Color(0xFFFFFFFF)        // text/icon on a blue fill
+val ScDisabledInk = Color(0xFFA9BEE8)     // disabled primary-button label
+val ScBannerOffline = Color(0xFF2B3240)   // .sc-banner--offline background
+val ScSkeleton1 = Color(0xFFEDF0F5)       // shimmer trough
+val ScSkeleton2 = Color(0xFFF6F8FB)       // shimmer crest
+
+// ── Dark (derived) ──────────────────────────────────────────────────────────
+val ScBlueDark = Color(0xFF5B8DEF)        // lifted for AA on a dark page
+val ScBluePressedDark = Color(0xFF3D6FD6)
+val ScBlueTintDark = Color(0xFF16243F)
+val ScBlueTint2Dark = Color(0xFF1E3357)
+
+val ScPageDark = Color(0xFF0B0F17)        // near-ink, shares the ink hue family
+val ScSurfaceDark = Color(0xFF141A24)
+val ScBorderDark = Color(0xFF232C3A)
+val ScBorderStrongDark = Color(0xFF334052)
+
+val ScInkDark = Color(0xFFE7ECF3)
+val ScInk2Dark = Color(0xFF9BA6B8)
+val ScInk3Dark = Color(0xFF67738A)
+
+val ScRedDark = Color(0xFFE98487)
+val ScRedTintDark = Color(0xFF2A1718)
+val ScAmberDark = Color(0xFF8A95AD)
+val ScAmberTintDark = Color(0xFF1B2230)
+
+val ScSkeleton1Dark = Color(0xFF1A2230)
+val ScSkeleton2Dark = Color(0xFF222C3C)
