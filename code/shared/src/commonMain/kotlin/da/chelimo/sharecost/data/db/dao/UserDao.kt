@@ -72,6 +72,10 @@ interface UserDao {
     )
     suspend fun updateNotificationPrefs(id: String, newExpenses: Boolean, payments: Boolean, conflictReminders: Boolean, now: Long)
 
+    /** Persist the user's appearance preference (Profile → Appearance). */
+    @Query("UPDATE users SET theme_mode = :themeMode, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
+    suspend fun updateThemeMode(id: String, themeMode: String, now: Long)
+
     /** Placeholders in a group, name-ordered, for the reconcile picker (AC-M1-030). */
     @Query(
         """

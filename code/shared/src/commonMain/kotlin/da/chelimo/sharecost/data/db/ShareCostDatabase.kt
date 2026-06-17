@@ -61,7 +61,7 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         ReceiptEntity::class,
         HistoryEventEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)

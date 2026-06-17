@@ -14,7 +14,18 @@ data class UserProfile(
     val baseCurrency: String,
     val paymentHandles: Map<PaymentApp, String>,
     val notifications: NotificationPrefs = NotificationPrefs(),
+    val themeMode: ThemeMode = ThemeMode.System,
 )
+
+/** Appearance preference (Profile → Appearance). Persisted on the user row + synced across devices. */
+enum class ThemeMode {
+    System, Light, Dark;
+
+    companion object {
+        /** Parse the persisted name; unknown / null falls back to [System]. */
+        fun fromName(name: String?): ThemeMode = entries.firstOrNull { it.name == name } ?: System
+    }
+}
 
 /** The user's per-event push preferences (06 §5.4). Persisted on the user row + synced across devices. */
 data class NotificationPrefs(

@@ -70,6 +70,10 @@ data class UserEntity(
     @ColumnInfo(name = "notify_conflict_reminders")
     val notifyConflictReminders: Boolean = false,
 
+    /** Appearance preference: "System" | "Light" | "Dark" (06 §UI). */
+    @ColumnInfo(name = "theme_mode")
+    val themeMode: String = "System",
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
 

@@ -13,6 +13,7 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.auth.NotificationPrefs
 import da.chelimo.sharecost.domain.auth.OAuthProvider
+import da.chelimo.sharecost.domain.auth.ThemeMode
 import da.chelimo.sharecost.domain.group.Group
 import da.chelimo.sharecost.domain.group.NewGroup
 import da.chelimo.sharecost.domain.repository.FxRepository
@@ -211,6 +212,8 @@ fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onEditPaymentApps:
         onTerms = { urlOpener.open("https://sharecost.app/terms") },
         notifications = profile?.notifications ?: NotificationPrefs(),
         onNotificationsChange = { prefs -> scope.launch { profiles.updateNotificationPrefs(prefs) } },
+        themeMode = profile?.themeMode ?: ThemeMode.System,
+        onThemeModeChange = { mode -> scope.launch { profiles.updateThemeMode(mode) } },
     )
 }
 

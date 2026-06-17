@@ -9,6 +9,7 @@ import da.chelimo.sharecost.data.db.dao.UserDao
 import da.chelimo.sharecost.data.db.entity.UserEntity
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.auth.NotificationPrefs
+import da.chelimo.sharecost.domain.auth.ThemeMode
 import da.chelimo.sharecost.domain.auth.UserProfile
 import da.chelimo.sharecost.domain.repository.ProfileRepository
 import da.chelimo.sharecost.domain.settlement.PaymentApp
@@ -84,6 +85,13 @@ class ProfileRepositoryImpl(
         )
         return AppResult.Ok(Unit)
     }
+
+    override suspend fun updateThemeMode(mode: ThemeMode): AppResult<Unit> {
+        val id = auth.currentUserId.value
+            ?: return AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
+        userDao.updateThemeMode(id = id.value, themeMode = mode.name, now = clock.nowEpochMillis())
+        return AppResult.Ok(Unit)
+    }
 }
 
 private fun UserEntity.toProfile(): UserProfile = UserProfile(
@@ -97,4 +105,5 @@ private fun UserEntity.toProfile(): UserProfile = UserProfile(
         payments = notifyPayments,
         conflictReminders = notifyConflictReminders,
     ),
+    themeMode = ThemeMode.fromName(themeMode),
 )

@@ -35,6 +35,7 @@ import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScSegmented
 import da.chelimo.sharecost.domain.auth.NotificationPrefs
+import da.chelimo.sharecost.domain.auth.ThemeMode
 import da.chelimo.sharecost.ui.components.ScToggle
 import da.chelimo.sharecost.ui.components.ScTextField
 import da.chelimo.sharecost.ui.components.ScTopBar
@@ -59,10 +60,11 @@ fun ProfileScreen(
     onTerms: () -> Unit = {},
     notifications: NotificationPrefs = NotificationPrefs(),
     onNotificationsChange: (NotificationPrefs) -> Unit = {},
+    themeMode: ThemeMode = ThemeMode.System,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var analytics by remember { mutableStateOf(true) }
-    var appearance by remember { mutableStateOf("System") }
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember(displayName) { mutableStateOf(displayName) }
 
@@ -132,8 +134,8 @@ fun ProfileScreen(
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                     ScSegmented(
                         options = listOf("System", "Light", "Dark"),
-                        selected = appearance,
-                        onSelect = { appearance = it },
+                        selected = themeMode.name,
+                        onSelect = { onThemeModeChange(ThemeMode.fromName(it)) },
                     )
                 }
             }

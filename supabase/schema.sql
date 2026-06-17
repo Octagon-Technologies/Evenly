@@ -19,6 +19,7 @@ create table if not exists public.users (
   notify_new_expenses boolean not null default true,
   notify_payments boolean not null default true,
   notify_conflict_reminders boolean not null default false,
+  theme_mode text not null default 'System',
   created_at bigint not null,
   updated_at bigint not null,
   row_version bigint not null default 1
