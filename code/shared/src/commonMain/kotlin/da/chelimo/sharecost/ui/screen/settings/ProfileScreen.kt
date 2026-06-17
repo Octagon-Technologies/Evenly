@@ -29,9 +29,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.AvatarSize
+import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ScAvatar
+import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScIconButton
+import da.chelimo.sharecost.ui.components.ScModalScaffold
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScSegmented
 import da.chelimo.sharecost.domain.auth.NotificationPrefs
@@ -62,11 +65,13 @@ fun ProfileScreen(
     onNotificationsChange: (NotificationPrefs) -> Unit = {},
     themeMode: ThemeMode = ThemeMode.System,
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    onDeleteAccount: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var analytics by remember { mutableStateOf(true) }
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember(displayName) { mutableStateOf(displayName) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         ScTopBar(
@@ -150,7 +155,7 @@ fun ProfileScreen(
             // ── Account ────────────────────────────────────────
             ProfileGroup("Account") {
                 ProfileRow(icon = ScIcons.Back, label = "Sign out", onClick = onSignOut)
-                ProfileRow(icon = ScIcons.Trash, label = "Delete account", danger = true, last = true, showChevron = false)
+                ProfileRow(icon = ScIcons.Trash, label = "Delete account", danger = true, last = true, showChevron = false, onClick = { confirmDelete = true })
             }
 
             Text(
@@ -162,6 +167,20 @@ fun ProfileScreen(
             )
 
             Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    if (confirmDelete) {
+        ScModalScaffold(onDismiss = { confirmDelete = false }) {
+            Text("Delete account?", color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "This permanently deletes your account and profile. It can't be undone.",
+                color = c.ink2, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ScButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Secondary, modifier = Modifier.weight(1f))
+                ScButton("Delete", { confirmDelete = false; onDeleteAccount() }, modifier = Modifier.weight(1f))
+            }
         }
     }
 }

@@ -62,6 +62,13 @@ class StubAuthSession(
         _currentUserId.value = null
     }
 
+    override suspend fun deleteAccount(): AppResult<Unit> {
+        // No server in the stub: drop the local account row and sign out.
+        userDao.findByEmail(STUB_EMAIL)?.let { userDao.delete(it.id) }
+        _currentUserId.value = null
+        return AppResult.Ok(Unit)
+    }
+
     private companion object {
         const val STUB_EMAIL = "you@sharecost.local"
     }

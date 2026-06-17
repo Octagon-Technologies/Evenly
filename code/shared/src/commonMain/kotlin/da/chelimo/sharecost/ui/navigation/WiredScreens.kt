@@ -214,6 +214,7 @@ fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onEditPaymentApps:
         onNotificationsChange = { prefs -> scope.launch { profiles.updateNotificationPrefs(prefs) } },
         themeMode = profile?.themeMode ?: ThemeMode.System,
         onThemeModeChange = { mode -> scope.launch { profiles.updateThemeMode(mode) } },
+        onDeleteAccount = { scope.launch { auth.deleteAccount(); onSignedOut() } },
     )
 }
 

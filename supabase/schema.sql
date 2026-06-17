@@ -257,3 +257,25 @@ begin
   drop policy if exists receipts_obj_delete on storage.objects;
   create policy receipts_obj_delete on storage.objects for delete to authenticated using (bucket_id = 'receipts');
 end $$;
+
+-- ── Account deletion (F8): caller deletes their own profile + device tokens + auth record ────────
+-- security definer so it can touch auth.users; conservative scope (leaves shared group data — a full
+-- cascade / admin-ownership-transfer is a separate product decision).
+create or replace function public.delete_my_account()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare uid text := auth.uid()::text;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+  delete from public.device_tokens where user_id = uid;
+  delete from public.users where id = uid;
+  delete from auth.users where id = uid::uuid;
+end;
+$$;
+revoke all on function public.delete_my_account() from public;
+grant execute on function public.delete_my_account() to authenticated;

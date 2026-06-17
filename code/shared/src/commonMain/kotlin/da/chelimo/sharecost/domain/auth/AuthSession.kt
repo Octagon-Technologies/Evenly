@@ -32,6 +32,12 @@ interface AuthSession {
     suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId>
 
     fun signOut()
+
+    /**
+     * Permanently delete the current account: removes the user's server profile + auth record, then
+     * signs out and wipes the local cache. [currentUserId] becomes null. Irreversible.
+     */
+    suspend fun deleteAccount(): AppResult<Unit>
 }
 
 /** OAuth identity providers offered on the sign-in screen. */

@@ -25,6 +25,10 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id")
     suspend fun getById(id: String): UserEntity?
 
+    /** Remove a user row (account deletion / local cleanup). */
+    @Query("DELETE FROM users WHERE id = :id")
+    suspend fun delete(id: String)
+
     /** Every local row — the push side of sync (the device only holds rows the user may see). */
     @Query("SELECT * FROM users")
     suspend fun allForSync(): List<UserEntity>

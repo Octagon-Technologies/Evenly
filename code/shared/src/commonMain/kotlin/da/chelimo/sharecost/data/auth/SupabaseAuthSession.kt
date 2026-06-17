@@ -20,6 +20,7 @@ import io.github.jan.supabase.auth.providers.Facebook
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.auth.user.UserInfo
+import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -106,6 +107,21 @@ class SupabaseAuthSession(
     override fun signOut() {
         scope.launch { client.auth.signOut() }
         _currentUserId.value = null
+    }
+
+    override suspend fun deleteAccount(): AppResult<Unit> {
+        // Server-side delete via a security-definer RPC (removes the caller's profile + device tokens +
+        // auth.users row). Then drop the local account row + sign out regardless, so the device is clean.
+        // (Shared group/expense rows are keyed by user and never shown to a different signed-in account.)
+        val uid = client.auth.currentUserOrNull()?.id
+        val server = runCatching { client.postgrest.rpc("delete_my_account") }
+        runCatching { client.auth.signOut() }
+        uid?.let { runCatching { userDao.delete(it) } }
+        _currentUserId.value = null
+        return server.fold(
+            onSuccess = { AppResult.Ok(Unit) },
+            onFailure = { AppError.Unexpected(it).asErr() },
+        )
     }
 
     /**
