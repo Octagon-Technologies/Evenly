@@ -343,10 +343,11 @@ the expenses feed.
 > notification permission requested in `MainActivity`. `device_tokens` table + realtime publication added to
 > the schema + applied. Tests: server-resolve join (fake gateway). Green on Android + iOS.
 >
-> **Deferred (documented):** the *server-side* push **sender** (edge function targeting `device_tokens`) and
-> the iOS Firebase host SDK (CocoaPods/SPM + `GoogleService-Info.plist`) are out of client scope — the
-> iOS→`IosPushTokenHolder` bridge is ready for them. Profile notification toggles still hold local state
-> (persistence belongs on DataStore per 06 §2.2, not yet wired; and gates only the future sender).
+> **Follow-ups (2026-06-17):** the push **sender** edge function `push-notify` is now written + deployed
+> (inert until the `FCM_SERVICE_ACCOUNT` secret is set — see `supabase/functions/push-notify/README.md`).
+> Notification toggles now **persist** on the user row + sync. Remaining: the iOS Firebase host SDK (steps
+> in `code/iosApp/PUSH_SETUP.md`; needs `GoogleService-Info.plist` + an APNs key from a paid Apple account)
+> and supplying the FCM service-account secret — both owner-only artifacts.
 
 **Outcome:** Writes sync promptly and reliably (not on a 15s heartbeat), changes arrive in near
 real-time, cross-device join works, and push notifications actually fire and update the app.
@@ -384,10 +385,12 @@ best done once the data model is final (after F2/F5 add their tables).
 
 ---
 
-### Phase F8 — Polish & cosmetics (optional)  🔄 (2026-06-16, partial)
-> **Done:** Profile → Privacy policy / Terms of service / Send feedback now open real URLs / a mailto via
-> `UrlOpener` (were dead rows). **Deferred (v1.1+ per spec — left visible but not yet functional):** theme
-> switch, CSV/JSON/PDF export, delete account, storage/categories management, member-detail rows.
+### Phase F8 — Polish & cosmetics (optional)  🔄 (2026-06-17, mostly done)
+> **Done:** Privacy/Terms/Send-feedback links open real destinations; **theme switch** (System/Light/Dark,
+> persisted on the user row, drives `ShareCostTheme` from `App`); **delete account** (confirm → security-definer
+> RPC removing profile + device tokens + auth user → sign out + local clear); **notification toggles** now
+> persist (per-user, synced — see F7). **Deferred (v1.1+ per spec):** CSV/JSON/PDF export, storage/categories
+> management, member-detail rows.
 
 **Outcome:** The remaining decorative no-ops either work or are honestly hidden.
 
