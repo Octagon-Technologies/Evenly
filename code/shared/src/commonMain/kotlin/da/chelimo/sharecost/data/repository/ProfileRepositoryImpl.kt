@@ -8,6 +8,7 @@ import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.data.db.dao.UserDao
 import da.chelimo.sharecost.data.db.entity.UserEntity
 import da.chelimo.sharecost.domain.auth.AuthSession
+import da.chelimo.sharecost.domain.auth.NotificationPrefs
 import da.chelimo.sharecost.domain.auth.UserProfile
 import da.chelimo.sharecost.domain.repository.ProfileRepository
 import da.chelimo.sharecost.domain.settlement.PaymentApp
@@ -70,6 +71,19 @@ class ProfileRepositoryImpl(
         userDao.updateDisplayName(id = id.value, name = name, now = clock.nowEpochMillis())
         return AppResult.Ok(Unit)
     }
+
+    override suspend fun updateNotificationPrefs(prefs: NotificationPrefs): AppResult<Unit> {
+        val id = auth.currentUserId.value
+            ?: return AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
+        userDao.updateNotificationPrefs(
+            id = id.value,
+            newExpenses = prefs.newExpenses,
+            payments = prefs.payments,
+            conflictReminders = prefs.conflictReminders,
+            now = clock.nowEpochMillis(),
+        )
+        return AppResult.Ok(Unit)
+    }
 }
 
 private fun UserEntity.toProfile(): UserProfile = UserProfile(
@@ -78,4 +92,9 @@ private fun UserEntity.toProfile(): UserProfile = UserProfile(
     email = email,
     baseCurrency = baseCurrency ?: "USD",
     paymentHandles = paymentHandles(venmoHandle, cashappHandle, paypalHandle, zelleHandle),
+    notifications = NotificationPrefs(
+        newExpenses = notifyNewExpenses,
+        payments = notifyPayments,
+        conflictReminders = notifyConflictReminders,
+    ),
 )

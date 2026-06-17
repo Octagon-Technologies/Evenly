@@ -11,6 +11,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.domain.auth.AuthSession
+import da.chelimo.sharecost.domain.auth.NotificationPrefs
 import da.chelimo.sharecost.domain.auth.OAuthProvider
 import da.chelimo.sharecost.domain.group.Group
 import da.chelimo.sharecost.domain.group.NewGroup
@@ -208,6 +209,8 @@ fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onEditPaymentApps:
         onSendFeedback = { urlOpener.open("mailto:feedback@sharecost.app?subject=ShareCost%20feedback") },
         onPrivacy = { urlOpener.open("https://sharecost.app/privacy") },
         onTerms = { urlOpener.open("https://sharecost.app/terms") },
+        notifications = profile?.notifications ?: NotificationPrefs(),
+        onNotificationsChange = { prefs -> scope.launch { profiles.updateNotificationPrefs(prefs) } },
     )
 }
 

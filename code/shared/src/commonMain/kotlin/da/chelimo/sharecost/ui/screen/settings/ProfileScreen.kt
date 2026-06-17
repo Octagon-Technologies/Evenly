@@ -34,6 +34,7 @@ import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScSegmented
+import da.chelimo.sharecost.domain.auth.NotificationPrefs
 import da.chelimo.sharecost.ui.components.ScToggle
 import da.chelimo.sharecost.ui.components.ScTextField
 import da.chelimo.sharecost.ui.components.ScTopBar
@@ -56,6 +57,8 @@ fun ProfileScreen(
     onSendFeedback: () -> Unit = {},
     onPrivacy: () -> Unit = {},
     onTerms: () -> Unit = {},
+    notifications: NotificationPrefs = NotificationPrefs(),
+    onNotificationsChange: (NotificationPrefs) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var analytics by remember { mutableStateOf(true) }
@@ -100,9 +103,9 @@ fun ProfileScreen(
 
             // ── Notifications ──────────────────────────────────
             ProfileGroup("Notifications") {
-                NotifRow("New expenses", on = true)
-                NotifRow("Someone pays you", on = true)
-                NotifRow("Conflict reminders", on = false, last = true)
+                NotifRow("New expenses", notifications.newExpenses) { onNotificationsChange(notifications.copy(newExpenses = it)) }
+                NotifRow("Someone pays you", notifications.payments) { onNotificationsChange(notifications.copy(payments = it)) }
+                NotifRow("Conflict reminders", notifications.conflictReminders, last = true) { onNotificationsChange(notifications.copy(conflictReminders = it)) }
             }
 
             // ── Privacy ────────────────────────────────────────
@@ -199,22 +202,21 @@ private fun ProfileRow(
     }
 }
 
-/** A notification toggle row (`.sc-row` with its own local checked state). */
+/** A notification toggle row (`.sc-row`), controlled by the caller so the value persists (F7). */
 @Composable
-private fun NotifRow(label: String, on: Boolean, last: Boolean = false) {
+private fun NotifRow(label: String, checked: Boolean, last: Boolean = false, onCheckedChange: (Boolean) -> Unit) {
     val c = ShareCostTheme.colors
-    var checked by remember { mutableStateOf(on) }
     Row(
         modifier = Modifier.fillMaxWidth()
             .then(if (!last) Modifier.topHairline(c.border) else Modifier)
-            .clickable { checked = !checked }
+            .clickable { onCheckedChange(!checked) }
             .heightIn(min = 56.dp)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start, modifier = Modifier.weight(1f))
-        ScToggle(checked, { checked = it })
+        ScToggle(checked, onCheckedChange)
     }
 }
 

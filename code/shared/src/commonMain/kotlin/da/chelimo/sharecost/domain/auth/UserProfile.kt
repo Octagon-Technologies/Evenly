@@ -13,4 +13,12 @@ data class UserProfile(
     val email: String?,
     val baseCurrency: String,
     val paymentHandles: Map<PaymentApp, String>,
+    val notifications: NotificationPrefs = NotificationPrefs(),
+)
+
+/** The user's per-event push preferences (06 §5.4). Persisted on the user row + synced across devices. */
+data class NotificationPrefs(
+    val newExpenses: Boolean = true,
+    val payments: Boolean = true,
+    val conflictReminders: Boolean = false,
 )

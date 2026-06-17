@@ -59,6 +59,17 @@ data class UserEntity(
     @ColumnInfo(name = "placeholder_group_id")
     val placeholderGroupId: String? = null,
 
+    // Notification preferences (06 §5.4). Stored on the user so they persist + sync across devices;
+    // a server-side push sender reads these before targeting a recipient.
+    @ColumnInfo(name = "notify_new_expenses")
+    val notifyNewExpenses: Boolean = true,
+
+    @ColumnInfo(name = "notify_payments")
+    val notifyPayments: Boolean = true,
+
+    @ColumnInfo(name = "notify_conflict_reminders")
+    val notifyConflictReminders: Boolean = false,
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
 

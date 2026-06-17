@@ -61,6 +61,17 @@ interface UserDao {
     @Query("UPDATE users SET display_name = :name, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
     suspend fun updateDisplayName(id: String, name: String, now: Long)
 
+    /** Persist the user's notification preferences (Profile editor). */
+    @Query(
+        """
+        UPDATE users
+        SET notify_new_expenses = :newExpenses, notify_payments = :payments,
+            notify_conflict_reminders = :conflictReminders, updated_at = :now, row_version = row_version + 1
+        WHERE id = :id
+        """
+    )
+    suspend fun updateNotificationPrefs(id: String, newExpenses: Boolean, payments: Boolean, conflictReminders: Boolean, now: Long)
+
     /** Placeholders in a group, name-ordered, for the reconcile picker (AC-M1-030). */
     @Query(
         """

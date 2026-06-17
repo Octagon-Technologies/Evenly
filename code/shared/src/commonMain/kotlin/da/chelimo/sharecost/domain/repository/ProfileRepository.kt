@@ -1,6 +1,7 @@
 package da.chelimo.sharecost.domain.repository
 
 import da.chelimo.sharecost.core.error.AppResult
+import da.chelimo.sharecost.domain.auth.NotificationPrefs
 import da.chelimo.sharecost.domain.auth.UserProfile
 import da.chelimo.sharecost.domain.settlement.PaymentApp
 import kotlinx.coroutines.flow.Flow
@@ -22,4 +23,7 @@ interface ProfileRepository {
 
     /** Rename the current user (Profile editor). */
     suspend fun updateDisplayName(displayName: String): AppResult<Unit>
+
+    /** Persist the current user's notification preferences (Profile editor). */
+    suspend fun updateNotificationPrefs(prefs: NotificationPrefs): AppResult<Unit>
 }
