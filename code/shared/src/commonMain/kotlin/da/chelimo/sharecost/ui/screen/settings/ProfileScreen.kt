@@ -35,6 +35,7 @@ import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScSegmented
 import da.chelimo.sharecost.ui.components.ScToggle
+import da.chelimo.sharecost.ui.components.ScTextField
 import da.chelimo.sharecost.ui.components.ScTopBar
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
@@ -44,12 +45,23 @@ import da.chelimo.sharecost.ui.theme.ShareCostTheme
 /** 18 · Profile & settings (design/src/screens-settings.jsx). */
 @Composable
 fun ProfileScreen(
+    displayName: String = "Alex Rivera",
+    email: String = "alex@hey.com",
+    baseCurrency: String = "USD",
+    paymentAppsSummary: String = "Venmo +2",
     onBack: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    onEditPaymentApps: () -> Unit = {},
+    onEditName: (String) -> Unit = {},
+    onSendFeedback: () -> Unit = {},
+    onPrivacy: () -> Unit = {},
+    onTerms: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var analytics by remember { mutableStateOf(true) }
     var appearance by remember { mutableStateOf("System") }
+    var editingName by remember { mutableStateOf(false) }
+    var nameDraft by remember(displayName) { mutableStateOf(displayName) }
 
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         ScTopBar(
@@ -63,19 +75,27 @@ fun ProfileScreen(
             // ── Account header card ────────────────────────────
             ScCard(padded = true) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ScAvatar("Alex Rivera", me = true, size = AvatarSize.Lg)
+                    ScAvatar(displayName, me = true, size = AvatarSize.Lg)
                     Column(Modifier.weight(1f)) {
-                        Text("Alex Rivera", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        Text("alex@hey.com", color = c.ink2, fontSize = 12.sp)
+                        if (editingName) {
+                            ScTextField(nameDraft, { nameDraft = it }, placeholder = "Your name")
+                        } else {
+                            Text(displayName, color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Text(email, color = c.ink2, fontSize = 12.sp)
+                        }
                     }
-                    ScIconButton(ScIcons.Edit, {}, size = 20.dp, tint = c.ink2)
+                    if (editingName) {
+                        ScIconButton(ScIcons.Check, { onEditName(nameDraft.trim()); editingName = false }, size = 20.dp, tint = c.blue)
+                    } else {
+                        ScIconButton(ScIcons.Edit, { nameDraft = displayName; editingName = true }, size = 20.dp, tint = c.ink2)
+                    }
                 }
             }
 
             // ── Preferences ────────────────────────────────────
             ProfileGroup("Preferences") {
-                ProfileRow(icon = ScIcons.Globe, label = "Base currency", value = "USD")
-                ProfileRow(icon = ScIcons.Wallet, label = "Payment apps", value = "Venmo +2", last = true)
+                ProfileRow(icon = ScIcons.Globe, label = "Base currency", value = baseCurrency)
+                ProfileRow(icon = ScIcons.Wallet, label = "Payment apps", value = paymentAppsSummary, last = true, onClick = onEditPaymentApps)
             }
 
             // ── Notifications ──────────────────────────────────
@@ -117,9 +137,9 @@ fun ProfileScreen(
 
             // ── Support ────────────────────────────────────────
             ProfileGroup("Support") {
-                ProfileRow(icon = ScIcons.Comment, label = "Send feedback")
-                ProfileRow(icon = ScIcons.Lock, label = "Privacy policy")
-                ProfileRow(icon = ScIcons.Info, label = "Terms of service", last = true)
+                ProfileRow(icon = ScIcons.Comment, label = "Send feedback", onClick = onSendFeedback)
+                ProfileRow(icon = ScIcons.Lock, label = "Privacy policy", onClick = onPrivacy)
+                ProfileRow(icon = ScIcons.Info, label = "Terms of service", last = true, onClick = onTerms)
             }
 
             // ── Account ────────────────────────────────────────

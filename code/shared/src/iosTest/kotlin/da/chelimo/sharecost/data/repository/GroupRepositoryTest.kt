@@ -5,8 +5,10 @@ import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.data.db.ShareCostDatabase
+import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.MemberEntity
 import da.chelimo.sharecost.data.db.inMemoryTestDatabase
+import da.chelimo.sharecost.data.remote.supabase.RemoteGroupGateway
 import da.chelimo.sharecost.domain.group.Group
 import da.chelimo.sharecost.domain.group.NewGroup
 import kotlinx.coroutines.flow.first
@@ -31,7 +33,7 @@ class GroupRepositoryTest {
     @BeforeTest
     fun setUp() {
         db = inMemoryTestDatabase()
-        repo = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), clockAt("2026-06-12"))
+        repo = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(), clockAt("2026-06-12"))
     }
 
     @AfterTest
@@ -99,9 +101,40 @@ class GroupRepositoryTest {
 
     @Test
     fun joinByToken_unknownToken_returnsBackendError() = runTest {
+        // With no remote gateway wired (local-only), a token that matches nothing is GROUP_NOT_FOUND (F7).
         val result = repo.joinByToken("nope", UserId("u2"))
         assertTrue(result is AppResult.Err)
-        assertEquals("GROUP_NOT_CACHED", (result.error as AppError.Backend).code)
+        assertEquals("GROUP_NOT_FOUND", (result.error as AppError.Backend).code)
+    }
+
+    @Test
+    fun joinByToken_neverSyncedGroup_resolvesViaServer() = runTest {
+        // A token absent from the local cache resolves through the remote gateway (F7 cross-device join).
+        val gateway = FakeRemoteGroupGateway(db)
+        val withRemote = GroupRepositoryImpl(
+            db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(),
+            clockAt("2026-06-12"), remoteGroups = gateway,
+        )
+        val joined = withRemote.joinByToken("remote-token", UserId("u2"))
+        assertTrue(joined is AppResult.Ok)
+        assertEquals(FakeRemoteGroupGateway.GROUP_ID, joined.value.id.value)
+        assertTrue(withRemote.observeMembers(joined.value.id).first().any { it.userId.value == "u2" })
+    }
+
+    /** Stand-in for the Supabase gateway: returns + caches a group for a single known token. */
+    private class FakeRemoteGroupGateway(private val db: ShareCostDatabase) : RemoteGroupGateway {
+        override suspend fun resolveByToken(token: String): GroupEntity? {
+            if (token != "remote-token") return null
+            val group = GroupEntity(
+                id = GROUP_ID, name = "Remote Trip", emoji = "🏔️", baseCurrency = "USD",
+                adminUserId = "owner", inviteToken = token,
+                createdAt = 1_000L, createdBy = "owner", updatedAt = 1_000L,
+            )
+            db.groupDao().upsert(group)
+            return group
+        }
+
+        companion object { const val GROUP_ID = "remote_g" }
     }
 
     @Test

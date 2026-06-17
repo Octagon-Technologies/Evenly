@@ -29,9 +29,14 @@ import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-/** 20 · Join group sheet (design/src/screens-home.jsx). */
+/** 20 · Join group sheet (design/src/screens-home.jsx). Wired by `JoinRoute` from an invite token. */
 @Composable
 fun JoinGroupSheet(
+    groupName: String = "Tulum Trip",
+    emoji: String = "🏝️",
+    subtitle: String = "Tap join to start sharing costs",
+    memberNames: List<String> = emptyList(),
+    found: Boolean = true,
     already: Boolean = false,
     onDismiss: () -> Unit = {},
     onJoin: () -> Unit = {},
@@ -42,20 +47,24 @@ fun JoinGroupSheet(
         ScSheetScaffold(onDismiss) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Box(Modifier.size(80.dp).clip(RoundedCornerShape(24.dp)).background(c.surface).border(1.dp, c.border, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
-                    Text("🏝️", fontSize = 42.sp)
+                    Text(if (found) emoji else "🔗", fontSize = 42.sp)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Tulum Trip", color = c.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text("5 members · Andrew, Bob, Maya +2", color = c.ink2, fontSize = 12.sp)
+                    Text(if (found) groupName else "Group not found", color = c.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (found) subtitle else "This invite link isn't available on this device yet. Ask the inviter to make sure it's synced.",
+                        color = c.ink2,
+                        fontSize = 12.sp,
+                    )
                 }
-                ScAvatarStack(names = listOf("Andrew", "Bob", "Maya", "Tyler"), size = AvatarSize.Sm)
-                if (already) {
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (memberNames.isNotEmpty()) ScAvatarStack(names = memberNames, size = AvatarSize.Sm)
+                when {
+                    !found -> ScButton("Close", onDismiss, variant = ButtonVariant.Text)
+                    already -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScChip("You're already in this group", variant = ChipVariant.Blue, leadingIcon = ScIcons.Check)
                         ScButton("Open group", onOpen, leadingIcon = ScIcons.ChevR)
                     }
-                } else {
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    else -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScButton("Join group", onJoin, leadingIcon = ScIcons.Users)
                         ScButton("Not now", onDismiss, variant = ButtonVariant.Text)
                     }

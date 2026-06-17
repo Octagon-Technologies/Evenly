@@ -5,6 +5,7 @@ import da.chelimo.sharecost.data.db.shareCostDatabaseBuilder
 import da.chelimo.sharecost.data.remote.installShareCostDefaults
 import da.chelimo.sharecost.platform.ConnectivityObserver
 import da.chelimo.sharecost.platform.FilePicker
+import da.chelimo.sharecost.platform.ImageProcessor
 import da.chelimo.sharecost.platform.PushService
 import da.chelimo.sharecost.platform.SecureStorage
 import da.chelimo.sharecost.platform.UrlOpener
@@ -23,4 +24,5 @@ actual fun platformModule(): Module = module {
     single { UrlOpener() }
     single { PushService() }
     single { FilePicker() }
+    single { ImageProcessor() }
 }

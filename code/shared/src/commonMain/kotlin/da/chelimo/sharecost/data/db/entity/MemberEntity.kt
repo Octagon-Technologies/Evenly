@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * Local mirror of `members` (02 §3.5). A user's membership in a group, with a soft `LEFT` status
@@ -17,6 +18,7 @@ import androidx.room.PrimaryKey
         Index(value = ["user_id"]),
     ],
 )
+@Serializable
 data class MemberEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")

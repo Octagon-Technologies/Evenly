@@ -71,6 +71,7 @@ fun HomeScreen(
     onOpenGroup: (String) -> Unit = {},
     onNewGroup: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
+    onOpenArchived: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     Column(Modifier.fillMaxSize().background(c.surface)) {
@@ -104,21 +105,13 @@ fun HomeScreen(
                     }
                 }
                 if (state.archived.isNotEmpty()) {
-                    var expanded by remember { mutableStateOf(false) }
-                    ScCard(padded = true, modifier = Modifier.clickable { expanded = !expanded }) {
+                    ScCard(padded = true, modifier = Modifier.clickable { onOpenArchived() }) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 ScIcon(ScIcons.Archive, size = 18.dp, tint = c.ink2)
                                 Text("Archived (${state.archived.size})", color = c.ink2, fontWeight = FontWeight.SemiBold)
                             }
-                            ScIcon(if (expanded) ScIcons.ChevU else ScIcons.ChevD, size = 18.dp, tint = c.ink3)
-                        }
-                    }
-                    if (expanded) {
-                        ScCard {
-                            state.archived.forEachIndexed { i, g ->
-                                Box(if (i > 0) Modifier.topHairline(c.border) else Modifier) { GroupRow(g, archived = true) }
-                            }
+                            ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.ink3)
                         }
                     }
                 }

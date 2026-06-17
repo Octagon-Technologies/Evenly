@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * Local mirror of `users` (02 §3.2): one table for both real users and placeholder participants.
@@ -19,6 +20,7 @@ import androidx.room.PrimaryKey
         Index(value = ["placeholder_group_id"]),
     ],
 )
+@Serializable
 data class UserEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
@@ -38,6 +40,20 @@ data class UserEntity(
 
     @ColumnInfo(name = "base_currency")
     val baseCurrency: String? = "USD",
+
+    // Per-payee payment handles (03 §5.1). Null when the user hasn't set that app. The peer's handles
+    // are what the settle screen deep-links into; each user owns their own. One column per PaymentApp.
+    @ColumnInfo(name = "venmo_handle")
+    val venmoHandle: String? = null,
+
+    @ColumnInfo(name = "cashapp_handle")
+    val cashappHandle: String? = null,
+
+    @ColumnInfo(name = "paypal_handle")
+    val paypalHandle: String? = null,
+
+    @ColumnInfo(name = "zelle_handle")
+    val zelleHandle: String? = null,
 
     /** Non-null iff [isPlaceholder]; the group the placeholder lives in (02 §3.2 invariant). */
     @ColumnInfo(name = "placeholder_group_id")

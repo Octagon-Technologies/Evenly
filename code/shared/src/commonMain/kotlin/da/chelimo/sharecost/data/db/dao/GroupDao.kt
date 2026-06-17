@@ -21,6 +21,10 @@ interface GroupDao {
     @Query("SELECT * FROM groups WHERE id = :id")
     suspend fun getById(id: String): GroupEntity?
 
+    /** Every local row — the push side of sync. */
+    @Query("SELECT * FROM groups")
+    suspend fun allForSync(): List<GroupEntity>
+
     @Query("SELECT * FROM groups WHERE id = :id AND deleted_at IS NULL")
     fun observeById(id: String): Flow<GroupEntity?>
 
@@ -39,11 +43,30 @@ interface GroupDao {
         INNER JOIN members m ON m.group_id = g.id
         WHERE m.user_id = :userId
           AND m.status = 'ACTIVE'
+          AND m.archived_at IS NULL
           AND g.deleted_at IS NULL
         ORDER BY g.created_at DESC
         """
     )
     fun observeGroupsForUser(userId: String): Flow<List<GroupEntity>>
+
+    /** Home (Archived screen): groups where [userId] is active but has archived their view, newest first. */
+    @Query(
+        """
+        SELECT g.* FROM groups g
+        INNER JOIN members m ON m.group_id = g.id
+        WHERE m.user_id = :userId
+          AND m.status = 'ACTIVE'
+          AND m.archived_at IS NOT NULL
+          AND g.deleted_at IS NULL
+        ORDER BY g.created_at DESC
+        """
+    )
+    fun observeArchivedGroupsForUser(userId: String): Flow<List<GroupEntity>>
+
+    /** Rotate a group's invite token (Group settings → "Rotate"). */
+    @Query("UPDATE groups SET invite_token = :token, updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
+    suspend fun updateInviteToken(id: String, token: String, ts: Long)
 
     // --- Writes ---------------------------------------------------------------------------------
 

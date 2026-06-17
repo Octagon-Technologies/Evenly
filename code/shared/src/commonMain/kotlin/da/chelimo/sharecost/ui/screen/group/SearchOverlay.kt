@@ -17,15 +17,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import da.chelimo.sharecost.ui.components.AvatarSize
 import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
@@ -38,11 +36,30 @@ import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-/** 8 · Search overlay (design/src/screens-group2.jsx). */
+/** A matched expense in the search overlay. */
+data class SearchExpenseUi(
+    val id: String,
+    val title: String,
+    val sub: String,
+    val remaining: Double,
+    val original: Double,
+    val currencySymbol: String = "$",
+)
+
+/** A matched member in the search overlay. */
+data class SearchMemberUi(val name: String, val sub: String, val me: Boolean = false)
+
+/** 8 · Search overlay (design/src/screens-group2.jsx) — wired to the real group feed (F6). */
 @Composable
-fun SearchOverlay(onBack: () -> Unit = {}, onResult: () -> Unit = {}) {
+fun SearchOverlay(
+    query: String = "",
+    onQueryChange: (String) -> Unit = {},
+    expenseResults: List<SearchExpenseUi> = emptyList(),
+    memberResults: List<SearchMemberUi> = emptyList(),
+    onBack: () -> Unit = {},
+    onOpenExpense: (String) -> Unit = {},
+) {
     val c = ShareCostTheme.colors
-    var query by remember { mutableStateOf("tax") }
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         Row(
             Modifier.fillMaxWidth().background(c.page).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -50,26 +67,55 @@ fun SearchOverlay(onBack: () -> Unit = {}, onResult: () -> Unit = {}) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             ScTextField(
-                query, { query = it }, modifier = Modifier.weight(1f), minHeight = 44.dp,
+                query, onQueryChange, modifier = Modifier.weight(1f), minHeight = 44.dp,
                 leading = { ScIcon(ScIcons.Search, size = 18.dp, tint = c.ink3) },
                 placeholder = "Search expenses, members…",
             )
             ScButton("Cancel", onBack, variant = ButtonVariant.Text)
         }
         ScDivider()
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            ScSectionLabel("Expenses", Modifier.padding(start = 12.dp, top = 10.dp))
-            ScExpenseRow("Tax-included dinner", "Andrew paid · you owe \$24.00", icon = ScIcons.Food, remaining = money(24.0), original = money(96.0), onClick = onResult)
-            ScExpenseRow("Taxi to cenotes", "Bob paid · you owe \$9.00", icon = ScIcons.Car, remaining = money(9.0), original = money(36.0), onClick = onResult)
-            ScSectionLabel("Members", Modifier.padding(start = 12.dp, top = 14.dp))
-            ResultRow(onResult, leading = { ScAvatar("Maya", size = da.chelimo.sharecost.ui.components.AvatarSize.Sm) }, title = "Maya", sub = "4 expenses match")
-            ScSectionLabel("Categories", Modifier.padding(start = 12.dp, top = 14.dp))
-            ResultRow(
-                onResult,
-                leading = { Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(c.surface), contentAlignment = Alignment.Center) { ScIcon(ScIcons.Ticket, size = 20.dp, tint = c.ink2) } },
-                title = "Taxes & fees", sub = "\$38.40 across 3 expenses",
-            )
+        val trimmed = query.trim()
+        when {
+            trimmed.isEmpty() -> Hint("Search this group", "Find an expense by name or a member to see their share.")
+            expenseResults.isEmpty() && memberResults.isEmpty() ->
+                Hint("No matches", "Nothing here matches “$trimmed”.")
+            else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                if (expenseResults.isNotEmpty()) {
+                    ScSectionLabel("Expenses", Modifier.padding(start = 12.dp, top = 10.dp))
+                    expenseResults.forEach { r ->
+                        ScExpenseRow(
+                            r.title, r.sub, icon = ScIcons.Receipt,
+                            remaining = money(r.remaining, r.currencySymbol),
+                            original = money(r.original, r.currencySymbol),
+                            onClick = { onOpenExpense(r.id) },
+                        )
+                    }
+                }
+                if (memberResults.isNotEmpty()) {
+                    ScSectionLabel("Members", Modifier.padding(start = 12.dp, top = 14.dp))
+                    memberResults.forEach { m ->
+                        ResultRow(
+                            onClick = {},
+                            leading = { ScAvatar(m.name, me = m.me, size = AvatarSize.Sm) },
+                            title = m.name, sub = m.sub,
+                        )
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun Hint(title: String, body: String) {
+    val c = ShareCostTheme.colors
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+    ) {
+        Text(title, color = c.ink, style = MaterialTheme.typography.titleSmall, textAlign = TextAlign.Center)
+        Text(body, color = c.ink2, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
     }
 }
 
@@ -93,5 +139,11 @@ private fun ResultRow(onClick: () -> Unit, leading: @Composable () -> Unit, titl
 @Preview
 @Composable
 private fun SearchPreview() {
-    ShareCostTheme { SearchOverlay() }
+    ShareCostTheme {
+        SearchOverlay(
+            query = "din",
+            expenseResults = listOf(SearchExpenseUi("1", "Dinner at La Negra", "Andrew paid", 24.0, 96.0)),
+            memberResults = listOf(SearchMemberUi("Maya", "2 expenses")),
+        )
+    }
 }

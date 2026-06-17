@@ -20,6 +20,10 @@ interface MemberDao {
     @Query("SELECT * FROM members WHERE group_id = :groupId AND user_id = :userId")
     suspend fun getMember(groupId: String, userId: String): MemberEntity?
 
+    /** Every local row — the push side of sync. */
+    @Query("SELECT * FROM members")
+    suspend fun allForSync(): List<MemberEntity>
+
     @Query(
         """
         SELECT * FROM members
@@ -53,7 +57,8 @@ interface MemberDao {
     @Query(
         """
         SELECT m.user_id, u.display_name, COALESCE(u.is_placeholder, 0) AS is_placeholder,
-               m.is_admin, m.joined_at
+               m.is_admin, m.joined_at,
+               u.venmo_handle, u.cashapp_handle, u.paypal_handle, u.zelle_handle
         FROM members m
         LEFT JOIN users u ON u.id = m.user_id
         WHERE m.group_id = :groupId AND m.status = 'ACTIVE'
@@ -65,4 +70,8 @@ interface MemberDao {
     /** Archive/unarchive a member's view of a group (04 §2.3 `set_archive`). */
     @Query("UPDATE members SET archived_at = :archivedAt, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId")
     suspend fun setArchived(groupId: String, userId: String, archivedAt: Long?, ts: Long)
+
+    /** Soft-remove a member by user (admin removes someone, or a placeholder is merged on reconcile). */
+    @Query("UPDATE members SET status = 'LEFT', left_at = :ts, is_admin = 0, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId")
+    suspend fun markLeftByUser(groupId: String, userId: String, ts: Long)
 }

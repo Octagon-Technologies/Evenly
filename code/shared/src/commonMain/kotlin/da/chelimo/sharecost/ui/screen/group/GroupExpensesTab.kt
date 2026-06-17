@@ -71,11 +71,13 @@ fun GroupExpensesTab(
     days: List<ExpenseDayUi> = GroupSamples.days,
     drafts: Int = 1,
     offline: Boolean = false,
+    filterActive: Boolean = false,
     onOpenGroup: () -> Unit = {},
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
     onSearch: () -> Unit = {},
     onFilter: () -> Unit = {},
+    onClearFilter: () -> Unit = {},
     onOpenDrafts: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
@@ -91,19 +93,41 @@ fun GroupExpensesTab(
         )
         if (offline) ScBanner("Offline — your changes will sync.")
         ScSubTabs(tabs = listOf("Active", "All", "Settled"), selected = sub, onSelect = { sub = it })
+        if (filterActive) FilterChipRow(onClearFilter)
 
-        when (state) {
-            ExpensesState.Loading -> Column(Modifier.padding(top = 8.dp)) { repeat(5) { ScSkeletonRow() } }
-            ExpensesState.Empty -> ScEmptyState(
+        // The sub-tab narrows by settlement status; drop days that have nothing under the active view.
+        val visibleDays = days.mapNotNull { day ->
+            val active = if (sub == "Settled") emptyList() else day.items.filter { !it.settled }
+            val settled = if (sub == "Active") emptyList() else day.items.filter { it.settled }
+            if (active.isEmpty() && settled.isEmpty()) null else VisibleDay(day.label, active, settled)
+        }
+
+        when {
+            state == ExpensesState.Loading -> Column(Modifier.padding(top = 8.dp)) { repeat(5) { ScSkeletonRow() } }
+            filterActive && visibleDays.isEmpty() -> ScEmptyState(
+                icon = ScIcons.Filter,
+                title = "No matching expenses",
+                text = "No expenses match the current filter. Clear it to see everything.",
+                ctaText = "Clear filters",
+                onCta = onClearFilter,
+            )
+            state == ExpensesState.Empty -> ScEmptyState(
                 icon = ScIcons.Receipt,
                 title = "No expenses yet",
                 text = "Add the first shared cost and ShareCost tracks who owes whom.",
                 ctaText = "Add expense",
                 onCta = onAdd,
             )
-            ExpensesState.Populated -> Box(Modifier.weight(1f)) {
+            visibleDays.isEmpty() -> ScEmptyState(
+                icon = ScIcons.Receipt,
+                title = "Nothing here",
+                text = "No ${sub.lowercase()} expenses in this group yet.",
+                ctaText = "Add expense",
+                onCta = onAdd,
+            )
+            else -> Box(Modifier.weight(1f)) {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    if (drafts > 0) {
+                    if (drafts > 0 && !filterActive && sub != "Settled") {
                         item {
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)
@@ -119,15 +143,19 @@ fun GroupExpensesTab(
                             }
                         }
                     }
-                    days.forEach { day ->
+                    visibleDays.forEach { day ->
                         stickyHeader(key = day.label) { ScDayHeader(day.label) }
-                        val active = day.items.filter { !it.settled }
-                        itemsIndexed(active, key = { _, it -> it.id }) { i, it ->
+                        itemsIndexed(day.active, key = { _, it -> it.id }) { i, it ->
                             Box(if (i > 0) Modifier.topHairline(c.border) else Modifier) { ExpenseRowFrom(it, onOpenExpense) }
                         }
-                        val settled = day.items.filter { it.settled }
-                        if (settled.isNotEmpty()) {
-                            item(key = "settled-${day.label}") { SettledTray(settled, onOpenExpense) }
+                        if (day.settled.isNotEmpty()) {
+                            if (sub == "Settled") {
+                                itemsIndexed(day.settled, key = { _, it -> "s-${it.id}" }) { i, it ->
+                                    Box(if (i > 0 || day.active.isNotEmpty()) Modifier.topHairline(c.border) else Modifier) { ExpenseRowFrom(it, onOpenExpense) }
+                                }
+                            } else {
+                                item(key = "settled-${day.label}") { SettledTray(day.settled, onOpenExpense) }
+                            }
                         }
                     }
                     item { Spacer(Modifier.height(150.dp)) }
@@ -135,6 +163,26 @@ fun GroupExpensesTab(
                 ScFab(onAdd, Modifier.align(Alignment.BottomEnd).padding(16.dp))
             }
         }
+    }
+}
+
+/** A day section narrowed to the current sub-tab (Active/All/Settled). */
+private data class VisibleDay(val label: String, val active: List<ExpenseItemUi>, val settled: List<ExpenseItemUi>)
+
+/** Thin "Filtered · Clear" affordance shown above the feed when a filter is applied. */
+@Composable
+private fun FilterChipRow(onClear: () -> Unit) {
+    val c = ShareCostTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ScIcon(ScIcons.Filter, size = 14.dp, tint = c.blue)
+            Text("Filtered", color = c.ink2, fontSize = 13.sp)
+        }
+        Text("Clear", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onClear() })
     }
 }
 

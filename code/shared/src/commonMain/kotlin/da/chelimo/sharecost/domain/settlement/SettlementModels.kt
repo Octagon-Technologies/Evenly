@@ -34,4 +34,8 @@ data class NewSettlement(
     val createdBy: UserId,
     val notes: String? = null,
     val paymentApp: String? = null,
+    /** Whether a payment-app deep link was opened for this settlement, and whether the user then
+     *  confirmed it went through (03 §5.2). [deepLinkSucceeded] is null when no link was attempted. */
+    val deepLinkAttempted: Boolean = false,
+    val deepLinkSucceeded: Boolean? = null,
 )

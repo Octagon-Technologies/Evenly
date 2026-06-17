@@ -7,10 +7,13 @@ import da.chelimo.sharecost.core.error.asOk
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.SettlementId
 import da.chelimo.sharecost.core.time.nowEpochMillis
+import da.chelimo.sharecost.data.db.dao.HistoryEventDao
 import da.chelimo.sharecost.data.db.dao.SettlementDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
+import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.data.db.entity.SettlementAllocationEntity
 import da.chelimo.sharecost.data.db.entity.SettlementEntity
+import da.chelimo.sharecost.domain.activity.HistoryEventType
 import da.chelimo.sharecost.domain.repository.SettlementRepository
 import da.chelimo.sharecost.domain.settlement.NewSettlement
 import da.chelimo.sharecost.domain.settlement.SettlementRecord
@@ -33,6 +36,8 @@ class SettlementRepositoryImpl(
     private val settlementDao: SettlementDao,
     private val shareDao: ShareDao,
     private val clock: Clock = Clock.System,
+    // Optional activity log (F5). Null in unit tests => no history rows; production DI wires it.
+    private val historyEventDao: HistoryEventDao? = null,
 ) : SettlementRepository {
 
     override fun observeSettlements(groupId: GroupId): Flow<List<SettlementRecord>> =
@@ -68,6 +73,8 @@ class SettlementRepositoryImpl(
             paymentCurrency = input.paymentCurrency,
             paymentAmountSubunits = input.paymentAmountSubunits,
             paymentApp = input.paymentApp,
+            deepLinkAttempted = input.deepLinkAttempted,
+            deepLinkSucceeded = input.deepLinkSucceeded,
             settledAt = now,
             notes = input.notes,
             createdBy = input.createdBy.value,
@@ -87,6 +94,22 @@ class SettlementRepositoryImpl(
         }
         val affectedExpenseIds = allocations.mapNotNull { expenseIdByShare[it.shareId] }.distinct()
         settlementDao.applySettlement(settlement, allocationEntities, affectedExpenseIds, now)
+        // One SETTLED activity-log row per expense this payment touched (no-op when the log isn't wired).
+        historyEventDao?.let { dao ->
+            affectedExpenseIds.forEach { expenseId ->
+                dao.upsert(
+                    HistoryEventEntity(
+                        id = newId(),
+                        expenseId = expenseId,
+                        groupId = input.groupId.value,
+                        actorUserId = input.createdBy.value,
+                        type = HistoryEventType.SETTLED.name,
+                        detail = null,
+                        createdAt = now,
+                    ),
+                )
+            }
+        }
         return settlement.toDomain().asOk()
     }
 

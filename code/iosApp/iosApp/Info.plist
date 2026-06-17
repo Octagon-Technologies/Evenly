@@ -4,5 +4,24 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- OAuth / magic-link redirect target (sharecost://login-callback). Must match the Auth deep
+	     link in SupabaseClientFactory + the Supabase Auth URL allow-list. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>da.chelimo.sharecost.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sharecost</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Payment-app deep links the settle flow opens (iOS requires apps to declare schemes it queries). -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>venmo</string>
+		<string>cashapp</string>
+	</array>
 </dict>
 </plist>

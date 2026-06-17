@@ -53,27 +53,19 @@ import da.chelimo.sharecost.ui.theme.ShareCostTheme
  */
 @Composable
 fun ReconcileScreen(
+    groupName: String = "Tulum Trip",
+    people: List<ReconcilePerson> = DemoReconcilePeople,
     onBack: () -> Unit = {},
     onConfirm: (List<String>) -> Unit = {},
     onNotMe: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
-
-    // Demo placeholder data (ported from the web design: name + the expenses logged under it).
-    val people = remember {
-        listOf(
-            ReconcilePerson("Alex R.", listOf("Dinner at La Negra" to 24.0, "Airport taxi" to 14.5, "Cenote day trip" to 18.0)),
-            ReconcilePerson("A. Rivera", listOf("Supermarket run" to 9.4, "Beach drinks" to 12.0)),
-            ReconcilePerson("Alejandro", listOf("Sunset cruise" to 31.0)),
-        )
-    }
-    // Seed the first two as selected, mirroring the design's initial state.
-    var selected by remember { mutableStateOf(setOf(people[0].name, people[1].name)) }
+    var selected by remember(people) { mutableStateOf(emptySet<String>()) }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         ScTopBar(
             title = "Reconcile",
-            subtitle = "Tulum Trip",
+            subtitle = groupName,
             navIcon = { ScIconButton(ScIcons.Close, onClick = onBack) },
         )
 
@@ -100,12 +92,20 @@ fun ReconcileScreen(
                 )
             }
 
+            if (people.isEmpty()) {
+                Text(
+                    "No unclaimed names to reconcile in this group.",
+                    color = c.ink2,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             people.forEach { person ->
                 ReconcileCard(
                     person = person,
-                    selected = person.name in selected,
+                    selected = person.id in selected,
                     onToggle = {
-                        selected = if (person.name in selected) selected - person.name else selected + person.name
+                        selected = if (person.id in selected) selected - person.id else selected + person.id
                     },
                 )
             }
@@ -132,7 +132,14 @@ fun ReconcileScreen(
     }
 }
 
-private data class ReconcilePerson(val name: String, val expenses: List<Pair<String, Double>>)
+/** A claimable placeholder identity: its user id, display name, and the expenses logged under it. */
+data class ReconcilePerson(val id: String, val name: String, val expenses: List<Pair<String, Double>>)
+
+internal val DemoReconcilePeople = listOf(
+    ReconcilePerson("p1", "Alex R.", listOf("Dinner at La Negra" to 24.0, "Airport taxi" to 14.5, "Cenote day trip" to 18.0)),
+    ReconcilePerson("p2", "A. Rivera", listOf("Supermarket run" to 9.4, "Beach drinks" to 12.0)),
+    ReconcilePerson("p3", "Alejandro", listOf("Sunset cruise" to 31.0)),
+)
 
 /**
  * One claimable placeholder: the display name + a horizontally-scrolling strip of expense thumbnails

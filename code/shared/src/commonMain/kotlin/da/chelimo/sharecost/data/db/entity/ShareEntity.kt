@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * Local mirror of `shares` (02 §3.8). One row per participant of an expense.
@@ -22,6 +23,7 @@ import androidx.room.PrimaryKey
         Index(value = ["user_id"]),
     ],
 )
+@Serializable
 data class ShareEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")

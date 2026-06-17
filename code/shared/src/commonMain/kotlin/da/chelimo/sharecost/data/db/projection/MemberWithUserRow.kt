@@ -13,4 +13,8 @@ data class MemberWithUserRow(
     @ColumnInfo(name = "is_placeholder") val isPlaceholder: Boolean,
     @ColumnInfo(name = "is_admin") val isAdmin: Boolean,
     @ColumnInfo(name = "joined_at") val joinedAt: Long,
+    @ColumnInfo(name = "venmo_handle") val venmoHandle: String? = null,
+    @ColumnInfo(name = "cashapp_handle") val cashappHandle: String? = null,
+    @ColumnInfo(name = "paypal_handle") val paypalHandle: String? = null,
+    @ColumnInfo(name = "zelle_handle") val zelleHandle: String? = null,
 )

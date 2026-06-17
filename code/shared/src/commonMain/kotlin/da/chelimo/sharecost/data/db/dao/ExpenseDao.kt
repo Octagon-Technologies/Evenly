@@ -21,6 +21,14 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE id = :id")
     suspend fun getById(id: String): ExpenseEntity?
 
+    /** All non-deleted expenses in a group, one-shot — the input to a retroactive-member sweep (03 §8.1). */
+    @Query("SELECT * FROM expenses WHERE group_id = :groupId AND deleted_at IS NULL ORDER BY expense_date ASC, id ASC")
+    suspend fun getActiveByGroup(groupId: String): List<ExpenseEntity>
+
+    /** Every local row (incl. soft-deleted) — the push side of sync. */
+    @Query("SELECT * FROM expenses")
+    suspend fun allForSync(): List<ExpenseEntity>
+
     @Query("SELECT * FROM expenses WHERE id = :id AND deleted_at IS NULL")
     fun observeById(id: String): Flow<ExpenseEntity?>
 
@@ -41,6 +49,10 @@ interface ExpenseDao {
     /** Persist the recomputed denormalized status (02 §7.5). */
     @Query("UPDATE expenses SET status = :status, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, updatedAt: Long)
+
+    /** Reassign every expense a user paid in a group to another payer — reconcile placeholder → real (03 §8). */
+    @Query("UPDATE expenses SET payer_user_id = :toUserId, updated_at = :now, row_version = row_version + 1 WHERE group_id = :groupId AND payer_user_id = :fromUserId")
+    suspend fun reassignPayerInGroup(groupId: String, fromUserId: String, toUserId: String, now: Long)
 
     // --- Shares (declared here so the expense + its shares write in one transaction) ------------
 

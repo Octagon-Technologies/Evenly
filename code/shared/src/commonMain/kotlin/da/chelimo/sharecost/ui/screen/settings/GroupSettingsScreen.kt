@@ -41,10 +41,14 @@ import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScChip
+import da.chelimo.sharecost.ui.components.ScField
 import da.chelimo.sharecost.ui.components.ScIconButton
+import da.chelimo.sharecost.ui.components.ScModalScaffold
 import da.chelimo.sharecost.ui.components.ScProgress
 import da.chelimo.sharecost.ui.components.ScRadio
 import da.chelimo.sharecost.ui.components.ScSectionLabel
+import da.chelimo.sharecost.ui.components.ScTextField
+import da.chelimo.sharecost.ui.components.ScToggle
 import da.chelimo.sharecost.ui.components.ScTopBar
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
@@ -52,7 +56,7 @@ import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
 /** A member as shown on the Group settings roster. [role] is "Admin", "Placeholder", or "". */
-data class MemberRowUi(val name: String, val role: String = "", val isMe: Boolean = false)
+data class MemberRowUi(val userId: String, val name: String, val role: String = "", val isMe: Boolean = false)
 
 /** 17 · Group settings (design/src/screens-settings.jsx). */
 @Composable
@@ -61,21 +65,28 @@ fun GroupSettingsScreen(
     groupEmoji: String = "🏝️",
     baseCurrency: String = "USD",
     members: List<MemberRowUi> = listOf(
-        MemberRowUi("Alex Rivera", "Admin", isMe = true),
-        MemberRowUi("Andrew Park", "Admin"),
-        MemberRowUi("Bob Lin"),
-        MemberRowUi("Maya Kapoor"),
-        MemberRowUi("Tyler Reed", "Placeholder"),
-        MemberRowUi("Nina Alvarez"),
-        MemberRowUi("Omar Haddad"),
-        MemberRowUi("Priya Singh"),
-        MemberRowUi("Quentin Lee"),
-        MemberRowUi("Rosa Mendez"),
+        MemberRowUi("u1", "Alex Rivera", "Admin", isMe = true),
+        MemberRowUi("u2", "Andrew Park", "Admin"),
+        MemberRowUi("u3", "Bob Lin"),
+        MemberRowUi("u4", "Maya Kapoor"),
+        MemberRowUi("u5", "Tyler Reed", "Placeholder"),
     ),
+    inviteLink: String = "sharecost.app/j/8Kk2-Tulum",
     onBack: () -> Unit = {},
+    onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
+    onRename: (String) -> Unit = {},
+    onCopyInvite: () -> Unit = {},
+    onRotateInvite: () -> Unit = {},
+    onRemoveMember: (MemberRowUi) -> Unit = {},
+    onReconcile: () -> Unit = {},
+    onArchive: () -> Unit = {},
+    onLeave: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var reminder by remember { mutableStateOf("Weekly") }
+    var showAdd by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    var removeTarget by remember { mutableStateOf<MemberRowUi?>(null) }
 
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         ScTopBar(
@@ -88,7 +99,7 @@ fun GroupSettingsScreen(
         ) {
             // ── About ──────────────────────────────────────────
             SettingsGroup("About") {
-                SettingsRow(icon = ScIcons.Sparkle, label = "Emoji & name", value = "$groupEmoji $groupName")
+                SettingsRow(icon = ScIcons.Sparkle, label = "Emoji & name", value = "$groupEmoji $groupName", onClick = { showRename = true })
                 SettingsRow(icon = ScIcons.Globe, label = "Base currency", value = baseCurrency, last = true)
             }
             Text(
@@ -115,7 +126,7 @@ fun GroupSettingsScreen(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Invite link", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "sharecost.app/j/8Kk2-Tulum",
+                                inviteLink,
                                 color = c.ink2,
                                 fontSize = 12.sp,
                                 fontFamily = ShareCostTheme.monoFamily,
@@ -125,7 +136,7 @@ fun GroupSettingsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScButton(
                             "Copy link",
-                            {},
+                            onCopyInvite,
                             modifier = Modifier.weight(1f),
                             variant = ButtonVariant.Secondary,
                             leadingIcon = ScIcons.Copy,
@@ -133,7 +144,7 @@ fun GroupSettingsScreen(
                         )
                         ScButton(
                             "Rotate",
-                            {},
+                            onRotateInvite,
                             modifier = Modifier.weight(1f),
                             variant = ButtonVariant.Secondary,
                             leadingIcon = ScIcons.Reload,
@@ -149,7 +160,7 @@ fun GroupSettingsScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth()
                             .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
-                            .clickable {}
+                            .clickable(enabled = !m.isMe) { removeTarget = m }
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -172,6 +183,22 @@ fun GroupSettingsScreen(
                         ScIcon(ScIcons.ChevR, size = 15.dp, tint = c.ink3)
                     }
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .then(if (members.isNotEmpty()) Modifier.topHairline(c.border) else Modifier)
+                        .clickable { showAdd = true }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blue)
+                    Text("Add member", color = c.blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            // ── Reconcile ──────────────────────────────────────
+            SettingsGroup("Reconcile") {
+                SettingsRow(icon = ScIcons.Users, label = "Claim a past member as me", last = true, onClick = onReconcile)
             }
 
             // ── Conflict reminders ─────────────────────────────
@@ -220,11 +247,55 @@ fun GroupSettingsScreen(
 
             // ── Danger zone ────────────────────────────────────
             SettingsGroup("Danger zone") {
-                SettingsRow(icon = ScIcons.Archive, label = "Archive group")
-                SettingsRow(icon = ScIcons.Back, label = "Leave group", danger = true, last = true, showChevron = false)
+                SettingsRow(icon = ScIcons.Archive, label = "Archive group", onClick = onArchive)
+                SettingsRow(icon = ScIcons.Back, label = "Leave group", danger = true, last = true, showChevron = false, onClick = onLeave)
             }
 
             Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (showAdd) {
+        var name by remember { mutableStateOf("") }
+        var addToPast by remember { mutableStateOf(false) }
+        ScModalScaffold(onDismiss = { showAdd = false }) {
+            Text("Add a member", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            ScField("Name") { ScTextField(name, { name = it }, placeholder = "e.g. Tyler") }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Add to all past expenses", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Even splits update automatically; others become conflicts to resolve.", color = c.ink2, fontSize = 12.sp)
+                }
+                ScToggle(addToPast, { addToPast = it })
+            }
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                ScButton("Add", { if (name.isNotBlank()) { onAddMember(name.trim(), addToPast); showAdd = false } }, enabled = name.isNotBlank())
+            }
+        }
+    }
+
+    if (showRename) {
+        var draft by remember { mutableStateOf(groupName) }
+        ScModalScaffold(onDismiss = { showRename = false }) {
+            Text("Rename group", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            ScField("Name") { ScTextField(draft, { draft = it }, placeholder = "Group name") }
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                ScButton("Save", { if (draft.isNotBlank()) { onRename(draft.trim()); showRename = false } }, enabled = draft.isNotBlank())
+            }
+        }
+    }
+
+    removeTarget?.let { target ->
+        ScModalScaffold(onDismiss = { removeTarget = null }) {
+            Text("Remove ${target.name}?", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+            Text("They'll be removed from the group. Their past expenses and balances stay intact.", color = c.ink2, fontSize = 13.sp)
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                ScButton("Remove", { onRemoveMember(target); removeTarget = null }, variant = ButtonVariant.Danger)
+            }
         }
     }
 }

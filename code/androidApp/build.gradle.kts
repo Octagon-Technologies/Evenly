@@ -19,6 +19,10 @@ dependencies {
 
     implementation(libs.androidx.activity.compose)
 
+    // Firebase Cloud Messaging — the host-registered messaging service forwards into the shared PushBus (F7).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+
     implementation(libs.compose.uiToolingPreview)
     debugImplementation(libs.compose.uiTooling)
 }

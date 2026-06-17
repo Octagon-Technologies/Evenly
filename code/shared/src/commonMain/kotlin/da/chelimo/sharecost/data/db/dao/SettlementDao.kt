@@ -27,6 +27,10 @@ interface SettlementDao {
     @Query("SELECT * FROM settlements WHERE id = :id")
     suspend fun getById(id: String): SettlementEntity?
 
+    /** Every local row — the push side of sync. */
+    @Query("SELECT * FROM settlements")
+    suspend fun allForSync(): List<SettlementEntity>
+
     @Query(
         """
         SELECT * FROM settlements

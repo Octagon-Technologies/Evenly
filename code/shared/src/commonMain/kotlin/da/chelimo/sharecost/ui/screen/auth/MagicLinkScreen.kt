@@ -46,12 +46,15 @@ enum class MagicLinkState { Input, Loading, Sent }
 @Composable
 fun MagicLinkScreen(
     state: MagicLinkState = MagicLinkState.Input,
+    error: String? = null,
     onBack: () -> Unit = {},
     onSend: (String) -> Unit = {},
+    onVerify: (String) -> Unit = {},
     onResend: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
-    var email by remember { mutableStateOf("alex@hey.com") }
+    var email by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding().padding(horizontal = 24.dp)) {
         Box(Modifier.padding(vertical = 8.dp)) { ScIconButton(ScIcons.Back, onBack) }
 
@@ -67,14 +70,19 @@ fun MagicLinkScreen(
                 Text("Check your email", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.ink)
                 Text(
                     buildAnnotatedString {
-                        append("We sent a magic link to ")
+                        append("We sent a magic link + 6-digit code to ")
                         withStyle(SpanStyle(color = c.ink, fontWeight = FontWeight.SemiBold)) { append(email) }
-                        append(". Tap it to sign in — no password needed.")
+                        append(". Tap the link, or enter the code below.")
                     },
                     color = c.ink2, fontSize = 15.sp, lineHeight = 22.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.widthIn(max = 280.dp),
                 )
-                ScButton("Resend link", onResend, variant = ButtonVariant.Text)
+                ScField("6-digit code") {
+                    ScTextField(code, { code = it.filter { ch -> ch.isDigit() }.take(6) }, placeholder = "123456", keyboardType = KeyboardType.Number)
+                }
+                error?.let { Text(it, color = c.danger, fontSize = 13.sp, textAlign = TextAlign.Center) }
+                ScButton("Verify & sign in", { onVerify(code) }, enabled = code.length == 6)
+                ScButton("Resend code", onResend, variant = ButtonVariant.Text)
             }
         } else {
             Column(
@@ -88,7 +96,8 @@ fun MagicLinkScreen(
                 ScField("Email address") {
                     ScTextField(email, { email = it }, placeholder = "you@email.com", keyboardType = KeyboardType.Email)
                 }
-                ScButton(onClick = { onSend(email) }, enabled = state != MagicLinkState.Loading) {
+                error?.let { Text(it, color = c.danger, fontSize = 13.sp) }
+                ScButton(onClick = { onSend(email) }, enabled = state != MagicLinkState.Loading && email.contains("@")) {
                     if (state == MagicLinkState.Loading) {
                         ScSpinner(size = 18.dp)
                         Text("Sending…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)

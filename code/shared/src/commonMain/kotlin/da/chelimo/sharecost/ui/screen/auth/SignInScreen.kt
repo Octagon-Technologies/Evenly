@@ -50,8 +50,8 @@ fun SignInScreen(
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 8.dp)) {
             ScOAuthButton("Continue with Google", ScIcons.Google, { onProvider("google") }, iconTint = c.ink)
-            ScOAuthButton("Continue with Apple", ScIcons.Apple, { onProvider("apple") }, iconTint = c.ink)
-            ScOAuthButton("Continue with Facebook", ScIcons.Facebook, { onProvider("facebook") }, iconTint = c.blue)
+            // Apple sign-in needs an Apple Developer account to configure; greyed out until that's set up.
+            ScOAuthButton("Continue with Apple", ScIcons.Apple, {}, iconTint = c.ink, enabled = false)
             ScOAuthButton("Continue with Email", ScIcons.Mail, { onProvider("mail") }, iconTint = c.ink)
         }
         Row(

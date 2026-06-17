@@ -3,6 +3,7 @@ package da.chelimo.sharecost.ui.screen.expense
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,8 +28,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import da.chelimo.sharecost.ui.components.ScTextField
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +73,15 @@ data class DetailShareUi(
     val payer: Boolean = false,
 )
 
+/** A receipt thumbnail (F5). [url] null = still uploading / unavailable; [isPdf] renders a file tile. */
+data class ReceiptUi(val id: String, val url: String?, val isPdf: Boolean = false)
+
+/** A comment in the thread (F5). [timeLabel] is a short relative stamp ("2h"). */
+data class CommentUi(val id: String, val authorName: String, val body: String, val timeLabel: String, val me: Boolean)
+
+/** One activity-log entry (F5): a rendered sentence + a short relative stamp. */
+data class HistoryUi(val text: String, val timeLabel: String)
+
 /** 12 · Expense detail (design/src/screens-expense.jsx). */
 @Composable
 fun ExpenseDetailScreen(
@@ -80,9 +95,20 @@ fun ExpenseDetailScreen(
     currencyCode: String = "USD",
     splitLabel: String = "Split between 4 · even",
     splitRows: List<DetailShareUi> = DemoSplit,
+    receipts: List<ReceiptUi> = emptyList(),
+    comments: List<CommentUi> = DemoComments,
+    historyEvents: List<HistoryUi> = DemoHistory,
+    commentDraft: String = "",
+    uploadingReceipt: Boolean = false,
+    onCommentDraftChange: (String) -> Unit = {},
+    onSendComment: () -> Unit = {},
+    onAddReceipt: () -> Unit = {},
+    onOpenReceipt: (ReceiptUi) -> Unit = {},
     onBack: () -> Unit = {},
     onSettleThis: () -> Unit = {},
     onReload: () -> Unit = {},
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var overflow by remember { mutableStateOf(false) }
@@ -130,16 +156,9 @@ fun ExpenseDetailScreen(
                 // receipts
                 Column {
                     ScSectionLabel("Receipts")
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        repeat(2) {
-                            Box(Modifier.size(width = 84.dp, height = 108.dp).clip(RoundedCornerShape(12.dp)).background(c.surface).border(1.dp, c.border, RoundedCornerShape(12.dp)), contentAlignment = Alignment.BottomCenter) {
-                                Text("receipt", color = c.ink3, fontSize = 10.sp, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.padding(bottom = 8.dp))
-                            }
-                        }
-                        Column(Modifier.size(width = 84.dp, height = 108.dp).clip(RoundedCornerShape(12.dp)).background(c.surface).clickable { }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            ScIcon(ScIcons.Camera, size = 22.dp, tint = c.ink2)
-                            Text("Add", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        receipts.forEach { r -> ReceiptThumb(r, onClick = { onOpenReceipt(r) }) }
+                        AddReceiptTile(uploading = uploadingReceipt, onClick = onAddReceipt)
                     }
                 }
 
@@ -180,32 +199,62 @@ fun ExpenseDetailScreen(
                 // comments
                 Column {
                     ScSectionLabel("Comments")
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CommentBubble("Maya", "I already sent Andrew \$16 in cash 🙌", "2h", me = false)
-                        CommentBubble("You", "Nice — I'll settle my half tonight.", "1h", me = true)
+                    if (comments.isEmpty()) {
+                        Text("No comments yet — start the conversation.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(vertical = 2.dp))
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            comments.forEach { cm -> CommentBubble(cm.authorName, cm.body, cm.timeLabel, me = cm.me) }
+                        }
                     }
                     Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(c.page).border(1.dp, c.borderStrong, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            Text("Add a comment…", color = c.ink3, fontSize = 15.sp)
-                        }
-                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(c.blue).clickable { }, contentAlignment = Alignment.Center) {
+                        ScTextField(
+                            value = commentDraft,
+                            onValueChange = onCommentDraftChange,
+                            modifier = Modifier.weight(1f),
+                            placeholder = "Add a comment…",
+                            singleLine = false,
+                            minHeight = 44.dp,
+                        )
+                        val canSend = commentDraft.isNotBlank()
+                        Box(
+                            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(c.blue)
+                                .alpha(if (canSend) 1f else 0.4f)
+                                .clickable(enabled = canSend, onClick = onSendComment),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             ScIcon(ScIcons.Send, size = 18.dp, tint = c.onAccent)
                         }
                     }
                 }
 
-                Collapsible("History", ScIcons.History, "3 events")
-                Collapsible("Refunds", ScIcons.Refund, "None yet")
+                Collapsible("History", ScIcons.History, "${historyEvents.size} ${if (historyEvents.size == 1) "event" else "events"}") {
+                    if (historyEvents.isEmpty()) {
+                        Text("No activity recorded yet.", color = c.ink2, fontSize = 12.sp)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            historyEvents.forEach { ev ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                                    Text(ev.text, color = c.ink2, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                                    Text(ev.timeLabel, color = c.ink3, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                Collapsible("Refunds", ScIcons.Refund, "None yet") {
+                    Text("No refunds on this expense.", color = c.ink2, fontSize = 12.sp)
+                }
             }
         }
     }
 
     if (overflow) {
         ScModalScaffold(onDismiss = { overflow = false }) {
-            listOf(ScIcons.Edit to "Edit", ScIcons.Refund to "Issue refund", ScIcons.Camera to "Add receipt", ScIcons.Share to "Share").forEach { (ic, label) ->
+            OverflowRow(ScIcons.Edit, "Edit", c.ink2, c.ink) { overflow = false; onEdit() }
+            listOf(ScIcons.Refund to "Issue refund", ScIcons.Camera to "Add receipt", ScIcons.Share to "Share").forEach { (ic, label) ->
                 OverflowRow(ic, label, c.ink2, c.ink) { overflow = false }
             }
-            OverflowRow(ScIcons.Trash, "Delete", c.danger, c.danger) { overflow = false }
+            OverflowRow(ScIcons.Trash, "Delete", c.danger, c.danger) { overflow = false; onDelete() }
         }
     }
 }
@@ -242,7 +291,7 @@ private fun CommentBubble(name: String, text: String, time: String, me: Boolean)
 }
 
 @Composable
-private fun Collapsible(title: String, icon: ImageVector, sub: String) {
+private fun Collapsible(title: String, icon: ImageVector, sub: String, content: @Composable () -> Unit) {
     val c = ShareCostTheme.colors
     var open by remember { mutableStateOf(false) }
     ScCard {
@@ -254,8 +303,49 @@ private fun Collapsible(title: String, icon: ImageVector, sub: String) {
         }
         if (open) {
             Box(Modifier.topHairline(c.border).padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp)) {
-                Text("Andrew added this expense · May 23, 8:40 PM", color = c.ink2, fontSize = 12.sp)
+                content()
             }
+        }
+    }
+}
+
+/** A single receipt thumbnail: image via Coil, or a file tile for PDFs / not-yet-resolved URLs. */
+@Composable
+private fun ReceiptThumb(receipt: ReceiptUi, onClick: () -> Unit) {
+    val c = ShareCostTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    val box = Modifier.size(width = 84.dp, height = 108.dp).clip(shape).background(c.surface).border(1.dp, c.border, shape).clickable(onClick = onClick)
+    if (receipt.isPdf || receipt.url == null) {
+        Column(box, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            ScIcon(ScIcons.Receipt, size = 22.dp, tint = c.ink3)
+            Text(if (receipt.isPdf) "PDF" else "receipt", color = c.ink3, fontSize = 10.sp, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.padding(top = 4.dp))
+        }
+    } else {
+        AsyncImage(
+            model = receipt.url,
+            contentDescription = "Receipt",
+            modifier = box,
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+/** The trailing "Add" tile in the receipts strip; shows a spinner while an upload is in flight. */
+@Composable
+private fun AddReceiptTile(uploading: Boolean, onClick: () -> Unit) {
+    val c = ShareCostTheme.colors
+    Column(
+        Modifier.size(width = 84.dp, height = 108.dp).clip(RoundedCornerShape(12.dp)).background(c.surface)
+            .clickable(enabled = !uploading, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (uploading) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = c.blue, strokeWidth = 2.dp)
+            Text("Uploading", color = c.ink2, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+        } else {
+            ScIcon(ScIcons.Camera, size = 22.dp, tint = c.ink2)
+            Text("Add", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -289,6 +379,17 @@ private val DemoSplit = listOf(
     DetailShareUi("Andrew", owedSubunits = 2400, paidSubunits = 2400, remainingSubunits = 0, payer = true),
     DetailShareUi("Bob", owedSubunits = 2400, paidSubunits = 0, remainingSubunits = 2400),
     DetailShareUi("Maya", owedSubunits = 2400, paidSubunits = 1600, remainingSubunits = 800),
+)
+
+private val DemoComments = listOf(
+    CommentUi("1", "Maya", "I already sent Andrew \$16 in cash 🙌", "2h", me = false),
+    CommentUi("2", "You", "Nice — I'll settle my half tonight.", "1h", me = true),
+)
+
+private val DemoHistory = listOf(
+    HistoryUi("Andrew added this expense", "May 23"),
+    HistoryUi("Maya commented", "2h"),
+    HistoryUi("You settled a share", "1h"),
 )
 
 @Preview

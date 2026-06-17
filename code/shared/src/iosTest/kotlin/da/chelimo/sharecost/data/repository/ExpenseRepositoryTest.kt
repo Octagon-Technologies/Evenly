@@ -130,6 +130,29 @@ class ExpenseRepositoryTest {
     }
 
     @Test
+    fun addExpense_preservesRawSplitInputs_forEditReRender() = runTest {
+        // A PERCENT split: the raw percentages must survive the round-trip so the editor can re-render.
+        val created = add(
+            newExpense(
+                amount = 3000,
+                shares = listOf(
+                    NewShare(UserId("u1"), 1500, sharePercentage = 50.0),
+                    NewShare(UserId("u2"), 900, sharePercentage = 30.0),
+                    NewShare(UserId("u3"), 600, sharePercentage = 20.0),
+                ),
+            ).copy(splitMode = "PERCENT"),
+        )
+
+        val detail = repo.observeExpense(created.id).first()
+        assertNotNull(detail)
+        val byUser = detail.shares.associateBy { it.userId.value }
+        assertEquals(50.0, byUser["u1"]?.sharePercentage)
+        assertEquals(30.0, byUser["u2"]?.sharePercentage)
+        assertEquals(20.0, byUser["u3"]?.sharePercentage)
+        assertTrue(detail.shares.all { it.shareUnits == null && it.shareExactSubunits == null })
+    }
+
+    @Test
     fun deleteExpense_softDeletes() = runTest {
         val created = add()
         assertTrue(repo.deleteExpense(created.id) is AppResult.Ok)

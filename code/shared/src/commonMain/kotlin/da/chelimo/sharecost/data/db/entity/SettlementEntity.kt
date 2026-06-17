@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * Local mirror of `settlements` (02 §3.9): a payment event from one member to another. It pays down
@@ -14,6 +15,7 @@ import androidx.room.PrimaryKey
     tableName = "settlements",
     indices = [Index(value = ["group_id", "settled_at"])],
 )
+@Serializable
 data class SettlementEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")

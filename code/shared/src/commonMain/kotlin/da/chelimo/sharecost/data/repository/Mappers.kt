@@ -8,11 +8,14 @@ import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.SettlementEntity
 import da.chelimo.sharecost.data.db.entity.ShareEntity
+import da.chelimo.sharecost.data.db.projection.ConflictWithExpenseRow
 import da.chelimo.sharecost.data.db.projection.MemberWithUserRow
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.ExpenseShare
+import da.chelimo.sharecost.domain.group.Conflict
 import da.chelimo.sharecost.domain.group.Group
 import da.chelimo.sharecost.domain.group.Member
+import da.chelimo.sharecost.domain.settlement.PaymentApp
 import da.chelimo.sharecost.domain.settlement.SettlementRecord
 
 /**
@@ -37,7 +40,17 @@ internal fun MemberWithUserRow.toDomain(): Member = Member(
     isPlaceholder = isPlaceholder,
     isAdmin = isAdmin,
     joinedAt = joinedAt,
+    paymentHandles = paymentHandles(venmoHandle, cashappHandle, paypalHandle, zelleHandle),
 )
+
+/** Folds the four nullable handle columns into a [PaymentApp]-keyed map (only the apps that are set). */
+internal fun paymentHandles(venmo: String?, cashapp: String?, paypal: String?, zelle: String?): Map<PaymentApp, String> =
+    buildMap {
+        venmo?.takeIf { it.isNotBlank() }?.let { put(PaymentApp.VENMO, it) }
+        cashapp?.takeIf { it.isNotBlank() }?.let { put(PaymentApp.CASH_APP, it) }
+        paypal?.takeIf { it.isNotBlank() }?.let { put(PaymentApp.PAYPAL, it) }
+        zelle?.takeIf { it.isNotBlank() }?.let { put(PaymentApp.ZELLE, it) }
+    }
 
 internal fun ExpenseEntity.toDomain(): Expense = Expense(
     id = ExpenseId(id),
@@ -51,6 +64,7 @@ internal fun ExpenseEntity.toDomain(): Expense = Expense(
     splitMode = splitMode,
     status = status,
     notes = notes,
+    categoryId = categoryId,
     createdBy = UserId(createdBy),
     createdAt = createdAt,
     rowVersion = rowVersion,
@@ -61,6 +75,21 @@ internal fun ShareEntity.toDomain(): ExpenseShare = ExpenseShare(
     userId = UserId(userId),
     owedSubunits = shareOwedSubunits,
     remainingSubunits = remainingSubunits,
+    shareUnits = shareUnits,
+    sharePercentage = sharePercentage,
+    shareExactSubunits = shareExactSubunits,
+)
+
+internal fun ConflictWithExpenseRow.toDomain(): Conflict = Conflict(
+    id = id,
+    groupId = GroupId(groupId),
+    expenseId = ExpenseId(expenseId),
+    expenseTitle = expenseTitle,
+    amountSubunits = amountSubunits,
+    currency = currency,
+    addedUserId = UserId(addedUserId),
+    triggeredByUserId = UserId(triggeredByUserId),
+    createdAt = createdAt,
 )
 
 internal fun SettlementEntity.toDomain(): SettlementRecord = SettlementRecord(

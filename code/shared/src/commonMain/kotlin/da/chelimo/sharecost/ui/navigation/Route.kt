@@ -27,14 +27,18 @@ sealed interface Route {
     @Serializable data class Join(val token: String) : Route   // sheet + deep link
 
     // ── Group (single host; tabs are internal state) ───────────────────
-    @Serializable data class GroupHome(val groupId: String, val tab: GroupTab = GroupTab.Expenses) : Route
+    // [tab] is the GroupTab *name* (a plain String) rather than the enum itself: Compose Navigation
+    // can only auto-derive a NavType for an enum via JVM reflection, which Kotlin/Native (iOS) lacks —
+    // an enum arg here crashes the whole NavHost on iOS. String is a built-in NavType on every target.
+    @Serializable data class GroupHome(val groupId: String, val tab: String = "Expenses") : Route
     @Serializable data class Filter(val groupId: String) : Route     // sheet
     @Serializable data class Search(val groupId: String) : Route
-    @Serializable data class IncludeMember(val groupId: String, val expenseId: String, val memberUserId: String) : Route // sheet
+    @Serializable data class IncludeMember(val groupId: String, val conflictId: String, val expenseId: String, val memberUserId: String) : Route // sheet
 
     // ── Expense ────────────────────────────────────────────────────────
     @Serializable data class ExpenseDetail(val groupId: String, val expenseId: String) : Route  // + deep link
     @Serializable data class AddExpense(val groupId: String, val draftId: String? = null) : Route
+    @Serializable data class EditExpense(val groupId: String, val expenseId: String) : Route
 
     // ── Settle ─────────────────────────────────────────────────────────
     @Serializable data class SettleExpense(val groupId: String, val expenseId: String) : Route  // sheet
@@ -44,6 +48,7 @@ sealed interface Route {
     // ── Settings / reconcile ───────────────────────────────────────────
     @Serializable data class GroupSettings(val groupId: String) : Route
     @Serializable data object Profile : Route
+    @Serializable data object PaymentHandles : Route
     @Serializable data class Reconcile(val groupId: String) : Route
 }
 

@@ -1,6 +1,7 @@
 package da.chelimo.sharecost.ui.screen.auth
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,14 +45,19 @@ import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
 /** 3 · First-launch onboarding carousel (design/src/screens-auth.jsx). */
 @Composable
-fun OnboardingScreen(onFinish: () -> Unit = {}) {
+fun OnboardingScreen(
+    initialName: String = "",
+    initialCurrency: String = "USD",
+    onFinish: (name: String, baseCurrency: String) -> Unit = { _, _ -> },
+) {
     val c = ShareCostTheme.colors
     val steps = listOf("name", "currency", "handle", "analytics", "notify")
     var step by remember { mutableStateOf(0) }
-    var name by remember { mutableStateOf("Alex Rivera") }
+    var name by remember { mutableStateOf(initialName) }
+    var currency by remember { mutableStateOf(initialCurrency) }
     var analytics by remember { mutableStateOf(true) }
     val cur = steps[step]
-    fun next() { if (step < steps.lastIndex) step++ else onFinish() }
+    fun next() { if (step < steps.lastIndex) step++ else onFinish(name, currency) }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding().padding(horizontal = 24.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -89,10 +95,10 @@ fun OnboardingScreen(onFinish: () -> Unit = {}) {
                 "currency" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ScSelectField("Search currency…", {}, leading = { ScIcon(ScIcons.Search, size = 18.dp, tint = c.ink3) }, trailingIcon = ScIcons.Search, valueColor = c.ink3)
                     ScListCard(items = listOf("USD" to "US Dollar", "EUR" to "Euro", "GBP" to "British Pound", "MXN" to "Mexican Peso")) { (code, label) ->
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().clickable { currency = code }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(code, color = c.ink, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.width(44.dp))
                             Text(label, color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                            if (code == "USD") ScIcon(ScIcons.Check, size = 20.dp, tint = c.blue)
+                            if (code == currency) ScIcon(ScIcons.Check, size = 20.dp, tint = c.blue)
                         }
                     }
                 }

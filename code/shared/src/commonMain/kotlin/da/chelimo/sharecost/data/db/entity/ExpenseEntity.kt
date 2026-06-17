@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * Local mirror of `expenses` (02 §3.7). `amount_subunits` is always positive; a refund's "negative"
@@ -24,6 +25,7 @@ import androidx.room.PrimaryKey
         Index(value = ["refund_of_expense_id"]),
     ],
 )
+@Serializable
 data class ExpenseEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")

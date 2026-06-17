@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * Local mirror of `groups` (02 §3.4). `admin_user_id` is nullable — NULL means the group is
@@ -13,6 +14,7 @@ import androidx.room.PrimaryKey
     tableName = "groups",
     indices = [Index(value = ["invite_token"], unique = true)],
 )
+@Serializable
 data class GroupEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")

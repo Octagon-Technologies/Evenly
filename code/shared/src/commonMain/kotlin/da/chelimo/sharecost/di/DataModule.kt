@@ -3,13 +3,19 @@ package da.chelimo.sharecost.di
 import da.chelimo.sharecost.data.db.ShareCostDatabase
 import da.chelimo.sharecost.data.remote.fx.FrankfurterFxFetcher
 import da.chelimo.sharecost.data.remote.fx.FxRateFetcher
+import da.chelimo.sharecost.data.remote.supabase.ReceiptStorage
+import da.chelimo.sharecost.data.remote.supabase.RemoteGroupGateway
+import da.chelimo.sharecost.data.repository.ActivityRepositoryImpl
 import da.chelimo.sharecost.data.repository.ExpenseRepositoryImpl
 import da.chelimo.sharecost.data.repository.FxRepositoryImpl
 import da.chelimo.sharecost.data.repository.GroupRepositoryImpl
+import da.chelimo.sharecost.data.repository.ProfileRepositoryImpl
 import da.chelimo.sharecost.data.repository.SettlementRepositoryImpl
+import da.chelimo.sharecost.domain.repository.ActivityRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.FxRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
+import da.chelimo.sharecost.domain.repository.ProfileRepository
 import da.chelimo.sharecost.domain.repository.SettlementRepository
 import org.koin.core.module.Module
 import org.koin.dsl.module
@@ -29,13 +35,24 @@ val dataModule: Module = module {
     single { get<ShareCostDatabase>().shareDao() }
     single { get<ShareCostDatabase>().settlementDao() }
     single { get<ShareCostDatabase>().fxRateDao() }
+    single { get<ShareCostDatabase>().conflictDao() }
+    single { get<ShareCostDatabase>().commentDao() }
+    single { get<ShareCostDatabase>().receiptDao() }
+    single { get<ShareCostDatabase>().historyEventDao() }
 
     // Remote
     single<FxRateFetcher> { FrankfurterFxFetcher(get()) }
 
     // Repositories
-    single<GroupRepository> { GroupRepositoryImpl(get(), get(), get()) }
-    single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get()) }
-    single<SettlementRepository> { SettlementRepositoryImpl(get(), get()) }
+    // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).
+    single<GroupRepository> { GroupRepositoryImpl(get(), get(), get(), get(), get(), get(), remoteGroups = getOrNull<RemoteGroupGateway>()) }
+    // ExpenseRepository takes the FX repo + group DAO so balances convert to the group base currency (F2),
+    // and the history DAO so create/edit/delete append to the activity log (F5).
+    single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get()) }
+    single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get()) }
     single<FxRepository> { FxRepositoryImpl(get(), get()) }
+    single<ProfileRepository> { ProfileRepositoryImpl(get(), get()) }
+    // Expense activity (F5): comments + receipts + history. ReceiptStorage is bound only when Supabase
+    // is configured (it needs the client), so resolve it optionally and degrade gracefully if absent.
+    single<ActivityRepository> { ActivityRepositoryImpl(get(), get(), get(), get(), receiptStorage = getOrNull<ReceiptStorage>()) }
 }

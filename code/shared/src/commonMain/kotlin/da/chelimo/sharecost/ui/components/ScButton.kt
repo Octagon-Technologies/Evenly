@@ -104,6 +104,7 @@ fun ScOAuthButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     iconTint: Color = ShareCostTheme.colors.ink,
+    enabled: Boolean = true,
 ) {
     val c = ShareCostTheme.colors
     val shape = RoundedCornerShape(14.dp)
@@ -114,13 +115,13 @@ fun ScOAuthButton(
             .clip(shape)
             .background(c.page)
             .border(1.dp, c.borderStrong, shape)
-            .clickable(onClick = onClick)
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ScIcon(icon, size = 22.dp, tint = iconTint)
-        Text(text = label, color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        ScIcon(icon, size = 22.dp, tint = if (enabled) iconTint else c.ink3)
+        Text(text = label, color = if (enabled) c.ink else c.ink3, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

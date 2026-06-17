@@ -1,11 +1,13 @@
 package da.chelimo.sharecost.data.auth
 
+import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.newId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.data.db.dao.UserDao
 import da.chelimo.sharecost.data.db.entity.UserEntity
 import da.chelimo.sharecost.domain.auth.AuthSession
+import da.chelimo.sharecost.domain.auth.OAuthProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +45,18 @@ class StubAuthSession(
         }
         return UserId(id).also { _currentUserId.value = it }
     }
+
+    // No network in the stub: every provider / OTP path resolves to the same single local account,
+    // so the offline-first build stays fully usable without Supabase configured.
+    override suspend fun signInWithProvider(provider: OAuthProvider): AppResult<Unit> {
+        signIn(provider.name.lowercase().replaceFirstChar { it.uppercase() })
+        return AppResult.Ok(Unit)
+    }
+
+    override suspend fun sendEmailOtp(email: String): AppResult<Unit> = AppResult.Ok(Unit)
+
+    override suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId> =
+        AppResult.Ok(signIn("You"))
 
     override fun signOut() {
         _currentUserId.value = null

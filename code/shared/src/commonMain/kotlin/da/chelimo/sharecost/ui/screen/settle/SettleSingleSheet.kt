@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
+import da.chelimo.sharecost.domain.settlement.PaymentApp
 import da.chelimo.sharecost.ui.components.AvatarSize
 import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ChipVariant
@@ -33,33 +34,38 @@ import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScField
 import da.chelimo.sharecost.ui.components.ScParticipantChip
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
-import da.chelimo.sharecost.ui.components.money
+import da.chelimo.sharecost.ui.components.moneySubunits
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-internal data class PaymentHandle(val app: String, val handle: String)
-
-internal val SettleHandles = listOf(
-    PaymentHandle("Venmo", "@andrew-p"),
-    PaymentHandle("Cash App", "\$andrewp"),
-    PaymentHandle("Zelle", "andrew@…"),
+internal val DemoSettleHandles = listOf(
+    PeerPaymentHandle(PaymentApp.VENMO, "Venmo", "@andrew-p"),
+    PeerPaymentHandle(PaymentApp.CASH_APP, "Cash App", "\$andrewp"),
+    PeerPaymentHandle(PaymentApp.ZELLE, "Zelle", "andrew@…"),
 )
 
-/** 14 · Settle single expense (modal sheet) (design/src/screens-settle.jsx). */
+/**
+ * 14 · Settle single expense (modal sheet). Wired by `SettleSingleRoute`: shows the current user's
+ * remaining share of one expense, the payee's real payment handles, and records the payment via
+ * `applySettlement`. [onOpenApp] fires the deep link; [onMarkPaid] records directly.
+ */
 @Composable
 fun SettleSingleSheet(
     expenseTitle: String = "Dinner at La Negra",
     payee: String = "Andrew",
-    shareAmount: Double = 24.0,
+    shareAmountSubunits: Long = 2400,
     currency: String = "USD",
-    showFx: Boolean = false,
+    handles: List<PeerPaymentHandle> = DemoSettleHandles,
+    fxLine: String? = null,
     onDismiss: () -> Unit = {},
-    onOpenApp: (String) -> Unit = {},
+    onOpenApp: (PaymentApp, String) -> Unit = { _, _ -> },
+    onConfirmPaid: (PaymentApp) -> Unit = {},
     onMarkPaid: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
-    var app by remember { mutableStateOf("Venmo") }
+    var selected by remember(handles) { mutableStateOf(handles.firstOrNull()) }
+    var awaitingConfirm by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(c.surface)) {
         ScSheetScaffold(onDismiss, title = "Settle '$expenseTitle'") {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -67,7 +73,7 @@ fun SettleSingleSheet(
                     ScAvatar(payee, size = AvatarSize.Lg)
                     Column {
                         Text("Pay $payee", color = c.ink, fontWeight = FontWeight.SemiBold)
-                        Text("for your ${money(shareAmount)} share", color = c.ink2, fontSize = 12.sp)
+                        Text("for your ${moneySubunits(shareAmountSubunits, currency)} share", color = c.ink2, fontSize = 12.sp)
                     }
                 }
                 ScField("Amount") {
@@ -78,24 +84,34 @@ fun SettleSingleSheet(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             ScChip(currency, variant = ChipVariant.Ghost, leadingIcon = ScIcons.Globe)
-                            Text("24.00", color = c.ink, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.weight(1f))
-                            ScChip("Max", variant = ChipVariant.Blue)
+                            Text(moneySubunits(shareAmountSubunits, currency), color = c.ink, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.weight(1f))
                         }
-                        if (showFx) Text("Paying ${money(shareAmount)} $currency ≈ £18.36 (rate: 0.765)", color = c.ink2, fontSize = 12.sp)
+                        fxLine?.let { Text(it, color = c.ink2, fontSize = 12.sp) }
+                    }
+                }
+                if (handles.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Pay with", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            handles.forEach { h ->
+                                ScParticipantChip(h.label, selected = selected?.app == h.app, leading = { ScIcon(ScIcons.Wallet, size = 15.dp) }, onClick = { selected = h })
+                            }
+                        }
+                        selected?.let { Text(it.handle, color = c.ink2, fontSize = 12.sp) }
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Pay with", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SettleHandles.forEach { h ->
-                            ScParticipantChip(h.app, selected = app == h.app, leading = { ScIcon(ScIcons.Wallet, size = 15.dp) }, onClick = { app = h.app })
+                    val sel = selected
+                    if (awaitingConfirm && sel != null) {
+                        Text("We opened ${sel.label}. Did the payment go through?", color = c.ink2, fontSize = 13.sp)
+                        ScButton("Yes — mark paid", { onConfirmPaid(sel.app) }, leadingIcon = ScIcons.Check)
+                        ScButton("Not yet", { awaitingConfirm = false }, variant = ButtonVariant.Text)
+                    } else {
+                        if (sel != null) {
+                            ScButton("Open in ${sel.label}", { onOpenApp(sel.app, sel.handle); awaitingConfirm = true }, leadingIcon = ScIcons.Link)
                         }
+                        ScButton("Mark paid manually", onMarkPaid, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check)
                     }
-                    Text(SettleHandles.first { it.app == app }.handle, color = c.ink2, fontSize = 12.sp)
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScButton("Open in $app", { onOpenApp(app) }, leadingIcon = ScIcons.Link)
-                    ScButton("Mark paid manually", onMarkPaid, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check)
                 }
             }
         }
@@ -105,5 +121,5 @@ fun SettleSingleSheet(
 @Preview
 @Composable
 private fun SettleSinglePreview() {
-    ShareCostTheme { SettleSingleSheet(showFx = true) }
+    ShareCostTheme { SettleSingleSheet() }
 }
