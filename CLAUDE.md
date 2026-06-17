@@ -27,6 +27,10 @@ failure in the last 10% never threatens work that already passed.
    data. Sanity-check `git diff --cached --name-only` before committing.
 7. **Don't silently defer.** If something can't be finished, name what's blocked and why (missing
    credential, needs a paid account, out of client scope). Don't dress up caution as a hard constraint.
+8. **Keep this file in sync — enforced.** When a commit changes a build/test/commit/architecture
+   convention, update `CLAUDE.md` *in that same commit*. A project `PreToolUse` hook
+   (`.claude/settings.json`) reminds you at `git commit` time whenever `CLAUDE.md` isn't part of the
+   staged change; it's a non-blocking nudge, so ignore it when nothing convention-level changed.
 
 ---
 
