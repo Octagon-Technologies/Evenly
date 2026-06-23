@@ -2,6 +2,7 @@ package da.chelimo.sharecost.ui.screen.group
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,24 +27,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import da.chelimo.sharecost.ui.components.AvatarSize
+import da.chelimo.sharecost.ui.components.ButtonVariant
+import da.chelimo.sharecost.ui.components.ChipVariant
+import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScBanner
+import da.chelimo.sharecost.ui.components.ScButton
+import da.chelimo.sharecost.ui.components.ScChip
+import da.chelimo.sharecost.ui.components.ScDot
 import da.chelimo.sharecost.ui.components.ScEmptyState
-import da.chelimo.sharecost.ui.components.ScExpenseRow
 import da.chelimo.sharecost.ui.components.ScFab
 import da.chelimo.sharecost.ui.components.ScIconButton
+import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.ScSkeletonRow
 import da.chelimo.sharecost.ui.components.ScSubTabs
 import da.chelimo.sharecost.ui.components.ScTopBar
-import da.chelimo.sharecost.ui.components.money
 import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
+import da.chelimo.sharecost.domain.expense.ExpenseCategory
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
+import da.chelimo.sharecost.ui.theme.categoryColor
 
 data class ExpenseItemUi(
     val id: String,
@@ -55,6 +66,14 @@ data class ExpenseItemUi(
     val settled: Boolean = false,
     val unread: Boolean = false,
     val currencySymbol: String = "$",
+    // Richer-card fields (F-polish): payer attribution, category accent, and the viewer's own stake.
+    val payerName: String = "",
+    val payerIsMe: Boolean = false,
+    val amountLabel: String = "",
+    val categoryColor: Color? = null,
+    val stakeLabel: String? = null,
+    val stakeAmount: String? = null,
+    val stakeOwedToYou: Boolean = false,
 )
 
 data class ExpenseDayUi(val label: String, val items: List<ExpenseItemUi>)
@@ -72,6 +91,8 @@ fun GroupExpensesTab(
     drafts: Int = 1,
     offline: Boolean = false,
     filterActive: Boolean = false,
+    inviteLink: String = "sharecost.app/j/8Kk2-Tulum",
+    onBack: () -> Unit = {},
     onOpenGroup: () -> Unit = {},
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
@@ -79,16 +100,27 @@ fun GroupExpensesTab(
     onFilter: () -> Unit = {},
     onClearFilter: () -> Unit = {},
     onOpenDrafts: () -> Unit = {},
+    onCopyInvite: () -> Unit = {},
+    onRotateInvite: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var sub by remember { mutableStateOf("Active") }
+    var showInvite by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(c.surface)) {
         ScTopBar(
             title = groupName,
-            navIcon = { Text(groupEmoji, fontSize = 22.sp, modifier = Modifier.clickable { onOpenGroup() }) },
+            navIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ScIconButton(ScIcons.Back, onBack)
+                    Text(groupEmoji, fontSize = 22.sp, modifier = Modifier.clickable { onOpenGroup() })
+                }
+            },
             actions = {
                 ScIconButton(ScIcons.Search, onSearch)
                 ScIconButton(ScIcons.Filter, onFilter)
+                // Invite/share: the front-door entry to the group's join link (also in Group settings).
+                ScIconButton(ScIcons.Share, { showInvite = true })
             },
         )
         if (offline) ScBanner("Offline — your changes will sync.")
@@ -164,6 +196,70 @@ fun GroupExpensesTab(
             }
         }
     }
+    if (showInvite) {
+        InviteSheet(
+            groupName = groupName,
+            inviteLink = inviteLink,
+            onCopy = onCopyInvite,
+            onRotate = onRotateInvite,
+            onDismiss = { showInvite = false },
+        )
+    }
+    }
+}
+
+/**
+ * Invite bottom sheet: the group's join link with a one-tap copy and a (link-invalidating) rotate.
+ * Stateless — the link string and the copy/rotate actions are wired by GroupExpensesRoute; only the
+ * transient "copied" affirmation lives here, and it resets whenever the link rotates.
+ */
+@Composable
+private fun InviteSheet(
+    groupName: String,
+    inviteLink: String,
+    onCopy: () -> Unit,
+    onRotate: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val c = ShareCostTheme.colors
+    var copied by remember(inviteLink) { mutableStateOf(false) }
+    ScSheetScaffold(
+        onDismiss = onDismiss,
+        title = "Invite to $groupName",
+        sub = "Anyone with this link can join.",
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface)
+                .border(1.dp, c.border, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ScIcon(ScIcons.Link, size = 16.dp, tint = c.ink3)
+            Text(
+                inviteLink,
+                modifier = Modifier.weight(1f),
+                color = c.ink,
+                fontSize = 13.sp,
+                fontFamily = ShareCostTheme.monoFamily,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        ScButton(
+            text = if (copied) "Link copied" else "Copy link",
+            onClick = { onCopy(); copied = true },
+            leadingIcon = if (copied) ScIcons.Check else ScIcons.Copy,
+        )
+        Spacer(Modifier.height(4.dp))
+        ScButton(
+            text = "Rotate link",
+            onClick = onRotate,
+            variant = ButtonVariant.Text,
+            leadingIcon = ScIcons.Reload,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
+    }
 }
 
 /** A day section narrowed to the current sub-tab (Active/All/Settled). */
@@ -186,18 +282,50 @@ private fun FilterChipRow(onClear: () -> Unit) {
     }
 }
 
+/**
+ * The feed's signature row: a category-tinted icon tile, the payer attribution (avatar + "X paid · $96"),
+ * and a trailing **personal stake** — "you owe" in ink, "you're owed" in blue, or a Settled chip —
+ * so the number that matters to the viewer leads.
+ */
 @Composable
 private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
-    ScExpenseRow(
-        title = it.title,
-        sub = it.sub,
-        icon = it.icon,
-        remaining = money(it.remaining, it.currencySymbol),
-        original = money(it.original, it.currencySymbol),
-        settled = it.settled,
-        unread = it.unread,
-        onClick = { onOpen(it.id) },
-    )
+    val c = ShareCostTheme.colors
+    val accent = it.categoryColor ?: c.ink2
+    Row(
+        Modifier.fillMaxWidth().background(c.page).clickable { onOpen(it.id) }.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
+                .background(if (it.settled) c.blueTint else it.categoryColor?.copy(alpha = 0.14f) ?: c.surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            ScIcon(if (it.settled) ScIcons.Check else it.icon, size = 20.dp, tint = if (it.settled) c.blue else accent)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(it.title, style = MaterialTheme.typography.titleSmall, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (it.payerName.isNotBlank()) ScAvatar(it.payerName, me = it.payerIsMe, size = AvatarSize.Xs)
+                Text(
+                    if (it.amountLabel.isNotBlank()) "${it.sub} · ${it.amountLabel}" else it.sub,
+                    style = MaterialTheme.typography.bodyMedium, color = c.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            when {
+                it.settled -> ScChip("Settled", variant = ChipVariant.Blue, leadingIcon = ScIcons.Check)
+                it.stakeLabel != null && it.stakeAmount != null -> Column(horizontalAlignment = Alignment.End) {
+                    Text(it.stakeLabel, color = if (it.stakeOwedToYou) c.blue else c.ink2, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(it.stakeAmount, color = if (it.stakeOwedToYou) c.blue else c.ink, fontFamily = ShareCostTheme.monoFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                it.amountLabel.isNotBlank() -> Text(it.amountLabel, color = c.ink2, fontFamily = ShareCostTheme.monoFamily, fontSize = 14.sp)
+            }
+            if (it.unread) ScDot()
+            ScIcon(ScIcons.ChevR, size = 16.dp, tint = c.ink3)
+        }
+    }
 }
 
 @Composable
@@ -238,13 +366,22 @@ private fun SettledTray(items: List<ExpenseItemUi>, onOpen: (String) -> Unit) {
 internal object GroupSamples {
     val days = listOf(
         ExpenseDayUi("Today", listOf(
-            ExpenseItemUi("1", "Dinner at La Negra", "Andrew paid · you owe \$24.00", ScIcons.Food, 24.0, 96.0, unread = true),
-            ExpenseItemUi("2", "Airport taxi", "You paid · Bob owes \$14.50", ScIcons.Car, 14.5, 58.0),
+            ExpenseItemUi("1", "Dinner at La Negra", "Andrew paid", ScIcons.Food, 24.0, 96.0, unread = true,
+                payerName = "Andrew", amountLabel = "\$96.00", categoryColor = categoryColor(ExpenseCategory.FOOD),
+                stakeLabel = "you owe", stakeAmount = "\$24.00"),
+            ExpenseItemUi("2", "Airport taxi", "You paid", ScIcons.Car, 14.5, 58.0,
+                payerName = "You", payerIsMe = true, amountLabel = "\$58.00", categoryColor = categoryColor(ExpenseCategory.TRANSPORT),
+                stakeLabel = "you're owed", stakeAmount = "\$14.50", stakeOwedToYou = true),
         )),
         ExpenseDayUi("Wed, May 22", listOf(
-            ExpenseItemUi("3", "Beach villa — night 2", "Maya paid · you owe \$0 of \$60", ScIcons.Bed, 0.0, 60.0, settled = true),
-            ExpenseItemUi("4", "Cenote day trip", "Bob paid · you owe \$18.00", ScIcons.Ticket, 18.0, 72.0),
-            ExpenseItemUi("5", "Supermarket run", "You paid · 4 owe you", ScIcons.Cart, 33.2, 41.5),
+            ExpenseItemUi("3", "Beach villa — night 2", "Maya paid", ScIcons.Bed, 0.0, 60.0, settled = true,
+                payerName = "Maya", amountLabel = "\$60.00", categoryColor = categoryColor(ExpenseCategory.LODGING)),
+            ExpenseItemUi("4", "Cenote day trip", "Bob paid", ScIcons.Ticket, 18.0, 72.0,
+                payerName = "Bob", amountLabel = "\$72.00", categoryColor = categoryColor(ExpenseCategory.ENTERTAINMENT),
+                stakeLabel = "you owe", stakeAmount = "\$18.00"),
+            ExpenseItemUi("5", "Supermarket run", "You paid", ScIcons.Cart, 33.2, 41.5,
+                payerName = "You", payerIsMe = true, amountLabel = "\$41.50", categoryColor = categoryColor(ExpenseCategory.GROCERIES),
+                stakeLabel = "you're owed", stakeAmount = "\$33.20", stakeOwedToYou = true),
         )),
     )
 }

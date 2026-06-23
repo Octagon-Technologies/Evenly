@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.ExpenseId
@@ -22,11 +24,14 @@ import org.koin.compose.koinInject
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
-/** Maps bilateral [Debt]s to display rows, resolving names (current user → "You") and the settle peer. */
+/**
+ * Maps bilateral [Debt]s to display rows, resolving names (current user → "You") and the settle peer.
+ * Shows only the current user's own balances — what they owe or are owed — not the full who-owes-whom log.
+ */
 fun buildBalances(debts: List<Debt>, members: List<Member>, currentUserId: UserId?): List<DebtUi> {
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
     fun name(id: UserId): String = if (id == currentUserId) "You" else (nameByUser[id.value] ?: "Someone")
-    return debts.map { d ->
+    return debts.filter { it.debtorUserId == currentUserId || it.creditorUserId == currentUserId }.map { d ->
         val peer = if (d.debtorUserId == currentUserId) d.creditorUserId else d.debtorUserId
         DebtUi(
             from = name(d.debtorUserId),
@@ -43,6 +48,7 @@ fun buildBalances(debts: List<Debt>, members: List<Member>, currentUserId: UserI
 @Composable
 fun GroupExpensesRoute(
     groupId: String,
+    onBack: () -> Unit,
     onOpenSettings: () -> Unit,
     onAdd: () -> Unit,
     onOpenExpense: (String) -> Unit,
@@ -55,42 +61,50 @@ fun GroupExpensesRoute(
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val expenseList by remember(gid) { expenses.observeExpenses(gid) }.collectAsStateWithLifecycle(emptyList())
+    val withShares by remember(gid) { expenses.observeExpensesWithShares(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val store = koinInject<GroupFilterStore>()
     val filter by remember(groupId) { store.filterFor(groupId) }.collectAsStateWithLifecycle()
     val today = remember { Clock.System.todayUtc() }
     val filtered = applyFilter(expenseList, filter, today)
-    val ui = buildGroupExpenses(group, filtered, members, userId, today)
+    val sharesById = remember(withShares) { withShares.associate { it.expense.id.value to it.shares } }
+    val ui = buildGroupExpenses(group, filtered, members, userId, today, sharesById)
+    // Invite link (same source/format as Group settings): the token resolves once the group has synced.
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    val inviteToken = group?.inviteToken
+    val inviteLink = inviteToken?.let { "sharecost.app/j/$it" } ?: "Generating link…"
     GroupExpensesTab(
         groupEmoji = ui.groupEmoji, groupName = ui.groupName, state = ui.state, days = ui.days, drafts = 0,
         filterActive = filter.isActive,
-        onOpenGroup = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = onFilter,
+        inviteLink = inviteLink,
+        onBack = onBack, onOpenGroup = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = onFilter,
         onClearFilter = { store.clear(groupId) },
+        onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("sharecost.app/j/$it")) } },
+        onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
     )
 }
 
-/** Balances tab content, wired: pairwise debts (converted to the group base, F2) + spend-by-category. */
+/** Balances tab content, wired: the current user's pairwise debts (converted to the group base, F2). */
 @Composable
-fun GroupBalancesRoute(groupId: String, onSettleNav: (String) -> Unit) {
+fun GroupBalancesRoute(groupId: String, onBack: () -> Unit, onSettleNav: (String) -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val debts by remember(gid) { expenses.observeBalances(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
-    val expenseList by remember(gid) { expenses.observeExpenses(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val rows = buildBalances(debts, members, userId)
-    val total = expenseList.sumOf { it.amountSubunits } / 100.0
-    val spend = buildCategorySpend(expenseList)
-    GroupBalancesTab(empty = rows.isEmpty(), debts = rows, spend = spend, total = total, onSettle = { onSettleNav(it.peerUserId) })
+    GroupBalancesTab(empty = rows.isEmpty(), debts = rows, onBack = onBack, onSettle = { onSettleNav(it.peerUserId) })
 }
 
 /** Conflicts tab content, wired: streams unresolved conflicts; Skip dismisses, Include opens the sheet. */
 @Composable
 fun GroupConflictsRoute(
     groupId: String,
+    onBack: () -> Unit,
     onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit,
 ) {
     val groups = koinInject<GroupRepository>()
@@ -118,6 +132,7 @@ fun GroupConflictsRoute(
     GroupConflictsTab(
         memberName = conflicts.firstOrNull()?.let { nameOf(it.addedUserId) } ?: "New members",
         conflicts = uis,
+        onBack = onBack,
         onInclude = { ui -> onIncludeNav(ui.conflictId, ui.expenseId, ui.memberUserId) },
         onSkip = { ui -> scope.launch { groups.resolveConflict(ui.conflictId, include = false) } },
     )
