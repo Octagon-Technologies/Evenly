@@ -8,6 +8,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.flowOf
+import da.chelimo.sharecost.core.error.AppError
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.domain.auth.AuthSession
@@ -21,6 +23,7 @@ import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.domain.repository.ProfileRepository
 import da.chelimo.sharecost.domain.settlement.PaymentApp
 import da.chelimo.sharecost.platform.UrlOpener
+import da.chelimo.sharecost.platform.isDebugBuild
 import da.chelimo.sharecost.ui.screen.auth.MagicLinkScreen
 import da.chelimo.sharecost.ui.screen.auth.MagicLinkState
 import da.chelimo.sharecost.ui.screen.auth.OnboardingScreen
@@ -29,6 +32,7 @@ import da.chelimo.sharecost.ui.screen.home.ArchivedScreen
 import da.chelimo.sharecost.ui.screen.home.HomeScreen
 import da.chelimo.sharecost.ui.screen.home.HomeUiState
 import da.chelimo.sharecost.ui.screen.home.HomeViewModel
+import da.chelimo.sharecost.ui.screen.home.JoinByLinkSheet
 import da.chelimo.sharecost.ui.screen.home.JoinGroupSheet
 import da.chelimo.sharecost.ui.screen.home.NewGroupSheet
 import da.chelimo.sharecost.ui.screen.settings.PaymentHandlesScreen
@@ -66,9 +70,13 @@ fun SignInRoute(onEmail: () -> Unit, onSignedIn: () -> Unit) {
     })
 }
 
-/** Email magic-link + OTP: send a code, then verify it in-app. [onVerified] advances to onboarding. */
+/**
+ * Email magic-link + OTP: send a code, then verify it in-app. [onVerified] fires with
+ * `needsOnboarding = true` only for a brand-new account; a returning user (already has a server
+ * profile) gets `false` so the NavHost can send them straight to Home and skip onboarding.
+ */
 @Composable
-fun MagicLinkRoute(onBack: () -> Unit, onVerified: () -> Unit) {
+fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) -> Unit) {
     val auth = koinInject<AuthSession>()
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(MagicLinkState.Input) }
@@ -77,13 +85,14 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: () -> Unit) {
     MagicLinkScreen(
         state = state,
         error = error,
+        allowPassword = isDebugBuild(),
         onBack = onBack,
         onSend = { e ->
             email = e; error = null; state = MagicLinkState.Loading
             scope.launch {
-                when (auth.sendEmailOtp(e)) {
+                when (val r = auth.sendEmailOtp(e)) {
                     is AppResult.Ok -> state = MagicLinkState.Sent
-                    is AppResult.Err -> { state = MagicLinkState.Input; error = "Couldn't send the code. Check the address and try again." }
+                    is AppResult.Err -> { state = MagicLinkState.Input; error = sendErrorMessage(r.error) }
                 }
             }
         },
@@ -91,13 +100,29 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: () -> Unit) {
             error = null
             scope.launch {
                 when (auth.verifyEmailOtp(email, code)) {
-                    is AppResult.Ok -> onVerified()
+                    is AppResult.Ok -> onVerified(!auth.hasOnboardedProfile())
                     is AppResult.Err -> error = "That code didn't work — check it or resend."
                 }
             }
         },
         onResend = { scope.launch { auth.sendEmailOtp(email) } },
+        onPasswordSignIn = { e, pw ->
+            email = e; error = null; state = MagicLinkState.Loading
+            scope.launch {
+                when (auth.signInWithPassword(e, pw)) {
+                    is AppResult.Ok -> onVerified(!auth.hasOnboardedProfile())
+                    is AppResult.Err -> { state = MagicLinkState.Input; error = "Couldn't sign in — check the email and password." }
+                }
+            }
+        },
     )
+}
+
+/** Turn an email-send failure into a message the user can act on (429 throttling vs. everything else). */
+private fun sendErrorMessage(error: AppError): String = when {
+    error is AppError.Backend && error.status == 429 ->
+        "Too many requests — wait a minute, then try again."
+    else -> "Couldn't send the code. Check the address and try again."
 }
 
 /** First-run profile capture: persists the chosen display name + base currency, then continues. */
@@ -114,13 +139,34 @@ fun OnboardingRoute(onFinished: () -> Unit) {
 }
 
 @Composable
-fun HomeRoute(onOpenGroup: (String) -> Unit, onNewGroup: () -> Unit, onOpenProfile: () -> Unit, onOpenArchived: () -> Unit) {
+fun HomeRoute(
+    onOpenGroup: (String) -> Unit,
+    onNewGroup: () -> Unit,
+    onNewGroupTemplate: (emoji: String, name: String) -> Unit,
+    onJoin: () -> Unit,
+    onAddExpenseInGroup: (String) -> Unit,
+    onOpenProfile: () -> Unit,
+    onOpenArchived: () -> Unit,
+) {
     val vm = koinViewModel<HomeViewModel>()
     val fx = koinInject<FxRepository>()
+    val profiles = koinInject<ProfileRepository>()
     // Cold-start FX refresh (F2) — best-effort, so foreign-currency balances use today's rate.
     LaunchedEffect(Unit) { fx.refreshIfStale() }
     val state by vm.state.collectAsStateWithLifecycle()
-    HomeScreen(state = state, onOpenGroup = onOpenGroup, onNewGroup = onNewGroup, onOpenProfile = onOpenProfile, onOpenArchived = onOpenArchived)
+    val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
+    val name = profile?.displayName?.takeIf { it.isNotBlank() && it != "You" } ?: "there"
+    HomeScreen(
+        state = state,
+        userName = name,
+        onOpenGroup = onOpenGroup,
+        onNewGroup = onNewGroup,
+        onNewGroupTemplate = onNewGroupTemplate,
+        onJoin = onJoin,
+        onAddExpenseInGroup = onAddExpenseInGroup,
+        onOpenProfile = onOpenProfile,
+        onOpenArchived = onOpenArchived,
+    )
 }
 
 /** Join-by-invite, wired: resolves the token to a group preview, then joins via [GroupRepository.joinByToken]. */
@@ -134,9 +180,14 @@ fun JoinRoute(token: String, onDismiss: () -> Unit, onOpenGroup: (String) -> Uni
     var resolved by remember(token) { mutableStateOf(false) }
     LaunchedEffect(token) { group = groups.findGroupByToken(token); resolved = true }
     val g = group
+    // Existing roster (placeholders + everyone who's joined via the link) so the sheet can show the
+    // member count for "is this actually my group?" confirmation. Empty until the token resolves.
+    val membersFlow = remember(g?.id) { g?.id?.let { groups.observeMembers(it) } ?: flowOf(emptyList()) }
+    val members by membersFlow.collectAsStateWithLifecycle(emptyList())
     JoinGroupSheet(
         groupName = g?.name ?: if (resolved) "" else "Checking invite…",
         emoji = g?.emoji ?: "🔗",
+        memberNames = members.map { it.displayName?.takeIf { n -> n.isNotBlank() } ?: "Member" },
         found = g != null || !resolved,
         onDismiss = onDismiss,
         onJoin = {
@@ -171,7 +222,12 @@ fun ArchivedRoute(onBack: () -> Unit) {
 }
 
 @Composable
-fun NewGroupRoute(onDismiss: () -> Unit, onCreated: (String) -> Unit) {
+fun NewGroupRoute(
+    onDismiss: () -> Unit,
+    onCreated: (String) -> Unit,
+    initialEmoji: String = "💸",
+    initialName: String = "",
+) {
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
     val scope = rememberCoroutineScope()
@@ -187,7 +243,15 @@ fun NewGroupRoute(onDismiss: () -> Unit, onCreated: (String) -> Unit) {
                 }
             }
         },
+        initialEmoji = initialEmoji,
+        initialName = initialName,
     )
+}
+
+/** Manual "Join with a link" sheet: parse the pasted invite, then hand off to the resolving [Route.Join]. */
+@Composable
+fun JoinByLinkRoute(onDismiss: () -> Unit, onResolved: (token: String) -> Unit) {
+    JoinByLinkSheet(onDismiss = onDismiss, onSubmit = onResolved)
 }
 
 @Composable

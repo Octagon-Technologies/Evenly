@@ -31,6 +31,21 @@ interface AuthSession {
     /** Verify the 6-digit [token] emailed to [email]; on success [currentUserId] becomes non-null. */
     suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId>
 
+    /**
+     * Email + password sign-in. Used for seeded test accounts (no email round-trip), so QA can switch
+     * between users without burning the OTP rate limit. On success [currentUserId] becomes non-null.
+     */
+    suspend fun signInWithPassword(email: String, password: String): AppResult<UserId>
+
+    /**
+     * True when the signed-in user **already has a finished profile on the server** — i.e. they've
+     * onboarded before. The email/OTP flow both *creates* and *signs in* (Supabase auto-creates the
+     * account on first OTP), so the UI uses this to send returning users straight to Home and reserve
+     * the onboarding screen for genuinely new accounts. Checks the server (not the local cache) so it's
+     * correct even on a fresh install where Room is empty. Best-effort: returns false on any error.
+     */
+    suspend fun hasOnboardedProfile(): Boolean
+
     fun signOut()
 
     /**

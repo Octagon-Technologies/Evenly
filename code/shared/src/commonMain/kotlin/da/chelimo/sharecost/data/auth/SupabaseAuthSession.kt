@@ -18,9 +18,12 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Apple
 import io.github.jan.supabase.auth.providers.Facebook
 import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.auth.user.UserInfo
+import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -95,7 +98,23 @@ class SupabaseAuthSession(
     override suspend fun sendEmailOtp(email: String): AppResult<Unit> = runCatching {
         client.auth.signInWith(OTP) { this.email = email.trim() }
         AppResult.Ok(Unit)
-    }.getOrElse { AppError.Unexpected(it).asErr() }
+    }.getOrElse { it.toEmailSendError().asErr() }
+
+    /**
+     * Map an email-send failure to a typed error. Supabase throttles the built-in email service (a few
+     * sends/hour, ~60s between sends to one address); that surfaces as HTTP 429
+     * `over_email_send_rate_limit`. We single it out so the UI can say "wait a minute" instead of the
+     * misleading "check the address". Everything else stays Unexpected.
+     */
+    private fun Throwable.toEmailSendError(): AppError {
+        val msg = (message ?: "").lowercase()
+        val rateLimited = "over_email_send_rate_limit" in msg || "rate limit" in msg || "429" in msg
+        return if (rateLimited) {
+            AppError.Backend(status = 429, code = "over_email_send_rate_limit", detail = message)
+        } else {
+            AppError.Unexpected(this)
+        }
+    }
 
     override suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId> = runCatching {
         client.auth.verifyEmailOtp(type = OtpType.Email.EMAIL, email = email.trim(), token = token.trim())
@@ -103,6 +122,29 @@ class SupabaseAuthSession(
         mirrorCurrentUser()
         AppResult.Ok(UserId(user.id))
     }.getOrElse { AppError.Unexpected(it).asErr() }
+
+    override suspend fun signInWithPassword(email: String, password: String): AppResult<UserId> = runCatching {
+        client.auth.signInWith(Email) { this.email = email.trim(); this.password = password }
+        val user = client.auth.currentUserOrNull() ?: return AppError.SessionExpired.asErr()
+        mirrorCurrentUser()
+        AppResult.Ok(UserId(user.id))
+    }.getOrElse { AppError.Unexpected(it).asErr() }
+
+    override suspend fun hasOnboardedProfile(): Boolean {
+        val uid = client.auth.currentUserOrNull()?.id ?: return false
+        // Ask the server directly: a returning user's `users` row carries a real display name, while a
+        // brand-new account has either no row yet or the "You" placeholder mirrorCurrentUser seeds. We
+        // can't trust local Room here — on a fresh install it's empty (or momentarily "You") until the
+        // first pull lands. Best-effort: any network/decode failure → treat as not-onboarded.
+        return runCatching {
+            val row = client.from("users")
+                .select(Columns.ALL) { filter { eq("id", uid) } }
+                .decodeList<UserEntity>()
+                .firstOrNull()
+            val name = row?.displayName?.trim()
+            !name.isNullOrBlank() && name != PLACEHOLDER_NAME
+        }.getOrDefault(false)
+    }
 
     override fun signOut() {
         scope.launch { client.auth.signOut() }
@@ -137,7 +179,7 @@ class SupabaseAuthSession(
             existing == null -> userDao.upsert(
                 UserEntity(
                     id = user.id,
-                    displayName = providerName(user) ?: fallbackName ?: "You",
+                    displayName = providerName(user) ?: fallbackName ?: PLACEHOLDER_NAME,
                     email = user.email,
                     baseCurrency = "USD",
                     createdAt = now,
@@ -155,5 +197,10 @@ class SupabaseAuthSession(
         val md = user.userMetadata ?: return null
         val raw = md["full_name"] ?: md["name"] ?: return null
         return (raw as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+    }
+
+    private companion object {
+        /** Seeded for a brand-new account that hasn't set a real name yet (also the onboarding sentinel). */
+        const val PLACEHOLDER_NAME = "You"
     }
 }

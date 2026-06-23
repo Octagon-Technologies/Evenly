@@ -58,6 +58,16 @@ class StubAuthSession(
     override suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId> =
         AppResult.Ok(signIn("You"))
 
+    override suspend fun signInWithPassword(email: String, password: String): AppResult<UserId> =
+        AppResult.Ok(signIn(email.substringBefore('@').replaceFirstChar { it.uppercase() }))
+
+    override suspend fun hasOnboardedProfile(): Boolean {
+        // No server in the stub: the single local account counts as onboarded once it has a real name
+        // (anything other than the "You" placeholder a brand-new OTP sign-in seeds).
+        val name = userDao.findByEmail(STUB_EMAIL)?.displayName?.trim()
+        return !name.isNullOrBlank() && name != "You"
+    }
+
     override fun signOut() {
         _currentUserId.value = null
     }

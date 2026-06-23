@@ -45,7 +45,11 @@ fun ShareCostNavHost(
         composable<Route.MagicLink> {
             MagicLinkRoute(
                 onBack = { navController.popBackStack() },
-                onVerified = { navController.navigate(Route.Onboarding) { popUpTo(Route.SignIn) { inclusive = true } } },
+                // New accounts onboard; returning users (existing server profile) jump straight to Home.
+                onVerified = { needsOnboarding ->
+                    val dest = if (needsOnboarding) Route.Onboarding else Route.Home
+                    navController.navigate(dest) { popUpTo(Route.SignIn) { inclusive = true } }
+                },
             )
         }
         composable<Route.Onboarding> {
@@ -56,18 +60,30 @@ fun ShareCostNavHost(
         composable<Route.Home> {
             HomeRoute(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
-                onNewGroup = { navController.navigate(Route.NewGroup) },
+                onNewGroup = { navController.navigate(Route.NewGroup()) },
+                onNewGroupTemplate = { emoji, name -> navController.navigate(Route.NewGroup(emoji, name)) },
+                onJoin = { navController.navigate(Route.JoinByLink) },
+                onAddExpenseInGroup = { navController.navigate(Route.AddExpense(it)) },
                 onOpenProfile = { navController.navigate(Route.Profile) },
                 onOpenArchived = { navController.navigate(Route.Archived) },
             )
         }
-        composable<Route.NewGroup> {
+        composable<Route.NewGroup> { entry ->
+            val r = entry.toRoute<Route.NewGroup>()
             NewGroupRoute(
                 onDismiss = { navController.popBackStack() },
                 onCreated = { id -> navController.navigate(Route.GroupHome(id)) { popUpTo(Route.Home) } },
+                initialEmoji = r.emoji ?: "💸",
+                initialName = r.name ?: "",
             )
         }
         composable<Route.Archived> { ArchivedRoute(onBack = { navController.popBackStack() }) }
+        composable<Route.JoinByLink> {
+            JoinByLinkRoute(
+                onDismiss = { navController.popBackStack() },
+                onResolved = { token -> navController.navigate(Route.Join(token)) },
+            )
+        }
         composable<Route.Join>(
             deepLinks = listOf(navDeepLink { uriPattern = "sharecost://j/{token}" }),
         ) { entry ->
@@ -85,6 +101,7 @@ fun ShareCostNavHost(
             GroupHomeScreen(
                 groupId = r.groupId,
                 initialTab = GroupTab.entries.firstOrNull { it.name == r.tab } ?: GroupTab.Expenses,
+                onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
