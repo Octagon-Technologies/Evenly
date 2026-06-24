@@ -64,6 +64,8 @@ import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 import da.chelimo.sharecost.domain.expense.ExpenseCategory
+import da.chelimo.sharecost.ui.screen.group.categoryIcon
+import da.chelimo.sharecost.ui.theme.categoryColor
 import kotlin.math.roundToLong
 
 /** A participant the expense can be split between (real members are passed by the route). */
@@ -94,6 +96,7 @@ fun AddExpenseScreen(
     val symbol = currencySymbol(currency)
     var showCurrencyDialog by remember { mutableStateOf(false) }
     var categoryId by remember { mutableStateOf(prefill?.categoryId) }
+    var showCategoryDialog by remember { mutableStateOf(false) }
     // On edit, seed every field from the saved expense so the editor re-renders the exact split.
     var amountText by remember { mutableStateOf(prefill?.let { format2dp(it.amountSubunits / 100.0) } ?: "") }
     var title by remember { mutableStateOf(prefill?.title ?: "") }
@@ -102,6 +105,8 @@ fun AddExpenseScreen(
     var known by remember { mutableStateOf(participants.map { it.userId }.toSet()) }
     var showAddDialog by remember { mutableStateOf(false) }
     var payerId by remember { mutableStateOf(prefill?.payerUserId ?: "") }
+    // Non-blank when an outside party paid (no group member). Such a payer is not part of the split.
+    var outsidePayerName by remember { mutableStateOf(prefill?.payerOutsideName) }
     var showPayerDialog by remember { mutableStateOf(false) }
     // Raw per-participant split inputs. An absent share count means 1×; %/Exact fields are text so the
     // user can clear and retype (parsed live). %/Exact are seeded on first entry to that mode below.
@@ -114,6 +119,8 @@ fun AddExpenseScreen(
         ?: participants.firstOrNull()?.userId
         ?: ""
     val payer = participants.firstOrNull { it.userId == effectivePayerId }
+    val isOutsidePayer = !outsidePayerName.isNullOrBlank()
+    val payerDisplayName = if (isOutsidePayer) outsidePayerName!! else (payer?.name ?: "You")
     // Auto-select members that appear after a placeholder is added, without re-selecting ones the user deselected.
     LaunchedEffect(participants) {
         val fresh = participants.map { it.userId }.toSet() - known
@@ -166,7 +173,8 @@ fun AddExpenseScreen(
                                 AddExpenseSubmit(
                                     amountSubunits = amountSubunits,
                                     title = title.trim(),
-                                    payerUserId = effectivePayerId,
+                                    payerUserId = if (isOutsidePayer) "" else effectivePayerId,
+                                    payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
                                     mode = mode,
                                     currency = currency,
                                     categoryId = categoryId,
@@ -218,19 +226,42 @@ fun AddExpenseScreen(
 
             ScField("Title") { ScTextField(title, { title = it }, placeholder = "What was it for?") }
 
-            // category (F2) — optional; drives the Balances "Spending by category" card
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Category", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExpenseCategory.entries.forEach { cat ->
-                        val on = categoryId == cat.id
-                        ScParticipantChip(cat.label, selected = on, onClick = { categoryId = if (on) null else cat.id })
-                    }
-                }
+            // category (F2) — optional; drives the Balances "Spending by category" card. Collapsed to a
+            // single tappable picker row (like "Paid by") so the editor stays compact and scannable.
+            val selectedCategory = ExpenseCategory.fromId(categoryId)
+            ScField("Category") {
+                ScSelectField(
+                    selectedCategory?.label ?: "Add category",
+                    { showCategoryDialog = true },
+                    valueColor = if (selectedCategory != null) c.ink else c.ink3,
+                    leading = {
+                        if (selectedCategory != null) {
+                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(categoryColor(selectedCategory).copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                ScIcon(categoryIcon(selectedCategory), size = 15.dp, tint = categoryColor(selectedCategory))
+                            }
+                        } else {
+                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                ScIcon(ScIcons.Tag, size = 15.dp, tint = c.blue)
+                            }
+                        }
+                    },
+                )
             }
 
             ScField("Paid by") {
-                ScSelectField(payer?.name ?: "You", { showPayerDialog = true }, leading = { ScAvatar(payer?.name ?: "You", me = payer?.isMe == true, size = AvatarSize.Sm) })
+                ScSelectField(
+                    payerDisplayName,
+                    { showPayerDialog = true },
+                    leading = {
+                        if (isOutsidePayer) {
+                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                ScIcon(ScIcons.User, size = 15.dp, tint = c.blue)
+                            }
+                        } else {
+                            ScAvatar(payerDisplayName, me = payer?.isMe == true, size = AvatarSize.Sm)
+                        }
+                    },
+                )
             }
 
             // participants
@@ -292,10 +323,21 @@ fun AddExpenseScreen(
                 // live math footer for the variable modes
                 if (mode == SplitMode.Percent && selectedList.isNotEmpty()) {
                     val ok = percentScaled == 10_000L
+                    // What's still unallocated for the % to add up to 100 (negative = over-assigned).
+                    val remainingScaled = 10_000L - percentScaled
+                    val over = remainingScaled < 0
+                    val statusTint = if (ok) c.blue else if (over) c.danger else c.warning
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            ScIcon(if (ok) ScIcons.CheckCircle else ScIcons.Info, size = 15.dp, tint = if (ok) c.blue else c.warning)
-                            Text("Total: ${format2dp(percentScaled / 100.0)}%", color = if (ok) c.blue else c.warning, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            ScIcon(if (ok) ScIcons.CheckCircle else if (over) ScIcons.Alert else ScIcons.Info, size = 15.dp, tint = statusTint)
+                            Text(
+                                when {
+                                    ok -> "All assigned"
+                                    over -> "${format2dp(-remainingScaled / 100.0)}% over"
+                                    else -> "${format2dp(remainingScaled / 100.0)}% left to assign"
+                                },
+                                color = statusTint, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            )
                         }
                         if (!ok) Text(
                             "Distribute remainder", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
@@ -306,14 +348,21 @@ fun AddExpenseScreen(
                     }
                 }
                 if (mode == SplitMode.Exact && selectedList.isNotEmpty()) {
+                    // diff > 0 → still to hand out; diff < 0 → over the total (a share must come down).
                     val diff = amountSubunits - exactTotal
                     val ok = diff == 0L
+                    val over = diff < 0
+                    val statusTint = if (ok) c.blue else if (over) c.danger else c.warning
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            ScIcon(if (ok) ScIcons.CheckCircle else ScIcons.Alert, size = 15.dp, tint = if (ok) c.blue else c.danger)
+                            ScIcon(if (ok) ScIcons.CheckCircle else if (over) ScIcons.Alert else ScIcons.Info, size = 15.dp, tint = statusTint)
                             Text(
-                                if (ok) "Splits add up" else "Off by ${moneySubunits(if (diff < 0) -diff else diff, currency)}",
-                                color = if (ok) c.blue else c.danger, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                when {
+                                    ok -> "All assigned"
+                                    over -> "${moneySubunits(-diff, currency)} over"
+                                    else -> "${moneySubunits(diff, currency)} left to assign"
+                                },
+                                color = statusTint, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             )
                         }
                         if (!ok) Text(
@@ -354,18 +403,87 @@ fun AddExpenseScreen(
         }
     }
 
+    if (showCategoryDialog) {
+        ScModalScaffold(onDismiss = { showCategoryDialog = false }) {
+            Text("Category", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ExpenseCategory.entries.forEach { cat ->
+                    val on = categoryId == cat.id
+                    val tint = categoryColor(cat)
+                    val shape = RoundedCornerShape(12.dp)
+                    Row(
+                        Modifier.width(152.dp).clip(shape)
+                            .background(if (on) tint.copy(alpha = 0.12f) else c.page)
+                            .border(if (on) 2.dp else 1.dp, if (on) tint else c.borderStrong, shape)
+                            .clickable {
+                                categoryId = if (on) null else cat.id
+                                showCategoryDialog = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        ScIcon(categoryIcon(cat), size = 18.dp, tint = tint)
+                        Text(cat.label, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                        if (on) ScIcon(ScIcons.Check, size = 15.dp, tint = tint)
+                    }
+                }
+            }
+        }
+    }
+
     if (showPayerDialog) {
+        var someoneElse by remember { mutableStateOf(isOutsidePayer) }
+        var outsideDraft by remember { mutableStateOf(outsidePayerName ?: "") }
         ScModalScaffold(onDismiss = { showPayerDialog = false }) {
             Text("Who paid?", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
             participants.forEach { p ->
                 Row(
-                    Modifier.fillMaxWidth().clickable { payerId = p.userId; showPayerDialog = false }.padding(vertical = 12.dp),
+                    Modifier.fillMaxWidth().clickable {
+                        payerId = p.userId
+                        outsidePayerName = null
+                        // A member who paid is part of the split by default — add them (still removable below).
+                        selected = selected + p.userId
+                        known = known + p.userId
+                        showPayerDialog = false
+                    }.padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     ScAvatar(p.name, me = p.isMe, size = AvatarSize.Sm)
                     Text(p.name, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    if (p.userId == effectivePayerId) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
+                    if (!isOutsidePayer && p.userId == effectivePayerId) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
+                }
+            }
+            Box(Modifier.topHairline(c.border)) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { someoneElse = true }.padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                        ScIcon(ScIcons.User, size = 15.dp, tint = c.blue)
+                    }
+                    Text("Someone else", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (isOutsidePayer && !someoneElse) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
+                }
+            }
+            if (someoneElse) {
+                Box(Modifier.padding(top = 4.dp)) {
+                    ScField("Their name") { ScTextField(outsideDraft, { outsideDraft = it }, placeholder = "e.g. the Airbnb host") }
+                }
+                Text(
+                    "An outside payer isn't part of the split — everyone owes them their share.",
+                    color = c.ink3, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 8.dp),
+                )
+                Box(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    ScButton("Done", {
+                        if (outsideDraft.isNotBlank()) {
+                            outsidePayerName = outsideDraft.trim()
+                            payerId = ""
+                            showPayerDialog = false
+                        }
+                    }, enabled = outsideDraft.isNotBlank())
                 }
             }
         }
