@@ -153,6 +153,18 @@ class ExpenseRepositoryTest {
     }
 
     @Test
+    fun observeExpensesWithShares_attachesSharesAndExcludesDeleted() = runTest {
+        val a = add(newExpense(amount = 3000))
+        val b = add(newExpense(amount = 2000, shares = listOf(NewShare(UserId("u1"), 1000), NewShare(UserId("u2"), 1000))).copy(title = "Cab"))
+        repo.deleteExpense(b.id)
+
+        val rows = repo.observeExpensesWithShares(GroupId("g1")).first()
+        assertEquals(listOf(a.id), rows.map { it.expense.id }, "soft-deleted expense is excluded")
+        assertEquals(3, rows.single().shares.size)
+        assertEquals(3000, rows.single().shares.sumOf { it.owedSubunits })
+    }
+
+    @Test
     fun deleteExpense_softDeletes() = runTest {
         val created = add()
         assertTrue(repo.deleteExpense(created.id) is AppResult.Ok)

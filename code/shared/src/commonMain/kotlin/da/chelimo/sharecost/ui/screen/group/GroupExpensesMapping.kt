@@ -2,10 +2,13 @@ package da.chelimo.sharecost.ui.screen.group
 
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.domain.expense.Expense
+import da.chelimo.sharecost.domain.expense.ExpenseCategory
+import da.chelimo.sharecost.domain.expense.ExpenseShare
 import da.chelimo.sharecost.domain.group.Group
 import da.chelimo.sharecost.domain.group.Member
 import da.chelimo.sharecost.ui.components.currencySymbol
-import da.chelimo.sharecost.ui.components.icon.ScIcons
+import da.chelimo.sharecost.ui.components.moneySubunits
+import da.chelimo.sharecost.ui.theme.categoryColor
 import kotlinx.datetime.LocalDate
 
 /** Mapped state for the Group home Expenses tab — pure, so it is unit-testable without Compose. */
@@ -28,6 +31,7 @@ fun buildGroupExpenses(
     members: List<Member>,
     currentUserId: UserId?,
     today: String,
+    sharesByExpenseId: Map<String, List<ExpenseShare>> = emptyMap(),
 ): GroupExpensesUi {
     val name = group?.name ?: ""
     val emoji = group?.emoji ?: "💸"
@@ -40,27 +44,65 @@ fun buildGroupExpenses(
 
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
     val days = expenses.groupBy { it.expenseDate }.map { (date, list) ->
-        ExpenseDayUi(label = dayLabel(date, today), items = list.map { it.toItemUi(currentUserId, nameByUser) })
+        ExpenseDayUi(
+            label = dayLabel(date, today),
+            items = list.map { it.toItemUi(currentUserId, nameByUser, sharesByExpenseId[it.id.value].orEmpty()) },
+        )
     }
     return GroupExpensesUi(name, emoji, ExpensesState.Populated, days)
 }
 
-private fun Expense.toItemUi(currentUserId: UserId?, nameByUser: Map<String, String>): ExpenseItemUi {
+/** The current user's position on one expense: positive = owed to them, negative = they owe. */
+private data class PersonalStake(val owedToYou: Boolean, val subunits: Long) {
+    val label: String get() = if (owedToYou) "you're owed" else "you owe"
+}
+
+/**
+ * What this expense means for [me], from the unsettled shares: if I paid, I'm owed whatever the *other*
+ * participants still owe; otherwise I owe my own remaining share. Returns null when I'm square on it
+ * (settled, payer-only with nothing outstanding, or not a participant).
+ */
+private fun Expense.personalStake(me: UserId?, shares: List<ExpenseShare>): PersonalStake? {
+    if (me == null || shares.isEmpty()) return null
+    val iAmPayer = payerUserId != null && payerUserId == me
+    return if (iAmPayer) {
+        val owed = shares.filter { it.userId != me }.sumOf { it.remainingSubunits }
+        if (owed > 0L) PersonalStake(owedToYou = true, subunits = owed) else null
+    } else {
+        val mine = shares.filter { it.userId == me }.sumOf { it.remainingSubunits }
+        if (mine > 0L) PersonalStake(owedToYou = false, subunits = mine) else null
+    }
+}
+
+private fun Expense.toItemUi(
+    currentUserId: UserId?,
+    nameByUser: Map<String, String>,
+    shares: List<ExpenseShare>,
+): ExpenseItemUi {
     val payer = when {
         payerUserId == null -> payerOutsideName ?: "Someone"
         payerUserId == currentUserId -> "You"
         else -> nameByUser[payerUserId.value] ?: "Someone"
     }
+    val category = ExpenseCategory.fromId(categoryId) ?: ExpenseCategory.OTHER
     val amount = amountSubunits / 100.0
+    val stake = personalStake(currentUserId, shares)
     return ExpenseItemUi(
         id = id.value,
         title = title,
         sub = "$payer paid",
-        icon = ScIcons.Receipt,
+        icon = categoryIcon(category),
         remaining = amount,
         original = amount,
         settled = status.equals("SETTLED", ignoreCase = true),
         currencySymbol = currencySymbol(currency),
+        payerName = payer,
+        payerIsMe = payerUserId != null && payerUserId == currentUserId,
+        amountLabel = moneySubunits(amountSubunits, currency),
+        categoryColor = categoryColor(category),
+        stakeLabel = stake?.label,
+        stakeAmount = stake?.let { moneySubunits(it.subunits, currency) },
+        stakeOwedToYou = stake?.owedToYou ?: false,
     )
 }
 

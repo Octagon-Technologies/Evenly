@@ -67,6 +67,17 @@ class ExpenseRepositoryImpl(
             expense?.let { ExpenseWithShares(it.toDomain(), shares.map { s -> s.toDomain() }) }
         }
 
+    override fun observeExpensesWithShares(groupId: GroupId): Flow<List<ExpenseWithShares>> =
+        combine(
+            expenseDao.observeByGroup(groupId.value),
+            shareDao.observeByGroup(groupId.value),
+        ) { expenses, shares ->
+            val sharesByExpense = shares.groupBy { it.expenseId }
+            expenses.map { e ->
+                ExpenseWithShares(e.toDomain(), sharesByExpense[e.id].orEmpty().map { it.toDomain() })
+            }
+        }
+
     override fun observeBalances(groupId: GroupId): Flow<List<Debt>> {
         val fx = fxRepository
         val groups = groupDao

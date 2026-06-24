@@ -29,6 +29,19 @@ interface ShareDao {
     @Query("SELECT * FROM shares WHERE expense_id = :expenseId")
     fun observeByExpense(expenseId: String): Flow<List<ShareEntity>>
 
+    /**
+     * Every share belonging to a non-deleted expense in a group — the input to the spending tracker
+     * (joined back to expenses by the repository to form [ExpenseWithShares]).
+     */
+    @Query(
+        """
+        SELECT s.* FROM shares s
+        INNER JOIN expenses e ON e.id = s.expense_id
+        WHERE e.group_id = :groupId AND e.deleted_at IS NULL
+        """
+    )
+    fun observeByGroup(groupId: String): Flow<List<ShareEntity>>
+
     /** AC-INV-001: must equal `expenses.amount_subunits`. `COALESCE` so no-rows returns 0, not null. */
     @Query("SELECT COALESCE(SUM(share_owed_subunits), 0) FROM shares WHERE expense_id = :expenseId")
     suspend fun sumOwed(expenseId: String): Long

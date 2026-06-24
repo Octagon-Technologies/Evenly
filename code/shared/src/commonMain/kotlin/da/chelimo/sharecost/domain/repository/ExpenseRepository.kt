@@ -23,6 +23,12 @@ interface ExpenseRepository {
     /** A single expense with its shares, or null once deleted (the detail screen). */
     fun observeExpense(expenseId: ExpenseId): Flow<ExpenseWithShares?>
 
+    /**
+     * The group feed with each expense's shares attached, newest first — the input to the spending
+     * tracker (per-participant "what you spent" needs each share's owed amount, F2).
+     */
+    fun observeExpensesWithShares(groupId: GroupId): Flow<List<ExpenseWithShares>>
+
     /** Bilateral debts for the group (03 §2.2) — pairwise nets of outstanding shares, never simplified. */
     fun observeBalances(groupId: GroupId): Flow<List<Debt>>
 
