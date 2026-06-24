@@ -205,6 +205,37 @@ class GroupRepositoryTest {
     }
 
     @Test
+    fun joinByToken_claimingPlaceholder_mergesHistoryAndRetiresIt() = runTest {
+        // u1 tracked friend "Dave" as a placeholder owing 800; Dave now joins via the link and claims it.
+        val group = create() // u1 admin
+        val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
+        seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = dave.value, owed = 800)
+
+        val joined = repo.joinByToken(group.inviteToken, UserId("u2"), claimPlaceholderId = dave)
+        assertTrue(joined is AppResult.Ok)
+
+        // u2 joined as a real member, Dave's debt merged onto them in one step — no manual reconcile...
+        assertEquals(setOf("u1", "u2"), repo.observeMembers(group.id).first().map { it.userId.value }.toSet())
+        assertEquals(listOf("u2"), db.shareDao().getByExpense("e1").map { it.userId })
+        // ...and the claimed placeholder is gone from the roster and the picker.
+        assertTrue(placeholders(group.id).isEmpty())
+    }
+
+    @Test
+    fun joinByToken_claimingNonPlaceholder_isIgnored() = runTest {
+        // A claim id that isn't a placeholder of this group must never reassign an arbitrary user's rows.
+        val group = create()
+        db.userDao().upsert(userRow(id = "u1", name = "Alex")) // a real user, not a placeholder
+        seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = "u1", owed = 400)
+
+        val joined = repo.joinByToken(group.inviteToken, UserId("u2"), claimPlaceholderId = UserId("u1"))
+        assertTrue(joined is AppResult.Ok)
+
+        assertEquals(setOf("u1", "u2"), repo.observeMembers(group.id).first().map { it.userId.value }.toSet())
+        assertEquals(listOf("u1"), db.shareDao().getByExpense("e1").map { it.userId }) // u1's share untouched
+    }
+
+    @Test
     fun memberRoster_resolvesToCurrentGlobalName_placeholderNameUnaffected() = runTest {
         // The authenticated user (u1) and a placeholder "Dave" both belong to the group. The roster
         // reads names from the global `users` row (no per-group copy), so a Settings rename — which

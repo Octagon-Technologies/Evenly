@@ -10,10 +10,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,12 +29,18 @@ import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.AvatarSize
 import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ChipVariant
+import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScAvatarStack
 import da.chelimo.sharecost.ui.components.ScButton
+import da.chelimo.sharecost.ui.components.ScCheck
 import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
+import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
+
+/** A claimable placeholder identity offered on the Join sheet: the joiner can pick "I'm this person". */
+data class JoinPlaceholderOption(val id: String, val name: String)
 
 /** 20 · Join group sheet (design/src/screens-home.jsx). Wired by `JoinRoute` from an invite token. */
 @Composable
@@ -38,13 +49,17 @@ fun JoinGroupSheet(
     emoji: String = "🏝️",
     subtitle: String = "Tap join to start sharing costs",
     memberNames: List<String> = emptyList(),
+    placeholders: List<JoinPlaceholderOption> = emptyList(),
     found: Boolean = true,
     already: Boolean = false,
     onDismiss: () -> Unit = {},
-    onJoin: () -> Unit = {},
+    // Carries the picked placeholder id to claim on join, or null to join as a brand-new member.
+    onJoin: (claimPlaceholderId: String?) -> Unit = {},
     onOpen: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
+    // null = "I'm new here" (the default, matching the legacy join-as-a-fresh-member behaviour).
+    var claimId by remember(placeholders) { mutableStateOf<String?>(null) }
     Box(Modifier.fillMaxSize().background(c.surface)) {
         ScSheetScaffold(onDismiss) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -77,7 +92,22 @@ fun JoinGroupSheet(
                         ScButton("Open group", onOpen, leadingIcon = ScIcons.ChevR)
                     }
                     else -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ScButton("Join group", onJoin, leadingIcon = ScIcons.Users)
+                        // Identity picker: if the group has been tracking placeholders, let the joiner
+                        // claim one ("I'm Dave") so its history merges onto them on join, instead of
+                        // forcing a separate Reconcile trip in Group settings.
+                        if (placeholders.isNotEmpty()) {
+                            IdentityPicker(
+                                placeholders = placeholders,
+                                selectedId = claimId,
+                                onSelect = { claimId = it },
+                            )
+                        }
+                        val claimName = placeholders.firstOrNull { it.id == claimId }?.name
+                        ScButton(
+                            text = if (claimName != null) "Join as $claimName" else "Join group",
+                            onClick = { onJoin(claimId) },
+                            leadingIcon = ScIcons.Users,
+                        )
                         // "Not now" mirrors Join's full width + centering, but sits on a muted fill
                         // (a hair off the white sheet) so it reads as a quiet escape, not a tap target
                         // you'd hit by reflex.
@@ -95,10 +125,83 @@ fun JoinGroupSheet(
     }
 }
 
+/**
+ * "Are you one of these?" — single-select identity picker. Each placeholder the group already tracks
+ * is a claimable row; a final "I'm new here" row (selected by default) keeps the join-fresh path.
+ * Blue-led selection: [selectionTint] fill + [selectionStroke] border + a check (never colour alone),
+ * matching the Reconcile card.
+ */
+@Composable
+private fun IdentityPicker(
+    placeholders: List<JoinPlaceholderOption>,
+    selectedId: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val c = ShareCostTheme.colors
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .border(1.dp, c.border, RoundedCornerShape(16.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Are you one of these?", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Pick the name you've been tracked under — we'll merge its expenses onto you.",
+                color = c.ink2, fontSize = 12.sp,
+            )
+        }
+        placeholders.forEach { p ->
+            IdentityRow(name = p.name, selected = selectedId == p.id, isNew = false, onClick = { onSelect(p.id) })
+        }
+        IdentityRow(name = "I'm new here", selected = selectedId == null, isNew = true, onClick = { onSelect(null) })
+    }
+}
+
+/** One identity row: check + avatar (or a person glyph for the "new" option) + name. */
+@Composable
+private fun IdentityRow(name: String, selected: Boolean, isNew: Boolean, onClick: () -> Unit) {
+    val c = ShareCostTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape)
+            .background(if (selected) c.selectionTint else c.surface)
+            .border(if (selected) 2.dp else 1.dp, if (selected) c.selectionStroke else c.border, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ScCheck(checked = selected)
+        if (isNew) {
+            Box(
+                Modifier.size(AvatarSize.Sm.dp).clip(RoundedCornerShape(50))
+                    .border(1.dp, c.border, RoundedCornerShape(50)),
+                contentAlignment = Alignment.Center,
+            ) {
+                ScIcon(ScIcons.User, size = 16.dp, tint = c.ink2)
+            }
+        } else {
+            ScAvatar(name = name, me = selected, size = AvatarSize.Sm)
+        }
+        Text(name, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+    }
+}
+
 @Preview
 @Composable
 private fun JoinPreview() {
     ShareCostTheme { JoinGroupSheet() }
+}
+
+@Preview
+@Composable
+private fun JoinWithPlaceholdersPreview() {
+    ShareCostTheme {
+        JoinGroupSheet(
+            memberNames = listOf("Sarah K.", "Dave", "Sarah A.", "Max"),
+            placeholders = listOf(JoinPlaceholderOption("p1", "Dave"), JoinPlaceholderOption("p2", "Sarah A.")),
+        )
+    }
 }
 
 @Preview

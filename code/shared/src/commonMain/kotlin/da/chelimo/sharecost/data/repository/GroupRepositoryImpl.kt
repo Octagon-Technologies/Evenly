@@ -130,7 +130,7 @@ class GroupRepositoryImpl(
         return group.toDomain().asOk()
     }
 
-    override suspend fun joinByToken(token: String, userId: UserId): AppResult<Group> {
+    override suspend fun joinByToken(token: String, userId: UserId, claimPlaceholderId: UserId?): AppResult<Group> {
         // Resolve locally first; fall back to the server (F7) so a group this device never synced can
         // still be joined. Only a token that matches nowhere is a genuine "not found".
         val group = groupDao.findByInviteToken(token.trim())
@@ -153,6 +153,16 @@ class GroupRepositoryImpl(
                 updatedAt = now,
             )).copy(status = MemberEntity.STATUS_ACTIVE, leftAt = null, updatedAt = now)
             memberDao.upsert(member)
+        }
+
+        // Claim a placeholder identity as part of joining (the joiner picked "I'm Dave"): merge the
+        // placeholder's history onto the real member so they don't have to reconcile manually. Guarded
+        // to an actual placeholder of *this* group so a bad/forged id can't reassign an arbitrary user.
+        if (claimPlaceholderId != null && claimPlaceholderId != userId) {
+            val placeholder = userDao.getById(claimPlaceholderId.value)
+            if (placeholder?.isPlaceholder == true && placeholder.placeholderGroupId == group.id) {
+                reconcilePlaceholder(GroupId(group.id), claimPlaceholderId, userId)
+            }
         }
         return group.toDomain().asOk()
     }

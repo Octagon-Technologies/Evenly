@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 import da.chelimo.sharecost.core.error.AppError
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.auth.NotificationPrefs
 import da.chelimo.sharecost.domain.auth.OAuthProvider
@@ -34,6 +35,7 @@ import da.chelimo.sharecost.ui.screen.home.HomeUiState
 import da.chelimo.sharecost.ui.screen.home.HomeViewModel
 import da.chelimo.sharecost.ui.screen.home.JoinByLinkSheet
 import da.chelimo.sharecost.ui.screen.home.JoinGroupSheet
+import da.chelimo.sharecost.ui.screen.home.JoinPlaceholderOption
 import da.chelimo.sharecost.ui.screen.home.NewGroupSheet
 import da.chelimo.sharecost.ui.screen.settings.PaymentHandlesScreen
 import da.chelimo.sharecost.ui.screen.settings.ProfileScreen
@@ -180,16 +182,22 @@ fun JoinRoute(token: String, onDismiss: () -> Unit, onOpenGroup: (String) -> Uni
     // member count for "is this actually my group?" confirmation. Empty until the token resolves.
     val membersFlow = remember(g?.id) { g?.id?.let { groups.observeMembers(it) } ?: flowOf(emptyList()) }
     val members by membersFlow.collectAsStateWithLifecycle(emptyList())
+    // Claimable identities = the still-active placeholders in this roster (already filtered to
+    // unclaimed by observeMembers). Reusing the roster flow avoids a second query/injection.
+    val placeholderOptions = members
+        .filter { it.isPlaceholder }
+        .map { JoinPlaceholderOption(it.userId.value, it.displayName?.takeIf { n -> n.isNotBlank() } ?: "Member") }
     JoinGroupSheet(
         groupName = g?.name ?: if (resolved) "" else "Checking invite…",
         emoji = g?.emoji ?: "🔗",
         memberNames = members.map { it.displayName?.takeIf { n -> n.isNotBlank() } ?: "Member" },
+        placeholders = placeholderOptions,
         found = g != null || !resolved,
         onDismiss = onDismiss,
-        onJoin = {
+        onJoin = { claimId ->
             userId?.let { me ->
                 scope.launch {
-                    when (val r = groups.joinByToken(token, me)) {
+                    when (val r = groups.joinByToken(token, me, claimId?.let(::UserId))) {
                         is AppResult.Ok -> onOpenGroup(r.value.id.value)
                         is AppResult.Err -> Unit
                     }

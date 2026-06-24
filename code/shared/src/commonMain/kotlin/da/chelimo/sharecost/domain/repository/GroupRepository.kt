@@ -36,10 +36,15 @@ interface GroupRepository {
     suspend fun createGroup(input: NewGroup): AppResult<Group>
 
     /**
-     * Join a group by invite token (04 §2.3 `join_group_by_token`). MVP resolves against the local
-     * cache only; joining a group the device has never synced requires the server (S-1).
+     * Join a group by invite token (04 §2.3 `join_group_by_token`). Resolves against the local cache,
+     * falling back to the server for a group this device never synced (F7).
+     *
+     * If [claimPlaceholderId] is a placeholder of this group, the joiner *claims* that identity as part
+     * of joining: the placeholder's shares + paid expenses merge onto [userId] and the placeholder is
+     * retired (same merge as [reconcilePlaceholder]) — so a friend who was tracked as "Dave" doesn't
+     * have to reconcile manually in Group settings afterwards. Null → join as a brand-new member.
      */
-    suspend fun joinByToken(token: String, userId: UserId): AppResult<Group>
+    suspend fun joinByToken(token: String, userId: UserId, claimPlaceholderId: UserId? = null): AppResult<Group>
 
     /** Leave a group; admin passes to the longest-tenured active member, else the group is abandoned. */
     suspend fun leaveGroup(groupId: GroupId, userId: UserId): AppResult<Unit>
