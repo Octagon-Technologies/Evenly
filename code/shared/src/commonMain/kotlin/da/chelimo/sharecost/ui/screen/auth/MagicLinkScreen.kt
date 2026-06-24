@@ -51,10 +51,13 @@ fun MagicLinkScreen(
     onSend: (String) -> Unit = {},
     onVerify: (String) -> Unit = {},
     onResend: () -> Unit = {},
+    onPasswordSignIn: (String, String) -> Unit = { _, _ -> },
+    allowPassword: Boolean = false,
 ) {
     val c = ShareCostTheme.colors
     var email by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding().padding(horizontal = 24.dp)) {
         Box(Modifier.padding(vertical = 8.dp)) { ScIconButton(ScIcons.Back, onBack) }
 
@@ -91,19 +94,30 @@ fun MagicLinkScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Sign in with email", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = c.ink, letterSpacing = (-0.5).sp)
-                    Text("We'll email you a one-tap link.", fontSize = 15.sp, color = c.ink2)
+                    Text("We'll email you a link and a 6-digit code.", fontSize = 15.sp, color = c.ink2)
                 }
                 ScField("Email address") {
                     ScTextField(email, { email = it }, placeholder = "you@email.com", keyboardType = KeyboardType.Email)
                 }
+                // Debug-only: seeded test accounts sign in with a password (no email round-trip). Hidden
+                // in release builds (see isDebugBuild()); leave blank for the normal magic-link / OTP flow.
+                if (allowPassword) {
+                    ScField("Password (test accounts — optional)") {
+                        ScTextField(password, { password = it }, placeholder = "•••••••", keyboardType = KeyboardType.Password)
+                    }
+                }
                 error?.let { Text(it, color = c.danger, fontSize = 13.sp) }
-                ScButton(onClick = { onSend(email) }, enabled = state != MagicLinkState.Loading && email.contains("@")) {
+                val usePassword = allowPassword && password.isNotEmpty()
+                ScButton(
+                    onClick = { if (usePassword) onPasswordSignIn(email, password) else onSend(email) },
+                    enabled = state != MagicLinkState.Loading && email.contains("@"),
+                ) {
                     if (state == MagicLinkState.Loading) {
                         ScSpinner(size = 18.dp)
-                        Text("Sending…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Signing in…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     } else {
                         ScIcon(ScIcons.Send, size = 20.dp, tint = LocalContentColor.current)
-                        Text("Send magic link", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(if (usePassword) "Sign in" else "Email me a code", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package da.chelimo.sharecost.platform
 
+import kotlin.experimental.ExperimentalNativeApi
 import platform.UIKit.UIDevice
 
 class IOSPlatform : Platform {
@@ -8,3 +9,6 @@ class IOSPlatform : Platform {
 }
 
 actual fun getPlatform(): Platform = IOSPlatform()
+
+@OptIn(ExperimentalNativeApi::class)
+actual fun isDebugBuild(): Boolean = kotlin.native.Platform.isDebugBinary
