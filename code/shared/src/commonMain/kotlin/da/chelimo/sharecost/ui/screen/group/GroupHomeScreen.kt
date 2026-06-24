@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +15,7 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.ui.components.BottomNavItem
 import da.chelimo.sharecost.ui.components.ScBottomNav
+import da.chelimo.sharecost.ui.components.StatusBarScrim
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.navigation.GroupTab
 import da.chelimo.sharecost.ui.navigation.OverviewRoute
@@ -50,7 +50,8 @@ fun GroupHomeScreen(
     // If the conflicts clear while the tab is open, fall back to Expenses so we don't show a blank tab.
     if (conflictCount == 0 && tab == GroupTab.Conflicts) tab = GroupTab.Expenses
 
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.surface)) {
+        StatusBarScrim(c.page)
         Box(Modifier.weight(1f)) {
             when (tab) {
                 GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onSearch, onFilter)
@@ -68,6 +69,7 @@ fun GroupHomeScreen(
         ScBottomNav(
             items = items,
             selectedId = tab.name.lowercase(),
+            navBarInset = true,
             onSelect = { id ->
                 tab = when (id) {
                     "balances" -> GroupTab.Balances

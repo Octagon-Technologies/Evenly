@@ -79,7 +79,7 @@ fun GroupExpensesRoute(
         groupEmoji = ui.groupEmoji, groupName = ui.groupName, state = ui.state, days = ui.days, drafts = 0,
         filterActive = filter.isActive,
         inviteLink = inviteLink,
-        onBack = onBack, onOpenGroup = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = onFilter,
+        onBack = onBack, onOpenSettings = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = onFilter,
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("sharecost.app/j/$it")) } },
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },

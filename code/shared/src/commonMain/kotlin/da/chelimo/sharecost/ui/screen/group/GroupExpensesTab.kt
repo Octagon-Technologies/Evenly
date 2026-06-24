@@ -45,11 +45,10 @@ import da.chelimo.sharecost.ui.components.ScDot
 import da.chelimo.sharecost.ui.components.ScEmptyState
 import da.chelimo.sharecost.ui.components.ScFab
 import da.chelimo.sharecost.ui.components.ScIconButton
+import da.chelimo.sharecost.ui.components.ScSegmented
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.ScSkeletonRow
-import da.chelimo.sharecost.ui.components.ScSubTabs
 import da.chelimo.sharecost.ui.components.ScTopBar
-import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.domain.expense.ExpenseCategory
@@ -80,6 +79,9 @@ data class ExpenseDayUi(val label: String, val items: List<ExpenseItemUi>)
 
 enum class ExpensesState { Loading, Empty, Populated }
 
+/** Shared corner radius for the expense feed's per-row cards (and the settled tray). */
+private val ExpenseCardShape = RoundedCornerShape(14.dp)
+
 /** 6 · Group · Expenses tab (design/src/screens-group.jsx). Hosted inside GroupHomeScreen. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -93,7 +95,7 @@ fun GroupExpensesTab(
     filterActive: Boolean = false,
     inviteLink: String = "sharecost.app/j/8Kk2-Tulum",
     onBack: () -> Unit = {},
-    onOpenGroup: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
     onSearch: () -> Unit = {},
@@ -111,20 +113,36 @@ fun GroupExpensesTab(
         ScTopBar(
             title = groupName,
             navIcon = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Emoji is now decorative — tapping a group icon for settings was a hidden affordance.
+                // Settings has its own obvious gear in the actions.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     ScIconButton(ScIcons.Back, onBack)
-                    Text(groupEmoji, fontSize = 22.sp, modifier = Modifier.clickable { onOpenGroup() })
+                    Text(groupEmoji, fontSize = 22.sp)
                 }
             },
             actions = {
                 ScIconButton(ScIcons.Search, onSearch)
-                ScIconButton(ScIcons.Filter, onFilter)
                 // Invite/share: the front-door entry to the group's join link (also in Group settings).
                 ScIconButton(ScIcons.Share, { showInvite = true })
+                ScIconButton(ScIcons.Gear, onOpenSettings)
             },
         )
         if (offline) ScBanner("Offline — your changes will sync.")
-        ScSubTabs(tabs = listOf("Active", "All", "Settled"), selected = sub, onSelect = { sub = it })
+        // Tab island: a segmented pill below the title (not an underline bar in the app bar), with the
+        // advanced-filter funnel beside it so the bar stays uncluttered.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ScSegmented(
+                options = listOf("Active", "All", "Settled"),
+                selected = sub,
+                onSelect = { sub = it },
+                modifier = Modifier.weight(1f),
+            )
+            FilterFunnel(active = filterActive, onClick = onFilter)
+        }
         if (filterActive) FilterChipRow(onClearFilter)
 
         // The sub-tab narrows by settlement status; drop days that have nothing under the active view.
@@ -177,13 +195,14 @@ fun GroupExpensesTab(
                     }
                     visibleDays.forEach { day ->
                         stickyHeader(key = day.label) { ScDayHeader(day.label) }
-                        itemsIndexed(day.active, key = { _, it -> it.id }) { i, it ->
-                            Box(if (i > 0) Modifier.topHairline(c.border) else Modifier) { ExpenseRowFrom(it, onOpenExpense) }
+                        // Each expense is its own card (side margins + small gap, no hairlines).
+                        itemsIndexed(day.active, key = { _, it -> it.id }) { _, it ->
+                            ExpenseRowFrom(it, onOpenExpense)
                         }
                         if (day.settled.isNotEmpty()) {
                             if (sub == "Settled") {
-                                itemsIndexed(day.settled, key = { _, it -> "s-${it.id}" }) { i, it ->
-                                    Box(if (i > 0 || day.active.isNotEmpty()) Modifier.topHairline(c.border) else Modifier) { ExpenseRowFrom(it, onOpenExpense) }
+                                itemsIndexed(day.settled, key = { _, it -> "s-${it.id}" }) { _, it ->
+                                    ExpenseRowFrom(it, onOpenExpense)
                                 }
                             } else {
                                 item(key = "settled-${day.label}") { SettledTray(day.settled, onOpenExpense) }
@@ -292,7 +311,13 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
     val c = ShareCostTheme.colors
     val accent = it.categoryColor ?: c.ink2
     Row(
-        Modifier.fillMaxWidth().background(c.page).clickable { onOpen(it.id) }.padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(ExpenseCardShape)
+            .background(c.page)
+            .border(1.dp, c.border, ExpenseCardShape)
+            .clickable { onOpen(it.id) }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -345,9 +370,17 @@ private fun ScDayHeader(label: String) {
 private fun SettledTray(items: List<ExpenseItemUi>, onOpen: (String) -> Unit) {
     val c = ShareCostTheme.colors
     var open by remember { mutableStateOf(false) }
-    Column(Modifier.topHairline(c.border)) {
+    Column {
+        // A muted (surface-fill) card header so the collapsed settled group reads as secondary to the
+        // white active expense cards above it.
         Row(
-            Modifier.fillMaxWidth().background(c.surface).clickable { open = !open }.padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .clip(ExpenseCardShape)
+                .background(c.surface)
+                .border(1.dp, c.border, ExpenseCardShape)
+                .clickable { open = !open }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -358,8 +391,25 @@ private fun SettledTray(items: List<ExpenseItemUi>, onOpen: (String) -> Unit) {
             ScIcon(if (open) ScIcons.ChevU else ScIcons.ChevD, size = 16.dp, tint = c.ink3)
         }
         if (open) {
-            items.forEach { Box(Modifier.topHairline(c.border)) { ExpenseRowFrom(it, onOpen) } }
+            items.forEach { ExpenseRowFrom(it, onOpen) }
         }
+    }
+}
+
+/** The advanced-filter funnel that sits beside the tab island; tints when a filter is active. */
+@Composable
+private fun FilterFunnel(active: Boolean, onClick: () -> Unit) {
+    val c = ShareCostTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        Modifier.size(44.dp)
+            .clip(shape)
+            .background(if (active) c.blueTint else c.surface)
+            .border(1.dp, if (active) c.blue else c.border, shape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        ScIcon(ScIcons.Filter, size = 18.dp, tint = if (active) c.blue else c.ink2)
     }
 }
 
