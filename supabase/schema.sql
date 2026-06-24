@@ -95,16 +95,19 @@ create table if not exists public.shares (
   expense_id text not null,
   user_id text not null,
   share_owed_subunits bigint not null,
-  remaining_subunits bigint not null,
+  remaining_subunits bigint default 0,   -- DERIVED client-side (owed - Σ settlement allocations); kept for back-compat, no longer authoritative
   share_units integer,
   share_percentage double precision,
   share_exact_subunits bigint,
   created_at bigint not null,
   updated_at bigint not null,
   row_version bigint not null default 1,
-  unique (expense_id, user_id)
+  deleted_at bigint                        -- soft-delete: a participant removed on an expense edit is tombstoned, never hard-deleted
 );
 create index if not exists shares_expense_idx on public.shares (expense_id);
+-- Partial unique over ACTIVE rows only, so a soft-deleted share doesn't block re-adding the same member.
+create unique index if not exists shares_expense_user_active_uidx
+  on public.shares (expense_id, user_id) where deleted_at is null;
 
 create table if not exists public.settlements (
   id text primary key,
@@ -126,6 +129,27 @@ create table if not exists public.settlements (
 );
 create index if not exists settlements_group_idx on public.settlements (group_id, settled_at);
 
+-- Settlement allocations: how a payment applied to specific shares. These are the GROUND TRUTH for
+-- payments — the client derives each share's `remaining = owed - Σ applied` from them (and skips
+-- allocations of soft-deleted settlements), so they must sync. `group_id` is denormalised for pull
+-- scoping; append-only in practice (a void soft-deletes the parent settlement, excluding its rows).
+create table if not exists public.settlement_allocations (
+  id text primary key,
+  settlement_id text not null,
+  group_id text not null,
+  share_id text not null,
+  applied_amount_subunits bigint not null,
+  applied_currency text not null,
+  fx_rate_used double precision,
+  fx_rate_date text,
+  created_at bigint not null,
+  row_version bigint not null default 1,
+  unique (settlement_id, share_id)
+);
+create index if not exists settlement_allocations_group_idx on public.settlement_allocations (group_id);
+create index if not exists settlement_allocations_settlement_idx on public.settlement_allocations (settlement_id);
+create index if not exists settlement_allocations_share_idx on public.settlement_allocations (share_id);
+
 create table if not exists public.conflicts (
   id text primary key,
   group_id text not null,
@@ -138,6 +162,26 @@ create table if not exists public.conflicts (
   unique (expense_id, added_user_id)
 );
 create index if not exists conflicts_group_idx on public.conflicts (group_id);
+
+-- Expense edit-collision conflicts: when two devices edit the same expense from the same base_version,
+-- the commit_expense() RPC accepts the first (canonical) and PARKS the loser here (its full rejected
+-- payload), instead of silently clobbering. Surfaced in-app for a deliberate pick-a-side resolution.
+create table if not exists public.expense_edit_conflicts (
+  id text primary key,
+  group_id text not null,
+  expense_id text not null,
+  base_version bigint not null,      -- the version the rejected edit was based on
+  server_version bigint not null,    -- the canonical version it lost to
+  rejected_by text not null,         -- actor user id
+  rejected_expense jsonb not null,   -- loser's full expense payload
+  rejected_shares jsonb not null,    -- loser's full share set
+  created_at bigint not null,
+  resolved_at bigint,
+  resolution text,                   -- 'KEEP_CURRENT' | 'USE_REJECTED'
+  resolved_by text
+);
+create index if not exists expense_edit_conflicts_group_idx on public.expense_edit_conflicts (group_id);
+create index if not exists expense_edit_conflicts_expense_idx on public.expense_edit_conflicts (expense_id);
 
 -- ── Expense activity (F5): comments, receipts, append-only history ───────────────────────────────
 create table if not exists public.comments (
@@ -202,7 +246,7 @@ create index if not exists device_tokens_user_idx on public.device_tokens (user_
 do $$
 declare t text;
 begin
-  foreach t in array array['users','groups','members','expenses','shares','settlements','conflicts','comments','receipts','expense_history','device_tokens']
+  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','expense_history','device_tokens']
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists %I on public.%I;', t || '_rw', t);
@@ -220,7 +264,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','members','expenses','shares','settlements','conflicts','comments','receipts','expense_history']
+  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','expense_history']
   loop
     begin
       execute format('alter publication supabase_realtime add table public.%I;', t);
@@ -279,3 +323,96 @@ end;
 $$;
 revoke all on function public.delete_my_account() from public;
 grant execute on function public.delete_my_account() to authenticated;
+
+-- ── Optimistic-concurrency commit for expenses (versioning + parked conflicts) ───────────────────
+-- The client routes every expense create/edit through commit_expense() instead of a blind upsert.
+-- It compares the caller's base_version against the canonical row_version under a row lock, so the
+-- FIRST writer to advance base->base+1 wins; a stale writer's payload is PARKED in
+-- expense_edit_conflicts and the canonical row is left untouched (no silent last-write-wins clobber).
+-- Outcome is order-independent: swap who commits first and you still get one canonical row + one
+-- parked conflict. Shares are replaced atomically with the expense — removed participants are
+-- soft-deleted (Rule 1), never hard-deleted, so the tombstone propagates on the next pull.
+create or replace function public._replace_expense_shares(p_expense_id text, p_shares jsonb, p_now bigint)
+returns void language plpgsql as $$
+declare
+  v_ids text[];
+begin
+  select coalesce(array_agg(s->>'id'), array[]::text[]) into v_ids
+    from jsonb_array_elements(p_shares) s;
+
+  update public.shares
+     set deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+   where expense_id = p_expense_id
+     and deleted_at is null
+     and id <> all(v_ids);
+
+  insert into public.shares as sh
+    select * from jsonb_populate_recordset(null::public.shares, p_shares)
+  on conflict (id) do update set
+    user_id              = excluded.user_id,
+    share_owed_subunits  = excluded.share_owed_subunits,
+    share_units          = excluded.share_units,
+    share_percentage     = excluded.share_percentage,
+    share_exact_subunits = excluded.share_exact_subunits,
+    updated_at           = excluded.updated_at,
+    deleted_at           = excluded.deleted_at,
+    row_version          = sh.row_version + 1;
+end;
+$$;
+
+create or replace function public.commit_expense(
+  p_expense jsonb,
+  p_shares jsonb,
+  p_base_version bigint,
+  p_actor text
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_id text := p_expense->>'id';
+  v_group_id text := p_expense->>'group_id';
+  v_now bigint := coalesce((p_expense->>'updated_at')::bigint, 0);
+  v_current public.expenses%rowtype;
+  v_new_version bigint;
+  v_conflict_id text;
+begin
+  select * into v_current from public.expenses where id = v_id for update;
+
+  if not found then
+    insert into public.expenses
+      select * from jsonb_populate_record(null::public.expenses, p_expense);
+    perform public._replace_expense_shares(v_id, p_shares, v_now);
+    return jsonb_build_object('status', 'created', 'version', coalesce((p_expense->>'row_version')::bigint, 1));
+  end if;
+
+  if v_current.row_version = p_base_version and v_current.deleted_at is null then
+    v_new_version := p_base_version + 1;
+    update public.expenses set
+      title              = p_expense->>'title',
+      notes              = p_expense->>'notes',
+      amount_subunits    = (p_expense->>'amount_subunits')::bigint,
+      currency           = p_expense->>'currency',
+      expense_date       = p_expense->>'expense_date',
+      payer_user_id      = p_expense->>'payer_user_id',
+      payer_outside_name = p_expense->>'payer_outside_name',
+      split_mode         = p_expense->>'split_mode',
+      category_id        = p_expense->>'category_id',
+      subcategory_id     = p_expense->>'subcategory_id',
+      updated_at         = v_now,
+      row_version        = v_new_version
+    where id = v_id;
+    perform public._replace_expense_shares(v_id, p_shares, v_now);
+    return jsonb_build_object('status', 'committed', 'version', v_new_version);
+  else
+    v_conflict_id := v_id || ':' || p_base_version::text || ':' || p_actor;
+    insert into public.expense_edit_conflicts(
+      id, group_id, expense_id, base_version, server_version, rejected_by,
+      rejected_expense, rejected_shares, created_at)
+    values (
+      v_conflict_id, v_group_id, v_id, p_base_version, v_current.row_version, p_actor,
+      p_expense, p_shares, v_now)
+    on conflict (id) do nothing;
+    return jsonb_build_object('status', 'conflict', 'server_version', v_current.row_version, 'conflict_id', v_conflict_id);
+  end if;
+end;
+$$;
