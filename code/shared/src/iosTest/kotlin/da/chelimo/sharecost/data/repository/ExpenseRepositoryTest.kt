@@ -67,16 +67,84 @@ class ExpenseRepositoryTest {
 
     @Test
     fun addExpense_persistsExpenseAndShares_activeStatus() = runTest {
-        val expense = add()
+        val expense = add() // payer u1 is also a participant
 
         val detail = repo.observeExpense(expense.id).first()
         assertNotNull(detail)
         assertEquals(3, detail.shares.size)
         assertEquals(ExpenseStatus.ACTIVE, detail.expense.status)
-        assertTrue(detail.shares.all { it.remainingSubunits == it.owedSubunits })
+        // The payer's own share is born resolved; the other two stay unpaid. 2000 still outstanding.
+        val byUser = detail.shares.associateBy { it.userId.value }
+        assertEquals(0, byUser["u1"]?.remainingSubunits)
+        assertTrue(listOf("u2", "u3").all { byUser[it]?.remainingSubunits == byUser[it]?.owedSubunits })
+        assertEquals(2000, detail.shares.sumOf { it.remainingSubunits })
         assertEquals(3000, detail.shares.sumOf { it.owedSubunits })
 
         assertEquals(listOf(expense.id), repo.observeExpenses(GroupId("g1")).first().map { it.id })
+    }
+
+    @Test
+    fun addExpense_payerIsParticipant_resolvesOnlyPayerShare() = runTest {
+        // u1 pays and is a participant — a person can't owe themselves, so u1's share starts resolved
+        // while u2/u3 start unpaid. Owed amounts are untouched (only remaining is zeroed).
+        val expense = add()
+
+        val byUser = repo.observeExpense(expense.id).first()!!.shares.associateBy { it.userId.value }
+        assertEquals(0, byUser["u1"]?.remainingSubunits, "payer's own share starts resolved")
+        assertEquals(1000, byUser["u1"]?.owedSubunits, "owed is unchanged — only remaining is zeroed")
+        assertEquals(1000, byUser["u2"]?.remainingSubunits, "non-payer starts unpaid")
+        assertEquals(1000, byUser["u3"]?.remainingSubunits, "non-payer starts unpaid")
+    }
+
+    @Test
+    fun addExpense_payerCoversWholeExpense_isSettledImmediately() = runTest {
+        // The payer is the only participant (a solo expense) — nothing is outstanding, so it is SETTLED
+        // at creation rather than perpetually ACTIVE on a debt to oneself.
+        val expense = add(newExpense(amount = 1000, shares = listOf(NewShare(UserId("u1"), 1000))))
+
+        val detail = repo.observeExpense(expense.id).first()
+        assertNotNull(detail)
+        assertEquals(0, detail.shares.single().remainingSubunits)
+        assertEquals(ExpenseStatus.SETTLED, detail.expense.status)
+    }
+
+    @Test
+    fun addExpense_outsidePayer_resolvesNoShare() = runTest {
+        // An outside payer (payerUserId == null) is not a participant, so no self-share resolution
+        // applies: every share stays unpaid and the expense is ACTIVE.
+        val expense = add(
+            newExpense().copy(payerUserId = null, payerOutsideName = "Hotel"),
+        )
+
+        val detail = repo.observeExpense(expense.id).first()
+        assertNotNull(detail)
+        assertTrue(detail.shares.all { it.remainingSubunits == it.owedSubunits }, "no share is pre-resolved")
+        assertEquals(3000, detail.shares.sumOf { it.remainingSubunits })
+        assertEquals(ExpenseStatus.ACTIVE, detail.expense.status)
+    }
+
+    @Test
+    fun editExpense_payerIsParticipant_resolvesPayerShare() = runTest {
+        val created = add() // status starts with u1 resolved
+
+        val edited = repo.editExpense(
+            created.id,
+            EditExpense(
+                title = "Lunch",
+                amountSubunits = 2000,
+                currency = "USD",
+                expenseDate = "2026-06-02",
+                payerUserId = UserId("u2"), // payer changes to u2
+                splitMode = "EVEN",
+                shares = listOf(NewShare(UserId("u1"), 1000), NewShare(UserId("u2"), 1000)),
+            ),
+        )
+        assertTrue(edited is AppResult.Ok)
+
+        // After the edit the new payer (u2) owns the resolved self-share; u1 is now unpaid.
+        val byUser = repo.observeExpense(created.id).first()!!.shares.associateBy { it.userId.value }
+        assertEquals(0, byUser["u2"]?.remainingSubunits, "new payer's share is resolved")
+        assertEquals(1000, byUser["u1"]?.remainingSubunits, "former payer now owes their share")
     }
 
     @Test

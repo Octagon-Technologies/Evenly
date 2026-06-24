@@ -125,7 +125,10 @@ class ExpenseRepositoryImpl(
 
         val now = clock.nowEpochMillis()
         val expenseId = newId()
-        val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = input.shares.sumOf { it.owedSubunits })
+        // Build shares first: the payer's own share is born resolved (remaining == 0), so status must
+        // be derived from the post-resolution remaining sums — a self-covered expense lands SETTLED.
+        val shares = input.shares.toEntities(expenseId, now, input.payerUserId)
+        val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = shares.sumOf { it.remainingSubunits })
         val expense = ExpenseEntity(
             id = expenseId,
             groupId = input.groupId.value,
@@ -143,7 +146,7 @@ class ExpenseRepositoryImpl(
             createdAt = now,
             updatedAt = now,
         )
-        expenseDao.insertWithShares(expense, input.shares.toEntities(expenseId, now))
+        expenseDao.insertWithShares(expense, shares)
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
         return expense.toDomain().asOk()
     }
@@ -156,7 +159,10 @@ class ExpenseRepositoryImpl(
             return validationErr("expense", AppError.Validation.Reason.Required)
         }
         val now = clock.nowEpochMillis()
-        val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = input.shares.sumOf { it.owedSubunits })
+        // Re-resolve the payer's own share on edit too, mirroring addExpense — otherwise a previously
+        // resolved self-share would re-open as unpaid. Status follows the post-resolution remaining sums.
+        val shares = input.shares.toEntities(expenseId.value, now, input.payerUserId)
+        val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = shares.sumOf { it.remainingSubunits })
         val updated = existing.copy(
             title = input.title.trim(),
             notes = input.notes,
@@ -171,7 +177,7 @@ class ExpenseRepositoryImpl(
             updatedAt = now,
             rowVersion = existing.rowVersion + 1,
         )
-        expenseDao.replaceWithShares(updated, input.shares.toEntities(expenseId.value, now))
+        expenseDao.replaceWithShares(updated, shares)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
         return updated.toDomain().asOk()
     }
@@ -207,14 +213,21 @@ class ExpenseRepositoryImpl(
         )
     }
 
-    /** A new share starts fully unpaid (`remaining == owed`); the raw split inputs are preserved. */
-    private fun List<NewShare>.toEntities(expenseId: String, now: Long): List<ShareEntity> = map { s ->
+    /**
+     * Maps split inputs to share rows. A new share starts fully unpaid (`remaining == owed`) — except
+     * the payer's own share, which is born already resolved (`remaining == 0`): a person can't owe
+     * themselves, so their portion is never outstanding (balances likewise net self-shares to zero in
+     * [buildBilateralBalances]). An outside payer ([payerUserId] == null) has no self-share, so every
+     * share stays unpaid. The raw split inputs are preserved either way.
+     */
+    private fun List<NewShare>.toEntities(expenseId: String, now: Long, payerUserId: UserId?): List<ShareEntity> = map { s ->
+        val isPayerOwnShare = payerUserId != null && s.userId == payerUserId
         ShareEntity(
             id = newId(),
             expenseId = expenseId,
             userId = s.userId.value,
             shareOwedSubunits = s.owedSubunits,
-            remainingSubunits = s.owedSubunits,
+            remainingSubunits = if (isPayerOwnShare) 0L else s.owedSubunits,
             shareUnits = s.shareUnits,
             sharePercentage = s.sharePercentage,
             shareExactSubunits = s.shareExactSubunits,
