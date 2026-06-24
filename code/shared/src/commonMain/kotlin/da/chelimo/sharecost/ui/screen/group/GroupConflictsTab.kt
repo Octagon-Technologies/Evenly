@@ -23,6 +23,7 @@ import da.chelimo.sharecost.ui.components.ScAmountText
 import da.chelimo.sharecost.ui.components.ScBanner
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
+import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScTopBar
 import da.chelimo.sharecost.ui.components.money
 import da.chelimo.sharecost.ui.components.icon.ScIcons
@@ -44,12 +45,13 @@ data class ConflictUi(
 fun GroupConflictsTab(
     memberName: String = "Tyler",
     conflicts: List<ConflictUi> = DemoConflicts,
+    onBack: () -> Unit = {},
     onInclude: (ConflictUi) -> Unit = {},
     onSkip: (ConflictUi) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     Column(Modifier.fillMaxSize().background(c.surface)) {
-        ScTopBar("Conflicts", subtitle = "$memberName joined after these expenses")
+        ScTopBar("Conflicts", subtitle = "$memberName joined after these expenses", navIcon = { ScIconButton(ScIcons.Back, onBack) })
         ScBanner("Decide who shares these costs.", variant = BannerVariant.Amber, leadingIcon = ScIcons.Alert)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             conflicts.forEach { item ->

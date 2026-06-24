@@ -32,6 +32,7 @@ import org.koin.compose.koinInject
 fun GroupHomeScreen(
     groupId: String = "1",
     initialTab: GroupTab = GroupTab.Expenses,
+    onBack: () -> Unit = {},
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
     onSearch: () -> Unit = {},
@@ -52,10 +53,10 @@ fun GroupHomeScreen(
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         Box(Modifier.weight(1f)) {
             when (tab) {
-                GroupTab.Expenses -> GroupExpensesRoute(groupId, onOpenSettings, onAdd, onOpenExpense, onSearch, onFilter)
-                GroupTab.Balances -> GroupBalancesRoute(groupId, onSettleNav = onSettlePeer)
-                GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onIncludeNav = onIncludeNav)
-                GroupTab.Overview -> OverviewRoute(groupId, onExport = onExport)
+                GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onSearch, onFilter)
+                GroupTab.Balances -> GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
+                GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
+                GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack, onExport = onExport)
             }
         }
         val items = buildList {

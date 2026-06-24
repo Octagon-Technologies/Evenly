@@ -2,12 +2,14 @@ package da.chelimo.sharecost.ui.screen.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -57,16 +59,35 @@ fun JoinGroupSheet(
                         fontSize = 12.sp,
                     )
                 }
-                if (memberNames.isNotEmpty()) ScAvatarStack(names = memberNames, size = AvatarSize.Sm)
+                // Member count (placeholders + everyone who's joined via the link) so the user can
+                // confirm "is this actually my group?" before tapping Join.
+                if (found && memberNames.isNotEmpty()) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ScAvatarStack(names = memberNames, size = AvatarSize.Sm)
+                        Text(
+                            "${memberNames.size} ${if (memberNames.size == 1) "member" else "members"}",
+                            color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
                 when {
                     !found -> ScButton("Close", onDismiss, variant = ButtonVariant.Text)
                     already -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScChip("You're already in this group", variant = ChipVariant.Blue, leadingIcon = ScIcons.Check)
                         ScButton("Open group", onOpen, leadingIcon = ScIcons.ChevR)
                     }
-                    else -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    else -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         ScButton("Join group", onJoin, leadingIcon = ScIcons.Users)
-                        ScButton("Not now", onDismiss, variant = ButtonVariant.Text)
+                        // "Not now" mirrors Join's full width + centering, but sits on a muted fill
+                        // (a hair off the white sheet) so it reads as a quiet escape, not a tap target
+                        // you'd hit by reflex.
+                        Box(
+                            Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(14.dp))
+                                .background(c.surface).clickable(onClick = onDismiss),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("Not now", color = c.ink2, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

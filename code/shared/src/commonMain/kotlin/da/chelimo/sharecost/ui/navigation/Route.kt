@@ -22,8 +22,9 @@ sealed interface Route {
 
     // ── Home ───────────────────────────────────────────────────────────
     @Serializable data object Home : Route
-    @Serializable data object NewGroup : Route            // sheet
+    @Serializable data class NewGroup(val emoji: String? = null, val name: String? = null) : Route   // sheet
     @Serializable data object Archived : Route
+    @Serializable data object JoinByLink : Route          // sheet — paste an invite manually
     @Serializable data class Join(val token: String) : Route   // sheet + deep link
 
     // ── Group (single host; tabs are internal state) ───────────────────
