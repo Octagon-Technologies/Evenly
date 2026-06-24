@@ -126,9 +126,9 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
         payer?.paymentHandles?.get(app)?.let { PeerPaymentHandle(app, app.appLabel, it) }
     }
 
-    fun record(app: PaymentApp?, linkConfirmed: Boolean) {
+    fun record(amount: Long, app: PaymentApp?, linkConfirmed: Boolean) {
         val me = userId ?: return
-        if (payerId == null || myRemaining <= 0) { onSettled(); return }
+        if (payerId == null || amount <= 0) { onSettled(); return }
         scope.launch {
             settlements.applySettlement(
                 NewSettlement(
@@ -136,7 +136,7 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
                     fromUserId = me,
                     toUserId = payerId,
                     paymentCurrency = e.currency,
-                    paymentAmountSubunits = myRemaining,
+                    paymentAmountSubunits = amount,
                     createdBy = me,
                     paymentApp = app?.name,
                     deepLinkAttempted = app != null,
@@ -154,10 +154,10 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
         currency = e.currency,
         handles = handles,
         onDismiss = onBack,
-        onOpenApp = { app, handle ->
-            buildDeepLink(app, handle, myRemaining, group?.name ?: "ShareCost", "expense").url?.let { urlOpener.open(it) }
+        onOpenApp = { amount, app, handle ->
+            buildDeepLink(app, handle, amount, group?.name ?: "ShareCost", "expense").url?.let { urlOpener.open(it) }
         },
-        onConfirmPaid = { app -> record(app, linkConfirmed = true) },
-        onMarkPaid = { record(app = null, linkConfirmed = false) },
+        onConfirmPaid = { amount, app -> record(amount, app, linkConfirmed = true) },
+        onMarkPaid = { amount -> record(amount, app = null, linkConfirmed = false) },
     )
 }

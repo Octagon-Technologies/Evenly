@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.domain.settlement.PaymentApp
 import da.chelimo.sharecost.ui.components.AvatarSize
 import da.chelimo.sharecost.ui.components.ButtonVariant
+import da.chelimo.sharecost.ui.components.ScAmountInput
 import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
@@ -38,10 +40,12 @@ import da.chelimo.sharecost.ui.components.ScDivider
 import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScParticipantChip
 import da.chelimo.sharecost.ui.components.ScTopBar
+import da.chelimo.sharecost.ui.components.amountTextToSubunits
 import da.chelimo.sharecost.ui.components.moneySubunits
 import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
+import da.chelimo.sharecost.ui.screen.expense.format2dp
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
 data class SettleShareUi(val title: String, val date: String, val amountSubunits: Long)
@@ -84,6 +88,12 @@ fun SettlePersonScreen(
     var confirmFor by remember { mutableStateOf<PeerPaymentHandle?>(null) }
     val total = shares.filterIndexed { i, _ -> i in checked }.sumOf { it.amountSubunits }
     val chosen = handles.firstOrNull { it.app == selectedApp } ?: handles.firstOrNull()
+    // Partial settle: step 2 shows the balance as an *editable* hero amount, defaulting to the selected
+    // total and capped at it (you can't overpay a balance). Buttons gate on a valid 1..total amount.
+    var amountText by remember { mutableStateOf("") }
+    LaunchedEffect(step, total) { if (step == 2) amountText = format2dp(total / 100.0) }
+    val payAmount = amountTextToSubunits(amountText)
+    val payValid = payAmount in 1..total
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
@@ -126,10 +136,18 @@ fun SettlePersonScreen(
                 ScTopBar("Pay $peerName", subtitle = "Step 2 of 2", navIcon = { ScIconButton(ScIcons.Back, { step = 1 }) })
                 Column(Modifier.weight(1f).background(c.surface).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     ScCard(padded = true) {
-                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             ScAvatar(peerName, size = AvatarSize.Lg)
-                            Text(moneySubunits(total, currencyCode), color = c.ink, fontSize = 38.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, letterSpacing = (-1).sp)
-                            Text("to $peerName", color = c.ink2, fontSize = 12.sp)
+                            ScAmountInput(
+                                text = amountText,
+                                onTextChange = { amountText = it },
+                                currency = currencyCode,
+                                amountFontSize = 30.sp,
+                                helper = if (payAmount > total)
+                                    "Can't exceed the ${moneySubunits(total, currencyCode)} you owe"
+                                else "Editable — paying $peerName, up to ${moneySubunits(total, currencyCode)}",
+                                helperColor = if (payAmount > total) c.danger else c.ink2,
+                            )
                         }
                     }
                     if (handles.isEmpty()) {
@@ -137,7 +155,7 @@ fun SettlePersonScreen(
                             "$peerName hasn't added a payment handle yet. Pay them however you like, then mark it paid here.",
                             color = c.ink2, fontSize = 13.sp,
                         )
-                        ScButton("Mark paid", { onMarkPaid(total) }, leadingIcon = ScIcons.Check, enabled = total > 0)
+                        ScButton("Mark paid", { onMarkPaid(payAmount) }, leadingIcon = ScIcons.Check, enabled = payValid)
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Pay with", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -153,9 +171,9 @@ fun SettlePersonScreen(
                             chosen?.let { Text(it.handle, color = c.ink3, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily) }
                         }
                         chosen?.let { h ->
-                            ScButton("Open in ${h.label}", { onOpenApp(total, h.app, h.handle); confirmFor = h }, leadingIcon = ScIcons.Link, enabled = total > 0)
+                            ScButton("Open in ${h.label}", { onOpenApp(payAmount, h.app, h.handle); confirmFor = h }, leadingIcon = ScIcons.Link, enabled = payValid)
                         }
-                        ScButton("Mark paid manually", { onMarkPaid(total) }, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check, enabled = total > 0)
+                        ScButton("Mark paid manually", { onMarkPaid(payAmount) }, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check, enabled = payValid)
                     }
                 }
             }
@@ -163,11 +181,11 @@ fun SettlePersonScreen(
 
         confirmFor?.let { h ->
             DeepLinkConfirmSheet(
-                amount = total / 100.0,
+                amount = payAmount / 100.0,
                 handle = h.handle,
                 app = h.label,
                 onDismiss = { confirmFor = null },
-                onYes = { confirmFor = null; onConfirmPaid(total, h.app) },
+                onYes = { confirmFor = null; onConfirmPaid(payAmount, h.app) },
                 onCopy = { clipboard.setText(AnnotatedString(h.handle)) },
             )
         }

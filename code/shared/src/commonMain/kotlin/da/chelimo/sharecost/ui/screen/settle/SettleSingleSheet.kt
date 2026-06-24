@@ -1,16 +1,13 @@
 package da.chelimo.sharecost.ui.screen.settle
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,14 +24,15 @@ import androidx.compose.ui.tooling.preview.Preview
 import da.chelimo.sharecost.domain.settlement.PaymentApp
 import da.chelimo.sharecost.ui.components.AvatarSize
 import da.chelimo.sharecost.ui.components.ButtonVariant
-import da.chelimo.sharecost.ui.components.ChipVariant
+import da.chelimo.sharecost.ui.components.ScAmountInput
 import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
-import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScField
+import da.chelimo.sharecost.ui.components.amountTextToSubunits
 import da.chelimo.sharecost.ui.components.ScParticipantChip
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.moneySubunits
+import da.chelimo.sharecost.ui.screen.expense.format2dp
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
@@ -59,13 +57,18 @@ fun SettleSingleSheet(
     handles: List<PeerPaymentHandle> = DemoSettleHandles,
     fxLine: String? = null,
     onDismiss: () -> Unit = {},
-    onOpenApp: (PaymentApp, String) -> Unit = { _, _ -> },
-    onConfirmPaid: (PaymentApp) -> Unit = {},
-    onMarkPaid: () -> Unit = {},
+    onOpenApp: (amountSubunits: Long, PaymentApp, String) -> Unit = { _, _, _ -> },
+    onConfirmPaid: (amountSubunits: Long, PaymentApp) -> Unit = { _, _ -> },
+    onMarkPaid: (amountSubunits: Long) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var selected by remember(handles) { mutableStateOf(handles.firstOrNull()) }
     var awaitingConfirm by remember { mutableStateOf(false) }
+    // Partial settle: the amount defaults to the full share but is editable (capped at the share — you
+    // can't pay more than you owe on this expense). Buttons gate on a valid 1..share amount.
+    var amountText by remember(shareAmountSubunits) { mutableStateOf(format2dp(shareAmountSubunits / 100.0)) }
+    val enteredSubunits = amountTextToSubunits(amountText)
+    val amountValid = enteredSubunits in 1..shareAmountSubunits
     Box(Modifier.fillMaxSize().background(c.surface)) {
         ScSheetScaffold(onDismiss, title = "Settle '$expenseTitle'") {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -78,14 +81,15 @@ fun SettleSingleSheet(
                 }
                 ScField("Amount") {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth().height(60.dp).clip(RoundedCornerShape(12.dp)).background(c.page).border(1.dp, c.borderStrong, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            ScChip(currency, variant = ChipVariant.Ghost, leadingIcon = ScIcons.Globe)
-                            Text(moneySubunits(shareAmountSubunits, currency), color = c.ink, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.weight(1f))
-                        }
+                        ScAmountInput(
+                            text = amountText,
+                            onTextChange = { amountText = it },
+                            currency = currency,
+                            helper = if (enteredSubunits > shareAmountSubunits)
+                                "Can't exceed your ${moneySubunits(shareAmountSubunits, currency)} share"
+                            else "Paying back up to your ${moneySubunits(shareAmountSubunits, currency)} share",
+                            helperColor = if (enteredSubunits > shareAmountSubunits) c.danger else c.ink2,
+                        )
                         fxLine?.let { Text(it, color = c.ink2, fontSize = 12.sp) }
                     }
                 }
@@ -104,13 +108,13 @@ fun SettleSingleSheet(
                     val sel = selected
                     if (awaitingConfirm && sel != null) {
                         Text("We opened ${sel.label}. Did the payment go through?", color = c.ink2, fontSize = 13.sp)
-                        ScButton("Yes — mark paid", { onConfirmPaid(sel.app) }, leadingIcon = ScIcons.Check)
+                        ScButton("Yes — mark paid", { onConfirmPaid(enteredSubunits, sel.app) }, leadingIcon = ScIcons.Check, enabled = amountValid)
                         ScButton("Not yet", { awaitingConfirm = false }, variant = ButtonVariant.Text)
                     } else {
                         if (sel != null) {
-                            ScButton("Open in ${sel.label}", { onOpenApp(sel.app, sel.handle); awaitingConfirm = true }, leadingIcon = ScIcons.Link)
+                            ScButton("Open in ${sel.label}", { onOpenApp(enteredSubunits, sel.app, sel.handle); awaitingConfirm = true }, leadingIcon = ScIcons.Link, enabled = amountValid)
                         }
-                        ScButton("Mark paid manually", onMarkPaid, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check)
+                        ScButton("Mark paid manually", { onMarkPaid(enteredSubunits) }, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check, enabled = amountValid)
                     }
                 }
             }
