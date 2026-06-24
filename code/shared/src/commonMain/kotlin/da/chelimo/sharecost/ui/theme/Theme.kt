@@ -93,6 +93,9 @@ fun ShareCostTheme(
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val extended = if (darkTheme) ExtendedDark else ExtendedLight
 
+    // Keep the system-bar icon contrast in step with the in-app theme (not the OS setting).
+    SystemBarsAppearance(darkTheme)
+
     val sans = plexSansFamily()
     val mono = plexMonoFamily()
     val typography = shareCostTypography(sans)
