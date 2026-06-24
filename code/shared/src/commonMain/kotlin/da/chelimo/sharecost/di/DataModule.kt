@@ -5,6 +5,7 @@ import da.chelimo.sharecost.data.remote.fx.FrankfurterFxFetcher
 import da.chelimo.sharecost.data.remote.fx.FxRateFetcher
 import da.chelimo.sharecost.data.remote.supabase.ReceiptStorage
 import da.chelimo.sharecost.data.remote.supabase.RemoteGroupGateway
+import da.chelimo.sharecost.data.upload.ReceiptUploadHttp
 import da.chelimo.sharecost.data.repository.ActivityRepositoryImpl
 import da.chelimo.sharecost.data.repository.ExpenseRepositoryImpl
 import da.chelimo.sharecost.data.repository.FxRepositoryImpl
@@ -38,10 +39,13 @@ val dataModule: Module = module {
     single { get<ShareCostDatabase>().conflictDao() }
     single { get<ShareCostDatabase>().commentDao() }
     single { get<ShareCostDatabase>().receiptDao() }
+    single { get<ShareCostDatabase>().receiptUploadDao() }
     single { get<ShareCostDatabase>().historyEventDao() }
 
     // Remote
     single<FxRateFetcher> { FrankfurterFxFetcher(get()) }
+    // Ktor-based Storage uploader with byte progress (the Android WorkManager path; iOS uses native sessions).
+    single { ReceiptUploadHttp(get()) }
 
     // Repositories
     // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).

@@ -8,6 +8,8 @@ import da.chelimo.sharecost.platform.CurrentActivity
 import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.ImageProcessor
 import da.chelimo.sharecost.platform.PushService
+import da.chelimo.sharecost.platform.ReceiptFileStore
+import da.chelimo.sharecost.platform.ReceiptUploadScheduler
 import da.chelimo.sharecost.platform.SecureStorage
 import da.chelimo.sharecost.platform.UrlOpener
 import io.ktor.client.HttpClient
@@ -27,4 +29,6 @@ actual fun platformModule(): Module = module {
     single { PushService() }
     single { FilePicker { CurrentActivity.get() } }
     single { ImageProcessor() }
+    single { ReceiptFileStore(androidContext()) }
+    single { ReceiptUploadScheduler(androidContext()) }
 }

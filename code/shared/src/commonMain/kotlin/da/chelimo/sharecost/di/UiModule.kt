@@ -12,11 +12,14 @@ import da.chelimo.sharecost.data.remote.supabase.SupabaseRemoteGroupGateway
 import da.chelimo.sharecost.data.remote.supabase.SyncEngine
 import da.chelimo.sharecost.data.remote.supabase.SyncManager
 import da.chelimo.sharecost.data.remote.supabase.createShareCostSupabaseClient
+import da.chelimo.sharecost.data.upload.AccessTokenProvider
+import da.chelimo.sharecost.data.upload.ReceiptUploadManager
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.platform.PushService
 import da.chelimo.sharecost.ui.screen.group.GroupFilterStore
 import da.chelimo.sharecost.ui.screen.home.HomeViewModel
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 
@@ -36,6 +39,23 @@ val authModule = module {
         single<AuthSession> { SupabaseAuthSession(get<SupabaseClient>(), get(), get<SyncEngine>(), get<SyncManager>(), get<PushController>()) }
         // Receipt bytes (F5) go to Supabase Storage; bound only here, so the offline stub build has none.
         single<ReceiptStorage> { SupabaseReceiptStorage(get<SupabaseClient>()) }
+        // Resilient receipt upload (D-22): token for the Storage REST PUT + the durable outbox manager.
+        // Eager so leftover uploads from a prior session start draining on launch (the manager self-binds).
+        single<AccessTokenProvider> { AccessTokenProvider { get<SupabaseClient>().auth.currentSessionOrNull()?.accessToken } }
+        single(createdAtStart = true) {
+            ReceiptUploadManager(
+                uploadDao = get(),
+                receiptDao = get(),
+                historyDao = get(),
+                fileStore = get(),
+                imageProcessor = get(),
+                scheduler = get(),
+                http = get(),
+                auth = get(),
+                connectivity = get(),
+                tokens = get(),
+            )
+        }
         // Server-side invite-token resolution for cross-device join (F7).
         single<RemoteGroupGateway> { SupabaseRemoteGroupGateway(get<SupabaseClient>(), get<ShareCostDatabase>()) }
     } else {

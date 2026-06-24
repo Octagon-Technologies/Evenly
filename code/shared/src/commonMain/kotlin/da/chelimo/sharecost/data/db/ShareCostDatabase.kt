@@ -14,6 +14,7 @@ import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
 import da.chelimo.sharecost.data.db.dao.MemberDao
 import da.chelimo.sharecost.data.db.dao.ReceiptDao
+import da.chelimo.sharecost.data.db.dao.ReceiptUploadDao
 import da.chelimo.sharecost.data.db.dao.SettlementDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
 import da.chelimo.sharecost.data.db.dao.UserDao
@@ -26,6 +27,7 @@ import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.data.db.entity.MemberEntity
 import da.chelimo.sharecost.data.db.entity.ReceiptEntity
+import da.chelimo.sharecost.data.db.entity.ReceiptUploadEntity
 import da.chelimo.sharecost.data.db.entity.SettlementAllocationEntity
 import da.chelimo.sharecost.data.db.entity.SettlementEntity
 import da.chelimo.sharecost.data.db.entity.ShareEntity
@@ -59,9 +61,10 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         ConflictEntity::class,
         CommentEntity::class,
         ReceiptEntity::class,
+        ReceiptUploadEntity::class,
         HistoryEventEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)
@@ -76,6 +79,7 @@ abstract class ShareCostDatabase : RoomDatabase() {
     abstract fun conflictDao(): ConflictDao
     abstract fun commentDao(): CommentDao
     abstract fun receiptDao(): ReceiptDao
+    abstract fun receiptUploadDao(): ReceiptUploadDao
     abstract fun historyEventDao(): HistoryEventDao
 }
 

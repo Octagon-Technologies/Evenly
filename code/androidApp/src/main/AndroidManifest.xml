@@ -47,6 +47,18 @@
             </intent-filter>
         </activity>
 
+        <!-- Camera capture temp files for receipt upload (D-22): the FilePicker writes the snapped photo
+             here and hands the content:// URI to the camera app. Authority matches the FilePicker. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- FCM delivery (06 §5.4): forwards tokens + messages into the shared PushBus. -->
         <service
             android:name=".ShareCostMessagingService"

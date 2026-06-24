@@ -13,8 +13,10 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.core.time.todayUtc
+import da.chelimo.sharecost.data.upload.ReceiptUploadManager
 import da.chelimo.sharecost.domain.activity.HistoryEvent
 import da.chelimo.sharecost.domain.activity.HistoryEventType
+import da.chelimo.sharecost.domain.activity.ReceiptUploadStatus
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.NewExpense
@@ -23,8 +25,8 @@ import da.chelimo.sharecost.domain.repository.ActivityRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.platform.FilePicker
-import da.chelimo.sharecost.platform.ImageProcessor
 import da.chelimo.sharecost.platform.PickKind
+import da.chelimo.sharecost.platform.PickSource
 import da.chelimo.sharecost.platform.UrlOpener
 import da.chelimo.sharecost.ui.screen.expense.AddExpensePrefill
 import da.chelimo.sharecost.ui.screen.expense.AddExpenseScreen
@@ -35,11 +37,14 @@ import da.chelimo.sharecost.ui.screen.expense.ExpenseDetailScreen
 import da.chelimo.sharecost.ui.screen.expense.ExpenseDetailState
 import da.chelimo.sharecost.ui.screen.expense.HistoryUi
 import da.chelimo.sharecost.ui.screen.expense.ReceiptUi
+import da.chelimo.sharecost.ui.screen.expense.ReceiptUploadUi
 import da.chelimo.sharecost.ui.screen.expense.SplitMode
 import da.chelimo.sharecost.ui.screen.expense.format2dp
 import da.chelimo.sharecost.ui.screen.group.GroupHomeScreen
 import da.chelimo.sharecost.ui.screen.group.buildGroupExpenses
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -82,13 +87,15 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
                             shareExactSubunits = s.exactSubunits,
                         )
                     }
+                    val outside = submit.payerOutsideName?.takeIf { it.isNotBlank() }
                     val input = NewExpense(
                         groupId = gid,
                         title = submit.title,
                         amountSubunits = submit.amountSubunits,
                         currency = submit.currency,
                         expenseDate = Clock.System.todayUtc(),
-                        payerUserId = UserId(submit.payerUserId),
+                        payerUserId = if (outside != null) null else UserId(submit.payerUserId),
+                        payerOutsideName = outside,
                         splitMode = submit.mode.wire,
                         createdBy = me,
                         shares = shares,
@@ -142,6 +149,7 @@ fun EditExpenseRoute(groupId: String, expenseId: String, onBack: () -> Unit, onS
             percentText = ews.shares.mapNotNull { s -> s.sharePercentage?.let { s.userId.value to format2dp(it) } }.toMap(),
             exactText = ews.shares.mapNotNull { s -> s.shareExactSubunits?.let { s.userId.value to format2dp(it / 100.0) } }.toMap(),
             categoryId = e.categoryId,
+            payerOutsideName = e.payerOutsideName,
         )
     }
 
@@ -166,15 +174,16 @@ fun EditExpenseRoute(groupId: String, expenseId: String, onBack: () -> Unit, onS
                             shareExactSubunits = s.exactSubunits,
                         )
                     }
+                    val outside = submit.payerOutsideName?.takeIf { it.isNotBlank() }
                     val input = EditExpense(
                         title = submit.title,
                         amountSubunits = submit.amountSubunits,
                         currency = submit.currency,
                         expenseDate = e.expenseDate,
-                        payerUserId = UserId(submit.payerUserId),
+                        payerUserId = if (outside != null) null else UserId(submit.payerUserId),
                         splitMode = submit.mode.wire,
                         shares = shares,
-                        payerOutsideName = e.payerOutsideName,
+                        payerOutsideName = outside,
                         notes = e.notes,
                         categoryId = submit.categoryId,
                         editedBy = userId,
@@ -208,8 +217,10 @@ fun ExpenseDetailRoute(
     val auth = koinInject<AuthSession>()
     val activity = koinInject<ActivityRepository>()
     val filePicker = koinInject<FilePicker>()
-    val imageProcessor = koinInject<ImageProcessor>()
     val urlOpener = koinInject<UrlOpener>()
+    // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
+    val koin = getKoin()
+    val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val gid = remember(groupId) { GroupId(groupId) }
     val detail by remember(eid) { expenses.observeExpense(eid) }.collectAsStateWithLifecycle(null)
@@ -218,9 +229,11 @@ fun ExpenseDetailRoute(
     val comments by remember(eid) { activity.observeComments(eid) }.collectAsStateWithLifecycle(emptyList())
     val receipts by remember(eid) { activity.observeReceipts(eid) }.collectAsStateWithLifecycle(emptyList())
     val history by remember(eid) { activity.observeHistory(eid) }.collectAsStateWithLifecycle(emptyList())
+    val pendingUploads by remember(eid) {
+        uploadManager?.observe(eid) ?: flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
-    var uploading by remember { mutableStateOf(false) }
 
     val ews = detail
     if (ews == null) {
@@ -251,6 +264,15 @@ fun ExpenseDetailRoute(
         CommentUi(cm.id.value, nameOf(cm.authorUserId), cm.body, relativeTimeLabel(cm.createdAt, now), me = cm.authorUserId == userId)
     }
     val receiptUi = receipts.map { r -> ReceiptUi(r.id.value, r.url, r.isPdf) }
+    val pendingUi = pendingUploads.map { u ->
+        ReceiptUploadUi(
+            id = u.id,
+            model = if (u.isPdf) null else "file://${u.localPath}",
+            isPdf = u.isPdf,
+            fraction = u.fraction,
+            failed = u.status == ReceiptUploadStatus.FAILED,
+        )
+    }
     val historyUi = history.map { ev -> HistoryUi(historyText(ev) { nameOf(it) }, relativeTimeLabel(ev.createdAt, now)) }
 
     ExpenseDetailScreen(
@@ -265,10 +287,10 @@ fun ExpenseDetailRoute(
         splitLabel = "Split between ${ews.shares.size} · ${e.splitMode.lowercase()}",
         splitRows = rows,
         receipts = receiptUi,
+        pendingUploads = pendingUi,
         comments = commentUi,
         historyEvents = historyUi,
         commentDraft = draft,
-        uploadingReceipt = uploading,
         onCommentDraftChange = { draft = it },
         onSendComment = {
             val body = draft.trim()
@@ -277,22 +299,18 @@ fun ExpenseDetailRoute(
                 scope.launch { activity.postComment(eid, gid, body) }
             }
         },
-        onAddReceipt = {
+        onPickReceipts = { source ->
+            // Pick (possibly many) → hand to the durable outbox. The manager compresses, persists to disk,
+            // and the background uploader carries them up; the UI reacts to the outbox, not to this call.
             scope.launch {
-                uploading = true
-                try {
-                    val picked = filePicker.pick(PickKind.ImageOrPdf)
-                    if (picked is AppResult.Ok) {
-                        picked.value?.let { file ->
-                            val processed = imageProcessor.compress(file.bytes, file.mimeType)
-                            activity.addReceipt(eid, gid, file.name, processed.mimeType, processed.bytes)
-                        }
-                    }
-                } finally {
-                    uploading = false
+                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                if (picked is AppResult.Ok && picked.value.isNotEmpty()) {
+                    uploadManager?.enqueue(eid, gid, picked.value)
                 }
             }
         },
+        onRetryUpload = { id -> scope.launch { uploadManager?.retry(id) } },
+        onCancelUpload = { id -> scope.launch { uploadManager?.cancel(id) } },
         onOpenReceipt = { r -> r.url?.let { urlOpener.open(it) } },
         onBack = onBack,
         onSettleThis = onSettleThis,

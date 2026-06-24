@@ -10,68 +10,116 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import platform.Foundation.NSData
+import platform.Foundation.NSError
+import platform.Foundation.NSItemProvider
 import platform.Foundation.NSURL
 import platform.Foundation.dataWithContentsOfURL
+import platform.PhotosUI.PHPickerConfiguration
+import platform.PhotosUI.PHPickerFilter
+import platform.PhotosUI.PHPickerResult
+import platform.PhotosUI.PHPickerViewController
+import platform.PhotosUI.PHPickerViewControllerDelegateProtocol
 import platform.UIKit.UIApplication
-import platform.UIKit.UIDocumentPickerViewController
 import platform.UIKit.UIDocumentPickerDelegateProtocol
+import platform.UIKit.UIDocumentPickerViewController
+import platform.UIKit.UIImage
+import platform.UIKit.UIImageJPEGRepresentation
+import platform.UIKit.UIImagePickerController
+import platform.UIKit.UIImagePickerControllerDelegateProtocol
+import platform.UIKit.UIImagePickerControllerOriginalImage
+import platform.UIKit.UIImagePickerControllerSourceType
+import platform.UIKit.UINavigationControllerDelegateProtocol
 import platform.UIKit.UIViewController
 import platform.UIKit.UIWindow
 import platform.UniformTypeIdentifiers.UTType
 import platform.UniformTypeIdentifiers.UTTypeImage
 import platform.UniformTypeIdentifiers.UTTypePDF
 import platform.darwin.NSObject
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 import kotlin.coroutines.resume
 
 /**
- * iOS [FilePicker] (06 §5.1) over `UIDocumentPickerViewController` (open-in-place). The picker is presented
- * on the top-most view controller and constrained to [PickKind]'s content types; its delegate resumes the
- * coroutine with the chosen file or `Ok(null)` on cancel. Bytes are read from the security-scoped URL
- * (`start/stopAccessingSecurityScopedResource`). All UIKit work hops to [Dispatchers.Main].
- *
- * The document picker reaches the Photos library too (via the Files "Photos" provider), so it covers the
- * image case without a separate `PHPickerViewController`; richer photo-library UX can be layered on later.
+ * iOS [FilePicker] (06 §5.1). [PickSource.Photos] → `PHPickerViewController` (multi-select images),
+ * [PickSource.Files] → `UIDocumentPickerViewController` (multi-select, security-scoped reads),
+ * [PickSource.Camera] → `UIImagePickerController`. All UIKit work hops to [Dispatchers.Main]; the active
+ * delegate is held strongly for the (single, suspended) pick so ARC doesn't drop it before the callback.
  */
 actual class FilePicker {
 
-    // UIDocumentPickerViewController.delegate is a weak reference — hold the delegate strongly here for the
-    // lifetime of the (single, suspended) pick so ARC doesn't deallocate it before the callback fires.
     private var activeDelegate: NSObject? = null
 
-    actual suspend fun pick(kind: PickKind): AppResult<PickedFile?> = withContext(Dispatchers.Main) {
-        suspendCancellableCoroutine { cont ->
+    actual suspend fun pick(source: PickSource, kind: PickKind): AppResult<List<PickedFile>> =
+        withContext(Dispatchers.Main) {
             val presenter = topViewController()
-            if (presenter == null) {
-                cont.resume(AppResult.Err(AppError.Unexpected(IllegalStateException("No view controller to present the file picker"))))
-                return@suspendCancellableCoroutine
+                ?: return@withContext AppResult.Err(AppError.Unexpected(IllegalStateException("No view controller to present the picker")))
+            when (source) {
+                PickSource.Photos -> pickPhotos(presenter)
+                PickSource.Files -> pickFiles(presenter, kind)
+                PickSource.Camera -> capture(presenter)
             }
+        }
 
-            val delegate = PickerDelegate { url ->
+    private suspend fun pickPhotos(presenter: UIViewController): AppResult<List<PickedFile>> =
+        suspendCancellableCoroutine { cont ->
+            val config = PHPickerConfiguration().apply {
+                selectionLimit = 0 // 0 = unlimited (multi-select)
+                filter = PHPickerFilter.imagesFilter()
+            }
+            val delegate = PhotoPickerDelegate { files ->
                 activeDelegate = null
-                cont.resume(readPickedFile(url))
+                cont.resume(AppResult.Ok(files))
             }
             activeDelegate = delegate
-
-            val picker = UIDocumentPickerViewController(forOpeningContentTypes = contentTypesFor(kind))
+            val picker = PHPickerViewController(configuration = config)
             picker.delegate = delegate
-            picker.allowsMultipleSelection = false
-
             cont.invokeOnCancellation { activeDelegate = null }
             presenter.presentViewController(picker, animated = true, completion = null)
         }
-    }
 
-    private fun readPickedFile(url: NSURL?): AppResult<PickedFile?> {
-        if (url == null) return AppResult.Ok(null) // cancelled / nothing chosen
+    private suspend fun pickFiles(presenter: UIViewController, kind: PickKind): AppResult<List<PickedFile>> =
+        suspendCancellableCoroutine { cont ->
+            val delegate = DocumentPickerDelegate { urls ->
+                activeDelegate = null
+                cont.resume(AppResult.Ok(urls.mapNotNull { readPickedFile(it) }))
+            }
+            activeDelegate = delegate
+            val picker = UIDocumentPickerViewController(forOpeningContentTypes = contentTypesFor(kind))
+            picker.delegate = delegate
+            picker.allowsMultipleSelection = true
+            cont.invokeOnCancellation { activeDelegate = null }
+            presenter.presentViewController(picker, animated = true, completion = null)
+        }
+
+    private suspend fun capture(presenter: UIViewController): AppResult<List<PickedFile>> =
+        suspendCancellableCoroutine { cont ->
+            if (!UIImagePickerController.isSourceTypeAvailable(UIImagePickerControllerSourceType.UIImagePickerControllerSourceTypeCamera)) {
+                cont.resume(AppResult.Ok(emptyList())) // no camera (e.g. simulator)
+                return@suspendCancellableCoroutine
+            }
+            val picker = UIImagePickerController()
+            val delegate = CameraDelegate { file ->
+                activeDelegate = null
+                cont.resume(AppResult.Ok(listOfNotNull(file)))
+            }
+            activeDelegate = delegate
+            picker.sourceType = UIImagePickerControllerSourceType.UIImagePickerControllerSourceTypeCamera
+            picker.setDelegate(delegate)
+            cont.invokeOnCancellation { activeDelegate = null }
+            presenter.presentViewController(picker, animated = true, completion = null)
+        }
+
+    private fun readPickedFile(url: NSURL): PickedFile? {
         val scoped = url.startAccessingSecurityScopedResource()
-        try {
-            val data = NSData.dataWithContentsOfURL(url)
-                ?: return AppResult.Err(AppError.Unexpected(IllegalStateException("Could not read picked file")))
-            val name = url.lastPathComponent ?: "file"
-            val mime = mimeForExtension(url.pathExtension)
-            return AppResult.Ok(PickedFile(name = name, mimeType = mime, bytes = data.toByteArray()))
+        return try {
+            val data = NSData.dataWithContentsOfURL(url) ?: return null
+            PickedFile(
+                name = url.lastPathComponent ?: "file",
+                mimeType = mimeForExtension(url.pathExtension),
+                bytes = data.toByteArray(),
+            )
         } catch (e: Throwable) {
-            return AppResult.Err(AppError.Unexpected(e))
+            null
         } finally {
             if (scoped) url.stopAccessingSecurityScopedResource()
         }
@@ -103,19 +151,72 @@ actual class FilePicker {
     }
 }
 
-/** Obj-C delegate bridging the document picker's pick/cancel callbacks to a single [onResult] call. */
-private class PickerDelegate(
-    private val onResult: (NSURL?) -> Unit,
+/**
+ * PHPicker delegate. Each picked asset's bytes load asynchronously; we fan them in on the main queue
+ * (serialized) and resume once every load has finished. Images come back in their native type — the
+ * [ImageProcessor] re-encodes to JPEG on upload anyway, so the mime is reported as image/jpeg.
+ */
+private class PhotoPickerDelegate(
+    private val onResult: (List<PickedFile>) -> Unit,
+) : NSObject(), PHPickerViewControllerDelegateProtocol {
+
+    @Suppress("UNCHECKED_CAST")
+    override fun picker(picker: PHPickerViewController, didFinishPicking: List<*>) {
+        picker.dismissViewControllerAnimated(true, completion = null)
+        val results = didFinishPicking as List<PHPickerResult>
+        if (results.isEmpty()) {
+            onResult(emptyList())
+            return
+        }
+        val collected = mutableListOf<PickedFile>()
+        var remaining = results.size
+        results.forEachIndexed { index, result ->
+            val provider: NSItemProvider = result.itemProvider
+            provider.loadDataRepresentationForTypeIdentifier(UTTypeImage.identifier) { data: NSData?, _: NSError? ->
+                dispatch_async(dispatch_get_main_queue()) {
+                    if (data != null) {
+                        collected.add(PickedFile("photo_$index.jpg", "image/jpeg", data.toByteArray()))
+                    }
+                    remaining -= 1
+                    if (remaining == 0) onResult(collected.toList())
+                }
+            }
+        }
+    }
+}
+
+/** Document-picker delegate bridging multi-select pick/cancel to a single [onResult]. */
+private class DocumentPickerDelegate(
+    private val onResult: (List<NSURL>) -> Unit,
 ) : NSObject(), UIDocumentPickerDelegateProtocol {
 
-    override fun documentPicker(
-        controller: UIDocumentPickerViewController,
-        didPickDocumentsAtURLs: List<*>,
-    ) {
-        onResult(didPickDocumentsAtURLs.firstOrNull() as? NSURL)
+    @Suppress("UNCHECKED_CAST")
+    override fun documentPicker(controller: UIDocumentPickerViewController, didPickDocumentsAtURLs: List<*>) {
+        onResult(didPickDocumentsAtURLs as List<NSURL>)
     }
 
     override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) {
+        onResult(emptyList())
+    }
+}
+
+/** Camera delegate: one captured photo → JPEG bytes, dismissing the controller on finish/cancel. */
+private class CameraDelegate(
+    private val onResult: (PickedFile?) -> Unit,
+) : NSObject(), UIImagePickerControllerDelegateProtocol, UINavigationControllerDelegateProtocol {
+
+    override fun imagePickerController(
+        picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo: Map<Any?, *>,
+    ) {
+        picker.dismissViewControllerAnimated(true, completion = null)
+        val image = didFinishPickingMediaWithInfo[UIImagePickerControllerOriginalImage] as? UIImage
+        val data = image?.let { UIImageJPEGRepresentation(it, 0.9) }
+        onResult(data?.let { PickedFile("camera.jpg", "image/jpeg", it.toByteArray()) })
+    }
+
+    override fun imagePickerControllerDidCancel(picker: UIImagePickerController) {
+        picker.dismissViewControllerAnimated(true, completion = null)
         onResult(null)
     }
 }
