@@ -23,15 +23,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-enum class ButtonVariant { Primary, Secondary, Text, Danger }
+enum class ButtonVariant { Primary, Secondary, Tonal, Text, Danger }
 
-private data class BtnStyle(val bg: Color, val fg: Color, val border: Color, val borderWidth: Float)
+private data class BtnStyle(val bg: Color, val fg: Color, val border: Color, val borderWidth: Float, val elevation: Dp = 0.dp)
 
 /** Slot-based `.sc-btn` — full control for buttons that hold a spinner/custom content. */
 @Composable
@@ -46,10 +47,18 @@ fun ScButton(
 ) {
     val c = ShareCostTheme.colors
     val style = when (variant) {
+        // Primary hero: a raised WHITE chip with bold blue text + a real drop shadow (over the old
+        // solid-blue fill). The hairline keeps it legible white-on-white; the shadow gives it lift.
+        // In dark mode `page` is the elevated near-ink surface, so it reads as a lifted surface button.
         ButtonVariant.Primary ->
-            if (enabled) BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f)
-            else BtnStyle(c.blueTint2, c.disabledInk, Color.Transparent, 0f)
+            if (enabled) BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 8.dp)
+            else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
         ButtonVariant.Secondary -> BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.5f)
+        // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button
+        // (distinct from the solid-blue Primary hero above it).
+        ButtonVariant.Tonal ->
+            if (enabled) BtnStyle(c.blueTint, c.blue, Color.Transparent, 0f)
+            else BtnStyle(c.blueTint, c.disabledInk, Color.Transparent, 0f)
         ButtonVariant.Text -> BtnStyle(Color.Transparent, c.blue, Color.Transparent, 0f)
         ButtonVariant.Danger -> BtnStyle(Color.Transparent, c.danger, c.danger.copy(alpha = 0.3f), 1f)
     }
@@ -60,6 +69,7 @@ fun ScButton(
         modifier = modifier
             .then(if (!autoWidth && fillMaxWidth) Modifier.fillMaxWidth() else Modifier)
             .height(height)
+            .then(if (style.elevation > 0.dp) Modifier.shadow(style.elevation, shape, clip = false) else Modifier)
             .clip(shape)
             .background(style.bg)
             .then(if (style.borderWidth > 0f) Modifier.border(style.borderWidth.dp, style.border, shape) else Modifier)
@@ -90,7 +100,8 @@ fun ScButton(
             text = text,
             color = LocalContentColor.current,
             fontSize = if (small) 14.sp else 16.sp,
-            fontWeight = FontWeight.SemiBold,
+            // The white-chip Primary needs heavier weight so the blue label stays legible on white.
+            fontWeight = if (variant == ButtonVariant.Primary) FontWeight.Bold else FontWeight.SemiBold,
             letterSpacing = (-0.1).sp,
         )
     }
