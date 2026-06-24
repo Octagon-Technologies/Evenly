@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -54,7 +53,6 @@ fun ProfileScreen(
     email: String = "alex@hey.com",
     baseCurrency: String = "USD",
     paymentAppsSummary: String = "Venmo +2",
-    onBack: () -> Unit = {},
     onSignOut: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
     onEditName: (String) -> Unit = {},
@@ -73,11 +71,9 @@ fun ProfileScreen(
     var nameDraft by remember(displayName) { mutableStateOf(displayName) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
-        ScTopBar(
-            title = "Profile",
-            navIcon = { ScIconButton(ScIcons.Back, onBack) },
-        )
+    // A root tab of MainShell (no back button); the shell owns the status-bar scrim + bottom nav.
+    Column(Modifier.fillMaxSize().background(c.surface)) {
+        ScTopBar(title = "Settings", center = true)
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),

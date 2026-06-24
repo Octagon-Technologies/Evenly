@@ -47,8 +47,9 @@ sealed interface Route {
     @Serializable data class SettleConfirm(val groupId: String, val payeeName: String, val amountLabel: String) : Route // sheet
 
     // ── Settings / reconcile ───────────────────────────────────────────
+    // Profile/Settings is no longer a standalone route — it's the Settings tab of the root [MainShell]
+    // (rendered at [Home]). PaymentHandles is still a pushed sub-screen of that tab.
     @Serializable data class GroupSettings(val groupId: String) : Route
-    @Serializable data object Profile : Route
     @Serializable data object PaymentHandles : Route
     @Serializable data class Reconcile(val groupId: String) : Route
 }

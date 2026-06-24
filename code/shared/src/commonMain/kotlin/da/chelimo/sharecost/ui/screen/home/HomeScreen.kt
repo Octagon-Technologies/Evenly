@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -36,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ChipVariant
-import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScChip
@@ -81,21 +79,15 @@ fun HomeScreen(
     onNewGroup: () -> Unit = {},
     onNewGroupTemplate: (emoji: String, name: String) -> Unit = { _, _ -> },
     onJoin: () -> Unit = {},
-    onAddExpenseInGroup: (String) -> Unit = {},
-    onOpenProfile: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var showActions by remember { mutableStateOf(false) }
-    var showGroupPicker by remember { mutableStateOf(false) }
-    val activeGroups = (state as? HomeUiState.Content)?.active ?: emptyList()
 
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
-        ScTopBar(
-            title = "ShareCost",
-            center = true,
-            navIcon = { Box(Modifier.clip(RoundedCornerShape(99.dp)).clickable { onOpenProfile() }) { ScAvatar(userName, me = true) } },
-        )
+    // No systemBarsPadding here: the root MainShell paints the status-bar scrim above and hosts the
+    // bottom nav below, so this content fills the space between.
+    Column(Modifier.fillMaxSize().background(c.surface)) {
+        ScTopBar(title = "ShareCost", center = true)
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (state) {
                 HomeUiState.Loading -> Column(Modifier.padding(top = 8.dp)) { repeat(3) { ScSkeletonRow() } }
@@ -129,46 +121,18 @@ fun HomeScreen(
                 }
             }
             if (state is HomeUiState.Content) {
-                ScFab(onClick = { showActions = true }, label = "New", modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp))
+                // A single home-level action — you create or join a *group* here; expenses are only
+                // ever added from inside a group, so "Add an expense" no longer lives at this level.
+                ScFab(onClick = { showActions = true }, label = "Create or join", modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp))
             }
         }
     }
 
     if (showActions) {
-        ScSheetScaffold(onDismiss = { showActions = false }, title = "Create") {
+        ScSheetScaffold(onDismiss = { showActions = false }, title = "Create or join a group") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ActionRow(ScIcons.Users, "New group", "Start splitting with a new crew") { showActions = false; onNewGroup() }
-                if (activeGroups.isNotEmpty()) {
-                    ActionRow(ScIcons.Receipt, "Add an expense", "Log a cost in one of your groups") {
-                        showActions = false
-                        if (activeGroups.size == 1) onAddExpenseInGroup(activeGroups.first().id) else showGroupPicker = true
-                    }
-                }
-            }
-        }
-    }
-
-    if (showGroupPicker) {
-        ScSheetScaffold(onDismiss = { showGroupPicker = false }, title = "Add to which group?") {
-            Column {
-                activeGroups.forEachIndexed { i, g ->
-                    Box(if (i > 0) Modifier.topHairline(c.border) else Modifier) {
-                        Row(
-                            Modifier.fillMaxWidth().clickable { showGroupPicker = false; onAddExpenseInGroup(g.id) }.padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(c.surface), contentAlignment = Alignment.Center) {
-                                Text(g.emoji, fontSize = 20.sp)
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(g.name, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${g.members} members", color = c.ink2, fontSize = 13.sp)
-                            }
-                            ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.ink3)
-                        }
-                    }
-                }
+                ActionRow(ScIcons.Link, "Join with a link", "Paste an invite to hop into a group") { showActions = false; onJoin() }
             }
         }
     }

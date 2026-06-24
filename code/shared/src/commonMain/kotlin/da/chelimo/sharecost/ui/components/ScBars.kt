@@ -8,14 +8,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,16 +104,35 @@ fun ScIconButton(
 
 data class BottomNavItem(val id: String, val label: String, val icon: ImageVector, val badge: Int? = null)
 
-/** `.sc-bnav` — in-group bottom navigation; per-item numeric badge (conflicts). */
+/**
+ * Paints [color] up behind the status bar so the system bar blends with the top app bar that sits
+ * directly below it (edge-to-edge on both Android and iOS). Place as the first child of a screen's
+ * root Column with the same color as the top bar (usually `page`).
+ */
+@Composable
+fun StatusBarScrim(color: Color = ShareCostTheme.colors.page) {
+    Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(color))
+}
+
+/**
+ * `.sc-bnav` — bottom navigation; per-item numeric badge (conflicts). Used both inside a group and at
+ * the app root (Groups/Settings). [navBarInset] extends the `page` background down behind the system
+ * navigation bar / home indicator so the nav area blends with the bar (the bg is painted before the
+ * inset padding, so it fills the padded strip).
+ */
 @Composable
 fun ScBottomNav(
     items: List<BottomNavItem>,
     selectedId: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    navBarInset: Boolean = false,
 ) {
     val c = ShareCostTheme.colors
-    Column(modifier.fillMaxWidth().background(c.page)) {
+    Column(
+        modifier.fillMaxWidth().background(c.page)
+            .then(if (navBarInset) Modifier.navigationBarsPadding() else Modifier),
+    ) {
         ScDivider()
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
             items.forEach { item ->

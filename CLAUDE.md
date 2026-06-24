@@ -75,6 +75,17 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
 - **Local-first.** Reads stream from Room; writes land in Room first; the `SyncEngine`/`SyncManager`
   carry them to Supabase. UI is wired via **Route wrappers** in `ui/navigation/` (screens stay DI-free,
   taking plain callbacks so `@Preview` works; the wrapper `koinInject`s repos and binds callbacks).
+- **Tabs are screen *state*, not routes.** The app-root nav (`ui/navigation/MainShell.kt`, rendered at
+  `Route.Home`) and the in-group nav (`GroupHomeScreen`) both keep their tabs as a `remember`ed enum
+  inside a single destination — so Back leaves the section instead of cycling tabs, and there's no enum
+  nav-arg to crash the Native NavHost. `MainShell` is the root bottom nav (**Groups** + **Settings**;
+  Settings *is* `ProfileScreen`); opening a group is a full-screen push *over* the shell. There is no
+  standalone `Route.Profile`. Reach the profile via the Settings tab, not a Home avatar.
+- **System bars blend via the theme, edge-to-edge, no per-platform color code.** A `StatusBarScrim`
+  (in `ScBars.kt`) paints the `page` color behind the status bar and `ScBottomNav(navBarInset = true)`
+  paints `page` behind the nav bar, so each chrome owns its own inset (don't wrap whole screens in
+  `systemBarsPadding()` when they use the scrim — you'll double-pad). Status-bar *icon* contrast is
+  driven from the active theme (light/dark), not the OS setting.
 - **Synced Room entities double as wire DTOs:** snake_case `@ColumnInfo` names mirror the Postgres
   columns 1:1, the entity is `@Serializable`, and the client uses a snake_case `JsonNamingStrategy`. **No
   Room foreign keys** (rows sync in dependency-arbitrary order).
@@ -87,6 +98,13 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   is written to Room and observed by the UI (no WorkManager↔UI plumbing). See `iosApp/PUSH_SETUP.md`-style
   note: the iOS host `AppDelegate` still needs `handleEventsForBackgroundURLSession` for suspended-app
   completion (session id `da.chelimo.sharecost.receiptUpload`).
+- **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
+  full-screen `ReceiptViewerScreen` (`ui/screen/expense/`) — a `HorizontalPager` over all of the expense's
+  receipts with a bottom thumbnail filmstrip; images pinch-to-zoom, PDFs render natively. PDF rasterization
+  is the `PdfRasterizer` platform abstraction (Android `PdfRenderer`, iOS PDFKit `thumbnailOfSize`) — bytes
+  are downloaded once and pages rendered lazily (only when a PDF is actually opened, never for the
+  filmstrip). The old `UrlOpener.open(receipt.url)` hand-off is gone; don't reintroduce external receipt
+  opening.
 - **Adding a column to a synced entity REQUIRES adding it server-side first** (additive `alter table …
   add column if not exists … default …`). The full-row `upsert` sends every field, so a column missing
   on the server breaks ALL sync for that table. Apply the migration before/with the entity change.

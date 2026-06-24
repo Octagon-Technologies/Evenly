@@ -56,16 +56,16 @@ fun ShareCostNavHost(
             OnboardingRoute(onFinished = { navController.navigate(Route.Home) { popUpTo(Route.Onboarding) { inclusive = true } } })
         }
 
-        // ── Home ────────────────────────────────────────────────────────
+        // ── Home / root shell (Groups + Settings tabs) ──────────────────
         composable<Route.Home> {
-            HomeRoute(
+            MainShell(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
                 onNewGroup = { navController.navigate(Route.NewGroup()) },
                 onNewGroupTemplate = { emoji, name -> navController.navigate(Route.NewGroup(emoji, name)) },
                 onJoin = { navController.navigate(Route.JoinByLink) },
-                onAddExpenseInGroup = { navController.navigate(Route.AddExpense(it)) },
-                onOpenProfile = { navController.navigate(Route.Profile) },
                 onOpenArchived = { navController.navigate(Route.Archived) },
+                onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
+                onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
             )
         }
         composable<Route.NewGroup> { entry ->
@@ -194,13 +194,6 @@ fun ShareCostNavHost(
                 onBack = { navController.popBackStack() },
                 onLeft = { navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } } },
                 onReconcile = { navController.navigate(Route.Reconcile(sgGroupId)) },
-            )
-        }
-        composable<Route.Profile> {
-            ProfileRoute(
-                onBack = { navController.popBackStack() },
-                onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
-                onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
             )
         }
         composable<Route.PaymentHandles> {

@@ -144,8 +144,6 @@ fun HomeRoute(
     onNewGroup: () -> Unit,
     onNewGroupTemplate: (emoji: String, name: String) -> Unit,
     onJoin: () -> Unit,
-    onAddExpenseInGroup: (String) -> Unit,
-    onOpenProfile: () -> Unit,
     onOpenArchived: () -> Unit,
 ) {
     val vm = koinViewModel<HomeViewModel>()
@@ -163,8 +161,6 @@ fun HomeRoute(
         onNewGroup = onNewGroup,
         onNewGroupTemplate = onNewGroupTemplate,
         onJoin = onJoin,
-        onAddExpenseInGroup = onAddExpenseInGroup,
-        onOpenProfile = onOpenProfile,
         onOpenArchived = onOpenArchived,
     )
 }
@@ -255,7 +251,7 @@ fun JoinByLinkRoute(onDismiss: () -> Unit, onResolved: (token: String) -> Unit) 
 }
 
 @Composable
-fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onEditPaymentApps: () -> Unit) {
+fun ProfileRoute(onSignedOut: () -> Unit, onEditPaymentApps: () -> Unit) {
     val auth = koinInject<AuthSession>()
     val profiles = koinInject<ProfileRepository>()
     val urlOpener = koinInject<UrlOpener>()
@@ -267,7 +263,6 @@ fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onEditPaymentApps:
         email = profile?.email ?: "",
         baseCurrency = profile?.baseCurrency ?: "USD",
         paymentAppsSummary = paymentAppsSummary(handles),
-        onBack = onBack,
         onSignOut = { auth.signOut(); onSignedOut() },
         onEditPaymentApps = onEditPaymentApps,
         onEditName = { name -> scope.launch { profiles.updateDisplayName(name) } },
