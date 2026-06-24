@@ -80,12 +80,23 @@ interface UserDao {
     @Query("UPDATE users SET theme_mode = :themeMode, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
     suspend fun updateThemeMode(id: String, themeMode: String, now: Long)
 
-    /** Placeholders in a group, name-ordered, for the reconcile picker (AC-M1-030). */
+    /**
+     * Still-claimable placeholders in a group, name-ordered — feeds the reconcile picker (AC-M1-030)
+     * and the join-sheet identity picker. Joined to `members` so a placeholder whose membership was
+     * already claimed/merged (member `LEFT` / `placeholder_claim_completed_at` set) or removed drops
+     * out instead of lingering as a pickable identity. An INNER JOIN is correct: every placeholder is
+     * created with a matching member row (`addPlaceholder`), and an orphan placeholder with no active
+     * member should not be claimable.
+     */
     @Query(
         """
-        SELECT * FROM users
-        WHERE is_placeholder = 1 AND placeholder_group_id = :groupId
-        ORDER BY display_name COLLATE NOCASE ASC
+        SELECT u.* FROM users u
+        JOIN members m ON m.user_id = u.id AND m.group_id = u.placeholder_group_id
+        WHERE u.is_placeholder = 1
+          AND u.placeholder_group_id = :groupId
+          AND m.status = 'ACTIVE'
+          AND m.placeholder_claim_completed_at IS NULL
+        ORDER BY u.display_name COLLATE NOCASE ASC
         """
     )
     fun observePlaceholdersInGroup(groupId: String): Flow<List<UserEntity>>

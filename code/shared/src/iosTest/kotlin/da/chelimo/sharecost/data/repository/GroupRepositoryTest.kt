@@ -5,8 +5,11 @@ import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.data.db.ShareCostDatabase
+import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.MemberEntity
+import da.chelimo.sharecost.data.db.entity.ShareEntity
+import da.chelimo.sharecost.data.db.entity.UserEntity
 import da.chelimo.sharecost.data.db.inMemoryTestDatabase
 import da.chelimo.sharecost.data.remote.supabase.RemoteGroupGateway
 import da.chelimo.sharecost.domain.group.Group
@@ -179,4 +182,68 @@ class GroupRepositoryTest {
         assertTrue(repo.setArchived(group.id, UserId("u1"), archived = false) is AppResult.Ok)
         assertNull(db.memberDao().getMember(group.id.value, "u1")?.archivedAt)
     }
+
+    @Test
+    fun reconcilePlaceholder_movesHistory_andRetiresPlaceholderEverywhere() = runTest {
+        // u1 created the group; "Dave" is a placeholder they've been tracking, with one share owed.
+        val group = create() // u1 is the admin member
+        val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
+        seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = dave.value, owed = 500)
+
+        // Before reconcile: Dave is a visible member AND a still-claimable placeholder (the bug surface).
+        assertTrue(repo.observeMembers(group.id).first().any { it.userId == dave })
+        assertEquals(listOf(dave.value), placeholders(group.id))
+
+        assertTrue(repo.reconcilePlaceholder(group.id, dave, UserId("u1")) is AppResult.Ok)
+
+        // Dave's debt moved onto u1...
+        assertEquals(listOf("u1"), db.shareDao().getByExpense("e1").map { it.userId })
+        // ...and the merged placeholder is gone from the roster *and* the picker — no lingering "Dave".
+        assertEquals(listOf("u1"), repo.observeMembers(group.id).first().map { it.userId.value })
+        assertTrue(placeholders(group.id).isEmpty())
+        assertNotNull(db.memberDao().getMember(group.id.value, dave.value)?.placeholderClaimCompletedAt)
+    }
+
+    @Test
+    fun memberRoster_resolvesToCurrentGlobalName_placeholderNameUnaffected() = runTest {
+        // The authenticated user (u1) and a placeholder "Dave" both belong to the group. The roster
+        // reads names from the global `users` row (no per-group copy), so a Settings rename — which
+        // ProfileRepositoryImpl.updateDisplayName routes straight to userDao.updateDisplayName — must
+        // propagate to the member row, while the placeholder keeps its creator-assigned name.
+        val group = create()
+        db.userDao().upsert(userRow(id = "u1", name = "Alex"))
+        val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
+
+        assertEquals("Alex", repo.observeMembers(group.id).first().first { it.userId.value == "u1" }.displayName)
+
+        db.userDao().updateDisplayName(id = "u1", name = "Alexandra", now = 5_000L)
+
+        val members = repo.observeMembers(group.id).first()
+        assertEquals("Alexandra", members.first { it.userId.value == "u1" }.displayName)
+        assertEquals("Dave", members.first { it.userId == dave }.displayName) // placeholder untouched
+    }
+
+    /** Insert an active expense plus a single share owed by [owedBy] — minimal reconcile fixture. */
+    private suspend fun seedExpenseWithShare(groupId: GroupId, expenseId: String, payer: String, owedBy: String, owed: Long) {
+        db.expenseDao().upsert(
+            ExpenseEntity(
+                id = expenseId, groupId = groupId.value, title = "Tacos", amountSubunits = owed,
+                currency = "USD", expenseDate = "2026-06-12", payerUserId = payer, splitMode = "EVEN",
+                createdBy = payer, createdAt = 1_000L, updatedAt = 1_000L,
+            ),
+        )
+        db.shareDao().upsert(
+            ShareEntity(
+                id = "s_$owedBy", expenseId = expenseId, userId = owedBy,
+                shareOwedSubunits = owed, remainingSubunits = owed, createdAt = 1_000L, updatedAt = 1_000L,
+            ),
+        )
+    }
+
+    private fun userRow(id: String, name: String) =
+        UserEntity(id = id, displayName = name, createdAt = 1_000L, updatedAt = 1_000L)
+
+    /** The group's currently-claimable placeholder user ids (the reconcile / join-sheet picker source). */
+    private suspend fun placeholders(groupId: GroupId): List<String> =
+        db.userDao().observePlaceholdersInGroup(groupId.value).first().map { it.id }
 }

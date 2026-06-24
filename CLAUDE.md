@@ -89,6 +89,18 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
 - **Synced Room entities double as wire DTOs:** snake_case `@ColumnInfo` names mirror the Postgres
   columns 1:1, the entity is `@Serializable`, and the client uses a snake_case `JsonNamingStrategy`. **No
   Room foreign keys** (rows sync in dependency-arbitrary order).
+- **Claimed placeholders are retired *everywhere*, not just the roster.** A placeholder is a `users` row
+  (`is_placeholder=1` + `placeholder_group_id`) **plus** a `members` row (`addPlaceholder` creates both).
+  When it's merged into a real user — reconcile *or* a joiner picking it on the Join sheet — soft-leave it
+  **and** stamp `placeholder_claim_completed_at` via `MemberDao.markClaimedByUser` (not plain
+  `markLeftByUser`). `UserDao.observePlaceholdersInGroup` (the source for both the Reconcile picker and the
+  Join-sheet identity picker) JOINs `members` and filters `status='ACTIVE' AND
+  placeholder_claim_completed_at IS NULL`, so a claimed placeholder stops appearing as a pickable identity.
+  Don't revert it to a users-only query — that resurrects the merged placeholder. Member display names
+  always resolve from the global `users` JOIN (`MemberWithUserRow.displayName`); there is **no per-group
+  name copy**, so a Settings rename (`ProfileRepositoryImpl.updateDisplayName`) propagates to every roster
+  reactively. (Latent, out of scope: `SyncEngine.pull()` upserts `members`/`users` with no `keepNewer`
+  guard, so a stale server row can still re-resurrect a local soft-delete/rename — a pre-prod Rule 5 P0.)
 - **Device-local tables stay out of sync.** Not every Room table is a wire-mirror: the receipt-upload
   outbox (`receipt_uploads`, D-22) is local-only — it is *not* `@Serializable`, *not* in `SyncEngine`'s
   table list, and never reaches the server. It tracks in-flight upload state (local file path, progress,

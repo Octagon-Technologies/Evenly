@@ -74,4 +74,20 @@ interface MemberDao {
     /** Soft-remove a member by user (admin removes someone, or a placeholder is merged on reconcile). */
     @Query("UPDATE members SET status = 'LEFT', left_at = :ts, is_admin = 0, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId")
     suspend fun markLeftByUser(groupId: String, userId: String, ts: Long)
+
+    /**
+     * Retire a placeholder membership because it was claimed/merged into a real user (reconcile, 03 §8).
+     * Soft-leaves it *and* stamps `placeholder_claim_completed_at` so it is excluded from the active
+     * roster (`status='ACTIVE'`) **and** from placeholder pickers ([UserDao.observePlaceholdersInGroup])
+     * — without the stamp a claimed placeholder keeps reappearing as a still-pickable identity.
+     */
+    @Query(
+        """
+        UPDATE members
+        SET status = 'LEFT', left_at = :ts, is_admin = 0, placeholder_claim_completed_at = :ts,
+            updated_at = :ts, row_version = row_version + 1
+        WHERE group_id = :groupId AND user_id = :userId
+        """
+    )
+    suspend fun markClaimedByUser(groupId: String, userId: String, ts: Long)
 }

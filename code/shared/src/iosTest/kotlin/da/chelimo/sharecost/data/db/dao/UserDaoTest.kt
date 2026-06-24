@@ -1,6 +1,7 @@
 package da.chelimo.sharecost.data.db.dao
 
 import da.chelimo.sharecost.data.db.ShareCostDatabase
+import da.chelimo.sharecost.data.db.entity.MemberEntity
 import da.chelimo.sharecost.data.db.entity.UserEntity
 import da.chelimo.sharecost.data.db.inMemoryTestDatabase
 import kotlinx.coroutines.flow.first
@@ -58,6 +59,19 @@ class UserDaoTest {
         updatedAt = 10L,
     )
 
+    /** The member row that every placeholder carries (see `addPlaceholder`); claimed → LEFT + stamped. */
+    private fun placeholderMember(userId: String, groupId: String, claimedAt: Long? = null) = MemberEntity(
+        id = "m_$userId",
+        groupId = groupId,
+        userId = userId,
+        status = if (claimedAt == null) MemberEntity.STATUS_ACTIVE else MemberEntity.STATUS_LEFT,
+        joinedAt = 10L,
+        leftAt = claimedAt,
+        placeholderClaimCompletedAt = claimedAt,
+        createdAt = 10L,
+        updatedAt = 10L,
+    )
+
     @Test
     fun upsert_thenGetById_roundTripsAllColumns() = runTest {
         val u = realUser("u1")
@@ -100,15 +114,27 @@ class UserDaoTest {
     }
 
     @Test
-    fun observePlaceholdersInGroup_excludesRealUsersAndOtherGroups_nameOrdered() = runTest {
+    fun observePlaceholdersInGroup_onlyActiveUnclaimed_excludesRealUsersAndOtherGroups_nameOrdered() = runTest {
         dao.upsertAll(
             listOf(
                 placeholder("p2", "Zoe", groupId = "G1"),
                 placeholder("p1", "Ana", groupId = "G1"),
                 placeholder("p3", "Other", groupId = "G2"),
+                placeholder("p4", "Claimed", groupId = "G1"),
                 realUser("r1"),
             )
         )
+        // Every placeholder carries a member row; p4's was already claimed/merged (LEFT + stamped).
+        db.memberDao().upsertAll(
+            listOf(
+                placeholderMember("p2", "G1"),
+                placeholderMember("p1", "G1"),
+                placeholderMember("p3", "G2"),
+                placeholderMember("p4", "G1", claimedAt = 50L),
+            )
+        )
+        // Only still-claimable G1 placeholders, name-ordered: real user, other group, and the
+        // already-claimed "Claimed" are all excluded.
         val names = dao.observePlaceholdersInGroup("G1").first().map { it.displayName }
         assertEquals(listOf("Ana", "Zoe"), names)
     }

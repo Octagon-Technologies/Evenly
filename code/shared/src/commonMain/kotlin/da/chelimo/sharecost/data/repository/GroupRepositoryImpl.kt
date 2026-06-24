@@ -229,9 +229,11 @@ class GroupRepositoryImpl(
         if (placeholderUserId == realUserId) return validationErr("user", AppError.Validation.Reason.Malformed)
         val now = clock.nowEpochMillis()
         // Move the placeholder's debts + paid expenses onto the real user, then retire the placeholder.
+        // markClaimedByUser (not markLeftByUser) stamps placeholder_claim_completed_at so the merged
+        // placeholder disappears from the roster *and* every placeholder picker — not just one of them.
         shareDao.reassignUserInGroup(groupId.value, placeholderUserId.value, realUserId.value, now)
         expenseDao.reassignPayerInGroup(groupId.value, placeholderUserId.value, realUserId.value, now)
-        memberDao.markLeftByUser(groupId.value, placeholderUserId.value, now)
+        memberDao.markClaimedByUser(groupId.value, placeholderUserId.value, now)
         return AppResult.Ok(Unit)
     }
 
