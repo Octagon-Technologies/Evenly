@@ -1,0 +1,315 @@
+package da.chelimo.sharecost.data.repository
+
+import da.chelimo.sharecost.core.error.AppError
+import da.chelimo.sharecost.core.error.AppResult
+import da.chelimo.sharecost.core.error.asErr
+import da.chelimo.sharecost.core.error.asOk
+import da.chelimo.sharecost.core.id.ExpenseId
+import da.chelimo.sharecost.core.id.UserId
+import da.chelimo.sharecost.core.time.nowEpochMillis
+import da.chelimo.sharecost.data.db.ExpenseStatus
+import da.chelimo.sharecost.data.db.dao.ExpenseDao
+import da.chelimo.sharecost.data.db.dao.ExpenseItemDao
+import da.chelimo.sharecost.data.db.dao.HistoryEventDao
+import da.chelimo.sharecost.data.db.dao.ItemClaimDao
+import da.chelimo.sharecost.data.db.dao.ShareDao
+import da.chelimo.sharecost.data.db.entity.ExpenseEntity
+import da.chelimo.sharecost.data.db.entity.ExpenseItemEntity
+import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
+import da.chelimo.sharecost.data.db.entity.ItemClaimEntity
+import da.chelimo.sharecost.data.db.entity.ShareEntity
+import da.chelimo.sharecost.domain.activity.HistoryEventType
+import da.chelimo.sharecost.domain.expense.BillClaimView
+import da.chelimo.sharecost.domain.expense.BillExtrasInput
+import da.chelimo.sharecost.domain.expense.BillItem
+import da.chelimo.sharecost.domain.expense.BillItemView
+import da.chelimo.sharecost.domain.expense.BillClaim
+import da.chelimo.sharecost.domain.expense.BillExtras
+import da.chelimo.sharecost.domain.expense.BillView
+import da.chelimo.sharecost.domain.expense.EditBill
+import da.chelimo.sharecost.domain.expense.NewBill
+import da.chelimo.sharecost.domain.expense.SPLIT_MODE_ITEMIZED
+import da.chelimo.sharecost.domain.expense.TipSplitMode
+import da.chelimo.sharecost.domain.expense.splitBill
+import da.chelimo.sharecost.domain.repository.BillRepository
+import da.chelimo.sharecost.newId
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
+
+/**
+ * Local-first [BillRepository] (the "Split the bill" itemized flow).
+ *
+ * The design centre of gravity is that an itemized expense's `shares` are a **derived materialization**
+ * of its items + claims + extras — not user input. [materializeShares] runs [splitBill] and writes the
+ * result with **deterministic share ids** (`"<expenseId>__<userId>"`), so (a) every device computes the
+ * same rows from the same synced claims and converges without a CAS, and (b) re-deriving on an edit
+ * updates the *same* row id, keeping settlement allocations linked (editing a price never wipes a
+ * payment). Claims are partitioned by user, so the live multi-device claim layer is conflict-free.
+ *
+ * Unlike a normal expense, a bill does **not** enforce `Σ shares == amount` while claiming: the amount
+ * is the full bill total (items + extras), but shares only cover what's been claimed so far. The Finish
+ * flow assigns any leftover before the bill is treated as settled.
+ */
+@OptIn(ExperimentalTime::class)
+class BillRepositoryImpl(
+    private val expenseDao: ExpenseDao,
+    private val expenseItemDao: ExpenseItemDao,
+    private val itemClaimDao: ItemClaimDao,
+    private val shareDao: ShareDao,
+    private val clock: Clock = Clock.System,
+    // Optional activity log (F5). Null in unit tests => no history rows; production DI wires it.
+    private val historyEventDao: HistoryEventDao? = null,
+) : BillRepository {
+
+    override fun observeBill(expenseId: ExpenseId): Flow<BillView?> =
+        combine(
+            expenseDao.observeById(expenseId.value),
+            expenseItemDao.observeByExpense(expenseId.value),
+            itemClaimDao.observeByExpense(expenseId.value),
+        ) { expense, items, claims ->
+            expense ?: return@combine null
+            val itemViews = items.map { it.toView() }
+            val claimViews = claims.map { it.toView() }
+            val extras = expense.toExtras()
+            BillView(
+                expense = expense.toDomain(),
+                items = itemViews,
+                claims = claimViews,
+                extras = extras,
+                tabByUser = splitBill(itemViews.toBillItems(), claimViews.toBillClaims(), extras.toEngine()),
+            )
+        }
+
+    override suspend fun createBill(input: NewBill): AppResult<ExpenseId> {
+        validate(input.title, input.items.map { it.quantity to it.unitPriceSubunits })?.let { return it }
+
+        val now = clock.nowEpochMillis()
+        val expenseId = newId()
+        val amount = total(input.items.map { it.quantity to it.unitPriceSubunits }, input.extras)
+        val expense = ExpenseEntity(
+            id = expenseId,
+            groupId = input.groupId.value,
+            title = input.title.trim(),
+            amountSubunits = amount,
+            currency = input.currency,
+            expenseDate = input.expenseDate,
+            payerUserId = input.payerUserId?.value,
+            payerOutsideName = input.payerOutsideName,
+            splitMode = SPLIT_MODE_ITEMIZED,
+            taxSubunits = input.extras.taxSubunits,
+            tipSubunits = input.extras.tipSubunits,
+            tipSplitMode = input.extras.tipSplitMode.name,
+            gratuitySubunits = input.extras.gratuitySubunits,
+            discountSubunits = input.extras.discountSubunits,
+            categoryId = input.categoryId,
+            status = ExpenseStatus.ACTIVE,
+            createdBy = input.createdBy.value,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val items = input.items.mapIndexed { index, item ->
+            ExpenseItemEntity(
+                id = newId(),
+                expenseId = expenseId,
+                groupId = input.groupId.value,
+                label = item.label.trim(),
+                quantity = item.quantity,
+                unitPriceSubunits = item.unitPriceSubunits,
+                sortOrder = index,
+                createdAt = now,
+                updatedAt = now,
+            )
+        }
+        expenseDao.upsert(expense)
+        expenseItemDao.upsertAll(items)
+        materializeShares(expense, now) // no claims yet → no shares; tab fills in as people claim
+        recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
+        return ExpenseId(expenseId).asOk()
+    }
+
+    override suspend fun editBill(expenseId: ExpenseId, input: EditBill): AppResult<Unit> {
+        validate(input.title, input.items.map { it.quantity to it.unitPriceSubunits })?.let { return it }
+
+        val existing = expenseDao.getById(expenseId.value)
+        if (existing == null || existing.deletedAt != null) {
+            return validationErr("expense", AppError.Validation.Reason.Required)
+        }
+        val now = clock.nowEpochMillis()
+        val existingItems = expenseItemDao.getByExpense(expenseId.value)
+        val byId = existingItems.associateBy { it.id }
+        val desiredIds = input.items.mapNotNullTo(HashSet()) { it.id }
+
+        // Identity-preserving item merge: a surviving line keeps its id, so claims pointing at it stay
+        // valid; a removed line (and every claim on it) is tombstoned.
+        val upserts = input.items.mapIndexed { index, item ->
+            val current = item.id?.let { byId[it] }
+            current?.copy(
+                label = item.label.trim(),
+                quantity = item.quantity,
+                unitPriceSubunits = item.unitPriceSubunits,
+                sortOrder = index,
+                updatedAt = now,
+                rowVersion = current.rowVersion + 1,
+            ) ?: ExpenseItemEntity(
+                id = newId(),
+                expenseId = expenseId.value,
+                groupId = existing.groupId,
+                label = item.label.trim(),
+                quantity = item.quantity,
+                unitPriceSubunits = item.unitPriceSubunits,
+                sortOrder = index,
+                createdAt = now,
+                updatedAt = now,
+            )
+        }
+        val removedItemIds = existingItems.filter { it.id !in desiredIds }.map { it.id }
+
+        val amount = total(input.items.map { it.quantity to it.unitPriceSubunits }, input.extras)
+        val updated = existing.copy(
+            title = input.title.trim(),
+            amountSubunits = amount,
+            expenseDate = input.expenseDate,
+            payerUserId = input.payerUserId?.value,
+            payerOutsideName = input.payerOutsideName,
+            taxSubunits = input.extras.taxSubunits,
+            tipSubunits = input.extras.tipSubunits,
+            tipSplitMode = input.extras.tipSplitMode.name,
+            gratuitySubunits = input.extras.gratuitySubunits,
+            discountSubunits = input.extras.discountSubunits,
+            status = ExpenseStatus.ACTIVE,
+            updatedAt = now,
+            rowVersion = existing.rowVersion + 1,
+        )
+        expenseDao.upsert(updated)
+        expenseItemDao.upsertAll(upserts)
+        if (removedItemIds.isNotEmpty()) {
+            expenseItemDao.softDeleteByIds(removedItemIds, now)
+            itemClaimDao.softDeleteByItems(removedItemIds, now)
+        }
+        materializeShares(updated, now)
+        recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
+        return AppResult.Ok(Unit)
+    }
+
+    override suspend fun setClaim(expenseId: ExpenseId, itemId: String, userId: UserId, quantity: Int): AppResult<Unit> {
+        val expense = expenseDao.getById(expenseId.value)
+        if (expense == null || expense.deletedAt != null) {
+            return validationErr("expense", AppError.Validation.Reason.Required)
+        }
+        val now = clock.nowEpochMillis()
+        val existing = itemClaimDao.getActiveClaim(itemId, userId.value)
+        when {
+            quantity <= 0 -> existing?.let { itemClaimDao.softDeleteByIds(listOf(it.id), now) }
+            existing != null -> itemClaimDao.upsert(
+                existing.copy(quantity = quantity, updatedAt = now, rowVersion = existing.rowVersion + 1),
+            )
+            else -> itemClaimDao.upsert(
+                ItemClaimEntity(
+                    id = newId(),
+                    itemId = itemId,
+                    expenseId = expenseId.value,
+                    groupId = expense.groupId,
+                    userId = userId.value,
+                    quantity = quantity,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+        materializeShares(expense, now)
+        return AppResult.Ok(Unit)
+    }
+
+    /**
+     * Re-derive the bill's shares from its current items + claims + extras and write them with
+     * deterministic ids. A participant who drops out of every claim is tombstoned. Never touches the
+     * expense row, so a claim change doesn't mark the expense dirty (claims sync on their own).
+     */
+    private suspend fun materializeShares(expense: ExpenseEntity, now: Long) {
+        val items = expenseItemDao.getByExpense(expense.id)
+        val claims = itemClaimDao.getByExpense(expense.id)
+        val owed = splitBill(
+            items.map { BillItem(it.id, it.unitPriceSubunits) },
+            claims.map { BillClaim(it.itemId, UserId(it.userId), it.quantity.toLong()) },
+            expense.toExtras().toEngine(),
+        )
+        val owedUsers = owed.keys.mapTo(HashSet()) { it.value }
+        val existing = shareDao.getByExpense(expense.id).associateBy { it.userId }
+
+        val shares = owed.map { (user, amount) ->
+            val current = existing[user.value]
+            current?.copy(shareOwedSubunits = amount, updatedAt = now, rowVersion = current.rowVersion + 1)
+                ?: ShareEntity(
+                    id = "${expense.id}__${user.value}",
+                    expenseId = expense.id,
+                    userId = user.value,
+                    shareOwedSubunits = amount,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+        }
+        val removed = existing.values.filter { it.userId !in owedUsers }.map { it.id }
+        if (removed.isNotEmpty()) shareDao.softDeleteByIds(removed, now)
+        if (shares.isNotEmpty()) shareDao.upsertAll(shares)
+    }
+
+    private suspend fun recordHistory(expenseId: String, groupId: String, type: HistoryEventType, actorUserId: String?, now: Long) {
+        val dao = historyEventDao ?: return
+        dao.upsert(
+            HistoryEventEntity(
+                id = newId(),
+                expenseId = expenseId,
+                groupId = groupId,
+                actorUserId = actorUserId,
+                type = type.name,
+                detail = null,
+                createdAt = now,
+            ),
+        )
+    }
+
+    /** Title required; at least one line; every line a positive quantity and non-negative price. */
+    private fun validate(title: String, lines: List<Pair<Int, Long>>): AppResult<Nothing>? {
+        val fieldErrors = buildMap {
+            if (title.trim().isEmpty()) put("title", AppError.Validation.Reason.Required)
+            when {
+                lines.isEmpty() -> put("items", AppError.Validation.Reason.Required)
+                lines.any { (qty, price) -> qty <= 0 || price < 0L } -> put("items", AppError.Validation.Reason.OutOfRange)
+            }
+        }
+        return if (fieldErrors.isEmpty()) null else AppError.Validation(fieldErrors).asErr()
+    }
+
+    private fun validationErr(field: String, reason: AppError.Validation.Reason): AppResult<Nothing> =
+        AppError.Validation(mapOf(field to reason)).asErr()
+
+    /** Bill total = Σ(line totals) + tax + gratuity + tip − discount. */
+    private fun total(lines: List<Pair<Int, Long>>, extras: BillExtrasInput): Long =
+        lines.sumOf { (qty, price) -> qty * price } +
+            extras.taxSubunits + extras.gratuitySubunits + extras.tipSubunits - extras.discountSubunits
+}
+
+private fun ExpenseItemEntity.toView() = BillItemView(id, label, quantity, unitPriceSubunits, sortOrder)
+private fun ItemClaimEntity.toView() = BillClaimView(id, itemId, UserId(userId), quantity)
+
+private fun ExpenseEntity.toExtras() = BillExtrasInput(
+    taxSubunits = taxSubunits,
+    gratuitySubunits = gratuitySubunits,
+    tipSubunits = tipSubunits,
+    tipSplitMode = TipSplitMode.entries.firstOrNull { it.name == tipSplitMode } ?: TipSplitMode.EVEN,
+    discountSubunits = discountSubunits,
+)
+
+private fun BillExtrasInput.toEngine() = BillExtras(
+    taxSubunits = taxSubunits,
+    gratuitySubunits = gratuitySubunits,
+    tipSubunits = tipSubunits,
+    tipSplitMode = tipSplitMode,
+    discountSubunits = discountSubunits,
+)
+
+private fun List<BillItemView>.toBillItems() = map { BillItem(it.id, it.unitPriceSubunits) }
+private fun List<BillClaimView>.toBillClaims() = map { BillClaim(it.itemId, it.userId, it.quantity.toLong()) }

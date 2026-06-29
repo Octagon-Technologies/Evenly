@@ -1,0 +1,98 @@
+package da.chelimo.sharecost.domain.expense
+
+import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.core.id.UserId
+
+/**
+ * "Split the bill" domain models — the itemized-expense flow. A bill is an expense with `split_mode =
+ * "ITEMIZED"`: its line items live in `expense_items`, who-had-what in `item_claims`, and the bill-level
+ * extras (tax/gratuity/tip/discount) on the expense row. Each participant's owed share is **derived**
+ * from those via [splitBill]; it is never typed in directly.
+ */
+
+const val SPLIT_MODE_ITEMIZED: String = "ITEMIZED"
+
+/** A line on a brand-new bill (no id yet — the repository assigns one). */
+data class NewBillItem(
+    val label: String,
+    val quantity: Int,
+    val unitPriceSubunits: Long,
+)
+
+/** A line on an edited bill. A null [id] is a freshly-added line; a non-null id updates that line. */
+data class EditBillItem(
+    val id: String?,
+    val label: String,
+    val quantity: Int,
+    val unitPriceSubunits: Long,
+)
+
+/** Bill-level surcharges. Tip defaults to an even split (toggleable); tax & gratuity ride proportionally. */
+data class BillExtrasInput(
+    val taxSubunits: Long = 0L,
+    val gratuitySubunits: Long = 0L,
+    val tipSubunits: Long = 0L,
+    val tipSplitMode: TipSplitMode = TipSplitMode.EVEN,
+    val discountSubunits: Long = 0L,
+)
+
+/** Input to create a bill: the menu + extras. Claims arrive later, live, as people tap what they had. */
+data class NewBill(
+    val groupId: GroupId,
+    val title: String,
+    val currency: String,
+    val expenseDate: String,
+    val payerUserId: UserId?,
+    val createdBy: UserId,
+    val items: List<NewBillItem>,
+    val extras: BillExtrasInput = BillExtrasInput(),
+    val payerOutsideName: String? = null,
+    val categoryId: String? = null,
+)
+
+/** Input to edit a bill's menu + extras (the "Save bill" action, available any time — even mid-claim). */
+data class EditBill(
+    val title: String,
+    val expenseDate: String,
+    val payerUserId: UserId?,
+    val items: List<EditBillItem>,
+    val extras: BillExtrasInput,
+    val payerOutsideName: String? = null,
+    val editedBy: UserId? = null,
+)
+
+/** A line item as shown on the edit/claim screens. */
+data class BillItemView(
+    val id: String,
+    val label: String,
+    val quantity: Int,
+    val unitPriceSubunits: Long,
+    val sortOrder: Int,
+) {
+    /** The line's exact cost: `unit_price × quantity`. */
+    val lineTotalSubunits: Long get() = unitPriceSubunits * quantity
+}
+
+/** One person's active claim on a line. */
+data class BillClaimView(
+    val id: String,
+    val itemId: String,
+    val userId: UserId,
+    val quantity: Int,
+)
+
+/**
+ * Everything the claim screen renders: the bill, its items, all live claims, the extras, and the
+ * derived "tab" per participant. [unclaimedQuantityByItem] drives the "needs someone" highlighting.
+ */
+data class BillView(
+    val expense: Expense,
+    val items: List<BillItemView>,
+    val claims: List<BillClaimView>,
+    val extras: BillExtrasInput,
+    val tabByUser: Map<UserId, Long>,
+) {
+    /** Claimed unit count per item (summed across people) — compare to quantity for "left"/over-claim. */
+    val claimedQuantityByItem: Map<String, Int>
+        get() = claims.groupBy { it.itemId }.mapValues { (_, cs) -> cs.sumOf { it.quantity } }
+}

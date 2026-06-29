@@ -61,7 +61,7 @@ fun DeepLinkConfirmSheet(
                         ScIcon(ScIcons.Copy, size = 18.dp, tint = c.ink2)
                         Text("Copy handle", color = c.ink, fontWeight = FontWeight.SemiBold)
                     }
-                    ScButton("Not yet", onDismiss, variant = ButtonVariant.Text)
+                    ScButton("Not yet", onDismiss, variant = ButtonVariant.Tonal)
                 }
             }
         }

@@ -60,7 +60,7 @@ object ScIcons {
     val Bolt: ImageVector by lazy { lineIcon("M13 3L5 13h6l-1 8 8-10h-6l1-8z") }
     val Bed: ImageVector by lazy { lineIcon("M3 18v-7a2 2 0 012-2h14a2 2 0 012 2v7M3 14h18M7 9V7a1 1 0 011-1h3v3") }
     val Gift: ImageVector by lazy { lineIcon("M5.5 9h13a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1 -1.5 1.5h-13a1.5 1.5 0 0 1 -1.5 -1.5v-8a1.5 1.5 0 0 1 1.5 -1.5Z M4 13h16M12 9v11M12 9c-2-4-6-3-6-1s4 1 6 1c2 0 6 1 6-1s-4-3-6 1z") }
-    val Gear: ImageVector by lazy { lineIcon("M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0Z M12 2v3M12 19v3M5 5l2 2M17 17l2 2M2 12h3M19 12h3M5 19l2-2M17 7l2-2") }
+    val Gear: ImageVector by lazy { lineIcon("M13.4 2.6h-2.8l-.5 2.5a7.4 7.4 0 0 0 -1.7 1l-2.4-.9l-1.4 2.4l1.9 1.7a7.4 7.4 0 0 0 0 2l-1.9 1.7l1.4 2.4l2.4-.9a7.4 7.4 0 0 0 1.7 1l.5 2.5h2.8l.5-2.5a7.4 7.4 0 0 0 1.7-1l2.4.9l1.4-2.4l-1.9-1.7a7.4 7.4 0 0 0 0-2l1.9-1.7l-1.4-2.4l-2.4.9a7.4 7.4 0 0 0 -1.7-1z M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0Z") }
     val Bell: ImageVector by lazy { lineIcon("M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6zM10 20a2 2 0 004 0") }
     val Lock: ImageVector by lazy { lineIcon("M7 10h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6a2 2 0 0 1 2 -2Z M8 10V7a4 4 0 018 0v3") }
     val Share: ImageVector by lazy { lineIcon("M3.5 12a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0Z M14.5 6a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0Z M14.5 18a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0Z M8.2 10.8l6.6-3.6M8.2 13.2l6.6 3.6") }

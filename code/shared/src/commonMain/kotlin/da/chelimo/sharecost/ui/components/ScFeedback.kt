@@ -109,12 +109,17 @@ fun ScEmptyState(
     }
 }
 
-/** `.sc-progress` — thin track + blue fill. [fraction] in 0..1. */
+/** `.sc-progress` — track + fill. [fraction] in 0..1. Defaults to the blue tint track + blue fill (so
+ *  the bar reads at a glance even at low fill); pass [fill]/[track] to recolor (e.g. green when settled). */
 @Composable
-fun ScProgress(fraction: Float, modifier: Modifier = Modifier) {
-    val c = ShareCostTheme.colors
-    Box(modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(99.dp)).background(c.border)) {
-        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(99.dp)).background(c.blue))
+fun ScProgress(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    fill: Color = ShareCostTheme.colors.blue,
+    track: Color = ShareCostTheme.colors.blueTint2,
+) {
+    Box(modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(99.dp)).background(track)) {
+        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(99.dp)).background(fill))
     }
 }
 

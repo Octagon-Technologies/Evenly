@@ -8,11 +8,12 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.allocate
 import da.chelimo.sharecost.core.time.nowEpochMillis
-import da.chelimo.sharecost.data.db.computeExpenseStatus
+import da.chelimo.sharecost.data.db.ExpenseStatus
 import da.chelimo.sharecost.data.db.dao.ConflictDao
 import da.chelimo.sharecost.data.db.dao.ExpenseDao
 import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.MemberDao
+import da.chelimo.sharecost.data.db.dao.ReceiptDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
 import da.chelimo.sharecost.data.db.dao.UserDao
 import da.chelimo.sharecost.data.db.entity.ConflictEntity
@@ -30,6 +31,7 @@ import da.chelimo.sharecost.data.remote.supabase.RemoteGroupGateway
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.newId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -50,6 +52,8 @@ class GroupRepositoryImpl(
     private val clock: Clock = Clock.System,
     // Server-side invite-token resolution (F7); null in tests / offline stub → local-cache-only behaviour.
     private val remoteGroups: RemoteGroupGateway? = null,
+    // Receipt sizes for the Storage section; null in tests → reports 0 bytes (optional-ctor-dep pattern).
+    private val receiptDao: ReceiptDao? = null,
 ) : GroupRepository {
 
     override suspend fun addPlaceholder(groupId: GroupId, name: String): AppResult<Member> {
@@ -97,6 +101,9 @@ class GroupRepositoryImpl(
 
     override fun observeMembers(groupId: GroupId): Flow<List<Member>> =
         memberDao.observeActiveMembersWithUser(groupId.value).map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeStorageUsedBytes(groupId: GroupId): Flow<Long> =
+        receiptDao?.observeTotalSizeBytesByGroup(groupId.value) ?: flowOf(0L)
 
     override suspend fun createGroup(input: NewGroup): AppResult<Group> {
         val name = input.name.trim()
@@ -242,6 +249,10 @@ class GroupRepositoryImpl(
         // markClaimedByUser (not markLeftByUser) stamps placeholder_claim_completed_at so the merged
         // placeholder disappears from the roster *and* every placeholder picker — not just one of them.
         shareDao.reassignUserInGroup(groupId.value, placeholderUserId.value, realUserId.value, now)
+        // The share reassignment alone doesn't bump the parent expenses' versions, so touch the ones
+        // the real user now owes — that marks them dirty for the commit_expense CAS, which carries the
+        // updated shares up. (Paid expenses are already bumped by reassignPayerInGroup below.)
+        expenseDao.touchExpensesWithShareOfUser(groupId.value, realUserId.value, now)
         expenseDao.reassignPayerInGroup(groupId.value, placeholderUserId.value, realUserId.value, now)
         memberDao.markClaimedByUser(groupId.value, placeholderUserId.value, now)
         return AppResult.Ok(Unit)
@@ -261,14 +272,13 @@ class GroupRepositoryImpl(
             if (shares.isEmpty() || shares.any { it.userId == memberUserId.value }) continue
             if (e.splitMode == "EVEN") {
                 // Silently re-split evenly across the existing participants + the new member (03 §8.1).
+                // The merge preserves each existing participant's share id, so their settlement
+                // allocations survive and remaining re-derives — only the new member's share is added.
                 val ids = shares.map { it.userId } + memberUserId.value
                 val owed = allocate(e.amountSubunits, ids.map { UserId(it) to 1L })
-                val reShared = ids.map { uid ->
-                    val o = owed.getValue(UserId(uid))
-                    ShareEntity(newId(), e.id, uid, shareOwedSubunits = o, remainingSubunits = o, createdAt = now, updatedAt = now)
-                }
-                val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = reShared.sumOf { it.remainingSubunits })
-                expenseDao.replaceWithShares(e.copy(status = status, updatedAt = now, rowVersion = e.rowVersion + 1), reShared)
+                val desired = ids.map { uid -> DesiredShare(uid, owed.getValue(UserId(uid))) }
+                val (merged, removed) = mergeShares(shares, desired, e.id, now)
+                expenseDao.replaceWithShares(e.copy(status = ExpenseStatus.ACTIVE, updatedAt = now, rowVersion = e.rowVersion + 1), merged, removed, now)
             } else if (!conflictDao.exists(e.id, memberUserId.value)) {
                 conflictDao.upsert(
                     ConflictEntity(
@@ -308,13 +318,12 @@ class GroupRepositoryImpl(
             return AppResult.Ok(Unit)
         }
         // Shrink the existing participants proportionally to free up the new member's share (03 §8.4).
+        // mergeShares keeps each existing participant's id (allocations survive) and adds the new member.
         val reallocated = allocate(expense.amountSubunits - share, existing.map { UserId(it.userId) to it.shareOwedSubunits })
-        val updated = existing.map { s ->
-            val o = reallocated.getValue(UserId(s.userId))
-            s.copy(shareOwedSubunits = o, remainingSubunits = o, updatedAt = now)
-        } + ShareEntity(newId(), conflict.expenseId, conflict.addedUserId, shareOwedSubunits = share, remainingSubunits = share, createdAt = now, updatedAt = now)
-        val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = updated.sumOf { it.remainingSubunits })
-        expenseDao.replaceWithShares(expense.copy(status = status, updatedAt = now, rowVersion = expense.rowVersion + 1), updated)
+        val desired = existing.map { s -> DesiredShare(s.userId, reallocated.getValue(UserId(s.userId))) } +
+            DesiredShare(conflict.addedUserId, share)
+        val (merged, removed) = mergeShares(existing, desired, conflict.expenseId, now)
+        expenseDao.replaceWithShares(expense.copy(status = ExpenseStatus.ACTIVE, updatedAt = now, rowVersion = expense.rowVersion + 1), merged, removed, now)
         conflictDao.resolve(conflictId, "INCLUDE", now)
         return AppResult.Ok(Unit)
     }

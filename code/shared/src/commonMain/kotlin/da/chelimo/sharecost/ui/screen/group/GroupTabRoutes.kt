@@ -108,9 +108,11 @@ fun GroupConflictsRoute(
     onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit,
 ) {
     val groups = koinInject<GroupRepository>()
+    val expenses = koinInject<ExpenseRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val conflicts by remember(gid) { groups.observeConflicts(gid) }.collectAsStateWithLifecycle(emptyList())
+    val editConflicts by remember(gid) { expenses.observeEditConflicts(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -129,12 +131,25 @@ fun GroupConflictsRoute(
             by = nameOf(conf.triggeredByUserId),
         )
     }
+    val editUis = editConflicts.map { ec ->
+        EditConflictUi(
+            conflictId = ec.id,
+            by = nameOf(ec.rejectedBy),
+            currentTitle = ec.currentTitle,
+            currentAmount = ec.currentAmountSubunits / 100.0,
+            rejectedTitle = ec.rejectedTitle,
+            rejectedAmount = ec.rejectedAmountSubunits / 100.0,
+        )
+    }
     GroupConflictsTab(
         memberName = conflicts.firstOrNull()?.let { nameOf(it.addedUserId) } ?: "New members",
         conflicts = uis,
+        editConflicts = editUis,
         onBack = onBack,
         onInclude = { ui -> onIncludeNav(ui.conflictId, ui.expenseId, ui.memberUserId) },
         onSkip = { ui -> scope.launch { groups.resolveConflict(ui.conflictId, include = false) } },
+        onKeepCurrent = { ui -> scope.launch { expenses.resolveEditConflict(ui.conflictId, useRejected = false, resolvedBy = userId) } },
+        onUseRejected = { ui -> scope.launch { expenses.resolveEditConflict(ui.conflictId, useRejected = true, resolvedBy = userId) } },
     )
 }
 

@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -29,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -39,6 +42,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -120,7 +124,10 @@ fun ExpenseDetailScreen(
     onPickReceipts: (PickSource) -> Unit = {},
     onRetryUpload: (String) -> Unit = {},
     onCancelUpload: (String) -> Unit = {},
-    onOpenReceipt: (ReceiptUi) -> Unit = {},
+    // Receipts open in-app (ReceiptViewerScreen) — never handed off to an external browser. PDFs are
+    // fetched + rasterized through these loaders, supplied by the Route wrapper.
+    loadPdfPageCount: suspend (url: String) -> Int = { 0 },
+    renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     onBack: () -> Unit = {},
     onSettleThis: () -> Unit = {},
     onReload: () -> Unit = {},
@@ -130,11 +137,16 @@ fun ExpenseDetailScreen(
     val c = ShareCostTheme.colors
     var overflow by remember { mutableStateOf(false) }
     var showReceiptSource by remember { mutableStateOf(false) }
-    val split = splitRows
+    // Index of the receipt the in-app viewer is showing, or null when it's closed.
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
+    // Your own row leads the breakdown — it's what you're here to check. `sortedByDescending` is stable,
+    // so everyone else keeps their incoming order behind you.
+    val split = splitRows.sortedByDescending { it.me }
     // Tapping empty space anywhere on the page drops focus from the comment field (and hides the
     // keyboard). Child clickables consume their own taps, so only taps on blank areas reach this.
     val focusManager = LocalFocusManager.current
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(if (state == ExpenseDetailState.Content) c.surface else c.page).systemBarsPadding()) {
         ScTopBarDetail(
             title = if (state == ExpenseDetailState.Error) "" else title,
@@ -150,25 +162,39 @@ fun ExpenseDetailScreen(
             }
             ExpenseDetailState.Error -> ErrorContent(onReload = onReload)
             ExpenseDetailState.Content -> Column(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // header card
+                // header card — the expense total is the headline; your personal stake is the band below
+                // it (what you actually track), and the group-wide remainder is demoted to that band's caption.
                 ScCard(padded = true) {
+                    val myRow = split.firstOrNull { it.me }
+                    val iPaid = myRow?.payer == true
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
-                            if (remainingSubunits != amountSubunits) {
-                                Text(moneySubunits(amountSubunits, currencyCode), style = ShareCostTheme.amounts.original.copy(fontSize = 14.sp), color = c.ink3)
-                            }
-                            Text(moneySubunits(remainingSubunits, currencyCode), style = ShareCostTheme.amounts.hero, color = c.ink)
-                            Text("remaining of original", color = c.ink2, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                            Text(moneySubunits(amountSubunits, currencyCode), style = ShareCostTheme.amounts.hero, color = c.ink)
+                            Text("total expense", color = c.ink2, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
                         }
                         if (category.isNotBlank()) {
                             ScChip(category.substringBefore(" "), variant = ChipVariant.Blue, leadingIcon = ScIcons.Food, large = true)
                         }
                     }
+                    val debtors = split.filterNot { it.payer }
+                    PersonalStatusBand(
+                        myRow = myRow,
+                        othersOwedSubunits = debtors.sumOf { it.owedSubunits },
+                        othersRemainingSubunits = debtors.sumOf { it.remainingSubunits },
+                        currencyCode = currencyCode,
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
                     ScDivider(Modifier.padding(vertical = 14.dp))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ScAvatar(payerName, me = payerName == "You", size = AvatarSize.Sm)
-                            Text(buildAnnotatedString { withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(payerName) }; append(" paid") }, color = c.ink, fontSize = 14.sp)
+                            ScAvatar(payerName, me = iPaid, size = AvatarSize.Sm)
+                            Text(
+                                buildAnnotatedString {
+                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(if (iPaid) "You" else payerName) }
+                                    append(if (iPaid) " paid this" else " paid")
+                                },
+                                color = c.ink, fontSize = 14.sp,
+                            )
                         }
                         Text(dateLabel, color = c.ink2, fontSize = 12.sp)
                     }
@@ -178,7 +204,7 @@ fun ExpenseDetailScreen(
                 Column {
                     ScSectionLabel("Receipts")
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        receipts.forEach { r -> ReceiptThumb(r, onClick = { onOpenReceipt(r) }) }
+                        receipts.forEachIndexed { i, r -> ReceiptThumb(r, onClick = { viewerIndex = i }) }
                         // In-flight uploads render right after the published ones, each with its own ring.
                         pendingUploads.forEach { u ->
                             UploadingThumb(u, onRetry = { onRetryUpload(u.id) }, onCancel = { onCancelUpload(u.id) })
@@ -192,34 +218,75 @@ fun ExpenseDetailScreen(
                     ScSectionLabel(splitLabel)
                     ScCard {
                         split.forEachIndexed { i, s ->
-                            // You can't settle your own share when you're the one who paid.
-                            val canSettle = s.me && !s.payer && s.remainingSubunits > 0
-                            val cleared = s.remainingSubunits == 0L
-                            Row(
-                                Modifier.fillMaxWidth().then(if (i > 0) Modifier.topHairline(c.border) else Modifier).padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.Top,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                ScAvatar(s.name, me = s.me, size = AvatarSize.Sm)
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                                    // name + remaining amount, paired on one line
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val divider = if (i > 0) Modifier.topHairline(c.border) else Modifier
+                            // Your own row is tinted + given a blue rail so "my money" leads at a glance.
+                            val mineRail = if (s.me) Modifier.background(c.selectionTint) else Modifier
+                            if (s.payer) {
+                                // The bill-fronter can't owe themselves, so the debt/progress/"settled"
+                                // machinery is just noise here — drop it. Show only who paid and their share.
+                                Row(
+                                    Modifier.fillMaxWidth().then(divider).then(mineRail).padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    ScAvatar(s.name, me = s.me, size = AvatarSize.Sm)
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(
                                             buildAnnotatedString {
-                                                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(s.name) }
-                                                if (s.payer) withStyle(SpanStyle(color = c.ink2, fontWeight = FontWeight.Medium)) { append(" · paid") }
-                                                if (s.me) withStyle(SpanStyle(color = c.ink2, fontWeight = FontWeight.Medium)) { append(" · you") }
+                                                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(if (s.me) "You" else s.name) }
+                                                if (s.me) withStyle(SpanStyle(color = c.blue, fontWeight = FontWeight.SemiBold)) { append(" · your share") }
                                             },
-                                            color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f),
+                                            color = c.ink, fontSize = 15.sp,
                                         )
-                                        Text(moneySubunits(s.remainingSubunits, currencyCode), color = if (cleared) c.ink3 else c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
+                                        Text("Paid the bill", color = c.ink3, fontSize = 12.sp)
                                     }
-                                    // progress bar spanning the full content width
-                                    ScProgress(if (s.owedSubunits > 0) s.paidSubunits.toFloat() / s.owedSubunits else 0f, Modifier.fillMaxWidth())
-                                    // caption, with the settle action tucked inline on the right for your own share
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Text("Paid ${moneySubunits(s.paidSubunits, currencyCode)} of ${moneySubunits(s.owedSubunits, currencyCode)}", color = c.ink3, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.weight(1f))
-                                        if (canSettle) ScButton("Settle this", onSettleThis, variant = ButtonVariant.Secondary, small = true, fillMaxWidth = false)
+                                    if (s.owedSubunits > 0) {
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                moneySubunits(s.owedSubunits, currencyCode),
+                                                color = if (s.me) c.blue else c.ink,
+                                                fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily,
+                                            )
+                                            Text(if (s.me) "your share" else "their share", color = c.ink3, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            } else {
+                                // A participant who actually owes: name + what's left, a progress bar, and
+                                // (for your own share) an inline settle action. Green once fully settled.
+                                val canSettle = s.me && s.remainingSubunits > 0
+                                val cleared = s.remainingSubunits == 0L
+                                Row(
+                                    Modifier.fillMaxWidth().then(divider).then(mineRail).padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    ScAvatar(s.name, me = s.me, size = AvatarSize.Sm)
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text(
+                                                buildAnnotatedString {
+                                                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(if (s.me) "You" else s.name) }
+                                                    if (s.me) withStyle(SpanStyle(color = c.blue, fontWeight = FontWeight.SemiBold)) { append(" · your share") }
+                                                },
+                                                color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f),
+                                            )
+                                            Text(
+                                                if (cleared) "settled" else moneySubunits(s.remainingSubunits, currencyCode) + " left",
+                                                color = if (cleared) c.settled else if (s.me) c.blue else c.ink,
+                                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily,
+                                            )
+                                        }
+                                        ScProgress(
+                                            if (s.owedSubunits > 0) s.paidSubunits.toFloat() / s.owedSubunits else 0f,
+                                            Modifier.fillMaxWidth(),
+                                            fill = if (cleared) c.settled else c.blue,
+                                            track = if (cleared) c.settledTint2 else c.blueTint2,
+                                        )
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Text("Paid ${moneySubunits(s.paidSubunits, currencyCode)} of ${moneySubunits(s.owedSubunits, currencyCode)}", color = if (s.me) c.ink2 else c.ink3, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.weight(1f))
+                                            if (canSettle) ScButton("Settle this", onSettleThis, variant = ButtonVariant.Secondary, small = true, fillMaxWidth = false)
+                                        }
                                     }
                                 }
                             }
@@ -227,14 +294,33 @@ fun ExpenseDetailScreen(
                     }
                 }
 
-                // comments
+                // comments — collapsible. Defaults open for a short thread (≤2), collapsed once it's 3+
+                // so a long back-and-forth doesn't bury the split below it. The composer stays visible.
                 Column {
-                    ScSectionLabel("Comments")
-                    if (comments.isEmpty()) {
-                        Text("No comments yet — start the conversation.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(vertical = 2.dp))
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            comments.forEach { cm -> CommentBubble(cm.authorName, cm.body, cm.timeLabel, me = cm.me) }
+                    var commentsOverride by remember { mutableStateOf<Boolean?>(null) }
+                    val commentsOpen = commentsOverride ?: (comments.size <= 2)
+                    Row(
+                        Modifier.fillMaxWidth().clickable { commentsOverride = !commentsOpen }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ScIcon(ScIcons.Comment, size = 18.dp, tint = c.ink2)
+                        Text("Comments", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        if (comments.isNotEmpty()) Text("${comments.size}", color = c.ink2, fontSize = 12.sp)
+                        ScIcon(if (commentsOpen) ScIcons.ChevU else ScIcons.ChevD, size = 16.dp, tint = c.ink3)
+                    }
+                    if (commentsOpen) {
+                        if (comments.isEmpty()) {
+                            Text("No comments yet — start the conversation.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(vertical = 2.dp))
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                comments.forEach { cm -> CommentBubble(cm.authorName, cm.body, cm.timeLabel, me = cm.me) }
+                            }
+                        }
+                    } else if (comments.isNotEmpty()) {
+                        // Collapsed peek: the latest comment so the thread isn't fully hidden.
+                        comments.last().let { cm ->
+                            Text("${cm.authorName}: ${cm.body}", color = c.ink2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                         }
                     }
                     Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -252,7 +338,7 @@ fun ExpenseDetailScreen(
                         Box(
                             Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
                                 .background(if (canSend) c.blue else c.blueTint2)
-                                .clickable(enabled = canSend, onClick = onSendComment),
+                                .clickable(enabled = canSend) { onSendComment(); commentsOverride = true },
                             contentAlignment = Alignment.Center,
                         ) {
                             ScIcon(ScIcons.Send, size = 18.dp, tint = if (canSend) c.onAccent else c.disabledInk)
@@ -280,6 +366,16 @@ fun ExpenseDetailScreen(
             }
         }
     }
+        viewerIndex?.let { idx ->
+            ReceiptViewerScreen(
+                receipts = receipts.map { ViewerReceipt(it.id, it.url, it.isPdf) },
+                initialIndex = idx,
+                loadPdfPageCount = loadPdfPageCount,
+                renderPdfPage = renderPdfPage,
+                onClose = { viewerIndex = null },
+            )
+        }
+    }
 
     if (overflow) {
         ScModalScaffold(onDismiss = { overflow = false }) {
@@ -304,6 +400,81 @@ fun ExpenseDetailScreen(
         }
     }
 }
+
+/**
+ * Your personal stake in this expense, surfaced right under the total because it's what you actually
+ * track (priorities 1–2: what you still owe, what you've paid). Two viewer-relative shapes:
+ *  - **participant** → "You still owe $X" + "Paid Y of your share";
+ *  - **payer** → "You're owed back $X" + "Collected Y of total" — the only time settle-up is about *you*.
+ * Fully done collapses to a calm settled state. Color tracks the balance: calm blue while there's still
+ * something owed/owing, calm green once it's fully settled (a deliberate, owner-approved exception to the
+ * house "never green" rule, scoped to settle-up states). Renders nothing when the viewer has no share
+ * (e.g. an outside-payer expense) or there's nothing to collect (solo).
+ */
+@Composable
+private fun PersonalStatusBand(
+    myRow: DetailShareUi?,
+    othersOwedSubunits: Long,
+    othersRemainingSubunits: Long,
+    currencyCode: String,
+    modifier: Modifier = Modifier,
+) {
+    val c = ShareCostTheme.colors
+    if (myRow == null) return
+    val state = if (myRow.payer) {
+        if (othersOwedSubunits == 0L) return // solo expense — no one to collect from
+        val collected = othersOwedSubunits - othersRemainingSubunits
+        val done = othersRemainingSubunits == 0L
+        BandState(
+            label = if (done) "Everyone paid you back" else "You're owed back",
+            amount = if (done) null else moneySubunits(othersRemainingSubunits, currencyCode),
+            fraction = collected.toFloat() / othersOwedSubunits,
+            caption = "Collected ${moneySubunits(collected, currencyCode)} of ${moneySubunits(othersOwedSubunits, currencyCode)}",
+            done = done,
+        )
+    } else {
+        if (myRow.owedSubunits == 0L) return
+        val done = myRow.remainingSubunits == 0L
+        BandState(
+            label = if (done) "You're all settled up" else "You still owe",
+            amount = if (done) null else moneySubunits(myRow.remainingSubunits, currencyCode),
+            fraction = myRow.paidSubunits.toFloat() / myRow.owedSubunits,
+            caption = "Paid ${moneySubunits(myRow.paidSubunits, currencyCode)} of your ${moneySubunits(myRow.owedSubunits, currencyCode)} share",
+            done = done,
+        )
+    }
+    // Owing → calm blue (action); fully settled → green (done). Same shape, theme-driven recolor.
+    val accent = if (state.done) c.settled else c.blue
+    val fill = if (state.done) c.settledTint else c.blueTint
+    val track = if (state.done) c.settledTint2 else c.blueTint2
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(fill).padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (state.done) ScIcon(ScIcons.Check, size = 16.dp, tint = accent)
+                Text(state.label, color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            state.amount?.let {
+                Text(it, color = accent, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
+            }
+        }
+        // Contrast bar: a tint-2 track + accent fill, legible on the band.
+        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(99.dp)).background(track)) {
+            Box(Modifier.fillMaxWidth(state.fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(99.dp)).background(accent))
+        }
+        Text(state.caption, color = c.ink2, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily)
+    }
+}
+
+private data class BandState(
+    val label: String,
+    val amount: String?,
+    val fraction: Float,
+    val caption: String,
+    val done: Boolean,
+)
 
 @Composable
 private fun ScTopBarDetail(title: String, sub: String?, onBack: () -> Unit, onMore: (() -> Unit)?) {

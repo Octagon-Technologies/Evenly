@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.ui.components.BottomNavItem
 import da.chelimo.sharecost.ui.components.ScBottomNav
@@ -45,8 +46,11 @@ fun GroupHomeScreen(
     val c = ShareCostTheme.colors
     var tab by remember { mutableStateOf(initialTab) }
     val groups = koinInject<GroupRepository>()
+    val expenses = koinInject<ExpenseRepository>()
     val conflicts by remember(groupId) { groups.observeConflicts(GroupId(groupId)) }.collectAsStateWithLifecycle(emptyList())
-    val conflictCount = conflicts.size
+    val editConflicts by remember(groupId) { expenses.observeEditConflicts(GroupId(groupId)) }.collectAsStateWithLifecycle(emptyList())
+    // Both kinds of conflict surface in the one Conflicts tab: retroactive-member *and* edit-collisions.
+    val conflictCount = conflicts.size + editConflicts.size
     // If the conflicts clear while the tab is open, fall back to Expenses so we don't show a blank tab.
     if (conflictCount == 0 && tab == GroupTab.Conflicts) tab = GroupTab.Expenses
 

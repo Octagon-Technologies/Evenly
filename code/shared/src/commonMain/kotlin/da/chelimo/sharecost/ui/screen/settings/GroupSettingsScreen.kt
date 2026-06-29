@@ -44,7 +44,6 @@ import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScField
 import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScModalScaffold
-import da.chelimo.sharecost.ui.components.ScProgress
 import da.chelimo.sharecost.ui.components.ScRadio
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScTextField
@@ -72,6 +71,7 @@ fun GroupSettingsScreen(
         MemberRowUi("u5", "Tyler Reed", "Placeholder"),
     ),
     inviteLink: String = "sharecost.app/j/8Kk2-Tulum",
+    storageUsedBytes: Long = 212L * 1024 * 1024,
     onBack: () -> Unit = {},
     onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
     onRename: (String) -> Unit = {},
@@ -79,6 +79,7 @@ fun GroupSettingsScreen(
     onRotateInvite: () -> Unit = {},
     onRemoveMember: (MemberRowUi) -> Unit = {},
     onReconcile: () -> Unit = {},
+    onEditCategories: () -> Unit = {},
     onArchive: () -> Unit = {},
     onLeave: () -> Unit = {},
 ) {
@@ -221,7 +222,7 @@ fun GroupSettingsScreen(
 
             // ── Categories ─────────────────────────────────────
             SettingsGroup("Categories") {
-                SettingsRow(icon = ScIcons.Tag, label = "Edit categories", value = "8 active", last = true)
+                SettingsRow(icon = ScIcons.Tag, label = "Edit categories", value = "8 active", last = true, onClick = onEditCategories)
             }
 
             // ── Storage ────────────────────────────────────────
@@ -232,9 +233,8 @@ fun GroupSettingsScreen(
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Receipts & images", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Text("212 MB of 1 GB", color = c.ink2, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily)
+                        Text("${formatBytes(storageUsedBytes)} used", color = c.ink2, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily)
                     }
-                    ScProgress(fraction = 0.21f)
                 }
             }
 
@@ -297,6 +297,25 @@ fun GroupSettingsScreen(
                 ScButton("Remove", { onRemoveMember(target); removeTarget = null }, variant = ButtonVariant.Danger)
             }
         }
+    }
+}
+
+/**
+ * Humane byte size: integer B/KB/MB, one decimal for GB (e.g. "212 MB", "1.4 GB"). There's no enforced
+ * quota, so this renders just the amount — the Storage row appends " used".
+ */
+private fun formatBytes(bytes: Long): String {
+    val kb = 1024L
+    val mb = kb * 1024
+    val gb = mb * 1024
+    return when {
+        bytes >= gb -> {
+            val tenths = (bytes * 10 + gb / 2) / gb // round to one decimal
+            "${tenths / 10}.${tenths % 10} GB"
+        }
+        bytes >= mb -> "${(bytes + mb / 2) / mb} MB"
+        bytes >= kb -> "${(bytes + kb / 2) / kb} KB"
+        else -> "$bytes B"
     }
 }
 

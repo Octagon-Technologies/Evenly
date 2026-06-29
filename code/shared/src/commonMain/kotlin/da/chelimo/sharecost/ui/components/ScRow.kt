@@ -61,10 +61,10 @@ fun ScExpenseRow(
             modifier = Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(11.dp))
-                .background(if (settled) c.blueTint else c.surface),
+                .background(if (settled) c.settledTint else c.surface),
             contentAlignment = Alignment.Center,
         ) {
-            ScIcon(if (settled) ScIcons.Check else icon, size = 20.dp, tint = if (settled) c.blue else c.ink2)
+            ScIcon(if (settled) ScIcons.Check else icon, size = 20.dp, tint = if (settled) c.settled else c.ink2)
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -75,7 +75,7 @@ fun ScExpenseRow(
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (settled) {
-                ScChip("Settled", variant = ChipVariant.Blue, leadingIcon = ScIcons.Check)
+                ScChip("Settled", variant = ChipVariant.Green, leadingIcon = ScIcons.Check)
             } else if (remaining != null) {
                 ScAmountText(remaining = remaining, original = original)
             }
@@ -122,11 +122,13 @@ fun ScDebtRow(
             Text(
                 text = if (owedToYou) "You're owed this" else "Tap to settle",
                 style = MaterialTheme.typography.bodyMedium,
-                color = c.ink2,
+                color = if (owedToYou) c.credit else c.ink2,
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScChip(amount, variant = if (owedToYou) ChipVariant.Solid else ChipVariant.Neutral, mono = true)
+            // Group-balance color code: you're owed / in credit → amber (attention, in your favor);
+            // you owe → blue (the action). Mirrors the home group card.
+            ScChip(amount, variant = if (owedToYou) ChipVariant.Credit else ChipVariant.Blue, mono = true)
             ScIcon(ScIcons.ChevR, size = 16.dp, tint = c.ink3)
         }
     }

@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-enum class ChipVariant { Neutral, Blue, Solid, Amber, Red, Ghost }
+enum class ChipVariant { Neutral, Blue, Solid, Amber, Red, Green, Credit, Ghost }
 
 private data class ChipColors(val bg: Color, val fg: Color, val border: Color)
 
@@ -38,6 +38,8 @@ private fun chipColors(variant: ChipVariant): ChipColors {
         ChipVariant.Solid -> ChipColors(c.blue, c.onAccent, Color.Transparent)
         ChipVariant.Amber -> ChipColors(c.warningTint, c.warning, c.warning.copy(alpha = 0.18f))
         ChipVariant.Red -> ChipColors(c.dangerTint, c.danger, c.danger.copy(alpha = 0.22f))
+        ChipVariant.Green -> ChipColors(c.settledTint, c.settled, c.settled.copy(alpha = 0.20f))
+        ChipVariant.Credit -> ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
         ChipVariant.Ghost -> ChipColors(Color.Transparent, c.ink2, c.border)
     }
 }

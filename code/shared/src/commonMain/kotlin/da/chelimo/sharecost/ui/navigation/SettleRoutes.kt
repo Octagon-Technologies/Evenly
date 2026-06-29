@@ -138,6 +138,9 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
                     paymentCurrency = e.currency,
                     paymentAmountSubunits = amount,
                     createdBy = me,
+                    // Single-expense settle: confine the payment to this expense so a partial pay
+                    // visibly pays *this* expense down (not the oldest one to the payer).
+                    expenseId = eid,
                     paymentApp = app?.name,
                     deepLinkAttempted = app != null,
                     deepLinkSucceeded = if (app != null) linkConfirmed else null,

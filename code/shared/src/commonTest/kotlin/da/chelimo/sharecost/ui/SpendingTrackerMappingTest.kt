@@ -3,9 +3,11 @@ package da.chelimo.sharecost.ui
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
+import da.chelimo.sharecost.domain.expense.CategoryDefaults
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.ExpenseShare
 import da.chelimo.sharecost.domain.expense.ExpenseWithShares
+import da.chelimo.sharecost.domain.expense.GroupCategory
 import da.chelimo.sharecost.ui.screen.group.buildCategorySpend
 import da.chelimo.sharecost.ui.screen.group.buildGroupHistory
 import da.chelimo.sharecost.ui.screen.group.buildPersonalCategorySpend
@@ -63,6 +65,28 @@ class SpendingTrackerMappingTest {
 
         assertEquals(listOf("Hotel", "Lunch"), history.map { it.title }, "input order preserved")
         assertEquals(4000L, history.first().amountSubunits, "settled share still counts (owed, not remaining)")
+    }
+
+    @Test
+    fun groupSpend_gives_a_custom_category_its_own_slice_and_falls_back_for_unknown_keys() {
+        // A group that customized: built-in defaults + one custom category (uuid key, not an enum id).
+        val categories = CategoryDefaults.all + GroupCategory(
+            key = "cat-uuid", label = "Scuba", iconToken = "ticket", colorHex = 0xFF2563EB, isDefault = false, sortOrder = 99,
+        )
+        val spend = buildCategorySpend(
+            listOf(
+                expense("e1", "Dive trip", 8000, "cat-uuid"),
+                expense("e2", "Dinner", 2000, "food"),
+            ),
+            categories,
+        )
+        assertEquals(2, spend.size)
+        assertEquals(80.0, spend.first { it.label == "Scuba" }.amount, "custom category is its own slice, not bucketed into Other")
+        assertEquals("Scuba", spend.first().label, "largest slice (8000) sorts first")
+
+        // A dangling key (e.g. a since-deleted category) falls back to Other rather than vanishing/crashing.
+        val unknown = buildCategorySpend(listOf(expense("e3", "Mystery", 1000, "deleted-key")), categories)
+        assertEquals("Other", unknown.single().label)
     }
 
     private fun expense(id: String, title: String, amount: Long, categoryId: String, payer: UserId = me) = Expense(

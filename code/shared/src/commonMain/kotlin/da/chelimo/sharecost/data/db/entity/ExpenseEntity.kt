@@ -73,6 +73,12 @@ data class ExpenseEntity(
     @ColumnInfo(name = "tip_split_mode")
     val tipSplitMode: String = "PROPORTIONAL",
 
+    @ColumnInfo(name = "gratuity_subunits")
+    val gratuitySubunits: Long = 0,
+
+    @ColumnInfo(name = "discount_subunits")
+    val discountSubunits: Long = 0,
+
     @ColumnInfo(name = "category_id")
     val categoryId: String? = null,
 

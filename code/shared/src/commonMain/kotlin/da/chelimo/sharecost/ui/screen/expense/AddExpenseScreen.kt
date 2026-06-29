@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -63,9 +64,9 @@ import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
-import da.chelimo.sharecost.domain.expense.ExpenseCategory
-import da.chelimo.sharecost.ui.screen.group.categoryIcon
-import da.chelimo.sharecost.ui.theme.categoryColor
+import da.chelimo.sharecost.domain.expense.CategoryDefaults
+import da.chelimo.sharecost.domain.expense.GroupCategory
+import da.chelimo.sharecost.ui.screen.group.CategoryCatalog
 import kotlin.math.roundToLong
 
 /** A participant the expense can be split between (real members are passed by the route). */
@@ -83,6 +84,7 @@ data class AddParticipantUi(val userId: String, val name: String, val isMe: Bool
 fun AddExpenseScreen(
     editing: Boolean = false,
     participants: List<AddParticipantUi> = DemoParticipants,
+    categories: List<GroupCategory> = CategoryDefaults.all,
     currencyCode: String = "USD",
     saving: Boolean = false,
     prefill: AddExpensePrefill? = null,
@@ -228,7 +230,7 @@ fun AddExpenseScreen(
 
             // category (F2) — optional; drives the Balances "Spending by category" card. Collapsed to a
             // single tappable picker row (like "Paid by") so the editor stays compact and scannable.
-            val selectedCategory = ExpenseCategory.fromId(categoryId)
+            val selectedCategory = categories.firstOrNull { it.key == categoryId }
             ScField("Category") {
                 ScSelectField(
                     selectedCategory?.label ?: "Add category",
@@ -236,8 +238,9 @@ fun AddExpenseScreen(
                     valueColor = if (selectedCategory != null) c.ink else c.ink3,
                     leading = {
                         if (selectedCategory != null) {
-                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(categoryColor(selectedCategory).copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                                ScIcon(categoryIcon(selectedCategory), size = 15.dp, tint = categoryColor(selectedCategory))
+                            val catColor = Color(selectedCategory.colorHex)
+                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                ScIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
                             }
                         } else {
                             Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
@@ -407,23 +410,23 @@ fun AddExpenseScreen(
         ScModalScaffold(onDismiss = { showCategoryDialog = false }) {
             Text("Category", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ExpenseCategory.entries.forEach { cat ->
-                    val on = categoryId == cat.id
-                    val tint = categoryColor(cat)
+                categories.forEach { cat ->
+                    val on = categoryId == cat.key
+                    val tint = Color(cat.colorHex)
                     val shape = RoundedCornerShape(12.dp)
                     Row(
                         Modifier.width(152.dp).clip(shape)
                             .background(if (on) tint.copy(alpha = 0.12f) else c.page)
                             .border(if (on) 2.dp else 1.dp, if (on) tint else c.borderStrong, shape)
                             .clickable {
-                                categoryId = if (on) null else cat.id
+                                categoryId = if (on) null else cat.key
                                 showCategoryDialog = false
                             }
                             .padding(horizontal = 12.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        ScIcon(categoryIcon(cat), size = 18.dp, tint = tint)
+                        ScIcon(CategoryCatalog.icon(cat.iconToken), size = 18.dp, tint = tint)
                         Text(cat.label, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                         if (on) ScIcon(ScIcons.Check, size = 15.dp, tint = tint)
                     }

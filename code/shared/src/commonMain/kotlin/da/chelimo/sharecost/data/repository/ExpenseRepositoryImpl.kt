@@ -9,8 +9,9 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.core.time.todayUtc
-import da.chelimo.sharecost.data.db.computeExpenseStatus
+import da.chelimo.sharecost.data.db.ExpenseStatus
 import da.chelimo.sharecost.data.db.dao.ExpenseDao
+import da.chelimo.sharecost.data.db.dao.ExpenseEditConflictDao
 import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
@@ -24,6 +25,7 @@ import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.data.db.projection.OutstandingShareRow
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.Expense
+import da.chelimo.sharecost.domain.expense.ExpenseEditConflict
 import da.chelimo.sharecost.domain.expense.ExpenseWithShares
 import da.chelimo.sharecost.domain.expense.NewExpense
 import da.chelimo.sharecost.domain.expense.NewShare
@@ -33,7 +35,11 @@ import da.chelimo.sharecost.domain.repository.FxRepository
 import da.chelimo.sharecost.newId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNamingStrategy
 import kotlin.math.roundToLong
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -54,7 +60,16 @@ class ExpenseRepositoryImpl(
     private val groupDao: GroupDao? = null,
     // Optional activity log (F5). Null in unit tests => no history rows are written; production DI wires it.
     private val historyEventDao: HistoryEventDao? = null,
+    // Optional parked-edit store (versioning). Null in unit tests that don't exercise conflict resolution.
+    private val editConflictDao: ExpenseEditConflictDao? = null,
 ) : ExpenseRepository {
+
+    // Parks store the rejected payload as the snake_case JSON the client sent to commit_expense.
+    @OptIn(ExperimentalSerializationApi::class)
+    private val payloadJson = Json {
+        ignoreUnknownKeys = true
+        namingStrategy = JsonNamingStrategy.SnakeCase
+    }
 
     override fun observeExpenses(groupId: GroupId): Flow<List<Expense>> =
         expenseDao.observeByGroup(groupId.value).map { rows -> rows.map { it.toDomain() } }
@@ -125,10 +140,10 @@ class ExpenseRepositoryImpl(
 
         val now = clock.nowEpochMillis()
         val expenseId = newId()
-        // Build shares first: the payer's own share is born resolved (remaining == 0), so status must
-        // be derived from the post-resolution remaining sums — a self-covered expense lands SETTLED.
-        val shares = input.shares.toEntities(expenseId, now, input.payerUserId)
-        val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = shares.sumOf { it.remainingSubunits })
+        // A new expense is always ACTIVE; "settled" is derived on read (no payments exist yet, and the
+        // payer's own share derives to remaining 0 anyway — a person can't owe themselves).
+        val shares = input.shares.toEntities(expenseId, now)
+        val status = ExpenseStatus.ACTIVE
         val expense = ExpenseEntity(
             id = expenseId,
             groupId = input.groupId.value,
@@ -159,10 +174,11 @@ class ExpenseRepositoryImpl(
             return validationErr("expense", AppError.Validation.Reason.Required)
         }
         val now = clock.nowEpochMillis()
-        // Re-resolve the payer's own share on edit too, mirroring addExpense — otherwise a previously
-        // resolved self-share would re-open as unpaid. Status follows the post-resolution remaining sums.
-        val shares = input.shares.toEntities(expenseId.value, now, input.payerUserId)
-        val status = computeExpenseStatus(deletedAt = null, sumRemainingSubunits = shares.sumOf { it.remainingSubunits })
+        // Identity-preserving merge: a participant who stays keeps their share id, so settlement
+        // allocations stay linked and `remaining` re-derives (editing a split no longer wipes payments).
+        // Participants the edit dropped are tombstoned. status stays ACTIVE — "settled" is derived.
+        val existingShares = shareDao.getByExpense(expenseId.value)
+        val (shares, removedShareIds) = mergeShares(existingShares, input.shares.toDesired(), expenseId.value, now)
         val updated = existing.copy(
             title = input.title.trim(),
             notes = input.notes,
@@ -173,11 +189,11 @@ class ExpenseRepositoryImpl(
             payerOutsideName = input.payerOutsideName,
             splitMode = input.splitMode,
             categoryId = input.categoryId,
-            status = status,
+            status = ExpenseStatus.ACTIVE,
             updatedAt = now,
             rowVersion = existing.rowVersion + 1,
         )
-        expenseDao.replaceWithShares(updated, shares)
+        expenseDao.replaceWithShares(updated, shares, removedShareIds, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
         return updated.toDomain().asOk()
     }
@@ -188,6 +204,80 @@ class ExpenseRepositoryImpl(
         val now = clock.nowEpochMillis()
         expenseDao.softDelete(expenseId.value, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.DELETED, actorUserId = null, now)
+        return AppResult.Ok(Unit)
+    }
+
+    override fun observeEditConflicts(groupId: GroupId): Flow<List<ExpenseEditConflict>> {
+        val dao = editConflictDao ?: return flowOf(emptyList())
+        // Join each parked edit (its rejected payload) to the live expense so the UI can show both sides.
+        return combine(dao.observeUnresolved(groupId.value), expenseDao.observeByGroup(groupId.value)) { conflicts, expenses ->
+            val byId = expenses.associateBy { it.id }
+            conflicts.mapNotNull { c ->
+                val rejected = runCatching { payloadJson.decodeFromString<ExpenseEntity>(c.rejectedExpense) }.getOrNull()
+                    ?: return@mapNotNull null
+                val current = byId[c.expenseId]
+                ExpenseEditConflict(
+                    id = c.id,
+                    expenseId = ExpenseId(c.expenseId),
+                    rejectedBy = UserId(c.rejectedBy),
+                    currency = current?.currency ?: rejected.currency,
+                    currentTitle = current?.title ?: rejected.title,
+                    currentAmountSubunits = current?.amountSubunits ?: rejected.amountSubunits,
+                    rejectedTitle = rejected.title,
+                    rejectedAmountSubunits = rejected.amountSubunits,
+                    createdAt = c.createdAt,
+                )
+            }
+        }
+    }
+
+    override suspend fun resolveEditConflict(conflictId: String, useRejected: Boolean, resolvedBy: UserId?): AppResult<Unit> {
+        val dao = editConflictDao ?: return AppResult.Ok(Unit)
+        val conflict = dao.getById(conflictId) ?: return validationErr("conflict", AppError.Validation.Reason.Required)
+        if (conflict.resolvedAt != null) return AppResult.Ok(Unit) // already resolved — idempotent
+        val now = clock.nowEpochMillis()
+
+        if (!useRejected) {
+            dao.resolve(conflictId, "KEEP_CURRENT", resolvedBy?.value, now)
+            return AppResult.Ok(Unit)
+        }
+
+        // Re-apply the rejected edit on top of the CURRENT canonical version. Because it's based on the
+        // live row, the next commit_expense push CASes from a clean base and the edit lands as a normal
+        // new version — no second collision. If the expense was deleted meanwhile, there's nothing to
+        // apply onto, so just close the conflict.
+        val current = expenseDao.getById(conflict.expenseId)
+        if (current == null || current.deletedAt != null) {
+            dao.resolve(conflictId, "KEEP_CURRENT", resolvedBy?.value, now)
+            return AppResult.Ok(Unit)
+        }
+        val rejectedExpense = runCatching { payloadJson.decodeFromString<ExpenseEntity>(conflict.rejectedExpense) }.getOrNull()
+            ?: return validationErr("conflict", AppError.Validation.Reason.Malformed)
+        val rejectedShares = runCatching { payloadJson.decodeFromString<List<ShareEntity>>(conflict.rejectedShares) }.getOrNull()
+            ?: return validationErr("conflict", AppError.Validation.Reason.Malformed)
+
+        val existingActive = shareDao.getByExpense(conflict.expenseId)
+        val desired = rejectedShares.map {
+            DesiredShare(it.userId, it.shareOwedSubunits, it.shareUnits, it.sharePercentage, it.shareExactSubunits)
+        }
+        val (merged, removed) = mergeShares(existingActive, desired, conflict.expenseId, now)
+        val updated = current.copy(
+            title = rejectedExpense.title,
+            notes = rejectedExpense.notes,
+            amountSubunits = rejectedExpense.amountSubunits,
+            currency = rejectedExpense.currency,
+            expenseDate = rejectedExpense.expenseDate,
+            payerUserId = rejectedExpense.payerUserId,
+            payerOutsideName = rejectedExpense.payerOutsideName,
+            splitMode = rejectedExpense.splitMode,
+            categoryId = rejectedExpense.categoryId,
+            status = ExpenseStatus.ACTIVE,
+            updatedAt = now,
+            rowVersion = current.rowVersion + 1,
+        )
+        expenseDao.replaceWithShares(updated, merged, removed, now)
+        recordHistory(conflict.expenseId, current.groupId, HistoryEventType.EDITED, resolvedBy?.value, now)
+        dao.resolve(conflictId, "USE_REJECTED", resolvedBy?.value, now)
         return AppResult.Ok(Unit)
     }
 
@@ -214,25 +304,33 @@ class ExpenseRepositoryImpl(
     }
 
     /**
-     * Maps split inputs to share rows. A new share starts fully unpaid (`remaining == owed`) — except
-     * the payer's own share, which is born already resolved (`remaining == 0`): a person can't owe
-     * themselves, so their portion is never outstanding (balances likewise net self-shares to zero in
-     * [buildBilateralBalances]). An outside payer ([payerUserId] == null) has no self-share, so every
-     * share stays unpaid. The raw split inputs are preserved either way.
+     * Maps split inputs to fresh share rows (used when adding an expense). Remaining is not stored: a
+     * share's outstanding amount derives as `owed − Σ applied`, and the payer's own share derives to 0
+     * (a person can't owe themselves; balances likewise net self-shares to zero). The raw split inputs
+     * are preserved so the editor can be re-rendered without recomputing.
      */
-    private fun List<NewShare>.toEntities(expenseId: String, now: Long, payerUserId: UserId?): List<ShareEntity> = map { s ->
-        val isPayerOwnShare = payerUserId != null && s.userId == payerUserId
+    private fun List<NewShare>.toEntities(expenseId: String, now: Long): List<ShareEntity> = map { s ->
         ShareEntity(
             id = newId(),
             expenseId = expenseId,
             userId = s.userId.value,
             shareOwedSubunits = s.owedSubunits,
-            remainingSubunits = if (isPayerOwnShare) 0L else s.owedSubunits,
             shareUnits = s.shareUnits,
             sharePercentage = s.sharePercentage,
             shareExactSubunits = s.shareExactSubunits,
             createdAt = now,
             updatedAt = now,
+        )
+    }
+
+    /** Split inputs as the merge's desired set (preserves share identity by user on edit). */
+    private fun List<NewShare>.toDesired(): List<DesiredShare> = map { s ->
+        DesiredShare(
+            userId = s.userId.value,
+            owedSubunits = s.owedSubunits,
+            shareUnits = s.shareUnits,
+            sharePercentage = s.sharePercentage,
+            shareExactSubunits = s.shareExactSubunits,
         )
     }
 

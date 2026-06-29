@@ -33,7 +33,7 @@ data class Receipt(
 }
 
 /** The kinds of events recorded in an expense's activity log. Names are the stable wire enum. */
-enum class HistoryEventType { CREATED, EDITED, SETTLED, COMMENTED, RECEIPT_ADDED, DELETED }
+enum class HistoryEventType { CREATED, EDITED, SETTLED, SETTLEMENT_EDITED, COMMENTED, RECEIPT_ADDED, DELETED }
 
 /**
  * One entry in an expense's activity log (06 §3). The actor's display name is resolved at render time

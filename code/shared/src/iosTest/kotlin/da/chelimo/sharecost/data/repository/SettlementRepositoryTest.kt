@@ -71,8 +71,12 @@ class SettlementRepositoryTest {
         createdBy = UserId("u2"),
     )
 
-    private suspend fun remaining(id: ExpenseId) = db.shareDao().sumRemaining(id.value)
-    private suspend fun status(id: ExpenseId) = db.expenseDao().getById(id.value)?.status
+    // Remaining is derived (owed − Σ applied), not stored — sum the per-share derived remaining.
+    private suspend fun remaining(id: ExpenseId) =
+        db.shareDao().observeByExpense(id.value).first().sumOf { it.remainingSubunits }
+    // "Settled" is likewise derived: an expense is settled iff every share's derived remaining is 0.
+    private suspend fun status(id: ExpenseId): String =
+        if (remaining(id) == 0L) ExpenseStatus.SETTLED else ExpenseStatus.ACTIVE
 
     @Test
     fun applySettlement_paysOldestFirst_settlesAndPartials() = runTest {
@@ -93,6 +97,22 @@ class SettlementRepositoryTest {
         assertEquals(ExpenseStatus.ACTIVE, status(e2.id))
 
         assertEquals(1, settlements.observeSettlements(GroupId("g1")).first().size)
+    }
+
+    @Test
+    fun applySettlement_scopedToExpense_paysThatExpenseNotOldest() = runTest {
+        // e1 is older, so a relationship-wide partial would hit it first. Scoping to e2 must instead
+        // pay e2 down and leave the older e1 untouched (the single-expense "Settle 'X'" sheet).
+        val e1 = owedExpense("2026-06-01", 1000, payer = "u1", debtor = "u2")
+        val e2 = owedExpense("2026-06-03", 1000, payer = "u1", debtor = "u2")
+
+        val result = settlements.applySettlement(newSettlement(400).copy(expenseId = e2.id))
+        assertTrue(result is AppResult.Ok)
+
+        assertEquals(1000, remaining(e1.id))           // older expense untouched
+        assertEquals(ExpenseStatus.ACTIVE, status(e1.id))
+        assertEquals(600, remaining(e2.id))            // the targeted expense was paid down
+        assertEquals(ExpenseStatus.ACTIVE, status(e2.id))
     }
 
     @Test

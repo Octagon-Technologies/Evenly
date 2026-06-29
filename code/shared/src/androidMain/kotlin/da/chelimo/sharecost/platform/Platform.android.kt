@@ -10,6 +10,8 @@ class AndroidPlatform : Platform {
 
 actual fun getPlatform(): Platform = AndroidPlatform()
 
+actual fun isIOS(): Boolean = false
+
 // Context-free debuggable probe: read the running Application's FLAG_DEBUGGABLE via ActivityThread.
 // Returns false on any failure (e.g. plain-JVM unit tests where ActivityThread isn't available).
 actual fun isDebugBuild(): Boolean = runCatching {

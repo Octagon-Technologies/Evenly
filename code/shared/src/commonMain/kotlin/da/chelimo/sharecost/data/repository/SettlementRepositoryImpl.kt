@@ -48,10 +48,14 @@ class SettlementRepositoryImpl(
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
         }
 
-        // Same-currency shares the debtor still owes the creditor, oldest first (03 §4.2).
+        // Same-currency shares the debtor still owes the creditor, oldest first (03 §4.2). When the
+        // settlement is scoped to a single expense (the "Settle 'X'" sheet), restrict allocation to that
+        // expense's shares so a *partial* payment pays down the expense the user is actually looking at —
+        // not whatever happens to be the oldest outstanding expense to this payer.
         val outstanding = shareDao
             .outstandingForPair(input.groupId.value, input.fromUserId.value, input.toUserId.value)
             .filter { it.currency == input.paymentCurrency }
+            .filter { input.expenseId == null || it.expenseId == input.expenseId.value }
         val totalOutstanding = outstanding.sumOf { it.remainingSubunits }
         if (input.paymentAmountSubunits > totalOutstanding) {
             // PAYMENT_OVERALLOCATED (04 §2.2): can't pay more than is owed in this currency.
@@ -86,6 +90,7 @@ class SettlementRepositoryImpl(
             SettlementAllocationEntity(
                 id = newId(),
                 settlementId = settlementId,
+                groupId = input.groupId.value,
                 shareId = a.shareId,
                 appliedAmountSubunits = a.appliedSubunits,
                 appliedCurrency = input.paymentCurrency,
@@ -93,10 +98,18 @@ class SettlementRepositoryImpl(
             )
         }
         val affectedExpenseIds = allocations.mapNotNull { expenseIdByShare[it.shareId] }.distinct()
-        settlementDao.applySettlement(settlement, allocationEntities, affectedExpenseIds, now)
+        // How much of this payment landed on each expense — the audit-visible amount per SETTLED row.
+        val appliedByExpense = allocations
+            .groupBy { expenseIdByShare[it.shareId] }
+            .mapValues { (_, allocs) -> allocs.sumOf { it.appliedSubunits } }
+        // Just record the settlement + allocations — shares aren't touched; remaining derives from these.
+        settlementDao.applySettlement(settlement, allocationEntities)
         // One SETTLED activity-log row per expense this payment touched (no-op when the log isn't wired).
+        // [detail] carries the amount as a raw token ("amt:<subunits>") so the UI formats it in the
+        // expense's currency at render time — the repo stays free of currency-formatting concerns.
         historyEventDao?.let { dao ->
             affectedExpenseIds.forEach { expenseId ->
+                val applied = appliedByExpense[expenseId] ?: input.paymentAmountSubunits
                 dao.upsert(
                     HistoryEventEntity(
                         id = newId(),
@@ -104,7 +117,7 @@ class SettlementRepositoryImpl(
                         groupId = input.groupId.value,
                         actorUserId = input.createdBy.value,
                         type = HistoryEventType.SETTLED.name,
-                        detail = null,
+                        detail = "amt:$applied",
                         createdAt = now,
                     ),
                 )
@@ -118,11 +131,9 @@ class SettlementRepositoryImpl(
         if (existing == null || existing.deletedAt != null) {
             return validationErr("settlement", AppError.Validation.Reason.Required)
         }
-        val allocations = settlementDao.allocationsForSettlement(settlementId.value)
-        val affectedExpenseIds =
-            if (allocations.isEmpty()) emptyList()
-            else shareDao.expenseIdsForShares(allocations.map { it.shareId })
-        settlementDao.voidSettlement(settlementId.value, allocations, affectedExpenseIds, clock.nowEpochMillis())
+        // Soft-delete only: the allocations stay as history but drop out of the derived remaining (the
+        // join filters non-voided settlements), so the paid-down amount is restored automatically.
+        settlementDao.voidSettlement(settlementId.value, clock.nowEpochMillis())
         return AppResult.Ok(Unit)
     }
 

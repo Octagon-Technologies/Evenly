@@ -36,6 +36,12 @@ data class ExtendedColors(
     val borderStrong: Color,
     // semantic
     val success: Color,           // "Settled" — blue, not green
+    // balance-state semantics (owner-approved, scoped exception to "never green"): see [Color]
+    val settled: Color,           // "all settled up" — calm green
+    val settledTint: Color,
+    val settledTint2: Color,      // progress track on the settled band
+    val credit: Color,            // "you're owed / paid extra" — warm amber, attention without "error"
+    val creditTint: Color,
     val danger: Color,
     val dangerTint: Color,
     val warning: Color,           // muted slate, soft alerts / conflicts
@@ -66,6 +72,11 @@ internal val ExtendedLight = ExtendedColors(
     border = ScBorder,
     borderStrong = ScBorderStrong,
     success = ScBlue,
+    settled = ScGreen,
+    settledTint = ScGreenTint,
+    settledTint2 = ScGreenTint2,
+    credit = ScCredit,
+    creditTint = ScCreditTint,
     danger = ScRed,
     dangerTint = ScRedTint,
     warning = ScAmber,
@@ -94,6 +105,11 @@ internal val ExtendedDark = ExtendedColors(
     border = ScBorderDark,
     borderStrong = ScBorderStrongDark,
     success = ScBlueDark,
+    settled = ScGreenDark,
+    settledTint = ScGreenTintDark,
+    settledTint2 = ScGreenTint2Dark,
+    credit = ScCreditDark,
+    creditTint = ScCreditTintDark,
     danger = ScRedDark,
     dangerTint = ScRedTintDark,
     warning = ScAmberDark,

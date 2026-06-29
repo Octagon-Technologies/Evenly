@@ -94,7 +94,8 @@ private fun Expense.toItemUi(
         icon = categoryIcon(category),
         remaining = amount,
         original = amount,
-        settled = status.equals("SETTLED", ignoreCase = true),
+        // Derived (not stored): fully paid iff every participant share's derived remaining is 0.
+        settled = shares.isNotEmpty() && shares.all { it.remainingSubunits == 0L },
         currencySymbol = currencySymbol(currency),
         payerName = payer,
         payerIsMe = payerUserId != null && payerUserId == currentUserId,

@@ -323,10 +323,10 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
     ) {
         Box(
             Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
-                .background(if (it.settled) c.blueTint else it.categoryColor?.copy(alpha = 0.14f) ?: c.surface),
+                .background(if (it.settled) c.settledTint else it.categoryColor?.copy(alpha = 0.14f) ?: c.surface),
             contentAlignment = Alignment.Center,
         ) {
-            ScIcon(if (it.settled) ScIcons.Check else it.icon, size = 20.dp, tint = if (it.settled) c.blue else accent)
+            ScIcon(if (it.settled) ScIcons.Check else it.icon, size = 20.dp, tint = if (it.settled) c.settled else accent)
         }
         Column(Modifier.weight(1f)) {
             Text(it.title, style = MaterialTheme.typography.titleSmall, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -340,7 +340,7 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when {
-                it.settled -> ScChip("Settled", variant = ChipVariant.Blue, leadingIcon = ScIcons.Check)
+                it.settled -> ScChip("Settled", variant = ChipVariant.Green, leadingIcon = ScIcons.Check)
                 it.stakeLabel != null && it.stakeAmount != null -> Column(horizontalAlignment = Alignment.End) {
                     Text(it.stakeLabel, color = if (it.stakeOwedToYou) c.blue else c.ink2, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Text(it.stakeAmount, color = if (it.stakeOwedToYou) c.blue else c.ink, fontFamily = ShareCostTheme.monoFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)

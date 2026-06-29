@@ -55,6 +55,7 @@ class SettlementDaoTest {
         SettlementAllocationEntity(
             id = id,
             settlementId = settlementId,
+            groupId = "g1",
             shareId = shareId,
             appliedAmountSubunits = amount,
             appliedCurrency = "USD",
@@ -84,15 +85,11 @@ class SettlementDaoTest {
 
     @Test
     fun sumAppliedToShare_plusRemaining_equalsOwed_invariant002() = runTest {
-        // share owed 1000, 600 still remaining ⇒ 400 covered by allocations. Partial pay means
-        // TWO settlements (one allocation each) — UNIQUE(settlement_id, share_id) forbids two
-        // allocations from the *same* settlement against the same share.
+        // share owed 1000; two settlements apply 250 + 150 = 400 ⇒ derived remaining 600 (owed − applied).
+        // Partial pay means TWO settlements (one allocation each) — UNIQUE(settlement_id, share_id)
+        // forbids two allocations from the *same* settlement against the same share.
         shareDao.upsert(
-            ShareEntity(
-                id = "sh1", expenseId = "e1", userId = "u2",
-                shareOwedSubunits = 1000, remainingSubunits = 600,
-                createdAt = 1, updatedAt = 1,
-            )
+            ShareEntity(id = "sh1", expenseId = "e1", userId = "u2", shareOwedSubunits = 1000, createdAt = 1, updatedAt = 1),
         )
         dao.upsertAll(listOf(settlement("s1", settledAt = 1), settlement("s2", settledAt = 2)))
         dao.upsertAllocations(
@@ -101,8 +98,25 @@ class SettlementDaoTest {
                 allocation("a2", "s2", "sh1", amount = 150),
             )
         )
-        val share = shareDao.getByExpense("e1").single()
-        assertEquals(share.shareOwedSubunits - share.remainingSubunits, dao.sumAppliedToShare("sh1")) // 400
+        val applied = dao.sumAppliedToShare("sh1")
+        assertEquals(400, applied)
+        assertEquals(600, 1000 - applied) // derived remaining = owed − applied
+    }
+
+    @Test
+    fun sumAppliedToShare_excludesVoidedSettlements() = runTest {
+        shareDao.upsert(
+            ShareEntity(id = "sh1", expenseId = "e1", userId = "u2", shareOwedSubunits = 1000, createdAt = 1, updatedAt = 1),
+        )
+        dao.upsertAll(listOf(settlement("s1", settledAt = 1), settlement("s2", settledAt = 2)))
+        dao.upsertAllocations(
+            listOf(
+                allocation("a1", "s1", "sh1", amount = 250),
+                allocation("a2", "s2", "sh1", amount = 150),
+            )
+        )
+        dao.voidSettlement("s2", ts = 3) // soft-delete s2 ⇒ its 150 drops out of the applied sum
+        assertEquals(250, dao.sumAppliedToShare("sh1"))
     }
 
     @Test

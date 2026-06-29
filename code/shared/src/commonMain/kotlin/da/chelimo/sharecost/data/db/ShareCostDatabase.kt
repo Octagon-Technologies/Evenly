@@ -6,25 +6,35 @@ import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.Dispatchers
+import da.chelimo.sharecost.data.db.dao.CategoryDao
 import da.chelimo.sharecost.data.db.dao.CommentDao
 import da.chelimo.sharecost.data.db.dao.ConflictDao
 import da.chelimo.sharecost.data.db.dao.ExpenseDao
+import da.chelimo.sharecost.data.db.dao.ExpenseEditConflictDao
+import da.chelimo.sharecost.data.db.dao.ExpenseItemDao
+import da.chelimo.sharecost.data.db.dao.ExpenseSyncStateDao
 import da.chelimo.sharecost.data.db.dao.FxRateDao
 import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
+import da.chelimo.sharecost.data.db.dao.ItemClaimDao
 import da.chelimo.sharecost.data.db.dao.MemberDao
 import da.chelimo.sharecost.data.db.dao.ReceiptDao
 import da.chelimo.sharecost.data.db.dao.ReceiptUploadDao
 import da.chelimo.sharecost.data.db.dao.SettlementDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
 import da.chelimo.sharecost.data.db.dao.UserDao
+import da.chelimo.sharecost.data.db.entity.CategoryEntity
 import da.chelimo.sharecost.data.db.entity.CommentEntity
 import da.chelimo.sharecost.data.db.entity.ConflictEntity
+import da.chelimo.sharecost.data.db.entity.ExpenseEditConflictEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
+import da.chelimo.sharecost.data.db.entity.ExpenseItemEntity
+import da.chelimo.sharecost.data.db.entity.ExpenseSyncStateEntity
 import da.chelimo.sharecost.data.db.entity.FxBakedEntity
 import da.chelimo.sharecost.data.db.entity.FxRateEntity
 import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
+import da.chelimo.sharecost.data.db.entity.ItemClaimEntity
 import da.chelimo.sharecost.data.db.entity.MemberEntity
 import da.chelimo.sharecost.data.db.entity.ReceiptEntity
 import da.chelimo.sharecost.data.db.entity.ReceiptUploadEntity
@@ -59,12 +69,17 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         FxRateEntity::class,
         FxBakedEntity::class,
         ConflictEntity::class,
+        ExpenseEditConflictEntity::class,
+        ExpenseSyncStateEntity::class,
         CommentEntity::class,
         ReceiptEntity::class,
         ReceiptUploadEntity::class,
         HistoryEventEntity::class,
+        CategoryEntity::class,
+        ExpenseItemEntity::class,
+        ItemClaimEntity::class,
     ],
-    version = 7,
+    version = 11,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)
@@ -77,10 +92,15 @@ abstract class ShareCostDatabase : RoomDatabase() {
     abstract fun settlementDao(): SettlementDao
     abstract fun fxRateDao(): FxRateDao
     abstract fun conflictDao(): ConflictDao
+    abstract fun expenseEditConflictDao(): ExpenseEditConflictDao
+    abstract fun expenseSyncStateDao(): ExpenseSyncStateDao
     abstract fun commentDao(): CommentDao
     abstract fun receiptDao(): ReceiptDao
     abstract fun receiptUploadDao(): ReceiptUploadDao
     abstract fun historyEventDao(): HistoryEventDao
+    abstract fun categoryDao(): CategoryDao
+    abstract fun expenseItemDao(): ExpenseItemDao
+    abstract fun itemClaimDao(): ItemClaimDao
 }
 
 /**

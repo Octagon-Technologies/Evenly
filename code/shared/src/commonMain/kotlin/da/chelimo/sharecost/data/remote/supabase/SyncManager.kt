@@ -35,7 +35,7 @@ class SyncManager(
             db.invalidationTracker
                 .createFlow(*SYNC_TABLES, emitInitialState = false)
                 .debounce(PUSH_DEBOUNCE_MS)
-                .collect { if (currentUserId.value != null) syncEngine.push() }
+                .collect { currentUserId.value?.let { syncEngine.push(it.value) } }
         }
         // 2. Realtime pull: any server change on our schema → debounced pull for the current user. RLS
         //    scopes delivered events to rows this user may see. Wrapped so a realtime failure (e.g. the
@@ -68,7 +68,8 @@ class SyncManager(
         /** Synced tables whose local changes should trigger a push (mirrors [SyncEngine.push]). */
         val SYNC_TABLES = arrayOf(
             "users", "groups", "members", "expenses", "shares",
-            "settlements", "conflicts", "comments", "receipts", "expense_history",
+            "settlements", "settlement_allocations", "conflicts", "expense_edit_conflicts",
+            "comments", "receipts", "expense_history", "expense_items", "item_claims",
         )
     }
 }

@@ -17,7 +17,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
@@ -70,13 +74,30 @@ fun SettleSingleSheet(
     val enteredSubunits = amountTextToSubunits(amountText)
     val amountValid = enteredSubunits in 1..shareAmountSubunits
     Box(Modifier.fillMaxSize().background(c.surface)) {
-        ScSheetScaffold(onDismiss, title = "Settle '$expenseTitle'") {
+        ScSheetScaffold(onDismiss, title = "Settle up") {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+                // Identity hero: who you're paying, then a single fused line — how much you owe, for
+                // which expense — so the sheet doesn't repeat the expense name in both title and body.
+                Column(
+                    Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     ScAvatar(payee, size = AvatarSize.Lg)
-                    Column {
-                        Text("Pay $payee", color = c.ink, fontWeight = FontWeight.SemiBold)
-                        Text("for your ${moneySubunits(shareAmountSubunits, currency)} share", color = c.ink2, fontSize = 12.sp)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Pay $payee", color = c.ink, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                        Text(
+                            buildAnnotatedString {
+                                append("Your ")
+                                withStyle(SpanStyle(color = c.ink, fontWeight = FontWeight.SemiBold)) {
+                                    append(moneySubunits(shareAmountSubunits, currency))
+                                }
+                                append(" share of $expenseTitle")
+                            },
+                            color = c.ink2,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
                 ScField("Amount") {
@@ -109,12 +130,12 @@ fun SettleSingleSheet(
                     if (awaitingConfirm && sel != null) {
                         Text("We opened ${sel.label}. Did the payment go through?", color = c.ink2, fontSize = 13.sp)
                         ScButton("Yes — mark paid", { onConfirmPaid(enteredSubunits, sel.app) }, leadingIcon = ScIcons.Check, enabled = amountValid)
-                        ScButton("Not yet", { awaitingConfirm = false }, variant = ButtonVariant.Text)
+                        ScButton("Not yet", { awaitingConfirm = false }, variant = ButtonVariant.Tonal)
                     } else {
                         if (sel != null) {
                             ScButton("Open in ${sel.label}", { onOpenApp(enteredSubunits, sel.app, sel.handle); awaitingConfirm = true }, leadingIcon = ScIcons.Link, enabled = amountValid)
                         }
-                        ScButton("Mark paid manually", { onMarkPaid(enteredSubunits) }, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check, enabled = amountValid)
+                        ScButton("Mark paid manually", { onMarkPaid(enteredSubunits) }, variant = ButtonVariant.Tonal, leadingIcon = ScIcons.Check, enabled = amountValid)
                     }
                 }
             }

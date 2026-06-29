@@ -7,6 +7,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.time.todayUtc
 import da.chelimo.sharecost.domain.auth.AuthSession
+import da.chelimo.sharecost.domain.expense.CategoryDefaults
+import da.chelimo.sharecost.domain.repository.CategoryRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.ui.screen.group.GroupOverviewTab
@@ -28,6 +30,7 @@ import kotlin.time.ExperimentalTime
 fun OverviewRoute(groupId: String, onBack: () -> Unit, onExport: () -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val categoriesRepo = koinInject<CategoryRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
@@ -35,6 +38,7 @@ fun OverviewRoute(groupId: String, onBack: () -> Unit, onExport: () -> Unit) {
     val expensesWithShares by remember(gid) { expenses.observeExpensesWithShares(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val balances by remember(gid) { expenses.observeBalances(gid) }.collectAsStateWithLifecycle(emptyList())
+    val categories by remember(gid) { categoriesRepo.observeCategories(gid) }.collectAsStateWithLifecycle(CategoryDefaults.all)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val today = remember { Clock.System.todayUtc() }
 
@@ -42,10 +46,10 @@ fun OverviewRoute(groupId: String, onBack: () -> Unit, onExport: () -> Unit) {
     GroupOverviewTab(
         groupEmoji = ui.groupEmoji,
         groupName = ui.groupName,
-        personalSpend = buildPersonalCategorySpend(expensesWithShares, userId),
-        groupSpend = buildCategorySpend(expenseList),
-        personalHistory = buildPersonalHistory(expensesWithShares, userId),
-        groupHistory = buildGroupHistory(expenseList),
+        personalSpend = buildPersonalCategorySpend(expensesWithShares, userId, categories),
+        groupSpend = buildCategorySpend(expenseList, categories),
+        personalHistory = buildPersonalHistory(expensesWithShares, userId, categories),
+        groupHistory = buildGroupHistory(expenseList, categories),
         byDay = ui.byDay,
         byMember = ui.byMember,
         totalSubunits = ui.totalSubunits,

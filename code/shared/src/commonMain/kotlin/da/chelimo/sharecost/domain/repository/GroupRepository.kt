@@ -32,6 +32,9 @@ interface GroupRepository {
     /** Active members of a group, joined to their user for display, oldest-join first. */
     fun observeMembers(groupId: GroupId): Flow<List<Member>>
 
+    /** Total bytes of this group's live (non-deleted) receipts — drives the Storage section. */
+    fun observeStorageUsedBytes(groupId: GroupId): Flow<Long>
+
     /** Create a group; the creator becomes the first active member and its admin (03 §7.5). */
     suspend fun createGroup(input: NewGroup): AppResult<Group>
 

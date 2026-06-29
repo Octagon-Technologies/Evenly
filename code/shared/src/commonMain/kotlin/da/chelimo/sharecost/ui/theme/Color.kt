@@ -32,6 +32,16 @@ val ScRedTint = Color(0xFFFDEEED)         // --red-tint
 val ScAmber = Color(0xFF687590)           // --amber (a muted slate, not yellow)
 val ScAmberTint = Color(0xFFEEF1F8)       // --amber-tint
 
+// Balance-state semantics (product decision, owner-approved): a deliberate, scoped exception to the
+// "never green" principle above — used ONLY for settle-up states, not general success. `settled` = a
+// calm green for "all square"; `credit` = a warm burnt-amber for "you're owed / paid extra" — it draws
+// attention without red's "you did something wrong" connotation (overpaying is in the user's favor).
+val ScGreen = Color(0xFF16A34A)           // settled accent
+val ScGreenTint = Color(0xFFE7F4EC)       // settled fill
+val ScGreenTint2 = Color(0xFFC7E7D2)      // settled progress track
+val ScCredit = Color(0xFFC2410C)          // in-credit / overpaid accent (burnt amber, not red)
+val ScCreditTint = Color(0xFFFFF1E6)      // credit fill
+
 val ScOnAccent = Color(0xFFFFFFFF)        // text/icon on a blue fill
 val ScDisabledInk = Color(0xFFA9BEE8)     // disabled primary-button label
 val ScBannerOffline = Color(0xFF2B3240)   // .sc-banner--offline background
@@ -57,6 +67,12 @@ val ScRedDark = Color(0xFFE98487)
 val ScRedTintDark = Color(0xFF2A1718)
 val ScAmberDark = Color(0xFF8A95AD)
 val ScAmberTintDark = Color(0xFF1B2230)
+
+val ScGreenDark = Color(0xFF4ADE80)       // lifted for AA on a dark page
+val ScGreenTintDark = Color(0xFF13271B)
+val ScGreenTint2Dark = Color(0xFF1E3A2A)
+val ScCreditDark = Color(0xFFFB923C)      // lifted warm amber for dark
+val ScCreditTintDark = Color(0xFF2A1810)
 
 val ScSkeleton1Dark = Color(0xFF1A2230)
 val ScSkeleton2Dark = Color(0xFF222C3C)

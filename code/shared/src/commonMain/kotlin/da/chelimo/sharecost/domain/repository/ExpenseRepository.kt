@@ -3,9 +3,11 @@ package da.chelimo.sharecost.domain.repository
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.domain.balance.Debt
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.Expense
+import da.chelimo.sharecost.domain.expense.ExpenseEditConflict
 import da.chelimo.sharecost.domain.expense.ExpenseWithShares
 import da.chelimo.sharecost.domain.expense.NewExpense
 import kotlinx.coroutines.flow.Flow
@@ -40,4 +42,13 @@ interface ExpenseRepository {
 
     /** Soft-delete an expense (04 §2.3 `delete_expense`); status becomes DELETED. */
     suspend fun deleteExpense(expenseId: ExpenseId): AppResult<Unit>
+
+    /** Unresolved parked edit-collisions for a group — the pick-a-side queue (optimistic-concurrency losers). */
+    fun observeEditConflicts(groupId: GroupId): Flow<List<ExpenseEditConflict>>
+
+    /**
+     * Resolve a parked edit-collision. [useRejected] = false keeps the canonical version; true re-applies
+     * the rejected payload as a fresh edit on top of the current version (a clean base, so it commits).
+     */
+    suspend fun resolveEditConflict(conflictId: String, useRejected: Boolean, resolvedBy: UserId?): AppResult<Unit>
 }

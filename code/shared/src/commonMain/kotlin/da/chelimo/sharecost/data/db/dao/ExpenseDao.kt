@@ -54,13 +54,31 @@ interface ExpenseDao {
     @Query("UPDATE expenses SET payer_user_id = :toUserId, updated_at = :now, row_version = row_version + 1 WHERE group_id = :groupId AND payer_user_id = :fromUserId")
     suspend fun reassignPayerInGroup(groupId: String, fromUserId: String, toUserId: String, now: Long)
 
+    /**
+     * Touch (mark dirty) the non-deleted expenses that have an active share for [userId] in [groupId].
+     * Used after a placeholder→real *share* reassignment so those owed expenses re-push through the
+     * commit_expense CAS — otherwise a share-only change wouldn't bump its parent expense's version.
+     */
+    @Query(
+        """
+        UPDATE expenses SET updated_at = :now, row_version = row_version + 1
+        WHERE deleted_at IS NULL AND id IN (
+            SELECT DISTINCT s.expense_id FROM shares s
+            WHERE s.user_id = :userId AND s.deleted_at IS NULL
+              AND s.expense_id IN (SELECT id FROM expenses WHERE group_id = :groupId)
+        )
+        """
+    )
+    suspend fun touchExpensesWithShareOfUser(groupId: String, userId: String, now: Long)
+
     // --- Shares (declared here so the expense + its shares write in one transaction) ------------
 
     @Upsert
     suspend fun upsertShares(shares: List<ShareEntity>)
 
-    @Query("DELETE FROM shares WHERE expense_id = :expenseId")
-    suspend fun deleteSharesForExpense(expenseId: String)
+    /** Tombstone the shares an edit removed (Rule 1): soft-delete so the removal syncs, never hard-delete. */
+    @Query("UPDATE shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE id IN (:ids)")
+    suspend fun softDeleteSharesByIds(ids: List<String>, ts: Long)
 
     /** Soft-delete an expense (04 §2.3 `delete_expense`); status becomes DELETED, version bumps. */
     @Query("UPDATE expenses SET deleted_at = :ts, status = 'DELETED', updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
@@ -75,11 +93,38 @@ interface ExpenseDao {
         upsertShares(shares)
     }
 
-    /** Replace an expense's fields and its full share set atomically (edit_expense). */
+    /**
+     * Apply an expense edit atomically: update the expense, soft-delete the shares the edit removed,
+     * and upsert the surviving/added shares. Removed shares are tombstoned (not hard-deleted) so the
+     * removal syncs; surviving participants keep their share `id` (caller does the identity merge), so
+     * settlement allocations stay linked and `remaining` re-derives instead of resetting (edit_expense).
+     */
     @Transaction
-    suspend fun replaceWithShares(expense: ExpenseEntity, shares: List<ShareEntity>) {
-        deleteSharesForExpense(expense.id)
+    suspend fun replaceWithShares(
+        expense: ExpenseEntity,
+        shares: List<ShareEntity>,
+        removedShareIds: List<String>,
+        ts: Long,
+    ) {
         upsert(expense)
+        if (removedShareIds.isNotEmpty()) softDeleteSharesByIds(removedShareIds, ts)
         upsertShares(shares)
     }
+
+    /**
+     * Force local cache back to the server's canonical expense + shares after our edit was PARKED
+     * (lost the optimistic-concurrency race). The rejected optimistic-only shares are tombstoned
+     * (not hard-deleted) and won't re-push since the expense now matches the server. This is
+     * local-cache reconciliation toward the server's truth, not a user-data deletion — the rejected
+     * edit itself is preserved server-side in `expense_edit_conflicts`.
+     */
+    @Transaction
+    suspend fun overwriteFromServer(expense: ExpenseEntity, serverShares: List<ShareEntity>, now: Long) {
+        upsert(expense)
+        softDeleteLocalSharesNotIn(expense.id, serverShares.map { it.id }, now)
+        upsertShares(serverShares)
+    }
+
+    @Query("UPDATE shares SET deleted_at = :now, updated_at = :now WHERE expense_id = :expenseId AND deleted_at IS NULL AND id NOT IN (:keepIds)")
+    suspend fun softDeleteLocalSharesNotIn(expenseId: String, keepIds: List<String>, now: Long)
 }

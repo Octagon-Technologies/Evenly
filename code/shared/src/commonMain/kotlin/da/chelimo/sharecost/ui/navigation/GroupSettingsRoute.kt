@@ -19,12 +19,19 @@ import org.koin.compose.koinInject
 
 /** Group settings, wired: streams the group + members; renames, copies the invite, and leaves (F4). */
 @Composable
-fun GroupSettingsRoute(groupId: String, onBack: () -> Unit, onLeft: () -> Unit, onReconcile: () -> Unit) {
+fun GroupSettingsRoute(
+    groupId: String,
+    onBack: () -> Unit,
+    onLeft: () -> Unit,
+    onReconcile: () -> Unit,
+    onEditCategories: () -> Unit = {},
+) {
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
+    val storageUsedBytes by remember(gid) { groups.observeStorageUsedBytes(gid) }.collectAsStateWithLifecycle(0L)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -50,6 +57,7 @@ fun GroupSettingsRoute(groupId: String, onBack: () -> Unit, onLeft: () -> Unit, 
         baseCurrency = group?.baseCurrency ?: "USD",
         members = rows,
         inviteLink = inviteLink,
+        storageUsedBytes = storageUsedBytes,
         onBack = onBack,
         onAddMember = { name, addToPast ->
             scope.launch {
@@ -65,6 +73,7 @@ fun GroupSettingsRoute(groupId: String, onBack: () -> Unit, onLeft: () -> Unit, 
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
         onReconcile = onReconcile,
+        onEditCategories = onEditCategories,
         onArchive = {
             userId?.let { me -> scope.launch { if (groups.setArchived(gid, me, archived = true) is AppResult.Ok) onLeft() } }
         },

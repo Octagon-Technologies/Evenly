@@ -18,16 +18,23 @@ import da.chelimo.sharecost.domain.activity.HistoryEvent
 import da.chelimo.sharecost.domain.activity.HistoryEventType
 import da.chelimo.sharecost.domain.activity.ReceiptUploadStatus
 import da.chelimo.sharecost.domain.auth.AuthSession
+import da.chelimo.sharecost.domain.expense.CategoryDefaults
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.NewExpense
 import da.chelimo.sharecost.domain.expense.NewShare
 import da.chelimo.sharecost.domain.repository.ActivityRepository
+import da.chelimo.sharecost.domain.repository.CategoryRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.platform.FilePicker
+import da.chelimo.sharecost.platform.PdfRasterizer
 import da.chelimo.sharecost.platform.PickKind
 import da.chelimo.sharecost.platform.PickSource
-import da.chelimo.sharecost.platform.UrlOpener
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.readRawBytes
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import da.chelimo.sharecost.ui.screen.expense.AddExpensePrefill
 import da.chelimo.sharecost.ui.screen.expense.AddExpenseScreen
 import da.chelimo.sharecost.ui.screen.expense.AddParticipantUi
@@ -38,6 +45,7 @@ import da.chelimo.sharecost.ui.screen.expense.ExpenseDetailState
 import da.chelimo.sharecost.ui.screen.expense.HistoryUi
 import da.chelimo.sharecost.ui.screen.expense.ReceiptUi
 import da.chelimo.sharecost.ui.screen.expense.ReceiptUploadUi
+import da.chelimo.sharecost.ui.components.moneySubunits
 import da.chelimo.sharecost.ui.screen.expense.SplitMode
 import da.chelimo.sharecost.ui.screen.expense.format2dp
 import da.chelimo.sharecost.ui.screen.group.GroupHomeScreen
@@ -55,10 +63,12 @@ import kotlin.time.ExperimentalTime
 fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val categoriesRepo = koinInject<CategoryRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
+    val categories by remember(gid) { categoriesRepo.observeCategories(gid) }.collectAsStateWithLifecycle(CategoryDefaults.all)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
@@ -69,6 +79,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
 
     AddExpenseScreen(
         participants = participants,
+        categories = categories,
         currencyCode = currency,
         saving = saving,
         onBack = onBack,
@@ -117,11 +128,13 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
 fun EditExpenseRoute(groupId: String, expenseId: String, onBack: () -> Unit, onSaved: () -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val categoriesRepo = koinInject<CategoryRepository>()
     val auth = koinInject<AuthSession>()
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val gid = remember(groupId) { GroupId(groupId) }
     val detail by remember(eid) { expenses.observeExpense(eid) }.collectAsStateWithLifecycle(null)
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
+    val categories by remember(gid) { categoriesRepo.observeCategories(gid) }.collectAsStateWithLifecycle(CategoryDefaults.all)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -156,6 +169,7 @@ fun EditExpenseRoute(groupId: String, expenseId: String, onBack: () -> Unit, onS
     AddExpenseScreen(
         editing = true,
         participants = participants,
+        categories = categories,
         currencyCode = currency,
         saving = saving,
         prefill = prefill,
@@ -217,10 +231,19 @@ fun ExpenseDetailRoute(
     val auth = koinInject<AuthSession>()
     val activity = koinInject<ActivityRepository>()
     val filePicker = koinInject<FilePicker>()
-    val urlOpener = koinInject<UrlOpener>()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
+    // In-app receipt viewer plumbing: PDFs are downloaded once + rasterized natively (no external browser).
+    val http = koinInject<HttpClient>()
+    val rasterizer = remember { PdfRasterizer() }
+    val pdfBytes = remember { mutableMapOf<String, ByteArray>() }
+    val pdfBytesLock = remember { Mutex() }
+    val getPdfBytes: suspend (String) -> ByteArray? = { url ->
+        pdfBytesLock.withLock {
+            pdfBytes[url] ?: runCatching { http.get(url).readRawBytes() }.getOrNull()?.also { pdfBytes[url] = it }
+        }
+    }
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val gid = remember(groupId) { GroupId(groupId) }
     val detail by remember(eid) { expenses.observeExpense(eid) }.collectAsStateWithLifecycle(null)
@@ -273,7 +296,7 @@ fun ExpenseDetailRoute(
             failed = u.status == ReceiptUploadStatus.FAILED,
         )
     }
-    val historyUi = history.map { ev -> HistoryUi(historyText(ev) { nameOf(it) }, relativeTimeLabel(ev.createdAt, now)) }
+    val historyUi = history.map { ev -> HistoryUi(historyText(ev, e.currency) { nameOf(it) }, relativeTimeLabel(ev.createdAt, now)) }
 
     ExpenseDetailScreen(
         state = ExpenseDetailState.Content,
@@ -311,7 +334,8 @@ fun ExpenseDetailRoute(
         },
         onRetryUpload = { id -> scope.launch { uploadManager?.retry(id) } },
         onCancelUpload = { id -> scope.launch { uploadManager?.cancel(id) } },
-        onOpenReceipt = { r -> r.url?.let { urlOpener.open(it) } },
+        loadPdfPageCount = { url -> getPdfBytes(url)?.let { rasterizer.pageCount(it) } ?: 0 },
+        renderPdfPage = { url, page, w -> getPdfBytes(url)?.let { rasterizer.renderPage(it, page, w) } },
         onBack = onBack,
         onSettleThis = onSettleThis,
         onEdit = onEdit,
@@ -319,12 +343,17 @@ fun ExpenseDetailRoute(
     )
 }
 
-/** Render a history event into a viewer-relative sentence (actor name resolved live). */
-private fun historyText(ev: HistoryEvent, nameOf: (UserId?) -> String): String {
+/**
+ * Render a history event into a viewer-relative sentence (actor name resolved live). [detail] carries
+ * raw amount tokens the repo stored ("amt:<subunits>", "edit:<old>:<new>") so the money is formatted
+ * here in the expense's [currency] — keeping currency formatting out of the data layer.
+ */
+private fun historyText(ev: HistoryEvent, currency: String, nameOf: (UserId?) -> String): String {
     val verb = when (ev.type) {
         HistoryEventType.CREATED -> "added this expense"
         HistoryEventType.EDITED -> "edited this expense"
-        HistoryEventType.SETTLED -> "settled a share"
+        HistoryEventType.SETTLED -> "settled"
+        HistoryEventType.SETTLEMENT_EDITED -> "corrected a payment"
         HistoryEventType.COMMENTED -> "commented"
         HistoryEventType.RECEIPT_ADDED -> "added a receipt"
         HistoryEventType.DELETED -> "deleted this expense"
@@ -333,12 +362,27 @@ private fun historyText(ev: HistoryEvent, nameOf: (UserId?) -> String): String {
         HistoryEventType.CREATED -> "created"
         HistoryEventType.EDITED -> "edited"
         HistoryEventType.SETTLED -> "settled"
+        HistoryEventType.SETTLEMENT_EDITED -> "corrected"
         HistoryEventType.COMMENTED -> "commented on"
         HistoryEventType.RECEIPT_ADDED -> "updated"
         HistoryEventType.DELETED -> "deleted"
     }
     val base = if (ev.actorUserId != null) "${nameOf(ev.actorUserId)} $verb" else "This expense was $passive"
-    return ev.detail?.let { "$base · $it" } ?: base
+    return ev.detail?.let { "$base · ${renderDetail(it, currency)}" } ?: base
+}
+
+/** Expand a stored detail token into human money text; pass through plain (non-token) details unchanged. */
+private fun renderDetail(detail: String, currency: String): String {
+    val parts = detail.split(":")
+    return when (parts.firstOrNull()) {
+        "amt" -> parts.getOrNull(1)?.toLongOrNull()?.let { moneySubunits(it, currency) } ?: detail
+        "edit" -> {
+            val old = parts.getOrNull(1)?.toLongOrNull()
+            val new = parts.getOrNull(2)?.toLongOrNull()
+            if (old != null && new != null) "${moneySubunits(old, currency)} → ${moneySubunits(new, currency)}" else detail
+        }
+        else -> detail
+    }
 }
 
 /** Short relative time ("now", "5m", "2h", "3d", "2w") for activity stamps. */

@@ -247,10 +247,15 @@ fun GroupRow(g: GroupCardUi, modifier: Modifier = Modifier, onClick: () -> Unit 
         }
         when {
             archived -> ScChip("Unarchive", variant = ChipVariant.Ghost, leadingIcon = ScIcons.Archive)
-            g.status == GroupBalanceStatus.Settled -> ScChip("Settled", variant = ChipVariant.Blue, leadingIcon = ScIcons.Check)
-            else -> Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(if (g.status == GroupBalanceStatus.Owe) "you owe" else "you're owed", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                ScChip(money(g.amount ?: 0.0), variant = if (g.status == GroupBalanceStatus.Owed) ChipVariant.Solid else ChipVariant.Neutral, mono = true)
+            g.status == GroupBalanceStatus.Settled -> ScChip("Settled", variant = ChipVariant.Green, leadingIcon = ScIcons.Check)
+            else -> {
+                // Group-level balance, color-coded: you owe → blue (the action); you're owed / in credit →
+                // amber (money coming back to you — draws attention without red's "you did wrong").
+                val owed = g.status == GroupBalanceStatus.Owed
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(if (owed) "you're owed" else "you owe", color = if (owed) c.credit else c.blue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    ScChip(money(g.amount ?: 0.0), variant = if (owed) ChipVariant.Credit else ChipVariant.Blue, mono = true)
+                }
             }
         }
     }

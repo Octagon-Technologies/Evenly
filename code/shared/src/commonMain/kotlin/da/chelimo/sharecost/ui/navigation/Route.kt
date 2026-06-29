@@ -41,6 +41,11 @@ sealed interface Route {
     @Serializable data class AddExpense(val groupId: String, val draftId: String? = null) : Route
     @Serializable data class EditExpense(val groupId: String, val expenseId: String) : Route
 
+    // ── Split the bill (itemized) ──────────────────────────────────────
+    @Serializable data class NewExpenseChoice(val groupId: String) : Route   // sheet: pick expense kind
+    @Serializable data class SplitBill(val groupId: String, val expenseId: String? = null) : Route  // edit menu (null = new)
+    @Serializable data class ClaimBill(val groupId: String, val expenseId: String) : Route           // live claim screen
+
     // ── Settle ─────────────────────────────────────────────────────────
     @Serializable data class SettleExpense(val groupId: String, val expenseId: String) : Route  // sheet
     @Serializable data class SettlePerson(val groupId: String, val peerUserId: String) : Route
@@ -50,6 +55,7 @@ sealed interface Route {
     // Profile/Settings is no longer a standalone route — it's the Settings tab of the root [MainShell]
     // (rendered at [Home]). PaymentHandles is still a pushed sub-screen of that tab.
     @Serializable data class GroupSettings(val groupId: String) : Route
+    @Serializable data class EditCategories(val groupId: String) : Route
     @Serializable data object PaymentHandles : Route
     @Serializable data class Reconcile(val groupId: String) : Route
 }

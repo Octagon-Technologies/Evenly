@@ -40,20 +40,59 @@ data class ConflictUi(
     val by: String,
 )
 
+/**
+ * One parked edit-collision: two devices edited the same expense from the same base version. Shows the
+ * canonical (current) side vs the rejected side so the user picks one — we never auto-merge two splits.
+ */
+data class EditConflictUi(
+    val conflictId: String,
+    val by: String,
+    val currentTitle: String,
+    val currentAmount: Double,
+    val rejectedTitle: String,
+    val rejectedAmount: Double,
+)
+
 /** 10 · Group · Conflicts tab (design/src/screens-group2.jsx). */
 @Composable
 fun GroupConflictsTab(
     memberName: String = "Tyler",
     conflicts: List<ConflictUi> = DemoConflicts,
+    editConflicts: List<EditConflictUi> = emptyList(),
     onBack: () -> Unit = {},
     onInclude: (ConflictUi) -> Unit = {},
     onSkip: (ConflictUi) -> Unit = {},
+    onKeepCurrent: (EditConflictUi) -> Unit = {},
+    onUseRejected: (EditConflictUi) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     Column(Modifier.fillMaxSize().background(c.surface)) {
         ScTopBar("Conflicts", subtitle = "$memberName joined after these expenses", navIcon = { ScIconButton(ScIcons.Back, onBack) })
         ScBanner("Decide who shares these costs.", variant = BannerVariant.Amber, leadingIcon = ScIcons.Alert)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Edit-collisions first: two people edited the same expense offline. Pick a side; never auto-merge.
+            if (editConflicts.isNotEmpty()) {
+                Text("Edited at the same time", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            editConflicts.forEach { item ->
+                ScCard(padded = true) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("${item.by} edited this while you did too", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column { Text("Keep current", color = c.ink2, fontSize = 12.sp); Text(item.currentTitle, color = c.ink, fontSize = 14.sp) }
+                            ScAmountText(money(item.currentAmount))
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column { Text("Use ${item.by}'s", color = c.ink2, fontSize = 12.sp); Text(item.rejectedTitle, color = c.ink, fontSize = 14.sp) }
+                            ScAmountText(money(item.rejectedAmount))
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ScButton("Keep current", { onKeepCurrent(item) }, modifier = Modifier.weight(1f))
+                            ScButton("Use ${item.by}'s", { onUseRejected(item) }, variant = ButtonVariant.Text)
+                        }
+                    }
+                }
+            }
             conflicts.forEach { item ->
                 ScCard(padded = true) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

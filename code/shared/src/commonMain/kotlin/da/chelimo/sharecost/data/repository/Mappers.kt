@@ -7,9 +7,9 @@ import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.SettlementEntity
-import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.data.db.projection.ConflictWithExpenseRow
 import da.chelimo.sharecost.data.db.projection.MemberWithUserRow
+import da.chelimo.sharecost.data.db.projection.ShareRow
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.ExpenseShare
 import da.chelimo.sharecost.domain.group.Conflict
@@ -70,7 +70,7 @@ internal fun ExpenseEntity.toDomain(): Expense = Expense(
     rowVersion = rowVersion,
 )
 
-internal fun ShareEntity.toDomain(): ExpenseShare = ExpenseShare(
+internal fun ShareRow.toDomain(): ExpenseShare = ExpenseShare(
     id = id,
     userId = UserId(userId),
     owedSubunits = shareOwedSubunits,

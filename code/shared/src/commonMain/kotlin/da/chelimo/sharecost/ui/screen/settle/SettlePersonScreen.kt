@@ -173,7 +173,7 @@ fun SettlePersonScreen(
                         chosen?.let { h ->
                             ScButton("Open in ${h.label}", { onOpenApp(payAmount, h.app, h.handle); confirmFor = h }, leadingIcon = ScIcons.Link, enabled = payValid)
                         }
-                        ScButton("Mark paid manually", { onMarkPaid(payAmount) }, variant = ButtonVariant.Text, leadingIcon = ScIcons.Check, enabled = payValid)
+                        ScButton("Mark paid manually", { onMarkPaid(payAmount) }, variant = ButtonVariant.Tonal, leadingIcon = ScIcons.Check, enabled = payValid)
                     }
                 }
             }

@@ -47,11 +47,12 @@ fun ScButton(
 ) {
     val c = ShareCostTheme.colors
     val style = when (variant) {
-        // Primary hero: a raised WHITE chip with bold blue text + a real drop shadow (over the old
-        // solid-blue fill). The hairline keeps it legible white-on-white; the shadow gives it lift.
-        // In dark mode `page` is the elevated near-ink surface, so it reads as a lifted surface button.
+        // Primary hero: a WHITE chip with bold blue text. The hairline does the edge definition, so the
+        // shadow only needs to whisper a little lift — 2dp (≈ Material 3 elevation level 1–2, where
+        // buttons live; 8dp/level-4 is for prominent app bars and read as "shouting"). It enhances, not
+        // screams. In dark mode `page` is the elevated near-ink surface, so it reads as a lifted button.
         ButtonVariant.Primary ->
-            if (enabled) BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 8.dp)
+            if (enabled) BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 2.dp)
             else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
         ButtonVariant.Secondary -> BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.5f)
         // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button

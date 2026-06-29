@@ -104,8 +104,11 @@ class ExpenseRepositoryTest {
 
         val detail = repo.observeExpense(expense.id).first()
         assertNotNull(detail)
+        // "Settled" is derived, not stored: the payer's own share derives to remaining 0, so every
+        // share is paid ⇒ settled. The stored status stays ACTIVE (only deletion is stored).
         assertEquals(0, detail.shares.single().remainingSubunits)
-        assertEquals(ExpenseStatus.SETTLED, detail.expense.status)
+        assertTrue(detail.shares.all { it.remainingSubunits == 0L }, "self-covered expense is settled (derived)")
+        assertEquals(ExpenseStatus.ACTIVE, detail.expense.status)
     }
 
     @Test

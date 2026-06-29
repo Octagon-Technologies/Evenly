@@ -89,6 +89,46 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
 - **Synced Room entities double as wire DTOs:** snake_case `@ColumnInfo` names mirror the Postgres
   columns 1:1, the entity is `@Serializable`, and the client uses a snake_case `JsonNamingStrategy`. **No
   Room foreign keys** (rows sync in dependency-arbitrary order).
+- **Expenses sync through an optimistic-concurrency RPC, not a blind upsert.** An expense + its full
+  share set are one atomic, versioned unit. `SyncEngine.pushExpenses` routes each *dirty* expense (local
+  `row_version` ≠ its device-local `expense_sync_state.synced_version`) through the server
+  `commit_expense(p_expense, p_shares, p_base_version, p_actor)` RPC, which compare-and-swaps on
+  `row_version`: the first writer to advance `base→base+1` wins; a stale writer's payload is **parked** in
+  `expense_edit_conflicts` instead of clobbering. Shares ride *with* the expense (the RPC soft-deletes
+  removed ones server-side), so a losing edit's shares never land on the live `shares` table and corrupt a
+  split — do **not** reintroduce a blind bulk `expenses`/`shares` push. Soft-deleted expenses are
+  tombstones (plain upsert, LWW-safe). On a `conflict` result the client reverts its cache to canonical
+  (`ExpenseDao.overwriteFromServer`); the parked edit syncs back for a **pick-a-side** resolution
+  (`ExpenseRepository.observeEditConflicts`/`resolveEditConflict`, both kinds of conflict share the
+  Conflicts tab). The whole rationale is in the "When Two Edits Collide" article in Notion.
+- **Settlement state is DERIVED on read, never stored.** A share's `remaining` is computed as
+  `owed − Σ(applied allocations of non-voided settlements)` (the payer's own share is always 0); balance
+  and "settled" follow from it (an expense is settled iff every share's derived remaining is 0). So:
+  `settlement_allocations` is now a **synced** table (the payment ground truth; carries `group_id` +
+  `row_version`), settlements no longer mutate a stored remaining (the `shares.remaining_subunits` column
+  is vestigial — read it nowhere), and `expenses.status` only ever stores ACTIVE/DELETED. Because remaining
+  derives, **editing a split no longer wipes payments**: `ExpenseDao.replaceWithShares` + `mergeShares`
+  preserve each surviving participant's share `id` (matched by `user_id`) so allocations stay linked.
+  `shares` has `deleted_at` (removed participants are soft-deleted, Rule 1) + a partial unique index over
+  active rows; the old hard-delete `deleteSharesForExpense` is gone. Don't reintroduce a stored remaining
+  or a stored SETTLED status — that's the staleness bug this design removes.
+- **"Split the bill" expenses derive shares from items + claims, never stored input.** An itemized
+  expense (`split_mode = "ITEMIZED"`) keeps its line items in the synced `expense_items` table and
+  who-had-what in the synced `item_claims` table; bill-level extras ride on the expense row
+  (`tax_subunits`/`gratuity_subunits`/`tip_subunits`/`tip_split_mode`/`discount_subunits`). **Claims are
+  partitioned by user** — each device only ever writes its *own* claim — so live multi-device claiming is
+  conflict-free and needs no CAS (unlike an expense edit). `BillRepositoryImpl.materializeShares` runs the
+  pure `splitBill` engine (`domain/expense/BillSplit.kt`) and writes the resulting `shares` with
+  **deterministic ids** (`"<expenseId>__<userId>"`), so every device converges on identical rows and
+  editing the menu re-derives *in place* — a price fix never disturbs a recorded claim or its settlement
+  allocations. Item cost is per-unit exact (claim 2 of 4 → pay 2×price; unclaimed units stay unassigned
+  until Finish; over-claim is **surfaced, not capped**); tax & gratuity split proportionally, tip
+  even-by-default (toggleable), discount negative-proportional — all penny-exact via the existing
+  largest-remainder `allocate`. Shares for an itemized expense are a **local derived materialization** of
+  the synced items/claims (not independently pushed). Receipt OCR is the `extract-receipt` edge function
+  (Claude vision → structured draft) reached via the `ReceiptOcr` gateway; it only ever *pre-fills* the
+  editable item list (human-verify before any money is computed). Don't reintroduce stored itemized share
+  input or a blind items/shares push.
 - **Claimed placeholders are retired *everywhere*, not just the roster.** A placeholder is a `users` row
   (`is_placeholder=1` + `placeholder_group_id`) **plus** a `members` row (`addPlaceholder` creates both).
   When it's merged into a real user — reconcile *or* a joiner picking it on the Join sheet — soft-leave it
@@ -99,8 +139,9 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   Don't revert it to a users-only query — that resurrects the merged placeholder. Member display names
   always resolve from the global `users` JOIN (`MemberWithUserRow.displayName`); there is **no per-group
   name copy**, so a Settings rename (`ProfileRepositoryImpl.updateDisplayName`) propagates to every roster
-  reactively. (Latent, out of scope: `SyncEngine.pull()` upserts `members`/`users` with no `keepNewer`
-  guard, so a stale server row can still re-resurrect a local soft-delete/rename — a pre-prod Rule 5 P0.)
+  reactively. (`SyncEngine.pull()` now guards `members`/`users` — and every other synced table carrying
+  `updated_at` — with the `keepNewer` last-write-wins filter (Rule 5), so a stale server row can no longer
+  re-resurrect a local soft-delete/rename; `conflicts`/`expense_history` are exempt, having no `updated_at`.)
 - **Device-local tables stay out of sync.** Not every Room table is a wire-mirror: the receipt-upload
   outbox (`receipt_uploads`, D-22) is local-only — it is *not* `@Serializable`, *not* in `SyncEngine`'s
   table list, and never reaches the server. It tracks in-flight upload state (local file path, progress,
@@ -109,7 +150,9 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   platform `ReceiptUploadScheduler` actual — Android `WorkManager`, iOS background `URLSession`. Progress
   is written to Room and observed by the UI (no WorkManager↔UI plumbing). See `iosApp/PUSH_SETUP.md`-style
   note: the iOS host `AppDelegate` still needs `handleEventsForBackgroundURLSession` for suspended-app
-  completion (session id `da.chelimo.sharecost.receiptUpload`).
+  completion (session id `da.chelimo.sharecost.receiptUpload`). Likewise `expense_sync_state` (the
+  per-expense `base_version` tracker for the `commit_expense` CAS) is device-local — not `@Serializable`,
+  not in `SyncEngine`'s table list, and never triggers a push.
 - **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
   full-screen `ReceiptViewerScreen` (`ui/screen/expense/`) — a `HorizontalPager` over all of the expense's
   receipts with a bottom thumbnail filmstrip; images pinch-to-zoom, PDFs render natively. PDF rasterization
@@ -117,6 +160,20 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   are downloaded once and pages rendered lazily (only when a PDF is actually opened, never for the
   filmstrip). The old `UrlOpener.open(receipt.url)` hand-off is gone; don't reintroduce external receipt
   opening.
+- **Categories are per-group with copy-on-write defaults.** The built-in set lives in app code
+  (`CategoryDefaults`, mirroring the legacy `ExpenseCategory` ids/colors). A group has **zero** rows in
+  the synced `categories` table until it first edits categories; until then `CategoryRepository
+  .observeCategories` emits the defaults. The first mutating call (`CategoryRepositoryImpl.materialize`)
+  seeds the **full** default set as rows (deterministic ids `"<groupId>__<key>"`, `is_default=1`) then
+  applies the change — so a never-customized group costs no rows. An expense persists a category's `key`
+  in `expenses.category_id` (`"food"…` for a default, a uuid for custom); `key` is unique per group among
+  live rows. Icons are a UI concern: the entity stores an opaque `icon` token resolved by
+  `ui/screen/group/CategoryCatalog`. Soft-delete only (Rule 1). The expense editor picker AND the Balances
+  "Spending by category" donut + history (`GroupBalancesMapping.build*`, via `resolveCategory`) read the
+  group's effective categories, so custom categories render with their own label/icon/color. NOTE: the
+  expense-LIST rows (`GroupExpensesMapping`) and the filter sheet still resolve icon/color from the legacy
+  `categoryIcon(ExpenseCategory)`/`categoryColor(ExpenseCategory)` enum helpers, so a *custom* category's
+  rows there fall back to the OTHER glyph/slate — thread `observeCategories` into those to finish.
 - **Adding a column to a synced entity REQUIRES adding it server-side first** (additive `alter table …
   add column if not exists … default …`). The full-row `upsert` sends every field, so a column missing
   on the server breaks ALL sync for that table. Apply the migration before/with the entity change.
@@ -182,9 +239,11 @@ prod-ready while any remain open:
    the membership-scoped policy sketch already in `schema.sql` before any non-test user exists. See Rule 6.
 3. **Add the audit log + triggers** (Rule 4) — there is none today; `expense_history` logs *events*, not
    *before-images*, so today a bad mutation is unrecoverable from app data alone.
-4. **Close the soft-delete gaps** (Rule 1): `shares`, `users`, `members`, `conflicts`, `device_tokens`
-   have no `deleted_at`. `shares` is the urgent one — see Rule 1's "shares" note.
-5. **Stop hard-deleting shares on edit** (Rule 1) and **add last-write-wins guards to sync** (Rule 5).
+4. **Close the soft-delete gaps** (Rule 1): `users`, `members`, `conflicts`, `device_tokens` still have
+   no `deleted_at`. (`shares` now has one — done.)
+5. ~~Stop hard-deleting shares on edit~~ **(done)**, and **add concurrency guards to sync** (Rule 5):
+   expenses now go through the `commit_expense` compare-and-swap RPC with parked conflicts, and pull keeps
+   a locally-dirty expense from being clobbered; the remaining tables are still blind last-write-wins.
 6. **Turn on Supabase Point-in-Time Recovery (PITR) + scheduled backups, and rehearse a restore** (Rule 12).
 
 ## The rules
@@ -204,13 +263,13 @@ the `deleted_at IS NULL` read filters are the pattern to copy.
 **Forbidden — flag before writing, never add silently:**
 - `@Delete` or `@Query("DELETE FROM …")` on any user-data DAO.
 - A Postgrest `.delete()` call from `commonMain`/client code on a user-data table.
-- Two hard deletes exist **today** and must be converted before prod:
-  - **`ExpenseDao.deleteSharesForExpense` (`ExpenseDao.kt:62`), used by `replaceWithShares`.** Editing an
-    expense hard-deletes its old `shares` and inserts new ones. Because `shares` has **no `deleted_at`**,
-    the removed rows are *not* tombstoned — `push()` only upserts the current set, so the old shares
-    **persist on the server and resurrect on the next pull**, corrupting balances. Fix: give `shares` a
-    `deleted_at`, soft-delete removed shares, and include them in `allForSync()`.
+- One hard delete still exists **today** and must be converted before prod:
   - **`UserDao.delete` (`UserDao.kt:29`)** — see Rule 11 (account deletion).
+- **Resolved (keep it this way):** the old `ExpenseDao.deleteSharesForExpense` share hard-delete is **gone**.
+  `shares` now carries `deleted_at` (+ a partial unique index over active rows); editing an expense
+  soft-deletes removed participants via `replaceWithShares(…, removedShareIds, ts)` and `allForSync()`
+  ships the tombstones. Don't reintroduce a `DELETE FROM shares` — the conflict-revert path
+  (`ExpenseDao.overwriteFromServer`) also tombstones rejected local shares rather than hard-deleting them.
 
 If a table is missing `deleted_at`/`deleted_by` and you're asked to delete from it: **stop and flag it.**
 Adding a hard delete as a workaround is itself a rule violation.
@@ -264,14 +323,17 @@ no `old_data`.)
 ### 5. Sync must not silently clobber data — guard last-write-wins.
 
 This is our biggest *latent* data-loss vector and it is invisible until two devices (or one offline
-device) collide. Today `SyncEngine.push()`/`pull()` do **blind full-row upserts with no version check**:
-push sends every local row regardless of age, and pull unconditionally upserts every remote row over
-local. We already carry `row_version` and `updated_at` on every synced entity — **use them** before prod:
+device) collide. `SyncEngine.pull()` **now applies a client-side last-write-wins guard** (`keepNewer`,
+keyed on `updated_at`) to every synced table that carries `updated_at`, so it no longer clobbers a newer
+local row. Two gaps remain before prod: (a) `push()` still sends every local row with **no version
+check**, so a stale local row can overwrite a newer server row; (b) the pull guard silently keeps the
+local winner instead of surfacing a conflict. We carry `row_version` and `updated_at` on every synced
+entity — **use them** to close both:
 
 - **Pull must never overwrite a local row that has unsynced local edits, or that is newer than the
-  incoming remote row.** Compare `row_version` / `updated_at` and keep the winner; surface a real
-  conflict to the user (we already have the `conflicts` table + `GroupConflictsTab` UX) rather than
-  dropping a side.
+  incoming remote row.** The `keepNewer` filter already does the keep-the-winner half (drops a stale
+  incoming row by `updated_at`); still TODO is to **surface a real conflict** to the user (we have the
+  `conflicts` table + `GroupConflictsTab` UX) rather than silently dropping the losing side.
 - **Push must not let a stale local row overwrite a newer server row.** Add a server-side guard — a
   trigger or an `on conflict … where excluded.updated_at > <table>.updated_at` upsert — that **rejects
   an upsert whose `updated_at` is older** than the stored row.

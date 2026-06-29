@@ -77,6 +77,8 @@ create table if not exists public.expenses (
   tax_subunits bigint not null default 0,
   tip_subunits bigint not null default 0,
   tip_split_mode text not null default 'PROPORTIONAL',
+  gratuity_subunits bigint not null default 0,   -- "Split the bill": proportional like tax
+  discount_subunits bigint not null default 0,   -- "Split the bill": proportional reduction
   category_id text,
   subcategory_id text,
   refund_of_expense_id text,
@@ -150,6 +152,46 @@ create index if not exists settlement_allocations_group_idx on public.settlement
 create index if not exists settlement_allocations_settlement_idx on public.settlement_allocations (settlement_id);
 create index if not exists settlement_allocations_share_idx on public.settlement_allocations (share_id);
 
+-- "Split the bill" (itemized expenses): the line items of a bill (the creator-owned "menu"). A line's
+-- exact cost is unit_price_subunits × quantity. group_id is denormalised for pull scoping. Soft-delete
+-- (Rule 1): an item removed from the bill is tombstoned so the removal syncs.
+create table if not exists public.expense_items (
+  id text primary key,
+  expense_id text not null,
+  group_id text not null,
+  label text not null,
+  quantity integer not null,
+  unit_price_subunits bigint not null,
+  sort_order integer not null,
+  created_at bigint not null,
+  updated_at bigint not null,
+  row_version bigint not null default 1,
+  deleted_at bigint
+);
+create index if not exists expense_items_expense_idx on public.expense_items (expense_id);
+create index if not exists expense_items_group_idx on public.expense_items (group_id);
+
+-- Item claims: one person's stake in an item ("I had 2 of these"). The LIVE, multi-device layer —
+-- partitioned by user (each device writes only its own), so concurrent claiming is conflict-free.
+-- quantity is the claimed unit count (countable) or an equal weight (shared item). Soft-delete (Rule 1).
+create table if not exists public.item_claims (
+  id text primary key,
+  item_id text not null,
+  expense_id text not null,
+  group_id text not null,
+  user_id text not null,
+  quantity integer not null,
+  created_at bigint not null,
+  updated_at bigint not null,
+  row_version bigint not null default 1,
+  deleted_at bigint
+);
+create index if not exists item_claims_expense_idx on public.item_claims (expense_id);
+create index if not exists item_claims_group_idx on public.item_claims (group_id);
+-- Partial unique over ACTIVE rows: one live claim per (item, user); a tombstone can coexist with a re-add.
+create unique index if not exists item_claims_item_user_active_uidx
+  on public.item_claims (item_id, user_id) where deleted_at is null;
+
 create table if not exists public.conflicts (
   id text primary key,
   group_id text not null,
@@ -173,8 +215,8 @@ create table if not exists public.expense_edit_conflicts (
   base_version bigint not null,      -- the version the rejected edit was based on
   server_version bigint not null,    -- the canonical version it lost to
   rejected_by text not null,         -- actor user id
-  rejected_expense jsonb not null,   -- loser's full expense payload
-  rejected_shares jsonb not null,    -- loser's full share set
+  rejected_expense text not null,    -- loser's full expense payload (JSON as text, so the Room wire-DTO round-trips it)
+  rejected_shares text not null,     -- loser's full share set (JSON as text)
   created_at bigint not null,
   resolved_at bigint,
   resolution text,                   -- 'KEEP_CURRENT' | 'USE_REJECTED'
@@ -215,6 +257,29 @@ create table if not exists public.receipts (
 create index if not exists receipts_expense_idx on public.receipts (expense_id);
 create index if not exists receipts_group_idx on public.receipts (group_id);
 
+-- ── Categories (per-group, copy-on-write defaults) ───────────────────────────────────────────────
+-- A group has ZERO rows here until it first customizes; until then the client uses its built-in default
+-- categories. The first edit materializes the full default set (is_default=true) then mutates. `key` is
+-- what an expense stores in expenses.category_id ('food' for a default, a uuid for custom); unique per
+-- group among live rows. Synced wire-mirror, soft-delete tombstones.
+create table if not exists public.categories (
+  id text primary key,
+  group_id text not null,
+  key text not null,
+  label text not null,
+  icon text not null,
+  color text not null,
+  sort_order bigint not null default 0,
+  is_default boolean not null default false,
+  created_at bigint not null,
+  updated_at bigint not null,
+  deleted_at bigint,
+  row_version bigint not null default 1
+);
+create index if not exists categories_group_idx on public.categories (group_id);
+create unique index if not exists categories_group_key_active_idx
+  on public.categories (group_id, key) where deleted_at is null;
+
 create table if not exists public.expense_history (
   id text primary key,
   expense_id text not null,
@@ -246,7 +311,7 @@ create index if not exists device_tokens_user_idx on public.device_tokens (user_
 do $$
 declare t text;
 begin
-  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','expense_history','device_tokens']
+  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','device_tokens','expense_items','item_claims']
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists %I on public.%I;', t || '_rw', t);
@@ -264,7 +329,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','expense_history']
+  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','expense_items','item_claims']
   loop
     begin
       execute format('alter publication supabase_realtime add table public.%I;', t);
@@ -410,7 +475,7 @@ begin
       rejected_expense, rejected_shares, created_at)
     values (
       v_conflict_id, v_group_id, v_id, p_base_version, v_current.row_version, p_actor,
-      p_expense, p_shares, v_now)
+      p_expense::text, p_shares::text, v_now)
     on conflict (id) do nothing;
     return jsonb_build_object('status', 'conflict', 'server_version', v_current.row_version, 'conflict_id', v_conflict_id);
   end if;

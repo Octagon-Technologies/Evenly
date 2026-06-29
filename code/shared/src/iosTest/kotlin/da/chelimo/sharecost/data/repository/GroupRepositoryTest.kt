@@ -266,7 +266,7 @@ class GroupRepositoryTest {
         db.shareDao().upsert(
             ShareEntity(
                 id = "s_$owedBy", expenseId = expenseId, userId = owedBy,
-                shareOwedSubunits = owed, remainingSubunits = owed, createdAt = 1_000L, updatedAt = 1_000L,
+                shareOwedSubunits = owed, createdAt = 1_000L, updatedAt = 1_000L,
             ),
         )
     }

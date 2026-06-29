@@ -1,5 +1,6 @@
 package da.chelimo.sharecost.domain.settlement
 
+import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.SettlementId
 import da.chelimo.sharecost.core.id.UserId
@@ -32,6 +33,14 @@ data class NewSettlement(
     val paymentCurrency: String,
     val paymentAmountSubunits: Long,
     val createdBy: UserId,
+    /**
+     * When set, the payment is confined to **this one expense's** outstanding shares (the single-expense
+     * "Settle 'X'" sheet). Null = relationship-wide: allocate oldest-expense-first across everything the
+     * debtor owes the creditor (the "settle a person" flow). Scoping matters for *partial* payments — a
+     * partial relationship-wide payment lands on the oldest expense, which is not the expense the
+     * single-expense sheet is showing.
+     */
+    val expenseId: ExpenseId? = null,
     val notes: String? = null,
     val paymentApp: String? = null,
     /** Whether a payment-app deep link was opened for this settlement, and whether the user then

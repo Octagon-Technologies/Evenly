@@ -20,6 +20,10 @@ interface ReceiptDao {
     @Query("SELECT * FROM receipts WHERE expense_id = :expenseId AND deleted_at IS NULL ORDER BY created_at DESC")
     fun observeByExpense(expenseId: String): Flow<List<ReceiptEntity>>
 
+    /** Live total bytes of a group's live (non-tombstoned) receipts — drives the Storage section. */
+    @Query("SELECT COALESCE(SUM(size_bytes), 0) FROM receipts WHERE group_id = :groupId AND deleted_at IS NULL")
+    fun observeTotalSizeBytesByGroup(groupId: String): Flow<Long>
+
     @Query("SELECT * FROM receipts WHERE id = :id")
     suspend fun getById(id: String): ReceiptEntity?
 
