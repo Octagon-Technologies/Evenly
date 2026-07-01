@@ -3,6 +3,7 @@ package da.chelimo.sharecost.ui.screen.expense
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,11 +69,16 @@ import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 import da.chelimo.sharecost.domain.expense.CategoryDefaults
 import da.chelimo.sharecost.domain.expense.GroupCategory
+import da.chelimo.sharecost.platform.PickSource
 import da.chelimo.sharecost.ui.screen.group.CategoryCatalog
+import kotlinx.coroutines.launch
 import kotlin.math.roundToLong
 
 /** A participant the expense can be split between (real members are passed by the route). */
 data class AddParticipantUi(val userId: String, val name: String, val isMe: Boolean)
+
+/** A locally-picked receipt held on the editor until the expense exists; uploaded in the background on save. */
+data class PickedReceiptUi(val isPdf: Boolean)
 
 /**
  * 13 · Add / edit expense (design/src/screens-addexpense.jsx) — the full split editor. Amount, title,
@@ -88,11 +96,20 @@ fun AddExpenseScreen(
     currencyCode: String = "USD",
     saving: Boolean = false,
     prefill: AddExpensePrefill? = null,
+    receipts: List<PickedReceiptUi> = emptyList(),
+    receiptsEnabled: Boolean = false,
     onBack: () -> Unit = {},
     onSave: (AddExpenseSubmit) -> Unit = {},
     onAddPlaceholder: (String) -> Unit = {},
+    onPickReceipt: (PickSource) -> Unit = {},
+    onRemoveReceipt: (Int) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
+    val scope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
+    // Flips true the first time Save is tapped while incomplete — the gaps then turn red.
+    var showErrors by remember { mutableStateOf(false) }
+    var showReceiptSource by remember { mutableStateOf(false) }
     // Currency is editable (F2): seed from the group base, let the user pick a foreign currency.
     var currency by remember { mutableStateOf(currencyCode) }
     val symbol = currencySymbol(currency)
@@ -159,18 +176,32 @@ fun AddExpenseScreen(
         SplitMode.Percent -> percentScaled == 10_000L
         SplitMode.Exact -> exactTotal == amountSubunits
     }
-    val canSave = amountSubunits > 0 && title.isNotBlank() && selected.isNotEmpty() && splitValid && !saving
+    val isValid = amountSubunits > 0 && title.isNotBlank() && selected.isNotEmpty() && splitValid
+    // What's still missing, phrased for the hint that shows above the form until the expense can be saved.
+    val missing = buildList {
+        if (amountSubunits <= 0) add("an amount")
+        if (title.isBlank()) add("a title")
+        if (selected.isEmpty()) add("a participant")
+        if (amountSubunits > 0 && selected.isNotEmpty() && !splitValid) add("a valid split")
+    }
 
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         ScTopBar(
             title = if (editing) "Edit expense" else "New expense",
             navIcon = { ScIconButton(ScIcons.Close, onBack) },
             actions = {
-                val bg = if (canSave) c.blue else c.blueTint2
-                val fg = if (canSave) c.onAccent else c.disabledInk
+                // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
+                val active = !saving
+                val bg = if (active) c.blue else c.blueTint2
+                val fg = if (active) c.onAccent else c.disabledInk
                 Box(
                     Modifier.clip(RoundedCornerShape(11.dp)).background(bg)
-                        .then(if (canSave) Modifier.clickable {
+                        .then(if (active) Modifier.clickable {
+                            if (!isValid) {
+                                showErrors = true
+                                scope.launch { scrollState.animateScrollTo(0) }
+                                return@clickable
+                            }
                             onSave(
                                 AddExpenseSubmit(
                                     amountSubunits = amountSubunits,
@@ -193,10 +224,26 @@ fun AddExpenseScreen(
                             )
                         } else Modifier)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) { Text("Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
             },
         )
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            // A quiet, always-present hint of what Save still needs — so the button is never a silent dead end.
+            if (!isValid && !saving) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(if (showErrors) c.danger.copy(alpha = 0.10f) else c.blueTint)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ScIcon(ScIcons.Info, size = 15.dp, tint = if (showErrors) c.danger else c.blue)
+                    Text(
+                        "Add ${missing.joinToString(" and ")} to save",
+                        color = if (showErrors) c.danger else c.blue, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
             // amount (editable, calculator-style)
             ScCard(padded = true) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -226,7 +273,18 @@ fun AddExpenseScreen(
                 }
             }
 
-            ScField("Title") { ScTextField(title, { title = it }, placeholder = "What was it for?") }
+            if (showErrors && amountSubunits <= 0) {
+                Text("Enter an amount", color = c.danger, fontSize = 12.sp)
+            }
+
+            ScField("Title") {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    ScTextField(title, { title = it }, placeholder = "What was it for?", isError = showErrors && title.isBlank())
+                    if (showErrors && title.isBlank()) {
+                        Text("Give it a title", color = c.danger, fontSize = 12.sp)
+                    }
+                }
+            }
 
             // category (F2) — optional; drives the Balances "Spending by category" card. Collapsed to a
             // single tappable picker row (like "Paid by") so the editor stays compact and scannable.
@@ -265,6 +323,41 @@ fun AddExpenseScreen(
                         }
                     },
                 )
+            }
+
+            // receipt — held locally, uploaded in the background right after the expense is created
+            if (receiptsEnabled) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Receipt", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("optional", color = c.ink3, fontSize = 12.sp)
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        receipts.forEachIndexed { i, r ->
+                            Box(Modifier.size(width = 56.dp, height = 72.dp)) {
+                                Box(
+                                    Modifier.matchParentSize().clip(RoundedCornerShape(8.dp)).background(c.blueTint).border(1.dp, c.border, RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center,
+                                ) { ScIcon(if (r.isPdf) ScIcons.Receipt else ScIcons.Image, size = 22.dp, tint = c.blue) }
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).padding(3.dp).size(18.dp).clip(CircleShape).background(c.surface).border(1.dp, c.borderStrong, CircleShape).clickable { onRemoveReceipt(i) },
+                                    contentAlignment = Alignment.Center,
+                                ) { ScIcon(ScIcons.Close, size = 11.dp, tint = c.ink2) }
+                            }
+                        }
+                        Column(
+                            Modifier.size(width = 56.dp, height = 72.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, c.borderStrong, RoundedCornerShape(8.dp)).clickable { showReceiptSource = true },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blue)
+                            Text("Add", color = c.blue, fontSize = 11.sp)
+                        }
+                    }
+                    if (receipts.isNotEmpty()) {
+                        Text("Uploaded in the background right after you save.", color = c.ink3, fontSize = 12.sp)
+                    }
+                }
             }
 
             // participants
@@ -389,6 +482,16 @@ fun AddExpenseScreen(
         }
     }
 
+    if (showReceiptSource) {
+        ScModalScaffold(onDismiss = { showReceiptSource = false }) {
+            Text("Add a receipt", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+            Text("Attach a photo or PDF — it uploads after you save.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+            ReceiptSourceRow(ScIcons.Image, "Photos") { showReceiptSource = false; onPickReceipt(PickSource.Photos) }
+            ReceiptSourceRow(ScIcons.Archive, "Files (image or PDF)") { showReceiptSource = false; onPickReceipt(PickSource.Files) }
+            ReceiptSourceRow(ScIcons.Camera, "Take a photo") { showReceiptSource = false; onPickReceipt(PickSource.Camera) }
+        }
+    }
+
     if (showCurrencyDialog) {
         ScModalScaffold(onDismiss = { showCurrencyDialog = false }) {
             Text("Expense currency", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
@@ -490,6 +593,20 @@ fun AddExpenseScreen(
                 }
             }
         }
+    }
+}
+
+/** A tappable source row in the "Add a receipt" sheet (Photos / Files / Camera). */
+@Composable
+private fun ReceiptSourceRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val c = ShareCostTheme.colors
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ScIcon(icon, size = 20.dp, tint = c.blue)
+        Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }
 

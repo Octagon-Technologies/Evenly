@@ -59,7 +59,7 @@ val dataModule: Module = module {
     // Ktor-based Storage uploader with byte progress (the Android WorkManager path; iOS uses native sessions).
     single { ReceiptUploadHttp(get()) }
     // Receipt OCR for "Split the bill" — calls the extract-receipt edge function (Claude vision).
-    single<ReceiptOcr> { ReceiptOcrHttp(get()) }
+    single<ReceiptOcr> { ReceiptOcrHttp(get(), get()) }
 
     // Repositories
     // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).

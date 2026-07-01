@@ -141,9 +141,11 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   (visible + one-tap removable), *not* a confirm-first nudge — the friction budget goes only to the per-line
   reconciliation (`ItemStatus` RESOLVED/UNCLAIMED/OVERCLAIMED), the single thing the UI ever surfaces.
   `BillRepositoryImpl.setShareMember` is the only shared-set write. A bill also carries a synced
-  participant set (`bill_participants` — who it's *for*, chosen in the editor via a select-all/deselect
-  chip row that defaults to the whole group; the creator pares it down. `editBill` reconciles the set but
-  an empty selection never silently wipes it). Each participant carries a per-person `done_at` "I'm done"
+  participant set (`bill_participants` — who it's *for*, chosen in the editor and defaulting to the whole
+  group; the creator pares it down. The picker **scales with group size**: ≤6 members render as inline
+  select-all/deselect toggle chips, larger groups collapse to a summary row that opens a searchable
+  member-picker sheet — same underlying selection state either way. `editBill` reconciles the set but an
+  empty selection never silently wipes it). Each participant carries a per-person `done_at` "I'm done"
   stamp that's a nudge-silencer, **not** a resolution of the bill;
   `BillRepository.observeUnresolvedBills` drives the group-home **"claim your items"** card + the
   **Unresolved bills** section (a bill is unresolved when a line still needs someone *or* a participant
@@ -161,9 +163,12 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   4 → pay 2 of the 4 slices; unclaimed units stay unassigned until Finish; over-claim is **surfaced, not
   capped**). The editor lets you type EITHER the per-unit ("each") OR the whole-line ("total of N") price
   — the other derives, the last-touched field is the truth (`EditBillItemUi.driver`) — so a receipt's
-  line total goes in without dividing by hand. Tax & gratuity split proportionally, tip even-by-default
-  (toggleable), discount negative-proportional — all penny-exact via the existing largest-remainder
-  `allocate`. Shares for an itemized expense are a **local derived materialization** of the synced
+  line total goes in without dividing by hand. Tax & gratuity split proportionally, tip **always split
+  evenly** (the editor no longer exposes a per-bill Even/By-share toggle — it always sends
+  `TipSplitMode.EVEN`; the domain `ItemizedAllocator` still supports `PROPORTIONAL`, just unused from the
+  UI), discount negative-proportional — all penny-exact via the existing largest-remainder `allocate`.
+  The extras card is deliberately lean: no per-line split choosers; the discount reads as a deduction (a
+  leading "−" + caption), not a plain positive. Shares for an itemized expense are a **local derived materialization** of the synced
   items/claims (not independently pushed). Receipt OCR is the `extract-receipt` edge function (Claude
   vision → structured draft) reached via the `ReceiptOcr` gateway; it accepts **multiple pages (images
   and/or PDFs) read as one bill** and only ever *pre-fills* the editable item list (human-verify before

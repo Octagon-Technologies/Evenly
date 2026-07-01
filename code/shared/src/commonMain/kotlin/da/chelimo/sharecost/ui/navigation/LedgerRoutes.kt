@@ -30,6 +30,7 @@ import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.PdfRasterizer
 import da.chelimo.sharecost.platform.PickKind
 import da.chelimo.sharecost.platform.PickSource
+import da.chelimo.sharecost.platform.PickedFile
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
@@ -43,6 +44,7 @@ import da.chelimo.sharecost.ui.screen.expense.DetailShareUi
 import da.chelimo.sharecost.ui.screen.expense.ExpenseDetailScreen
 import da.chelimo.sharecost.ui.screen.expense.ExpenseDetailState
 import da.chelimo.sharecost.ui.screen.expense.HistoryUi
+import da.chelimo.sharecost.ui.screen.expense.PickedReceiptUi
 import da.chelimo.sharecost.ui.screen.expense.ReceiptUi
 import da.chelimo.sharecost.ui.screen.expense.ReceiptUploadUi
 import da.chelimo.sharecost.ui.components.moneySubunits
@@ -65,6 +67,11 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
     val groups = koinInject<GroupRepository>()
     val categoriesRepo = koinInject<CategoryRepository>()
     val auth = koinInject<AuthSession>()
+    val filePicker = koinInject<FilePicker>()
+    // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build —
+    // and when it's null we hide the receipt strip entirely rather than offer an attach that goes nowhere.
+    val koin = getKoin()
+    val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
@@ -72,6 +79,8 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
+    // Picked before the expense exists; enqueued against the new expense id on save.
+    var pickedReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
 
     val participants = members.map { AddParticipantUi(it.userId.value, it.displayName ?: "Someone", it.userId == userId) }
         .ifEmpty { listOfNotNull(userId?.let { AddParticipantUi(it.value, "You", true) }) }
@@ -82,8 +91,17 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
         categories = categories,
         currencyCode = currency,
         saving = saving,
+        receipts = pickedReceipts.map { PickedReceiptUi(it.mimeType.contains("pdf", ignoreCase = true)) },
+        receiptsEnabled = uploadManager != null,
         onBack = onBack,
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name) } },
+        onPickReceipt = { source ->
+            scope.launch {
+                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + picked.value
+            }
+        },
+        onRemoveReceipt = { i -> pickedReceipts = pickedReceipts.filterIndexed { idx, _ -> idx != i } },
         onSave = { submit ->
             val me = userId
             if (me != null && submit.shares.isNotEmpty()) {
@@ -112,8 +130,12 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
                         shares = shares,
                         categoryId = submit.categoryId,
                     )
-                    when (expenses.addExpense(input)) {
-                        is AppResult.Ok -> onSaved()
+                    when (val result = expenses.addExpense(input)) {
+                        is AppResult.Ok -> {
+                            // Attach whatever the user picked; the pipeline compresses + uploads in the background.
+                            if (pickedReceipts.isNotEmpty()) uploadManager?.enqueue(result.value.id, gid, pickedReceipts)
+                            onSaved()
+                        }
                         is AppResult.Err -> saving = false
                     }
                 }

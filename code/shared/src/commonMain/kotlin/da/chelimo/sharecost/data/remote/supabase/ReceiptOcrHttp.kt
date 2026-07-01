@@ -1,10 +1,12 @@
 package da.chelimo.sharecost.data.remote.supabase
 
-import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.domain.receipt.ReceiptDraft
 import da.chelimo.sharecost.domain.receipt.ReceiptDraftItem
 import da.chelimo.sharecost.domain.receipt.ReceiptOcr
 import da.chelimo.sharecost.domain.receipt.ReceiptOcrFile
+import da.chelimo.sharecost.domain.receipt.ScanOutcome
+import da.chelimo.sharecost.platform.ConnectivityObserver
+import da.chelimo.sharecost.platform.NetworkStatus
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -12,6 +14,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -19,17 +22,25 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
- * Calls the `extract-receipt` edge function (Claude vision OCR) over HTTP with the anon key. Degrades
- * gracefully: when Supabase isn't configured, or the function is inert / errors, it returns `Ok(null)`
- * so the bill editor simply falls back to manual entry rather than surfacing a failure.
+ * Calls the `extract-receipt` edge function (Claude vision OCR) over HTTP with the anon key. Every failure
+ * mode is a distinct [ScanOutcome] the editor can surface: it pre-checks connectivity (so an offline scan
+ * short-circuits to [ScanOutcome.Offline] without a doomed upload), reports [ScanOutcome.Unavailable] when
+ * Supabase isn't configured, [ScanOutcome.NoReceiptFound] when the vision pass yields nothing usable, and
+ * [ScanOutcome.Failed] on a network/server error. The manual-entry path stays reachable in every case.
  */
-class ReceiptOcrHttp(private val http: HttpClient) : ReceiptOcr {
+class ReceiptOcrHttp(
+    private val http: HttpClient,
+    private val connectivity: ConnectivityObserver,
+) : ReceiptOcr {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     @OptIn(ExperimentalEncodingApi::class)
-    override suspend fun extract(files: List<ReceiptOcrFile>): AppResult<ReceiptDraft?> {
-        if (!SupabaseConfig.isConfigured || files.isEmpty()) return AppResult.Ok(null)
+    override suspend fun extract(files: List<ReceiptOcrFile>): ScanOutcome {
+        if (files.isEmpty()) return ScanOutcome.NoReceiptFound
+        if (!SupabaseConfig.isConfigured) return ScanOutcome.Unavailable
+        // Don't burn a doomed round-trip (or leave the user staring at a spinner) when there's no network.
+        if (connectivity.status.first() == NetworkStatus.Offline) return ScanOutcome.Offline
         return try {
             val parts = files.map { ExtractPart(Base64.encode(it.bytes), it.mimeType) }
             val body = json.encodeToString(ExtractReq(files = parts))
@@ -40,9 +51,13 @@ class ReceiptOcrHttp(private val http: HttpClient) : ReceiptOcr {
                 setBody(body)
             }.bodyAsText()
             val resp = json.decodeFromString<ExtractResp>(raw)
-            AppResult.Ok(resp.receipt?.toDraft())
+            when {
+                !resp.configured -> ScanOutcome.Unavailable
+                resp.receipt == null || resp.receipt.items.isEmpty() -> ScanOutcome.NoReceiptFound
+                else -> ScanOutcome.Success(resp.receipt.toDraft())
+            }
         } catch (_: Throwable) {
-            AppResult.Ok(null) // never block the manual path on an OCR hiccup
+            ScanOutcome.Failed()
         }
     }
 }

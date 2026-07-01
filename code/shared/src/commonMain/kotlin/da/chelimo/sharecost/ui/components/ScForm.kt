@@ -60,11 +60,15 @@ fun ScTextField(
     singleLine: Boolean = true,
     minHeight: Dp = 52.dp,
     keyboardType: KeyboardType = KeyboardType.Text,
+    isError: Boolean = false,
 ) {
     val c = ShareCostTheme.colors
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(12.dp)
+    // Focus wins (blue ring); otherwise a required-but-empty field reads red so the gap is obvious.
+    val borderColor = if (focused) c.blue else if (isError) c.danger else c.borderStrong
+    val borderWidth = if (focused) 2.dp else if (isError) 1.5.dp else 1.dp
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -81,7 +85,7 @@ fun ScTextField(
                     .heightIn(min = minHeight)
                     .clip(shape)
                     .background(c.page)
-                    .border(if (focused) 2.dp else 1.dp, if (focused) c.blue else c.borderStrong, shape)
+                    .border(borderWidth, borderColor, shape)
                     .padding(horizontal = 14.dp, vertical = if (singleLine) 0.dp else 12.dp),
                 verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

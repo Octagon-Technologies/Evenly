@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -30,6 +29,7 @@ import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.todayUtc
+import da.chelimo.sharecost.data.upload.ReceiptUploadManager
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.expense.BillExtrasInput
 import da.chelimo.sharecost.domain.expense.BillView
@@ -41,10 +41,12 @@ import da.chelimo.sharecost.domain.expense.TipSplitMode
 import da.chelimo.sharecost.domain.receipt.ReceiptDraft
 import da.chelimo.sharecost.domain.receipt.ReceiptOcr
 import da.chelimo.sharecost.domain.receipt.ReceiptOcrFile
+import da.chelimo.sharecost.domain.receipt.ScanOutcome
 import da.chelimo.sharecost.domain.repository.BillRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.PickKind
+import da.chelimo.sharecost.platform.PickedFile
 import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.icon.ScIcon
@@ -56,11 +58,16 @@ import da.chelimo.sharecost.ui.screen.bill.ClaimItemUi
 import da.chelimo.sharecost.ui.screen.bill.ClaimParticipantUi
 import da.chelimo.sharecost.ui.screen.bill.EditBillState
 import da.chelimo.sharecost.ui.screen.bill.ParticipantChipUi
+import da.chelimo.sharecost.ui.screen.bill.ScanErrorKind
+import da.chelimo.sharecost.ui.screen.bill.ScanPageUi
+import da.chelimo.sharecost.ui.screen.bill.ScanUiState
 import da.chelimo.sharecost.ui.screen.bill.editBillItemUi
 import da.chelimo.sharecost.ui.screen.bill.priceToSubunits
 import da.chelimo.sharecost.ui.screen.expense.format2dp
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -128,10 +135,18 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val currency = group?.baseCurrency ?: "USD"
+    // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
+    val koin = getKoin()
+    val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
-    var scanning by remember { mutableStateOf(false) }
+    var scanState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
     var scanned by remember { mutableStateOf<EditBillState?>(null) }
+    // The exact pages the user picked. Retained so a failed scan can retry, and — on success — handed to
+    // the upload pipeline on Save so the scanned receipt becomes a normal attachment on the expense.
+    var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    var attachedReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    var scanJob by remember { mutableStateOf<Job?>(null) }
 
     val existing = if (expenseId != null) {
         remember(expenseId) { bills.observeBill(ExpenseId(expenseId)) }.collectAsStateWithLifecycle(null).value
@@ -140,27 +155,50 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // For edit, wait until the bill loads so the editor's initial state is correct.
     if (expenseId != null && existing == null) return
 
-    key(scanned) {
+    // Run the pick → OCR round-trip as a cancellable job, mapping the typed ScanOutcome to sheet state.
+    fun runScan(files: List<PickedFile>) {
+        if (files.isEmpty()) return
+        scanFiles = files
+        scanState = ScanUiState.Working(files.map { ScanPageUi(it.mimeType.contains("pdf", ignoreCase = true)) })
+        scanJob = scope.launch {
+            val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
+            scanState = when (val outcome = ocr.extract(ocrFiles)) {
+                is ScanOutcome.Success -> {
+                    scanned = outcome.draft.toEditState()
+                    attachedReceipts = files
+                    ScanUiState.Idle
+                }
+                ScanOutcome.NoReceiptFound -> ScanUiState.Failed(ScanErrorKind.NoReceiptFound)
+                ScanOutcome.Offline -> ScanUiState.Failed(ScanErrorKind.Offline)
+                ScanOutcome.Unavailable -> ScanUiState.Failed(ScanErrorKind.Unavailable)
+                is ScanOutcome.Failed -> ScanUiState.Failed(ScanErrorKind.Error)
+            }
+        }
+    }
+
     BillEditScreen(
         editing = expenseId != null,
-        initial = scanned ?: existing?.toEditState(),
+        initial = existing?.toEditState(),
+        scanned = scanned,
         currencyCode = currency,
         saving = saving,
-        scanning = scanning,
+        scanState = scanState,
+        attachedReceiptCount = attachedReceipts.size,
         participants = members.map { ParticipantChipUi(it.userId.value, if (it.userId == userId) "You" else (it.displayName ?: "Someone"), it.userId == userId) },
         initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
         onBack = onBack,
         onScanReceipt = { source ->
             scope.launch {
-                scanning = true
                 val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                val files = (picked as? AppResult.Ok)?.value.orEmpty()
-                    .map { ReceiptOcrFile(it.bytes, it.mimeType) }
-                val draft = if (files.isEmpty()) null else (ocr.extract(files) as? AppResult.Ok)?.value
-                if (draft != null) scanned = draft.toEditState()
-                scanning = false
+                runScan((picked as? AppResult.Ok)?.value.orEmpty())
             }
         },
+        onCancelScan = {
+            scanJob?.cancel()
+            scanState = ScanUiState.Idle
+        },
+        onRetryScan = { runScan(scanFiles) },
+        onDismissScan = { scanState = ScanUiState.Idle },
         onSave = { submit ->
             val me = userId ?: return@BillEditScreen
             saving = true
@@ -169,7 +207,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                     taxSubunits = submit.taxSubunits,
                     gratuitySubunits = submit.gratuitySubunits,
                     tipSubunits = submit.tipSubunits,
-                    tipSplitMode = if (submit.tipEven) TipSplitMode.EVEN else TipSplitMode.PROPORTIONAL,
+                    tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
                     discountSubunits = submit.discountSubunits,
                 )
                 if (expenseId == null) {
@@ -187,7 +225,11 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                         ),
                     )
                     when (result) {
-                        is AppResult.Ok -> onCreated(result.value.value)
+                        is AppResult.Ok -> {
+                            // The scanned pages ride along as the expense's receipt (background upload).
+                            if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(result.value, gid, attachedReceipts)
+                            onCreated(result.value.value)
+                        }
                         is AppResult.Err -> saving = false
                     }
                 } else {
@@ -203,12 +245,12 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             editedBy = me,
                         ),
                     )
+                    if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(ExpenseId(expenseId), gid, attachedReceipts)
                     onBack()
                 }
             }
         },
     )
-    }
 }
 
 /** The live claim screen — everyone taps what they had; the tab + shares derive in real time. */
@@ -296,7 +338,6 @@ private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
     taxText = subunitsToText(taxSubunits),
     gratuityText = subunitsToText(gratuitySubunits),
     tipText = subunitsToText(tipSubunits),
-    tipEven = true,
     discountText = subunitsToText(discountSubunits),
 )
 
@@ -307,6 +348,5 @@ private fun BillView.toEditState(): EditBillState = EditBillState(
     taxText = subunitsToText(extras.taxSubunits),
     gratuityText = subunitsToText(extras.gratuitySubunits),
     tipText = subunitsToText(extras.tipSubunits),
-    tipEven = extras.tipSplitMode == TipSplitMode.EVEN,
     discountText = subunitsToText(extras.discountSubunits),
 )
