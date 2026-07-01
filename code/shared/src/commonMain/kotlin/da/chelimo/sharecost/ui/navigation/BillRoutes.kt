@@ -40,11 +40,11 @@ import da.chelimo.sharecost.domain.expense.NewBillItem
 import da.chelimo.sharecost.domain.expense.TipSplitMode
 import da.chelimo.sharecost.domain.receipt.ReceiptDraft
 import da.chelimo.sharecost.domain.receipt.ReceiptOcr
+import da.chelimo.sharecost.domain.receipt.ReceiptOcrFile
 import da.chelimo.sharecost.domain.repository.BillRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.PickKind
-import da.chelimo.sharecost.platform.PickSource
 import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.icon.ScIcon
@@ -53,8 +53,8 @@ import da.chelimo.sharecost.ui.screen.bill.BillClaimScreen
 import da.chelimo.sharecost.ui.screen.bill.BillEditScreen
 import da.chelimo.sharecost.ui.screen.bill.ClaimBillState
 import da.chelimo.sharecost.ui.screen.bill.ClaimItemUi
-import da.chelimo.sharecost.ui.screen.bill.EditBillItemUi
 import da.chelimo.sharecost.ui.screen.bill.EditBillState
+import da.chelimo.sharecost.ui.screen.bill.editBillItemUi
 import da.chelimo.sharecost.ui.screen.bill.priceToSubunits
 import da.chelimo.sharecost.ui.screen.expense.format2dp
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
@@ -145,12 +145,13 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         saving = saving,
         scanning = scanning,
         onBack = onBack,
-        onScanReceipt = {
+        onScanReceipt = { source ->
             scope.launch {
                 scanning = true
-                val picked = filePicker.pick(PickSource.Camera, PickKind.Image)
-                val file = (picked as? AppResult.Ok)?.value?.firstOrNull()
-                val draft = file?.let { (ocr.extract(it.bytes, it.mimeType) as? AppResult.Ok)?.value }
+                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                val files = (picked as? AppResult.Ok)?.value.orEmpty()
+                    .map { ReceiptOcrFile(it.bytes, it.mimeType) }
+                val draft = if (files.isEmpty()) null else (ocr.extract(files) as? AppResult.Ok)?.value
                 if (draft != null) scanned = draft.toEditState()
                 scanning = false
             }
@@ -175,7 +176,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             expenseDate = Clock.System.todayUtc(),
                             payerUserId = me,
                             createdBy = me,
-                            items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.priceText)) },
+                            items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
                         ),
                     )
@@ -190,7 +191,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             title = submit.title,
                             expenseDate = existing?.expense?.expenseDate ?: Clock.System.todayUtc(),
                             payerUserId = existing?.expense?.payerUserId ?: me,
-                            items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.priceText)) },
+                            items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
                             editedBy = me,
                         ),
@@ -260,8 +261,9 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
 
 private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
     title = "",
-    items = items.map { EditBillItemUi(null, it.label, it.quantity, subunitsToText(it.unitPriceSubunits)) }
-        .ifEmpty { listOf(EditBillItemUi(null, "", 1, "")) },
+    // OCR reports a per-unit price; the editor's truth is the line total (unit × quantity).
+    items = items.map { editBillItemUi(null, it.label, it.quantity, it.unitPriceSubunits * it.quantity) }
+        .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
     taxText = subunitsToText(taxSubunits),
     gratuityText = subunitsToText(gratuitySubunits),
     tipText = subunitsToText(tipSubunits),
@@ -271,8 +273,8 @@ private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
 
 private fun BillView.toEditState(): EditBillState = EditBillState(
     title = expense.title,
-    items = items.map { EditBillItemUi(it.id, it.label, it.quantity, subunitsToText(it.unitPriceSubunits)) }
-        .ifEmpty { listOf(EditBillItemUi(null, "", 1, "")) },
+    items = items.map { editBillItemUi(it.id, it.label, it.quantity, it.lineTotalSubunits) }
+        .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
     taxText = subunitsToText(extras.taxSubunits),
     gratuityText = subunitsToText(extras.gratuitySubunits),
     tipText = subunitsToText(extras.tipSubunits),

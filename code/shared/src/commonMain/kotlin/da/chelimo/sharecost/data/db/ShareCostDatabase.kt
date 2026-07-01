@@ -17,6 +17,7 @@ import da.chelimo.sharecost.data.db.dao.FxRateDao
 import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
 import da.chelimo.sharecost.data.db.dao.ItemClaimDao
+import da.chelimo.sharecost.data.db.dao.ItemShareDao
 import da.chelimo.sharecost.data.db.dao.MemberDao
 import da.chelimo.sharecost.data.db.dao.ReceiptDao
 import da.chelimo.sharecost.data.db.dao.ReceiptUploadDao
@@ -35,6 +36,7 @@ import da.chelimo.sharecost.data.db.entity.FxRateEntity
 import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.data.db.entity.ItemClaimEntity
+import da.chelimo.sharecost.data.db.entity.ItemShareEntity
 import da.chelimo.sharecost.data.db.entity.MemberEntity
 import da.chelimo.sharecost.data.db.entity.ReceiptEntity
 import da.chelimo.sharecost.data.db.entity.ReceiptUploadEntity
@@ -78,8 +80,9 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         CategoryEntity::class,
         ExpenseItemEntity::class,
         ItemClaimEntity::class,
+        ItemShareEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)
@@ -101,6 +104,7 @@ abstract class ShareCostDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun expenseItemDao(): ExpenseItemDao
     abstract fun itemClaimDao(): ItemClaimDao
+    abstract fun itemShareDao(): ItemShareDao
 }
 
 /**

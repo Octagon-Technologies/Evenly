@@ -51,6 +51,7 @@ val dataModule: Module = module {
     single { get<ShareCostDatabase>().categoryDao() }
     single { get<ShareCostDatabase>().expenseItemDao() }
     single { get<ShareCostDatabase>().itemClaimDao() }
+    single { get<ShareCostDatabase>().itemShareDao() }
 
     // Remote
     single<FxRateFetcher> { FrankfurterFxFetcher(get()) }
@@ -66,7 +67,7 @@ val dataModule: Module = module {
     // and the history DAO so create/edit/delete append to the activity log (F5).
     single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get(), editConflictDao = get()) }
     // "Split the bill" (itemized): items + claims + extras → derived shares (deterministic ids).
-    single<BillRepository> { BillRepositoryImpl(get(), get(), get(), get(), historyEventDao = get()) }
+    single<BillRepository> { BillRepositoryImpl(get(), get(), get(), get(), get(), historyEventDao = get()) }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get()) }
     single<FxRepository> { FxRepositoryImpl(get(), get()) }
     single<ProfileRepository> { ProfileRepositoryImpl(get(), get()) }

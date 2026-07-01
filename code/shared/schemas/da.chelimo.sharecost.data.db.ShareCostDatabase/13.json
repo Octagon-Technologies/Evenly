@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 12,
-    "identityHash": "31e791ccbca42809ce69cfa91d293a84",
+    "version": 13,
+    "identityHash": "ed907ed4ae3432cf3d8c87cdd8af8d6f",
     "entities": [
       {
         "tableName": "users",
@@ -1675,7 +1675,7 @@
       },
       {
         "tableName": "expense_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `expense_id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `label` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `unit_price_subunits` INTEGER NOT NULL, `sort_order` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, `deleted_at` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `expense_id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `label` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `unit_price_subunits` INTEGER NOT NULL, `line_total_subunits` INTEGER NOT NULL DEFAULT 0, `sort_order` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, `deleted_at` INTEGER, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1712,6 +1712,13 @@
             "columnName": "unit_price_subunits",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "lineTotalSubunits",
+            "columnName": "line_total_subunits",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           },
           {
             "fieldPath": "sortOrder",
@@ -1975,7 +1982,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '31e791ccbca42809ce69cfa91d293a84')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ed907ed4ae3432cf3d8c87cdd8af8d6f')"
     ]
   }
 }

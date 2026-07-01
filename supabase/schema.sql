@@ -153,9 +153,13 @@ create index if not exists settlement_allocations_group_idx on public.settlement
 create index if not exists settlement_allocations_settlement_idx on public.settlement_allocations (settlement_id);
 create index if not exists settlement_allocations_share_idx on public.settlement_allocations (share_id);
 
--- "Split the bill" (itemized expenses): the line items of a bill (the creator-owned "menu"). A line's
--- exact cost is unit_price_subunits × quantity. group_id is denormalised for pull scoping. Soft-delete
--- (Rule 1): an item removed from the bill is tombstoned so the removal syncs.
+-- "Split the bill" (itemized expenses): the line items of a bill (the creator-owned "menu"). The LINE
+-- TOTAL (line_total_subunits) is the entered source of truth — it matches how receipts print ("4 …
+-- $96.00") and stays penny-exact even when it doesn't divide evenly. Per-unit is DERIVED for display
+-- (round(line_total / quantity)); the claim math splits the line total across claimed units via the
+-- largest-remainder allocator, so no penny leaks. unit_price_subunits is vestigial (kept populated with
+-- the rounded per-unit for backward compat; read line_total_subunits as truth). group_id is denormalised
+-- for pull scoping. Soft-delete (Rule 1): an item removed from the bill is tombstoned so the removal syncs.
 create table if not exists public.expense_items (
   id text primary key,
   expense_id text not null,
@@ -163,6 +167,7 @@ create table if not exists public.expense_items (
   label text not null,
   quantity integer not null,
   unit_price_subunits bigint not null,
+  line_total_subunits bigint not null default 0,
   sort_order integer not null,
   created_at bigint not null,
   updated_at bigint not null,
@@ -192,6 +197,27 @@ create index if not exists item_claims_group_idx on public.item_claims (group_id
 -- Partial unique over ACTIVE rows: one live claim per (item, user); a tombstone can coexist with a re-add.
 create unique index if not exists item_claims_item_user_active_uidx
   on public.item_claims (item_id, user_id) where deleted_at is null;
+
+-- Item shares: one person's membership in a line's SHARED split (the "I split this with these people"
+-- set). The active rows per item are the sharer group; the line's leftover units split evenly across it.
+-- Additive auto-union set — overlapping "shared with" declarations merge for free. added_by records who
+-- put a member in; the member has final say (they can leave). Soft-delete (Rule 1).
+create table if not exists public.item_shares (
+  id text primary key,
+  item_id text not null,
+  expense_id text not null,
+  group_id text not null,
+  user_id text not null,
+  added_by text not null,
+  created_at bigint not null,
+  updated_at bigint not null,
+  row_version bigint not null default 1,
+  deleted_at bigint
+);
+create index if not exists item_shares_expense_idx on public.item_shares (expense_id);
+create index if not exists item_shares_group_idx on public.item_shares (group_id);
+create unique index if not exists item_shares_item_user_active_uidx
+  on public.item_shares (item_id, user_id) where deleted_at is null;
 
 create table if not exists public.conflicts (
   id text primary key,
@@ -313,7 +339,7 @@ create index if not exists device_tokens_user_idx on public.device_tokens (user_
 do $$
 declare t text;
 begin
-  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','device_tokens','expense_items','item_claims']
+  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','device_tokens','expense_items','item_claims','item_shares']
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists %I on public.%I;', t || '_rw', t);
@@ -331,7 +357,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','expense_items','item_claims']
+  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','expense_items','item_claims','item_shares']
   loop
     begin
       execute format('alter publication supabase_realtime add table public.%I;', t);

@@ -12,11 +12,11 @@ import da.chelimo.sharecost.core.id.UserId
 
 const val SPLIT_MODE_ITEMIZED: String = "ITEMIZED"
 
-/** A line on a brand-new bill (no id yet — the repository assigns one). */
+/** A line on a brand-new bill (no id yet — the repository assigns one). [lineTotalSubunits] is the truth. */
 data class NewBillItem(
     val label: String,
     val quantity: Int,
-    val unitPriceSubunits: Long,
+    val lineTotalSubunits: Long,
 )
 
 /** A line on an edited bill. A null [id] is a freshly-added line; a non-null id updates that line. */
@@ -24,7 +24,7 @@ data class EditBillItem(
     val id: String?,
     val label: String,
     val quantity: Int,
-    val unitPriceSubunits: Long,
+    val lineTotalSubunits: Long,
 )
 
 /** Bill-level surcharges. Tip defaults to an even split (toggleable); tax & gratuity ride proportionally. */
@@ -61,16 +61,16 @@ data class EditBill(
     val editedBy: UserId? = null,
 )
 
-/** A line item as shown on the edit/claim screens. */
+/** A line item as shown on the edit/claim screens. [lineTotalSubunits] is the truth; per-unit is derived. */
 data class BillItemView(
     val id: String,
     val label: String,
     val quantity: Int,
-    val unitPriceSubunits: Long,
+    val lineTotalSubunits: Long,
     val sortOrder: Int,
 ) {
-    /** The line's exact cost: `unit_price × quantity`. */
-    val lineTotalSubunits: Long get() = unitPriceSubunits * quantity
+    /** The **derived** per-unit price for display (the line total shared evenly, rounded). */
+    val unitPriceSubunits: Long get() = perUnitSubunits(lineTotalSubunits, quantity)
 }
 
 /** One person's active claim on a line. */
@@ -81,6 +81,14 @@ data class BillClaimView(
     val quantity: Int,
 )
 
+/** One person's active membership in a line's shared split. */
+data class BillShareView(
+    val id: String,
+    val itemId: String,
+    val userId: UserId,
+    val addedBy: UserId,
+)
+
 /**
  * Everything the claim screen renders: the bill, its items, all live claims, the extras, and the
  * derived "tab" per participant. [unclaimedQuantityByItem] drives the "needs someone" highlighting.
@@ -89,10 +97,18 @@ data class BillView(
     val expense: Expense,
     val items: List<BillItemView>,
     val claims: List<BillClaimView>,
+    val shares: List<BillShareView> = emptyList(),
     val extras: BillExtrasInput,
     val tabByUser: Map<UserId, Long>,
+    val reconcile: List<ItemReconcile> = emptyList(),
 ) {
     /** Claimed unit count per item (summed across people) — compare to quantity for "left"/over-claim. */
     val claimedQuantityByItem: Map<String, Int>
         get() = claims.groupBy { it.itemId }.mapValues { (_, cs) -> cs.sumOf { it.quantity } }
+
+    /** The bill is resolved once every line is fully and correctly claimed. */
+    val fullyResolved: Boolean get() = reconcile.isNotEmpty() && reconcile.all { it.status == ItemStatus.RESOLVED }
+
+    /** Lines that still need someone — the "N dishes still need someone" nudge + the unresolved surface. */
+    val unclaimedCount: Int get() = reconcile.count { it.status == ItemStatus.UNCLAIMED }
 }

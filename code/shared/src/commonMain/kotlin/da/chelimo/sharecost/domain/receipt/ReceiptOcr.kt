@@ -19,12 +19,19 @@ data class ReceiptDraftItem(
     val unitPriceSubunits: Long,
 )
 
+/** One page of a receipt to OCR — a photo or a PDF. Several ride together as one multi-page bill. */
+data class ReceiptOcrFile(
+    val bytes: ByteArray,
+    val mimeType: String,
+)
+
 /**
- * Turns a receipt photo into a structured draft (the `extract-receipt` edge function → Claude vision).
- * The result is only ever a *first draft* the user edits before any money is computed. Returns
- * `Ok(null)` when OCR is unavailable (Supabase not configured, the function inert, or a read failure),
- * so the caller cleanly falls back to manual entry.
+ * Turns a receipt photo (or several images / a PDF) into a structured draft (the `extract-receipt` edge
+ * function → Claude vision). All [files] are read together as ONE bill, so a multi-page receipt yields a
+ * single item list. The result is only ever a *first draft* the user edits before any money is computed.
+ * Returns `Ok(null)` when OCR is unavailable (Supabase not configured, the function inert, nothing
+ * picked, or a read failure), so the caller cleanly falls back to manual entry.
  */
 interface ReceiptOcr {
-    suspend fun extract(bytes: ByteArray, mimeType: String): AppResult<ReceiptDraft?>
+    suspend fun extract(files: List<ReceiptOcrFile>): AppResult<ReceiptDraft?>
 }

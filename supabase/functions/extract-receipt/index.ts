@@ -6,18 +6,36 @@
 // Inert until configured: set the `ANTHROPIC_API_KEY` secret. Without it the function returns 200 +
 // { configured:false } so the client can fall back to manual entry without surfacing an error.
 //
-//   POST { "imageBase64": "...", "mediaType"?: "image/jpeg" }     // bytes inline
+//   POST { "files": [{ "data": "<base64>", "mediaType": "image/jpeg" | "application/pdf" }, ...] }  // multi-page
+//     or { "imageBase64": "...", "mediaType"?: "image/jpeg" }     // single image inline (legacy)
 //     or { "storagePath": "receipts/abc.jpg" }                    // already in the receipts bucket
+//
+// `files` may mix several photos and/or PDFs — they're read together as ONE bill, so a multi-page
+// receipt yields a single item list. PDFs go in as document blocks; images as image blocks.
 //
 // Auth: send the project's anon or service-role key as the Bearer (the client uses its anon key, the
 // same as every other authenticated call).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+interface ReceiptPart {
+  data: string;      // base64-encoded bytes
+  mediaType: string; // image/* or application/pdf
+}
+
 interface ExtractRequest {
+  files?: ReceiptPart[];
   imageBase64?: string;
   mediaType?: string;
   storagePath?: string;
+}
+
+// A Claude content block for one receipt page — a PDF renders as a document, everything else as an image.
+function pageBlock(part: ReceiptPart) {
+  const source = { type: "base64", media_type: part.mediaType, data: part.data };
+  return part.mediaType === "application/pdf"
+    ? { type: "document", source }
+    : { type: "image", source };
 }
 
 // The shape we force Claude to emit. Amounts are integer MINOR units (cents) to match the app's
@@ -65,20 +83,22 @@ Deno.serve(async (req) => {
     return json({ error: "invalid JSON body" }, 400);
   }
 
-  // Resolve the image bytes: inline base64, or download from the receipts bucket with the service role.
-  let imageBase64 = payload.imageBase64;
-  let mediaType = payload.mediaType ?? "image/jpeg";
-  if (!imageBase64 && payload.storagePath) {
+  // Resolve the receipt pages: a `files` array, a single inline image, or a download from the receipts
+  // bucket with the service role. All resolved pages OCR together as one bill.
+  let pages: ReceiptPart[] = payload.files ?? [];
+  if (pages.length === 0 && payload.imageBase64) {
+    pages = [{ data: payload.imageBase64, mediaType: payload.mediaType ?? "image/jpeg" }];
+  }
+  if (pages.length === 0 && payload.storagePath) {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const slash = payload.storagePath.indexOf("/");
     const bucket = slash > 0 ? payload.storagePath.slice(0, slash) : "receipts";
     const path = slash > 0 ? payload.storagePath.slice(slash + 1) : payload.storagePath;
     const { data, error } = await supabase.storage.from(bucket).download(path);
     if (error || !data) return json({ error: `download failed: ${error?.message ?? "no data"}` }, 400);
-    mediaType = data.type || mediaType;
-    imageBase64 = b64encode(new Uint8Array(await data.arrayBuffer()));
+    pages = [{ data: b64encode(new Uint8Array(await data.arrayBuffer())), mediaType: data.type || "image/jpeg" }];
   }
-  if (!imageBase64) return json({ error: "imageBase64 or storagePath required" }, 400);
+  if (pages.length === 0) return json({ error: "files, imageBase64, or storagePath required" }, 400);
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -96,11 +116,12 @@ Deno.serve(async (req) => {
         {
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
+            ...pages.map(pageBlock),
             {
               type: "text",
               text:
-                "Read this receipt and record it with the record_receipt tool. Itemise every ordered " +
+                "Read this receipt (which may span several pages/images) and record it as ONE bill with " +
+                "the record_receipt tool. Itemise every ordered " +
                 "line with its quantity and PER-UNIT price in minor units (cents). Separate sales tax, " +
                 "an auto gratuity/service charge, any printed tip, and any discount. If a value isn't on " +
                 "the receipt, use 0. Don't invent items. If unsure of the currency, infer from symbols.",

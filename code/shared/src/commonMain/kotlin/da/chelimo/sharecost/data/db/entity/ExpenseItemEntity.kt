@@ -9,7 +9,9 @@ import kotlinx.serialization.Serializable
 /**
  * Local mirror of `expense_items` — one line on a "Split the bill" expense (the restaurant/itemized
  * flow). The bill's items are the creator-owned "menu"; people then stake claims against them
- * ([ItemClaimEntity]). A line's exact cost is `unit_price_subunits × quantity`.
+ * ([ItemClaimEntity]). The **line total** ([lineTotalSubunits]) is the entered source of truth (matches
+ * how receipts print, penny-exact); [unitPriceSubunits] is the derived per-unit for display only
+ * (`round(line_total / quantity)`) and is read nowhere as truth — the claim math splits the line total.
  *
  * Synced (`@Serializable`, snake_case columns 1:1 with Postgres, no Room FK), carries `group_id` for
  * pull scoping + `row_version` + `updated_at` (so the `keepNewer` last-write-wins guard applies on
@@ -43,6 +45,9 @@ data class ExpenseItemEntity(
 
     @ColumnInfo(name = "unit_price_subunits")
     val unitPriceSubunits: Long,
+
+    @ColumnInfo(name = "line_total_subunits", defaultValue = "0")
+    val lineTotalSubunits: Long = 0,
 
     @ColumnInfo(name = "sort_order")
     val sortOrder: Int,

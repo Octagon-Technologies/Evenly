@@ -132,18 +132,35 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   who-had-what in the synced `item_claims` table; bill-level extras ride on the expense row
   (`tax_subunits`/`gratuity_subunits`/`tip_subunits`/`tip_split_mode`/`discount_subunits`). **Claims are
   partitioned by user** — each device only ever writes its *own* claim — so live multi-device claiming is
-  conflict-free and needs no CAS (unlike an expense edit). `BillRepositoryImpl.materializeShares` runs the
+  conflict-free and needs no CAS (unlike an expense edit). Each unit of a line is **owned by a set**:
+  individual whole-unit claims (`item_claims`, per-user) plus a **shared-membership set** (`item_shares`)
+  that splits a line's *leftover* (un-individually-claimed) units evenly. `item_shares` is an additive
+  **auto-union** set — because it's a set, overlapping "shared with X" declarations merge for free
+  (Bob adds Mary, Steve adds Bob → {Bob, Mary, Steve}, ÷3) with nothing to confirm; a member can leave
+  (soft-delete = opt-out), and `added_by` records who put them in. Adding a friend charges them by default
+  (visible + one-tap removable), *not* a confirm-first nudge — the friction budget goes only to the per-line
+  reconciliation (`ItemStatus` RESOLVED/UNCLAIMED/OVERCLAIMED), the single thing the UI ever surfaces.
+  `BillRepositoryImpl.setShareMember` is the only shared-set write. `BillRepositoryImpl.materializeShares` runs the
   pure `splitBill` engine (`domain/expense/BillSplit.kt`) and writes the resulting `shares` with
   **deterministic ids** (`"<expenseId>__<userId>"`), so every device converges on identical rows and
   editing the menu re-derives *in place* — a price fix never disturbs a recorded claim or its settlement
-  allocations. Item cost is per-unit exact (claim 2 of 4 → pay 2×price; unclaimed units stay unassigned
-  until Finish; over-claim is **surfaced, not capped**); tax & gratuity split proportionally, tip
-  even-by-default (toggleable), discount negative-proportional — all penny-exact via the existing
-  largest-remainder `allocate`. Shares for an itemized expense are a **local derived materialization** of
-  the synced items/claims (not independently pushed). Receipt OCR is the `extract-receipt` edge function
-  (Claude vision → structured draft) reached via the `ReceiptOcr` gateway; it only ever *pre-fills* the
-  editable item list (human-verify before any money is computed). Don't reintroduce stored itemized share
-  input or a blind items/shares push.
+  allocations. A line's **line total** (`expense_items.line_total_subunits`) is the entered source of
+  truth — it's what receipts print ("4 … $96.00") and stays penny-exact even when it doesn't divide
+  evenly; per-unit is DERIVED for display (`perUnitSubunits` = round(total ÷ qty)), and
+  `unit_price_subunits` is now vestigial (kept populated with the rounded per-unit for backward compat —
+  read `line_total_subunits` as truth). `splitBill` splits each line total across its claimed units via
+  the largest-remainder allocator, so a $10 line over 3 units bills 334/333/333 with no leak (claim 2 of
+  4 → pay 2 of the 4 slices; unclaimed units stay unassigned until Finish; over-claim is **surfaced, not
+  capped**). The editor lets you type EITHER the per-unit ("each") OR the whole-line ("total of N") price
+  — the other derives, the last-touched field is the truth (`EditBillItemUi.driver`) — so a receipt's
+  line total goes in without dividing by hand. Tax & gratuity split proportionally, tip even-by-default
+  (toggleable), discount negative-proportional — all penny-exact via the existing largest-remainder
+  `allocate`. Shares for an itemized expense are a **local derived materialization** of the synced
+  items/claims (not independently pushed). Receipt OCR is the `extract-receipt` edge function (Claude
+  vision → structured draft) reached via the `ReceiptOcr` gateway; it accepts **multiple pages (images
+  and/or PDFs) read as one bill** and only ever *pre-fills* the editable item list (human-verify before
+  any money is computed). Don't reintroduce stored itemized share input, a stored per-unit truth, or a
+  blind items/shares push.
 - **Claimed placeholders are retired *everywhere*, not just the roster.** A placeholder is a `users` row
   (`is_placeholder=1` + `placeholder_group_id`) **plus** a `members` row (`addPlaceholder` creates both).
   When it's merged into a real user — reconcile *or* a joiner picking it on the Join sheet — soft-leave it

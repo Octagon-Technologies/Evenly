@@ -34,7 +34,7 @@ class BillRepositoryTest {
     @BeforeTest
     fun setUp() {
         db = inMemoryTestDatabase()
-        bills = BillRepositoryImpl(db.expenseDao(), db.expenseItemDao(), db.itemClaimDao(), db.shareDao(), clockAt("2026-06-28"))
+        bills = BillRepositoryImpl(db.expenseDao(), db.expenseItemDao(), db.itemClaimDao(), db.itemShareDao(), db.shareDao(), clockAt("2026-06-28"))
     }
 
     @AfterTest
@@ -50,8 +50,8 @@ class BillRepositoryTest {
                 payerUserId = me,
                 createdBy = me,
                 items = listOf(
-                    NewBillItem("Margherita pizza", quantity = 2, unitPriceSubunits = 1800), // line 3600
-                    NewBillItem("Caesar salad", quantity = 1, unitPriceSubunits = 1200),      // line 1200
+                    NewBillItem("Margherita pizza", quantity = 2, lineTotalSubunits = 3600), // 2 × $18
+                    NewBillItem("Caesar salad", quantity = 1, lineTotalSubunits = 1200),
                 ),
                 extras = extras,
             ),
@@ -133,7 +133,7 @@ class BillRepositoryTest {
                 title = "Dinner at Tavolo",
                 expenseDate = "2026-06-28",
                 payerUserId = me,
-                items = listOf(EditBillItem(id = pizza, label = "Margherita pizza", quantity = 2, unitPriceSubunits = 2000)),
+                items = listOf(EditBillItem(id = pizza, label = "Margherita pizza", quantity = 2, lineTotalSubunits = 4000)),
                 extras = BillExtrasInput(),
             ),
         )
@@ -160,7 +160,7 @@ class BillRepositoryTest {
                 title = "Dinner at Tavolo",
                 expenseDate = "2026-06-28",
                 payerUserId = me,
-                items = listOf(EditBillItem(id = pizza, label = "Margherita pizza", quantity = 2, unitPriceSubunits = 1800)),
+                items = listOf(EditBillItem(id = pizza, label = "Margherita pizza", quantity = 2, lineTotalSubunits = 3600)),
                 extras = BillExtrasInput(),
             ),
         )

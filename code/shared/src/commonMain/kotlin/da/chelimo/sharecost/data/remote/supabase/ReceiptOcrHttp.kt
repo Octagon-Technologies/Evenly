@@ -4,6 +4,7 @@ import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.domain.receipt.ReceiptDraft
 import da.chelimo.sharecost.domain.receipt.ReceiptDraftItem
 import da.chelimo.sharecost.domain.receipt.ReceiptOcr
+import da.chelimo.sharecost.domain.receipt.ReceiptOcrFile
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -27,10 +28,11 @@ class ReceiptOcrHttp(private val http: HttpClient) : ReceiptOcr {
     private val json = Json { ignoreUnknownKeys = true }
 
     @OptIn(ExperimentalEncodingApi::class)
-    override suspend fun extract(bytes: ByteArray, mimeType: String): AppResult<ReceiptDraft?> {
-        if (!SupabaseConfig.isConfigured) return AppResult.Ok(null)
+    override suspend fun extract(files: List<ReceiptOcrFile>): AppResult<ReceiptDraft?> {
+        if (!SupabaseConfig.isConfigured || files.isEmpty()) return AppResult.Ok(null)
         return try {
-            val body = json.encodeToString(ExtractReq(Base64.encode(bytes), mimeType))
+            val parts = files.map { ExtractPart(Base64.encode(it.bytes), it.mimeType) }
+            val body = json.encodeToString(ExtractReq(files = parts))
             val raw = http.post("${SupabaseConfig.URL}/functions/v1/extract-receipt") {
                 header("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
                 header("apikey", SupabaseConfig.ANON_KEY)
@@ -45,8 +47,13 @@ class ReceiptOcrHttp(private val http: HttpClient) : ReceiptOcr {
     }
 }
 
+/** One receipt page sent to the edge function: base64 bytes + its MIME type (an image type or application/pdf). */
 @Serializable
-private class ExtractReq(val imageBase64: String, val mediaType: String)
+private class ExtractPart(val data: String, val mediaType: String)
+
+/** The multi-page request; the edge function reads every part together as one bill. */
+@Serializable
+private class ExtractReq(val files: List<ExtractPart>)
 
 @Serializable
 private class ExtractResp(val configured: Boolean = true, val receipt: RcptDto? = null)

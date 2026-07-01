@@ -35,4 +35,17 @@ interface BillRepository {
      * the bill's shares. This is the only write a non-creator makes, and it touches only their own row.
      */
     suspend fun setClaim(expenseId: ExpenseId, itemId: String, userId: UserId, quantity: Int): AppResult<Unit>
+
+    /**
+     * Add or remove [memberUserId] from an item's **shared split** (the auto-union set). [addedBy] is who
+     * performed it (you adding yourself, or naming a friend). Because the set unions, re-adding is a no-op
+     * and overlapping "shared with" declarations merge automatically. Re-derives the bill's shares.
+     */
+    suspend fun setShareMember(
+        expenseId: ExpenseId,
+        itemId: String,
+        memberUserId: UserId,
+        addedBy: UserId,
+        inShare: Boolean,
+    ): AppResult<Unit>
 }
