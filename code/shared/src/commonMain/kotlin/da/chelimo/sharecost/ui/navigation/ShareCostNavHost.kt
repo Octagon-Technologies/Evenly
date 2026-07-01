@@ -104,6 +104,7 @@ fun ShareCostNavHost(
                 onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate(Route.NewExpenseChoice(r.groupId)) },
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
+                onOpenBill = { navController.navigate(Route.ClaimBill(r.groupId, it)) },
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
                 onFilter = { navController.navigate(Route.Filter(r.groupId)) },
                 onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },

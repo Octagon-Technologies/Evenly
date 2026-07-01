@@ -53,6 +53,7 @@ import da.chelimo.sharecost.ui.screen.bill.BillClaimScreen
 import da.chelimo.sharecost.ui.screen.bill.BillEditScreen
 import da.chelimo.sharecost.ui.screen.bill.ClaimBillState
 import da.chelimo.sharecost.ui.screen.bill.ClaimItemUi
+import da.chelimo.sharecost.ui.screen.bill.ClaimParticipantUi
 import da.chelimo.sharecost.ui.screen.bill.EditBillState
 import da.chelimo.sharecost.ui.screen.bill.editBillItemUi
 import da.chelimo.sharecost.ui.screen.bill.priceToSubunits
@@ -123,6 +124,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     val ocr = koinInject<ReceiptOcr>()
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
+    val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val currency = group?.baseCurrency ?: "USD"
     val scope = rememberCoroutineScope()
@@ -178,6 +180,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             createdBy = me,
                             items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
+                            // Default the bill to everyone in the group; deselecting participants is a later refinement.
+                            participantUserIds = members.map { it.userId },
                         ),
                     )
                     when (result) {
@@ -222,10 +226,13 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
     val claimsByItem = view.claims.groupBy { it.itemId }
 
+    val sharesByItem = view.shares.groupBy { it.itemId }
+    fun nameOf(uid: UserId): String = if (uid == me) "You" else (nameByUser[uid.value] ?: "Someone")
     val items = view.items.map { item ->
         val claims = claimsByItem[item.id].orEmpty()
         val mine = claims.filter { it.userId == me }.sumOf { it.quantity }
         val others = claims.filter { it.userId != me }
+        val shareRows = sharesByItem[item.id].orEmpty()
         ClaimItemUi(
             id = item.id,
             label = item.label,
@@ -234,8 +241,14 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
             myQuantity = mine,
             othersQuantity = others.sumOf { it.quantity },
             otherNames = others.mapNotNull { nameByUser[it.userId.value] }.distinct(),
+            shareMemberIds = shareRows.mapTo(HashSet()) { it.userId.value },
+            shareMemberNames = shareRows.map { nameOf(it.userId) },
         )
     }
+    val participantViews = view.participants
+        .map { ClaimParticipantUi(it.userId.value, nameOf(it.userId), it.userId == me) }
+        .ifEmpty { members.map { ClaimParticipantUi(it.userId.value, nameOf(it.userId), it.userId == me) } }
+    val imDone = me != null && view.participants.any { it.userId == me && it.doneAt != null }
     val state = ClaimBillState(
         title = view.expense.title,
         currency = view.expense.currency,
@@ -243,7 +256,10 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
         totalSubunits = view.expense.amountSubunits,
         claimedSubunits = view.tabByUser.values.sum(),
         items = items,
-        livePeople = view.claims.map { it.userId }.distinct().size,
+        participants = participantViews,
+        myUserId = me?.value,
+        imDone = imDone,
+        livePeople = (view.claims.map { it.userId } + view.shares.map { it.userId }).distinct().size,
     )
 
     BillClaimScreen(
@@ -253,9 +269,19 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
             val who = me ?: return@BillClaimScreen
             scope.launch { bills.setClaim(eid, itemId, UserId(who.value), qty) }
         },
+        onSetShareMember = { itemId, uid, inShare ->
+            val who = me ?: return@BillClaimScreen
+            scope.launch { bills.setShareMember(eid, itemId, UserId(uid), who, inShare) }
+        },
         onEditBill = onEditBill,
         onAskGroup = onAskGroup,
-        onFinish = onBack,
+        onDone = {
+            val who = me ?: return@BillClaimScreen
+            scope.launch {
+                bills.markDone(eid, who, !imDone)
+                if (!imDone) onBack()
+            }
+        },
     )
 }
 

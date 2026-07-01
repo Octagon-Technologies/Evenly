@@ -36,6 +36,7 @@ fun GroupHomeScreen(
     onBack: () -> Unit = {},
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
+    onOpenBill: (String) -> Unit = {},
     onSearch: () -> Unit = {},
     onFilter: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
@@ -58,7 +59,7 @@ fun GroupHomeScreen(
         StatusBarScrim(c.page)
         Box(Modifier.weight(1f)) {
             when (tab) {
-                GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onSearch, onFilter)
+                GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onOpenBill, onSearch, onFilter)
                 GroupTab.Balances -> GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
                 GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
                 GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack, onExport = onExport)

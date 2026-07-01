@@ -24,12 +24,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCheck
 import da.chelimo.sharecost.ui.components.ScIconButton
+import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.StatusBarScrim
 import da.chelimo.sharecost.ui.components.ScTopBar
 import da.chelimo.sharecost.ui.components.icon.ScIcon
@@ -37,6 +39,9 @@ import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.components.moneySubunits
 import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
+
+/** A person the bill is for — the pool the "Share with…" picker draws from. */
+data class ClaimParticipantUi(val userId: String, val name: String, val isMe: Boolean)
 
 /** One line on the claim screen, from the current user's perspective. */
 data class ClaimItemUi(
@@ -47,7 +52,11 @@ data class ClaimItemUi(
     val myQuantity: Int,
     val othersQuantity: Int,
     val otherNames: List<String>,
-)
+    val shareMemberIds: Set<String> = emptySet(),
+    val shareMemberNames: List<String> = emptyList(),
+) {
+    val leftoverUnits: Int get() = (quantity - myQuantity - othersQuantity).coerceAtLeast(0)
+}
 
 data class ClaimBillState(
     val title: String,
@@ -56,94 +65,116 @@ data class ClaimBillState(
     val totalSubunits: Long,
     val claimedSubunits: Long,
     val items: List<ClaimItemUi>,
+    val participants: List<ClaimParticipantUi> = emptyList(),
+    val myUserId: String? = null,
+    val imDone: Boolean = false,
     val livePeople: Int = 0,
 ) {
-    val unclaimedCount: Int get() = items.count { it.myQuantity + it.othersQuantity == 0 }
+    /** A line needs someone when nothing (individual or shared) covers it. */
+    val unclaimedCount: Int get() = items.count { it.myQuantity + it.othersQuantity == 0 && it.shareMemberIds.isEmpty() }
 }
 
 /**
- * The live "Split the bill" claim screen. Each person taps what they had; their tab updates at the top.
- * Single-unit dishes use a checkbox; multi-unit dishes use a counter that starts at 0, so the question
- * is always "how many did you have," never the ambiguous "am I in or out." DI-free.
+ * The live "Split the bill" claim screen. Each person taps what they had — a checkbox for single dishes,
+ * a 0-based counter for multi-unit dishes — and can tap "Share" to split a line with specific people
+ * (the auto-union set). Their tab updates live. DI-free.
  */
 @Composable
 fun BillClaimScreen(
     state: ClaimBillState,
     onBack: () -> Unit = {},
     onSetClaim: (itemId: String, quantity: Int) -> Unit = { _, _ -> },
+    onSetShareMember: (itemId: String, userId: String, inShare: Boolean) -> Unit = { _, _, _ -> },
     onEditBill: () -> Unit = {},
     onAskGroup: () -> Unit = {},
-    onFinish: () -> Unit = {},
+    onDone: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var unclaimedOnly by remember { mutableStateOf(false) }
-    val shown = if (unclaimedOnly) state.items.filter { it.myQuantity + it.othersQuantity == 0 } else state.items
+    var shareTargetId by remember { mutableStateOf<String?>(null) }
+    val shown = if (unclaimedOnly) state.items.filter { it.myQuantity + it.othersQuantity == 0 && it.shareMemberIds.isEmpty() } else state.items
     val progress = if (state.totalSubunits > 0L) (state.claimedSubunits.toFloat() / state.totalSubunits).coerceIn(0f, 1f) else 0f
 
-    Column(Modifier.fillMaxSize().background(c.page)) {
-        StatusBarScrim()
-        ScTopBar(
-            title = state.title,
-            navIcon = { ScIconButton(ScIcons.Back, onBack) },
-            actions = {
-                if (state.livePeople > 0) {
-                    Text("${state.livePeople} here", color = c.ink3, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
-                }
-            },
-            showDivider = false,
-        )
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().background(c.page)) {
+            StatusBarScrim()
+            ScTopBar(
+                title = state.title,
+                navIcon = { ScIconButton(ScIcons.Back, onBack) },
+                actions = {
+                    if (state.livePeople > 0) Text("${state.livePeople} here", color = c.ink3, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp))
+                },
+                showDivider = false,
+            )
 
-        // Your tab
-        Column(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Your tab", color = c.ink2, fontSize = 13.sp)
-            Text(moneySubunits(state.yourTabSubunits, state.currency), color = c.blue, fontSize = 34.sp, fontWeight = FontWeight.Bold, fontFamily = ShareCostTheme.monoFamily)
-            Text("tax & tip included", color = c.ink3, fontSize = 12.sp)
-        }
-
-        // Progress
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(99.dp)).background(c.surface)) {
-                Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(RoundedCornerShape(99.dp)).background(c.blue))
+            Column(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Your tab", color = c.ink2, fontSize = 13.sp)
+                Text(moneySubunits(state.yourTabSubunits, state.currency), color = c.blue, fontSize = 34.sp, fontWeight = FontWeight.Bold, fontFamily = ShareCostTheme.monoFamily)
+                Text("tax & tip included", color = c.ink3, fontSize = 12.sp)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (state.unclaimedCount == 0) "Everything's claimed" else "${state.unclaimedCount} ${if (state.unclaimedCount == 1) "dish" else "dishes"} still need someone",
-                    color = c.ink2, fontSize = 12.sp, modifier = Modifier.weight(1f),
-                )
-                if (state.unclaimedCount > 0) {
+
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(99.dp)).background(c.surface)) {
+                    Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(RoundedCornerShape(99.dp)).background(c.blue))
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (unclaimedOnly) "Show all" else "Show only these",
-                        color = c.blue, fontSize = 12.sp,
-                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { unclaimedOnly = !unclaimedOnly }.padding(4.dp),
+                        if (state.unclaimedCount == 0) "Everything's claimed" else "${state.unclaimedCount} ${if (state.unclaimedCount == 1) "dish" else "dishes"} still need someone",
+                        color = c.ink2, fontSize = 12.sp, modifier = Modifier.weight(1f),
                     )
+                    if (state.unclaimedCount > 0) {
+                        Text(
+                            if (unclaimedOnly) "Show all" else "Show only these",
+                            color = c.blue, fontSize = 12.sp,
+                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { unclaimedOnly = !unclaimedOnly }.padding(4.dp),
+                        )
+                    }
                 }
             }
-        }
 
-        Text("Tap what you had", color = c.ink3, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 2.dp))
+            Text("Tap what you had", color = c.ink3, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 2.dp))
 
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(shown, key = { it.id }) { item -> ClaimRow(item, state.currency, onSetClaim) }
-        }
-
-        // Bottom action bar
-        Column(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-            Text("Tax & gratuity by share · tip split evenly", color = c.ink3, fontSize = 11.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ScButton("Edit bill", onEditBill, variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Edit, modifier = Modifier.weight(1f), small = true)
-                ScButton("Ask the group", onAskGroup, variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Comment, modifier = Modifier.weight(1f), small = true)
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                items(shown, key = { it.id }) { item ->
+                    ClaimRow(item, state.currency, state.myUserId, onSetClaim, onShare = { shareTargetId = item.id })
+                }
             }
-            ScButton(if (state.unclaimedCount == 0) "Finish" else "Finish anyway", onFinish, variant = ButtonVariant.Primary)
+
+            Column(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Text("Tax & gratuity by share · tip split evenly", color = c.ink3, fontSize = 11.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ScButton("Edit bill", onEditBill, variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Edit, modifier = Modifier.weight(1f), small = true)
+                    ScButton("Ask the group", onAskGroup, variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Comment, modifier = Modifier.weight(1f), small = true)
+                }
+                ScButton(if (state.imDone) "Done ✓ — tap to reopen" else "I'm done", onDone, variant = ButtonVariant.Primary)
+            }
+        }
+
+        val target = shareTargetId?.let { id -> state.items.firstOrNull { it.id == id } }
+        if (target != null) {
+            SharePickerSheet(
+                item = target,
+                participants = state.participants,
+                currency = state.currency,
+                onToggle = { userId, inShare -> onSetShareMember(target.id, userId, inShare) },
+                onDismiss = { shareTargetId = null },
+            )
         }
     }
 }
 
 @Composable
-private fun ClaimRow(item: ClaimItemUi, currency: String, onSetClaim: (String, Int) -> Unit) {
+private fun ClaimRow(
+    item: ClaimItemUi,
+    currency: String,
+    myUserId: String?,
+    onSetClaim: (String, Int) -> Unit,
+    onShare: () -> Unit,
+) {
     val c = ShareCostTheme.colors
-    val mine = item.myQuantity > 0
-    val orphan = item.myQuantity + item.othersQuantity == 0
-    val left = item.quantity - item.myQuantity - item.othersQuantity
+    val mine = item.myQuantity > 0 || (myUserId != null && myUserId in item.shareMemberIds)
+    val shared = item.shareMemberIds.isNotEmpty()
+    val orphan = item.myQuantity + item.othersQuantity == 0 && !shared
     val bg = when {
         mine -> c.blueTint
         orphan -> c.credit.copy(alpha = 0.12f)
@@ -155,27 +186,69 @@ private fun ClaimRow(item: ClaimItemUi, currency: String, onSetClaim: (String, I
         if (isCounter) append(" each")
         when {
             orphan -> append(" · no one yet")
+            shared -> append(" · shared by ${item.shareMemberNames.size}")
             item.otherNames.isNotEmpty() -> append(" · ${item.otherNames.joinToString(", ")}")
         }
-        if (isCounter && left > 0) append(" · $left left")
+        if (isCounter && item.leftoverUnits > 0 && !shared) append(" · ${item.leftoverUnits} left")
     }
 
-    val rowMod = if (!isCounter) {
-        Modifier.clickable { onSetClaim(item.id, if (mine) 0 else 1) }
-    } else Modifier
-
     Row(
-        Modifier.fillMaxWidth().topHairline(c.border).background(bg).then(rowMod).padding(horizontal = 16.dp, vertical = 13.dp),
+        Modifier.fillMaxWidth().topHairline(c.border).background(bg).padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(item.label, color = if (orphan) c.credit else c.ink, fontSize = 15.sp, fontWeight = if (mine) FontWeight.SemiBold else FontWeight.Normal)
             Text(sub, color = if (orphan) c.credit else c.ink3, fontSize = 12.sp)
+            Row(
+                Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onShare).padding(top = 3.dp, end = 6.dp, bottom = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                ScIcon(ScIcons.Users, size = 13.dp, tint = c.blue)
+                Text(if (shared) "Sharing ›" else "Share with…", color = c.blue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
         if (isCounter) {
             Stepper(value = item.myQuantity, min = 0, onChange = { onSetClaim(item.id, it) })
         } else {
-            ScCheck(checked = mine, onCheckedChange = { onSetClaim(item.id, if (it) 1 else 0) })
+            ScCheck(checked = item.myQuantity > 0, onCheckedChange = { onSetClaim(item.id, if (it) 1 else 0) })
         }
+    }
+}
+
+/** "Who split this?" — pick the people sharing a line; toggling writes the auto-union set live. */
+@Composable
+private fun SharePickerSheet(
+    item: ClaimItemUi,
+    participants: List<ClaimParticipantUi>,
+    currency: String,
+    onToggle: (userId: String, inShare: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val c = ShareCostTheme.colors
+    val count = item.shareMemberIds.size
+    val leftoverPool = item.leftoverUnits.toLong() * item.unitPriceSubunits
+    val perHead = if (count > 0) leftoverPool / count else leftoverPool
+    ScSheetScaffold(onDismiss = onDismiss, title = "Who split ${item.label}?") {
+        if (count > 0) {
+            Text(
+                "${moneySubunits(if (item.leftoverUnits > 0) leftoverPool else item.unitPriceSubunits, currency)} ÷ $count = ${moneySubunits(perHead, currency)} each",
+                color = c.ink2, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), textAlign = TextAlign.Center,
+            )
+        }
+        participants.forEach { p ->
+            val inShare = p.userId in item.shareMemberIds
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onToggle(p.userId, !inShare) }
+                    .background(if (inShare) c.blueTint else c.page).padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(if (p.isMe) "You" else p.name, color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                ScCheck(checked = inShare, onCheckedChange = { onToggle(p.userId, it) })
+            }
+            Box(Modifier.height(6.dp))
+        }
+        Box(Modifier.height(4.dp))
+        ScButton("Done", onDismiss, variant = ButtonVariant.Primary)
     }
 }

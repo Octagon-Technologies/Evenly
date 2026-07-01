@@ -10,6 +10,7 @@ import da.chelimo.sharecost.data.db.entity.ExpenseEditConflictEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseSyncStateEntity
 import da.chelimo.sharecost.data.db.entity.GroupEntity
+import da.chelimo.sharecost.data.db.entity.BillParticipantEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseItemEntity
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.data.db.entity.ItemClaimEntity
@@ -97,6 +98,7 @@ class SyncEngine(
         val expenseItems = if (expenseIds.isEmpty()) emptyList() else selectIn<ExpenseItemEntity>("expense_items", "expense_id", expenseIds)
         val itemClaims = if (expenseIds.isEmpty()) emptyList() else selectIn<ItemClaimEntity>("item_claims", "expense_id", expenseIds)
         val itemShares = if (expenseIds.isEmpty()) emptyList() else selectIn<ItemShareEntity>("item_shares", "expense_id", expenseIds)
+        val billParticipants = if (expenseIds.isEmpty()) emptyList() else selectIn<BillParticipantEntity>("bill_participants", "expense_id", expenseIds)
         val userIds = (members.map { it.userId } + expenses.mapNotNull { it.payerUserId } + shares.map { it.userId }).distinct()
         val users = if (userIds.isEmpty()) emptyList() else selectIn<UserEntity>("users", "id", userIds)
 
@@ -153,6 +155,8 @@ class SyncEngine(
         if (freshClaims.isNotEmpty()) db.itemClaimDao().upsertAll(freshClaims)
         val freshItemShares = keepNewer(itemShares, db.itemShareDao().allForSync(), { it.id }, { it.updatedAt })
         if (freshItemShares.isNotEmpty()) db.itemShareDao().upsertAll(freshItemShares)
+        val freshParticipants = keepNewer(billParticipants, db.billParticipantDao().allForSync(), { it.id }, { it.updatedAt })
+        if (freshParticipants.isNotEmpty()) db.billParticipantDao().upsertAll(freshParticipants)
         // Allocations are append-only ground truth (no updated_at); blind upsert is correct.
         if (allocations.isNotEmpty()) db.settlementDao().upsertAllocations(allocations)
         // conflicts / edit-conflicts / expense_history carry no updated_at (see note above) — blind upsert.
@@ -182,6 +186,7 @@ class SyncEngine(
         upsertAll("expense_items", db.expenseItemDao().allForSync())
         upsertAll("item_claims", db.itemClaimDao().allForSync())
         upsertAll("item_shares", db.itemShareDao().allForSync())
+        upsertAll("bill_participants", db.billParticipantDao().allForSync())
     }
 
     /**

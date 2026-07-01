@@ -31,6 +31,10 @@ interface ItemShareDao {
     @Query("SELECT * FROM item_shares WHERE item_id = :itemId AND user_id = :userId AND deleted_at IS NULL LIMIT 1")
     suspend fun getActiveShare(itemId: String, userId: String): ItemShareEntity?
 
+    /** All active memberships across a group's bills — input to the group-wide unresolved-bills computation. */
+    @Query("SELECT * FROM item_shares WHERE group_id = :groupId AND deleted_at IS NULL")
+    fun observeByGroup(groupId: String): Flow<List<ItemShareEntity>>
+
     /** Every local row incl. tombstones — the push side of sync. */
     @Query("SELECT * FROM item_shares")
     suspend fun allForSync(): List<ItemShareEntity>

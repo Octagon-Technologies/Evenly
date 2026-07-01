@@ -34,7 +34,7 @@ class BillRepositoryTest {
     @BeforeTest
     fun setUp() {
         db = inMemoryTestDatabase()
-        bills = BillRepositoryImpl(db.expenseDao(), db.expenseItemDao(), db.itemClaimDao(), db.itemShareDao(), db.shareDao(), clockAt("2026-06-28"))
+        bills = BillRepositoryImpl(db.expenseDao(), db.expenseItemDao(), db.itemClaimDao(), db.itemShareDao(), db.billParticipantDao(), db.shareDao(), clockAt("2026-06-28"))
     }
 
     @AfterTest

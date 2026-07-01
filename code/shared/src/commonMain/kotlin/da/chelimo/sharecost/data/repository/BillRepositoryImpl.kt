@@ -5,15 +5,18 @@ import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.error.asErr
 import da.chelimo.sharecost.core.error.asOk
 import da.chelimo.sharecost.core.id.ExpenseId
+import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.data.db.ExpenseStatus
+import da.chelimo.sharecost.data.db.dao.BillParticipantDao
 import da.chelimo.sharecost.data.db.dao.ExpenseDao
 import da.chelimo.sharecost.data.db.dao.ExpenseItemDao
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
 import da.chelimo.sharecost.data.db.dao.ItemClaimDao
 import da.chelimo.sharecost.data.db.dao.ItemShareDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
+import da.chelimo.sharecost.data.db.entity.BillParticipantEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseItemEntity
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
@@ -29,10 +32,13 @@ import da.chelimo.sharecost.domain.expense.IndividualClaim
 import da.chelimo.sharecost.domain.expense.BillExtras
 import da.chelimo.sharecost.domain.expense.BillView
 import da.chelimo.sharecost.domain.expense.EditBill
+import da.chelimo.sharecost.domain.expense.BillParticipantView
 import da.chelimo.sharecost.domain.expense.BillShareView
+import da.chelimo.sharecost.domain.expense.ItemStatus
 import da.chelimo.sharecost.domain.expense.NewBill
 import da.chelimo.sharecost.domain.expense.SharedMember
 import da.chelimo.sharecost.domain.expense.SPLIT_MODE_ITEMIZED
+import da.chelimo.sharecost.domain.expense.UnresolvedBill
 import da.chelimo.sharecost.domain.expense.TipSplitMode
 import da.chelimo.sharecost.domain.expense.perUnitSubunits
 import da.chelimo.sharecost.domain.expense.splitBill
@@ -64,6 +70,7 @@ class BillRepositoryImpl(
     private val expenseItemDao: ExpenseItemDao,
     private val itemClaimDao: ItemClaimDao,
     private val itemShareDao: ItemShareDao,
+    private val billParticipantDao: BillParticipantDao,
     private val shareDao: ShareDao,
     private val clock: Clock = Clock.System,
     // Optional activity log (F5). Null in unit tests => no history rows; production DI wires it.
@@ -76,7 +83,8 @@ class BillRepositoryImpl(
             expenseItemDao.observeByExpense(expenseId.value),
             itemClaimDao.observeByExpense(expenseId.value),
             itemShareDao.observeByExpense(expenseId.value),
-        ) { expense, items, claims, shares ->
+            billParticipantDao.observeByExpense(expenseId.value),
+        ) { expense, items, claims, shares, participants ->
             expense ?: return@combine null
             val itemViews = items.map { it.toView() }
             val claimViews = claims.map { it.toView() }
@@ -93,6 +101,7 @@ class BillRepositoryImpl(
                 items = itemViews,
                 claims = claimViews,
                 shares = shareViews,
+                participants = participants.map { BillParticipantView(UserId(it.userId), it.doneAt) },
                 extras = extras,
                 tabByUser = result.owedByUser,
                 reconcile = result.items,
@@ -140,8 +149,22 @@ class BillRepositoryImpl(
                 updatedAt = now,
             )
         }
+        // Participants: whoever the creator picked, plus the creator and payer (they're always on the bill).
+        val participantIds = (input.participantUserIds.map { it.value } +
+            input.createdBy.value + listOfNotNull(input.payerUserId?.value)).distinct()
+        val participants = participantIds.map { uid ->
+            BillParticipantEntity(
+                id = newId(),
+                expenseId = expenseId,
+                groupId = input.groupId.value,
+                userId = uid,
+                createdAt = now,
+                updatedAt = now,
+            )
+        }
         expenseDao.upsert(expense)
         expenseItemDao.upsertAll(items)
+        if (participants.isNotEmpty()) billParticipantDao.upsertAll(participants)
         materializeShares(expense, now) // no claims yet → no shares; tab fills in as people claim
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
         return ExpenseId(expenseId).asOk()
@@ -275,6 +298,92 @@ class BillRepositoryImpl(
         materializeShares(expense, now)
         return AppResult.Ok(Unit)
     }
+
+    override suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit> {
+        val expense = expenseDao.getById(expenseId.value)
+            ?: return validationErr("expense", AppError.Validation.Reason.Required)
+        val now = clock.nowEpochMillis()
+        val existing = billParticipantDao.getActive(expenseId.value, userId.value)
+        when {
+            !included -> existing?.let { billParticipantDao.softDeleteByIds(listOf(it.id), now) }
+            existing == null -> billParticipantDao.upsert(
+                BillParticipantEntity(
+                    id = newId(),
+                    expenseId = expenseId.value,
+                    groupId = expense.groupId,
+                    userId = userId.value,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+        return AppResult.Ok(Unit)
+    }
+
+    override suspend fun markDone(expenseId: ExpenseId, userId: UserId, done: Boolean): AppResult<Unit> {
+        val now = clock.nowEpochMillis()
+        val existing = billParticipantDao.getActive(expenseId.value, userId.value)
+        if (existing != null) {
+            billParticipantDao.setDone(existing.id, if (done) now else null, now)
+        } else if (done) {
+            // Someone marking done who wasn't formally a participant (they still claimed) becomes one.
+            val expense = expenseDao.getById(expenseId.value)
+                ?: return validationErr("expense", AppError.Validation.Reason.Required)
+            billParticipantDao.upsert(
+                BillParticipantEntity(
+                    id = newId(),
+                    expenseId = expenseId.value,
+                    groupId = expense.groupId,
+                    userId = userId.value,
+                    doneAt = now,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+        return AppResult.Ok(Unit)
+    }
+
+    override fun observeUnresolvedBills(groupId: GroupId, viewer: UserId?): Flow<List<UnresolvedBill>> =
+        combine(
+            expenseDao.observeByGroup(groupId.value),
+            expenseItemDao.observeByGroup(groupId.value),
+            itemClaimDao.observeByGroup(groupId.value),
+            itemShareDao.observeByGroup(groupId.value),
+            billParticipantDao.observeByGroup(groupId.value),
+        ) { expenses, items, claims, shares, participants ->
+            val itemsByExpense = items.groupBy { it.expenseId }
+            val claimsByExpense = claims.groupBy { it.expenseId }
+            val sharesByExpense = shares.groupBy { it.expenseId }
+            val partsByExpense = participants.groupBy { it.expenseId }
+            expenses.asSequence()
+                .filter { it.splitMode == SPLIT_MODE_ITEMIZED }
+                .mapNotNull { e ->
+                    val its = itemsByExpense[e.id].orEmpty()
+                    if (its.isEmpty()) return@mapNotNull null
+                    val result = splitBill(
+                        its.map { BillItem(it.id, it.lineTotalSubunits, it.quantity) },
+                        claimsByExpense[e.id].orEmpty().map { IndividualClaim(it.itemId, UserId(it.userId), it.quantity) },
+                        sharesByExpense[e.id].orEmpty().map { SharedMember(it.itemId, UserId(it.userId)) },
+                        e.toExtras().toEngine(),
+                    )
+                    val parts = partsByExpense[e.id].orEmpty()
+                    val stillToClaim = parts.count { it.doneAt == null }
+                    // Unresolved = a line still needs someone, or a participant hasn't marked done.
+                    if (result.unclaimedCount == 0 && stillToClaim == 0) return@mapNotNull null
+                    UnresolvedBill(
+                        expenseId = ExpenseId(e.id),
+                        title = e.title,
+                        currency = e.currency,
+                        amountSubunits = e.amountSubunits,
+                        unclaimedCount = result.unclaimedCount,
+                        participantCount = parts.size,
+                        stillToClaimCount = stillToClaim,
+                        youNeedToClaim = viewer != null && parts.any { it.userId == viewer.value && it.doneAt == null },
+                    )
+                }
+                .toList()
+        }
 
     /**
      * Re-derive the bill's shares from its current items + claims + extras and write them with

@@ -104,6 +104,8 @@ fun GroupExpensesTab(
     onOpenDrafts: () -> Unit = {},
     onCopyInvite: () -> Unit = {},
     onRotateInvite: () -> Unit = {},
+    unresolvedBills: List<UnresolvedBillUi> = emptyList(),
+    onOpenBill: (String) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var sub by remember { mutableStateOf("Active") }
@@ -144,6 +146,7 @@ fun GroupExpensesTab(
             FilterFunnel(active = filterActive, onClick = onFilter)
         }
         if (filterActive) FilterChipRow(onClearFilter)
+        if (unresolvedBills.isNotEmpty()) UnresolvedBillsSection(unresolvedBills, onOpenBill)
 
         // The sub-tab narrows by settlement status; drop days that have nothing under the active view.
         val visibleDays = days.mapNotNull { day ->

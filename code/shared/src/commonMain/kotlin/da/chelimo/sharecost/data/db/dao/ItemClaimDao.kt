@@ -32,6 +32,10 @@ interface ItemClaimDao {
     @Query("SELECT * FROM item_claims WHERE item_id = :itemId AND user_id = :userId AND deleted_at IS NULL LIMIT 1")
     suspend fun getActiveClaim(itemId: String, userId: String): ItemClaimEntity?
 
+    /** All active claims across a group's bills — input to the group-wide unresolved-bills computation. */
+    @Query("SELECT * FROM item_claims WHERE group_id = :groupId AND deleted_at IS NULL")
+    fun observeByGroup(groupId: String): Flow<List<ItemClaimEntity>>
+
     /** Every local row incl. tombstones — the push side of sync. */
     @Query("SELECT * FROM item_claims")
     suspend fun allForSync(): List<ItemClaimEntity>

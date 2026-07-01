@@ -219,6 +219,25 @@ create index if not exists item_shares_group_idx on public.item_shares (group_id
 create unique index if not exists item_shares_item_user_active_uidx
   on public.item_shares (item_id, user_id) where deleted_at is null;
 
+-- Bill participants: who a "Split the bill" expense is FOR (the creator picks them). The bill surfaces to
+-- each as a "claim your items" card until they've claimed. done_at is the per-person "I'm done" stamp
+-- (a nudge-silencer, not a resolution of the bill). Soft-delete (Rule 1).
+create table if not exists public.bill_participants (
+  id text primary key,
+  expense_id text not null,
+  group_id text not null,
+  user_id text not null,
+  done_at bigint,
+  created_at bigint not null,
+  updated_at bigint not null,
+  row_version bigint not null default 1,
+  deleted_at bigint
+);
+create index if not exists bill_participants_expense_idx on public.bill_participants (expense_id);
+create index if not exists bill_participants_group_idx on public.bill_participants (group_id);
+create unique index if not exists bill_participants_expense_user_active_uidx
+  on public.bill_participants (expense_id, user_id) where deleted_at is null;
+
 create table if not exists public.conflicts (
   id text primary key,
   group_id text not null,
@@ -339,7 +358,7 @@ create index if not exists device_tokens_user_idx on public.device_tokens (user_
 do $$
 declare t text;
 begin
-  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','device_tokens','expense_items','item_claims','item_shares']
+  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','device_tokens','expense_items','item_claims','item_shares','bill_participants']
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists %I on public.%I;', t || '_rw', t);
@@ -357,7 +376,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','expense_items','item_claims','item_shares']
+  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','expense_items','item_claims','item_shares','bill_participants']
   loop
     begin
       execute format('alter publication supabase_realtime add table public.%I;', t);

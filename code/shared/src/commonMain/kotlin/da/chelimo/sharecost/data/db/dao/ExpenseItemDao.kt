@@ -27,6 +27,10 @@ interface ExpenseItemDao {
     @Query("SELECT * FROM expense_items WHERE expense_id = :expenseId AND deleted_at IS NULL ORDER BY sort_order ASC")
     fun observeByExpense(expenseId: String): Flow<List<ExpenseItemEntity>>
 
+    /** All active items of a group's bills — input to the group-wide unresolved-bills computation. */
+    @Query("SELECT * FROM expense_items WHERE group_id = :groupId AND deleted_at IS NULL")
+    fun observeByGroup(groupId: String): Flow<List<ExpenseItemEntity>>
+
     /** Every local row incl. tombstones — the push side of sync. */
     @Query("SELECT * FROM expense_items")
     suspend fun allForSync(): List<ExpenseItemEntity>

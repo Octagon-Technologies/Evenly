@@ -18,6 +18,7 @@ import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.balance.Debt
 import da.chelimo.sharecost.domain.expense.ConflictSide
 import da.chelimo.sharecost.domain.group.Member
+import da.chelimo.sharecost.domain.repository.BillRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.ui.components.moneySubunits
@@ -64,11 +65,13 @@ fun GroupExpensesRoute(
     onOpenSettings: () -> Unit,
     onAdd: () -> Unit,
     onOpenExpense: (String) -> Unit,
+    onOpenBill: (String) -> Unit,
     onSearch: () -> Unit,
     onFilter: () -> Unit,
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val bills = koinInject<BillRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
@@ -82,6 +85,12 @@ fun GroupExpensesRoute(
     val filtered = applyFilter(expenseList, filter, today)
     val sharesById = remember(withShares) { withShares.associate { it.expense.id.value to it.shares } }
     val ui = buildGroupExpenses(group, filtered, members, userId, today, sharesById)
+    val unresolved by remember(gid, userId) { bills.observeUnresolvedBills(gid, userId) }.collectAsStateWithLifecycle(emptyList())
+    val unresolvedUi = unresolved.map { u ->
+        val sub = if (u.unclaimedCount > 0) "${u.unclaimedCount} ${if (u.unclaimedCount == 1) "dish" else "dishes"} still need someone"
+            else "${u.stillToClaimCount} still to claim"
+        UnresolvedBillUi(u.expenseId.value, u.title, moneySubunits(u.amountSubunits, u.currency), sub, u.youNeedToClaim)
+    }
     // Invite link (same source/format as Group settings): the token resolves once the group has synced.
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -95,6 +104,8 @@ fun GroupExpensesRoute(
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("sharecost.app/j/$it")) } },
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
+        unresolvedBills = unresolvedUi,
+        onOpenBill = onOpenBill,
     )
 }
 

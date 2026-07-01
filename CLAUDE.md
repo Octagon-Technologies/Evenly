@@ -140,7 +140,13 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   (soft-delete = opt-out), and `added_by` records who put them in. Adding a friend charges them by default
   (visible + one-tap removable), *not* a confirm-first nudge — the friction budget goes only to the per-line
   reconciliation (`ItemStatus` RESOLVED/UNCLAIMED/OVERCLAIMED), the single thing the UI ever surfaces.
-  `BillRepositoryImpl.setShareMember` is the only shared-set write. `BillRepositoryImpl.materializeShares` runs the
+  `BillRepositoryImpl.setShareMember` is the only shared-set write. A bill also carries a synced
+  participant set (`bill_participants` — who it's *for*, defaulted to the whole group at create, with a
+  per-person `done_at` "I'm done" stamp that's a nudge-silencer, **not** a resolution of the bill);
+  `BillRepository.observeUnresolvedBills` drives the group-home **"claim your items"** card + the
+  **Unresolved bills** section (a bill is unresolved when a line still needs someone *or* a participant
+  hasn't marked done — claiming ≠ paying), and tapping one opens the live claim screen (`Route.ClaimBill`).
+  `BillRepositoryImpl.materializeShares` runs the
   pure `splitBill` engine (`domain/expense/BillSplit.kt`) and writes the resulting `shares` with
   **deterministic ids** (`"<expenseId>__<userId>"`), so every device converges on identical rows and
   editing the menu re-derives *in place* — a price fix never disturbs a recorded claim or its settlement

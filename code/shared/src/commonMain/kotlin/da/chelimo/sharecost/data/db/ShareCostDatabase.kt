@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.Dispatchers
+import da.chelimo.sharecost.data.db.dao.BillParticipantDao
 import da.chelimo.sharecost.data.db.dao.CategoryDao
 import da.chelimo.sharecost.data.db.dao.CommentDao
 import da.chelimo.sharecost.data.db.dao.ConflictDao
@@ -24,6 +25,7 @@ import da.chelimo.sharecost.data.db.dao.ReceiptUploadDao
 import da.chelimo.sharecost.data.db.dao.SettlementDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
 import da.chelimo.sharecost.data.db.dao.UserDao
+import da.chelimo.sharecost.data.db.entity.BillParticipantEntity
 import da.chelimo.sharecost.data.db.entity.CategoryEntity
 import da.chelimo.sharecost.data.db.entity.CommentEntity
 import da.chelimo.sharecost.data.db.entity.ConflictEntity
@@ -81,8 +83,9 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         ExpenseItemEntity::class,
         ItemClaimEntity::class,
         ItemShareEntity::class,
+        BillParticipantEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)
@@ -105,6 +108,7 @@ abstract class ShareCostDatabase : RoomDatabase() {
     abstract fun expenseItemDao(): ExpenseItemDao
     abstract fun itemClaimDao(): ItemClaimDao
     abstract fun itemShareDao(): ItemShareDao
+    abstract fun billParticipantDao(): BillParticipantDao
 }
 
 /**

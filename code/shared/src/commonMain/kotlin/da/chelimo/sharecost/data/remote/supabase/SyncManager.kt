@@ -70,6 +70,7 @@ class SyncManager(
             "users", "groups", "members", "expenses", "shares",
             "settlements", "settlement_allocations", "conflicts", "expense_edit_conflicts",
             "comments", "receipts", "expense_history", "expense_items", "item_claims", "item_shares",
+            "bill_participants",
         )
     }
 }

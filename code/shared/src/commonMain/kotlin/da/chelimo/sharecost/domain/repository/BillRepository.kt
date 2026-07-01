@@ -2,10 +2,12 @@ package da.chelimo.sharecost.domain.repository
 
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.ExpenseId
+import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.domain.expense.BillView
 import da.chelimo.sharecost.domain.expense.EditBill
 import da.chelimo.sharecost.domain.expense.NewBill
+import da.chelimo.sharecost.domain.expense.UnresolvedBill
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -48,4 +50,16 @@ interface BillRepository {
         addedBy: UserId,
         inShare: Boolean,
     ): AppResult<Unit>
+
+    /** Add or remove a participant from a bill (who it's *for*). */
+    suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit>
+
+    /** Stamp / clear a participant's "I'm done claiming" marker (a personal nudge-silencer). */
+    suspend fun markDone(expenseId: ExpenseId, userId: UserId, done: Boolean): AppResult<Unit>
+
+    /**
+     * A group's unresolved bills — itemized expenses with a line still needing someone, or a participant
+     * who hasn't marked done. [viewer] flags the ones where *you* still owe a claim (the home card).
+     */
+    fun observeUnresolvedBills(groupId: GroupId, viewer: UserId?): Flow<List<UnresolvedBill>>
 }

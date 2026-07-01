@@ -1,5 +1,6 @@
 package da.chelimo.sharecost.domain.expense
 
+import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 
@@ -36,7 +37,7 @@ data class BillExtrasInput(
     val discountSubunits: Long = 0L,
 )
 
-/** Input to create a bill: the menu + extras. Claims arrive later, live, as people tap what they had. */
+/** Input to create a bill: the menu + extras + who it's for. Claims arrive later, live. */
 data class NewBill(
     val groupId: GroupId,
     val title: String,
@@ -46,6 +47,7 @@ data class NewBill(
     val createdBy: UserId,
     val items: List<NewBillItem>,
     val extras: BillExtrasInput = BillExtrasInput(),
+    val participantUserIds: List<UserId> = emptyList(),
     val payerOutsideName: String? = null,
     val categoryId: String? = null,
 )
@@ -89,6 +91,25 @@ data class BillShareView(
     val addedBy: UserId,
 )
 
+/** A person the bill is for. [doneAt] is their "I'm done claiming" stamp (null = still to claim). */
+data class BillParticipantView(
+    val userId: UserId,
+    val doneAt: Long?,
+)
+
+/** A group's unresolved "Split the bill" — the home card / unresolved section. */
+data class UnresolvedBill(
+    val expenseId: ExpenseId,
+    val title: String,
+    val currency: String,
+    val amountSubunits: Long,
+    val unclaimedCount: Int,
+    val participantCount: Int,
+    val stillToClaimCount: Int,
+    /** True when the viewer is a participant who hasn't marked done — drives the personal "claim your items" card. */
+    val youNeedToClaim: Boolean,
+)
+
 /**
  * Everything the claim screen renders: the bill, its items, all live claims, the extras, and the
  * derived "tab" per participant. [unclaimedQuantityByItem] drives the "needs someone" highlighting.
@@ -98,6 +119,7 @@ data class BillView(
     val items: List<BillItemView>,
     val claims: List<BillClaimView>,
     val shares: List<BillShareView> = emptyList(),
+    val participants: List<BillParticipantView> = emptyList(),
     val extras: BillExtrasInput,
     val tabByUser: Map<UserId, Long>,
     val reconcile: List<ItemReconcile> = emptyList(),
