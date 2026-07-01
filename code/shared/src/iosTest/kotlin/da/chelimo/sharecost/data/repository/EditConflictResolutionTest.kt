@@ -123,6 +123,39 @@ class EditConflictResolutionTest {
     }
 
     @Test
+    fun observeEditConflicts_exposesBothSidesAndWinner() = runTest {
+        seedCanonical()
+        val rejectedExpense = ExpenseEntity(
+            id = "e1", groupId = "g1", title = "Dinner at Nobu", amountSubunits = 3000, currency = "USD",
+            expenseDate = "2026-06-01", payerUserId = "u1", splitMode = "EXACT",
+            createdBy = "u1", createdAt = 1, updatedAt = 9, rowVersion = 5,
+        )
+        val rejectedShares = listOf(
+            ShareEntity(id = "rs1", expenseId = "e1", userId = "u1", shareOwedSubunits = 0, createdAt = 1, updatedAt = 9),
+            ShareEntity(id = "rs2", expenseId = "e1", userId = "u2", shareOwedSubunits = 1500, createdAt = 1, updatedAt = 9),
+            ShareEntity(id = "rs3", expenseId = "e1", userId = "u3", shareOwedSubunits = 1500, createdAt = 1, updatedAt = 9),
+        )
+        db.expenseEditConflictDao().upsert(
+            ExpenseEditConflictEntity(
+                id = "c1", groupId = "g1", expenseId = "e1", baseVersion = 4, serverVersion = 5,
+                rejectedBy = "u2", serverActor = "u3",
+                rejectedExpense = json.encodeToString(rejectedExpense),
+                rejectedShares = json.encodeToString(rejectedShares),
+                createdAt = 10,
+            ),
+        )
+
+        val conflict = repo.observeEditConflicts(GroupId("g1")).first().single()
+        assertEquals(UserId("u2"), conflict.rejectedBy)
+        assertEquals(UserId("u3"), conflict.winnerBy) // the winner is now recorded, not guessed
+        // Current side = the live canonical shares (even split); rejected side = the parked payload.
+        assertEquals(1000, conflict.current.shares[UserId("u2")])
+        assertEquals(1500, conflict.rejected.shares[UserId("u2")])
+        assertEquals("EVEN", conflict.current.splitMode)
+        assertEquals("EXACT", conflict.rejected.splitMode)
+    }
+
+    @Test
     fun resolve_isIdempotent() = runTest {
         seedCanonical()
         park("Dinner at Nobu", emptyList())

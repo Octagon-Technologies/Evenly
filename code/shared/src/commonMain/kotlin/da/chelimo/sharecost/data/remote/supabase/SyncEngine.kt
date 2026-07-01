@@ -183,8 +183,12 @@ class SyncEngine(
      * Push each dirty expense through the server's `commit_expense` compare-and-swap. The whole
      * expense + its active shares are sent as one unit with the `base_version` we last saw confirmed:
      *  - **created / committed** → adopt the server's new version into the local base tracker.
-     *  - **conflict** (our base is stale) → the server parked our payload in `expense_edit_conflicts`;
-     *    roll the local cache back to the canonical row so the device shows the winning version.
+     *  - **noop** (our base is stale but the payload is materially identical to canonical — a stale
+     *    re-push, or two edits that converged) → silently roll the local cache to canonical. This clears
+     *    the phantom "dirty" flag WITHOUT surfacing a pointless self-conflict card with identical numbers.
+     *  - **conflict** (our base is stale AND the payload genuinely differs) → the server parked our
+     *    payload in `expense_edit_conflicts`; roll the local cache back to the canonical row so the device
+     *    shows the winning version and the parked edit surfaces for a pick-a-side resolution.
      * Soft-deleted expenses are tombstones — propagated by a plain upsert (LWW is safe for deletes).
      */
     private suspend fun pushExpenses(actorUserId: String) {
@@ -204,7 +208,10 @@ class SyncEngine(
             when (result.status) {
                 "created", "committed" ->
                     db.expenseSyncStateDao().upsert(ExpenseSyncStateEntity(e.id, result.version ?: e.rowVersion))
-                "conflict" ->
+                // noop and conflict both roll the local cache to canonical (aligning row_version and
+                // clearing the dirty flag); the difference is server-side — a conflict also parked a row
+                // that surfaces as a card, a noop parked nothing.
+                "noop", "conflict" ->
                     revertExpenseToServer(e.id)
             }
         }

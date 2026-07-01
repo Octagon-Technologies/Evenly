@@ -44,6 +44,12 @@ data class ExpenseEditConflictEntity(
     @ColumnInfo(name = "rejected_by")
     val rejectedBy: String,
 
+    // Actor who wrote the canonical (winning) version this edit lost to. Lets the UI name who you
+    // actually collided with instead of the misleading "you edited this while you did too". Nullable:
+    // conflicts parked before this column existed carry no winner.
+    @ColumnInfo(name = "server_actor")
+    val serverActor: String? = null,
+
     @ColumnInfo(name = "rejected_expense")
     val rejectedExpense: String,
 

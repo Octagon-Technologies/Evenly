@@ -67,6 +67,11 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   (the F1–F8 finish plan + status), `supabase/SETUP.md`, `code/iosApp/PUSH_SETUP.md`,
   `code/FIREBASE_SETUP.md`. The Claude-Design export in `design/` is the **visual source of truth**
   (blue/light; intentionally overrides the spec's dark/green — don't "fix" the UI back toward the spec).
+- **Mock UI before you build it.** For any new screen or non-trivial UI change, produce a faithful
+  visual mockup for the owner to react to *before* writing Compose. The owner iterates on the mock
+  (naming, controls, density, flow) and only then do you implement — this has repeatedly surfaced
+  simplifications that would have been costly to discover in code. Design decisions get made in the
+  mock, not the PR. (For big features, also discuss the data/logic model to agreement first.)
 
 ---
 
@@ -97,10 +102,20 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   `expense_edit_conflicts` instead of clobbering. Shares ride *with* the expense (the RPC soft-deletes
   removed ones server-side), so a losing edit's shares never land on the live `shares` table and corrupt a
   split — do **not** reintroduce a blind bulk `expenses`/`shares` push. Soft-deleted expenses are
-  tombstones (plain upsert, LWW-safe). On a `conflict` result the client reverts its cache to canonical
-  (`ExpenseDao.overwriteFromServer`); the parked edit syncs back for a **pick-a-side** resolution
-  (`ExpenseRepository.observeEditConflicts`/`resolveEditConflict`, both kinds of conflict share the
-  Conflicts tab). The whole rationale is in the "When Two Edits Collide" article in Notion.
+  tombstones (plain upsert, LWW-safe). Before parking, the RPC **suppresses a no-op**: if a stale-base
+  payload is materially identical to canonical (same scalar fields *and* active share split — a stale
+  re-push, or two edits that converged), it returns `noop` instead of `conflict`, and the client silently
+  reverts local to canonical. This is what kills the bogus "you edited this while you did too" cards with
+  identical numbers on both sides — don't remove it. A real conflict records the **winner**:
+  `commit_expense` stamps `expenses.last_editor = p_actor` on every write and copies it into
+  `expense_edit_conflicts.server_actor`, so the client can attribute the collision to the person who
+  actually won (`ExpenseEditConflict.winnerBy`) rather than the misleading `rejected_by` (always the local
+  pusher). On `noop`/`conflict` the client reverts its cache to canonical
+  (`ExpenseDao.overwriteFromServer`); a parked edit syncs back for a **pick-a-side** resolution
+  (`ExpenseRepository.observeEditConflicts` now exposes BOTH full sides — title/amount/split/payer/per-user
+  shares — so `GroupConflictsTab` renders a field-level **diff** led by the viewer's own share, not a bare
+  total; `resolveEditConflict` unchanged; both kinds of conflict share the Conflicts tab). The whole
+  rationale is in the "When Two Edits Collide" article in Notion.
 - **Settlement state is DERIVED on read, never stored.** A share's `remaining` is computed as
   `owed − Σ(applied allocations of non-voided settlements)` (the payer's own share is always 0); balance
   and "settled" follow from it (an expense is settled iff every share's derived remaining is 0). So:

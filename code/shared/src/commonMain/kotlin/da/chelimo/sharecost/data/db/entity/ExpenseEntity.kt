@@ -97,6 +97,12 @@ data class ExpenseEntity(
     @ColumnInfo(name = "created_by")
     val createdBy: String,
 
+    // Who wrote the canonical version (server-maintained by commit_expense). Surfaced as the "winner"
+    // of a parked edit conflict so the UI can say whose change is currently saved. The client never sets
+    // it authoritatively — it's stamped server-side on each commit and read back on pull.
+    @ColumnInfo(name = "last_editor")
+    val lastEditor: String? = null,
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
 

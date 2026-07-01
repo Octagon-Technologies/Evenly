@@ -79,7 +79,7 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         ExpenseItemEntity::class,
         ItemClaimEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)

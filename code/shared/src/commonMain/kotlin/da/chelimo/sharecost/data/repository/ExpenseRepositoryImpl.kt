@@ -23,6 +23,7 @@ import da.chelimo.sharecost.domain.balance.buildBilateralBalances
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.data.db.projection.OutstandingShareRow
+import da.chelimo.sharecost.domain.expense.ConflictSide
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.ExpenseEditConflict
@@ -209,22 +210,50 @@ class ExpenseRepositoryImpl(
 
     override fun observeEditConflicts(groupId: GroupId): Flow<List<ExpenseEditConflict>> {
         val dao = editConflictDao ?: return flowOf(emptyList())
-        // Join each parked edit (its rejected payload) to the live expense so the UI can show both sides.
-        return combine(dao.observeUnresolved(groupId.value), expenseDao.observeByGroup(groupId.value)) { conflicts, expenses ->
+        // Join each parked edit (its rejected payload) to the live expense AND its live shares so the UI
+        // can diff both sides field-by-field (total, split mode, payer, each participant's owed amount) —
+        // not just show a bare total. Current shares come from the group's active share set, keyed by user.
+        return combine(
+            dao.observeUnresolved(groupId.value),
+            expenseDao.observeByGroup(groupId.value),
+            shareDao.observeByGroup(groupId.value),
+        ) { conflicts, expenses, shares ->
             val byId = expenses.associateBy { it.id }
+            val currentSharesByExpense = shares.groupBy { it.expenseId }
             conflicts.mapNotNull { c ->
-                val rejected = runCatching { payloadJson.decodeFromString<ExpenseEntity>(c.rejectedExpense) }.getOrNull()
+                val rejectedExpense = runCatching { payloadJson.decodeFromString<ExpenseEntity>(c.rejectedExpense) }.getOrNull()
                     ?: return@mapNotNull null
+                val rejectedShares = runCatching { payloadJson.decodeFromString<List<ShareEntity>>(c.rejectedShares) }.getOrNull()
+                    ?: emptyList()
                 val current = byId[c.expenseId]
+                // Current side derives from the live expense + its active shares (fall back to the rejected
+                // payload if the expense isn't hydrated yet, so the card still renders).
+                val currentShareMap = currentSharesByExpense[c.expenseId]
+                    ?.associate { UserId(it.userId) to it.shareOwedSubunits }
+                    ?: rejectedShares.filter { it.deletedAt == null }.associate { UserId(it.userId) to it.shareOwedSubunits }
                 ExpenseEditConflict(
                     id = c.id,
                     expenseId = ExpenseId(c.expenseId),
                     rejectedBy = UserId(c.rejectedBy),
-                    currency = current?.currency ?: rejected.currency,
-                    currentTitle = current?.title ?: rejected.title,
-                    currentAmountSubunits = current?.amountSubunits ?: rejected.amountSubunits,
-                    rejectedTitle = rejected.title,
-                    rejectedAmountSubunits = rejected.amountSubunits,
+                    winnerBy = c.serverActor?.let { UserId(it) },
+                    currency = current?.currency ?: rejectedExpense.currency,
+                    current = ConflictSide(
+                        title = current?.title ?: rejectedExpense.title,
+                        amountSubunits = current?.amountSubunits ?: rejectedExpense.amountSubunits,
+                        splitMode = current?.splitMode ?: rejectedExpense.splitMode,
+                        payerUserId = (current?.payerUserId ?: rejectedExpense.payerUserId)?.let { UserId(it) },
+                        payerOutsideName = current?.payerOutsideName ?: rejectedExpense.payerOutsideName,
+                        shares = currentShareMap,
+                    ),
+                    rejected = ConflictSide(
+                        title = rejectedExpense.title,
+                        amountSubunits = rejectedExpense.amountSubunits,
+                        splitMode = rejectedExpense.splitMode,
+                        payerUserId = rejectedExpense.payerUserId?.let { UserId(it) },
+                        payerOutsideName = rejectedExpense.payerOutsideName,
+                        shares = rejectedShares.filter { it.deletedAt == null }
+                            .associate { UserId(it.userId) to it.shareOwedSubunits },
+                    ),
                     createdAt = c.createdAt,
                 )
             }

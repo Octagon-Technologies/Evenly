@@ -85,6 +85,7 @@ create table if not exists public.expenses (
   is_auto_refund boolean not null default false,
   status text not null default 'ACTIVE',
   created_by text not null,
+  last_editor text,                              -- who wrote the canonical version (set by commit_expense); names the "winner" of a parked edit conflict
   created_at bigint not null,
   updated_at bigint not null,
   row_version bigint not null default 1,
@@ -214,7 +215,8 @@ create table if not exists public.expense_edit_conflicts (
   expense_id text not null,
   base_version bigint not null,      -- the version the rejected edit was based on
   server_version bigint not null,    -- the canonical version it lost to
-  rejected_by text not null,         -- actor user id
+  rejected_by text not null,         -- actor user id of the loser (whose edit was parked)
+  server_actor text,                 -- actor who wrote the canonical version (the "winner"); null on legacy rows
   rejected_expense text not null,    -- loser's full expense payload (JSON as text, so the Room wire-DTO round-trips it)
   rejected_shares text not null,     -- loser's full share set (JSON as text)
   created_at bigint not null,
@@ -425,6 +427,9 @@ begin
 end;
 $$;
 
+-- On every write we stamp `last_editor = p_actor` so a parked conflict can name the winner. Before
+-- parking, we suppress a *no-op* edit (one materially identical to canonical) so a stale re-push or two
+-- converged edits don't surface a pointless self-conflict; a genuine divergence records `server_actor`.
 create or replace function public.commit_expense(
   p_expense jsonb,
   p_shares jsonb,
@@ -440,12 +445,16 @@ declare
   v_current public.expenses%rowtype;
   v_new_version bigint;
   v_conflict_id text;
+  v_current_shares jsonb;
+  v_incoming_shares jsonb;
+  v_same boolean;
 begin
   select * into v_current from public.expenses where id = v_id for update;
 
   if not found then
     insert into public.expenses
       select * from jsonb_populate_record(null::public.expenses, p_expense);
+    update public.expenses set last_editor = p_actor where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
     return jsonb_build_object('status', 'created', 'version', coalesce((p_expense->>'row_version')::bigint, 1));
   end if;
@@ -464,20 +473,51 @@ begin
       category_id        = p_expense->>'category_id',
       subcategory_id     = p_expense->>'subcategory_id',
       updated_at         = v_now,
-      row_version        = v_new_version
+      row_version        = v_new_version,
+      last_editor        = p_actor
     where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
     return jsonb_build_object('status', 'committed', 'version', v_new_version);
-  else
-    v_conflict_id := v_id || ':' || p_base_version::text || ':' || p_actor;
-    insert into public.expense_edit_conflicts(
-      id, group_id, expense_id, base_version, server_version, rejected_by,
-      rejected_expense, rejected_shares, created_at)
-    values (
-      v_conflict_id, v_group_id, v_id, p_base_version, v_current.row_version, p_actor,
-      p_expense::text, p_shares::text, v_now)
-    on conflict (id) do nothing;
-    return jsonb_build_object('status', 'conflict', 'server_version', v_current.row_version, 'conflict_id', v_conflict_id);
   end if;
+
+  -- Base is stale (canonical advanced past p_base_version). Before parking, compare the incoming
+  -- payload to canonical: if the scalar fields AND the active share split are all identical, the two
+  -- edits converged (or this is a stale re-push of an already-applied change). Parking it would surface
+  -- a pointless "you edited this while you did too" card with the same numbers on both sides, so return
+  -- 'noop' and let the client silently adopt canonical instead.
+  select coalesce(jsonb_object_agg(user_id, share_owed_subunits), '{}'::jsonb)
+    into v_current_shares
+    from public.shares where expense_id = v_id and deleted_at is null;
+  select coalesce(jsonb_object_agg(s->>'user_id', (s->>'share_owed_subunits')::bigint), '{}'::jsonb)
+    into v_incoming_shares
+    from jsonb_array_elements(p_shares) s
+    where s->>'deleted_at' is null;
+
+  v_same := v_current.deleted_at is null
+    and v_current.title              is not distinct from p_expense->>'title'
+    and v_current.notes              is not distinct from p_expense->>'notes'
+    and v_current.amount_subunits    is not distinct from (p_expense->>'amount_subunits')::bigint
+    and v_current.currency           is not distinct from p_expense->>'currency'
+    and v_current.expense_date       is not distinct from p_expense->>'expense_date'
+    and v_current.payer_user_id      is not distinct from p_expense->>'payer_user_id'
+    and v_current.payer_outside_name is not distinct from p_expense->>'payer_outside_name'
+    and v_current.split_mode         is not distinct from p_expense->>'split_mode'
+    and v_current.category_id        is not distinct from p_expense->>'category_id'
+    and v_current.subcategory_id     is not distinct from p_expense->>'subcategory_id'
+    and v_current_shares = v_incoming_shares;
+
+  if v_same then
+    return jsonb_build_object('status', 'noop', 'version', v_current.row_version);
+  end if;
+
+  v_conflict_id := v_id || ':' || p_base_version::text || ':' || p_actor;
+  insert into public.expense_edit_conflicts(
+    id, group_id, expense_id, base_version, server_version, rejected_by, server_actor,
+    rejected_expense, rejected_shares, created_at)
+  values (
+    v_conflict_id, v_group_id, v_id, p_base_version, v_current.row_version, p_actor, v_current.last_editor,
+    p_expense::text, p_shares::text, v_now)
+  on conflict (id) do nothing;
+  return jsonb_build_object('status', 'conflict', 'server_version', v_current.row_version, 'conflict_id', v_conflict_id);
 end;
 $$;

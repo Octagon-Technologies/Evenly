@@ -16,9 +16,11 @@ import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.todayUtc
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.balance.Debt
+import da.chelimo.sharecost.domain.expense.ConflictSide
 import da.chelimo.sharecost.domain.group.Member
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
+import da.chelimo.sharecost.ui.components.moneySubunits
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import kotlin.time.Clock
@@ -41,6 +43,16 @@ fun buildBalances(debts: List<Debt>, members: List<Member>, currentUserId: UserI
             peerUserId = peer.value,
         )
     }
+}
+
+/** Human label for a stored `split_mode` token, for the edit-conflict diff. */
+private fun humanizeSplitMode(mode: String): String = when (mode.uppercase()) {
+    "EVEN" -> "Even"
+    "EXACT" -> "Exact"
+    "PERCENT" -> "Percent"
+    "SHARE" -> "Shares"
+    "ITEMIZED" -> "Itemized"
+    else -> mode.lowercase().replaceFirstChar { it.uppercase() }
 }
 
 /** Expenses tab content, wired. */
@@ -132,13 +144,68 @@ fun GroupConflictsRoute(
         )
     }
     val editUis = editConflicts.map { ec ->
+        val cur = ec.current
+        val rej = ec.rejected
+        val currency = ec.currency
+        val loserName = nameOf(ec.rejectedBy)
+        val winnerName = ec.winnerBy?.let { nameOf(it) }
+        // Name the OTHER party involved (the one who isn't you): if you lost, that's the winner; if you
+        // won, that's the loser. Fixes the misleading "You edited this while you did too" that came from
+        // labelling the card by rejected_by (always the local pusher) with no record of who actually won.
+        val otherName = when {
+            ec.winnerBy == userId -> loserName
+            ec.rejectedBy == userId -> winnerName ?: "Someone"
+            else -> winnerName ?: loserName
+        }
+        fun possessive(name: String) = if (name == "You") "yours" else "$name's"
+        fun payerLabel(side: ConflictSide) = side.payerUserId?.let { nameOf(it) } ?: side.payerOutsideName ?: "—"
+
+        // Only surface fields that actually differ between the two versions — that's the decision surface.
+        val rows = buildList {
+            if (cur.amountSubunits != rej.amountSubunits)
+                add(ConflictRowUi("Total", moneySubunits(cur.amountSubunits, currency), moneySubunits(rej.amountSubunits, currency)))
+            if (cur.splitMode != rej.splitMode)
+                add(ConflictRowUi("Split", humanizeSplitMode(cur.splitMode), humanizeSplitMode(rej.splitMode)))
+            if (cur.payerUserId != rej.payerUserId || cur.payerOutsideName != rej.payerOutsideName)
+                add(ConflictRowUi("Paid by", payerLabel(cur), payerLabel(rej)))
+            if (cur.title != rej.title)
+                add(ConflictRowUi("Title", cur.title, rej.title))
+            // Other participants whose owed amount changed (the viewing user is in the highlighted row).
+            (cur.shares.keys + rej.shares.keys).filter { it != userId }.distinct().forEach { uid ->
+                val a = cur.shares[uid]
+                val b = rej.shares[uid]
+                if (a != b) add(
+                    ConflictRowUi(
+                        nameOf(uid),
+                        a?.let { moneySubunits(it, currency) } ?: "—",
+                        b?.let { moneySubunits(it, currency) } ?: "—",
+                    ),
+                )
+            }
+        }
+        val yourCurrent = userId?.let { cur.shares[it] }
+        val yourRejected = userId?.let { rej.shares[it] }
+        val yourShare = if (yourCurrent != null || yourRejected != null) ConflictCompareUi(
+            currentText = yourCurrent?.let { moneySubunits(it, currency) } ?: "—",
+            rejectedText = yourRejected?.let { moneySubunits(it, currency) } ?: "—",
+            changed = yourCurrent != yourRejected,
+        ) else null
+
         EditConflictUi(
             conflictId = ec.id,
-            by = nameOf(ec.rejectedBy),
-            currentTitle = ec.currentTitle,
-            currentAmount = ec.currentAmountSubunits / 100.0,
-            rejectedTitle = ec.rejectedTitle,
-            rejectedAmount = ec.rejectedAmountSubunits / 100.0,
+            headline = "$otherName edited this while you did too",
+            expenseTitle = cur.title,
+            subhead = when {
+                winnerName == null -> "This version stays unless you switch"
+                winnerName == "You" -> "Your version is currently saved"
+                else -> "$winnerName's version is currently saved"
+            },
+            currentColLabel = winnerName ?: "Saved",
+            rejectedColLabel = loserName,
+            yourShare = yourShare,
+            rows = rows,
+            keepLabel = if (winnerName == null) "Keep current" else "Keep ${possessive(winnerName)}",
+            useLabel = "Use ${possessive(loserName)}",
         )
     }
     GroupConflictsTab(
