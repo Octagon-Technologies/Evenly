@@ -232,6 +232,26 @@ class BillRepositoryImpl(
             itemClaimDao.softDeleteByItems(removedItemIds, now)
             itemShareDao.softDeleteByItems(removedItemIds, now)
         }
+        // Reconcile participants (only when the caller manages them — an empty set never wipes silently):
+        // add the newly-selected, soft-delete the deselected, and preserve surviving rows' done stamp.
+        if (input.participantUserIds.isNotEmpty()) {
+            val desired = input.participantUserIds.mapTo(HashSet()) { it.value }
+            val existingParts = billParticipantDao.getByExpense(expenseId.value)
+            val existingUsers = existingParts.mapTo(HashSet()) { it.userId }
+            val added = desired.filter { it !in existingUsers }.map { uid ->
+                BillParticipantEntity(
+                    id = newId(),
+                    expenseId = expenseId.value,
+                    groupId = existing.groupId,
+                    userId = uid,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            }
+            if (added.isNotEmpty()) billParticipantDao.upsertAll(added)
+            val removedParts = existingParts.filter { it.userId !in desired }.map { it.id }
+            if (removedParts.isNotEmpty()) billParticipantDao.softDeleteByIds(removedParts, now)
+        }
         materializeShares(updated, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
         return AppResult.Ok(Unit)

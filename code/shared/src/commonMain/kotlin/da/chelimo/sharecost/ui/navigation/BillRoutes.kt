@@ -55,6 +55,7 @@ import da.chelimo.sharecost.ui.screen.bill.ClaimBillState
 import da.chelimo.sharecost.ui.screen.bill.ClaimItemUi
 import da.chelimo.sharecost.ui.screen.bill.ClaimParticipantUi
 import da.chelimo.sharecost.ui.screen.bill.EditBillState
+import da.chelimo.sharecost.ui.screen.bill.ParticipantChipUi
 import da.chelimo.sharecost.ui.screen.bill.editBillItemUi
 import da.chelimo.sharecost.ui.screen.bill.priceToSubunits
 import da.chelimo.sharecost.ui.screen.expense.format2dp
@@ -146,6 +147,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         currencyCode = currency,
         saving = saving,
         scanning = scanning,
+        participants = members.map { ParticipantChipUi(it.userId.value, if (it.userId == userId) "You" else (it.displayName ?: "Someone"), it.userId == userId) },
+        initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
         onBack = onBack,
         onScanReceipt = { source ->
             scope.launch {
@@ -180,8 +183,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             createdBy = me,
                             items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
-                            // Default the bill to everyone in the group; deselecting participants is a later refinement.
-                            participantUserIds = members.map { it.userId },
+                            participantUserIds = submit.participantIds.map { UserId(it) },
                         ),
                     )
                     when (result) {
@@ -197,6 +199,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             payerUserId = existing?.expense?.payerUserId ?: me,
                             items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
+                            participantUserIds = submit.participantIds.map { UserId(it) },
                             editedBy = me,
                         ),
                     )

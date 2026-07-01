@@ -59,6 +59,7 @@ data class EditBill(
     val payerUserId: UserId?,
     val items: List<EditBillItem>,
     val extras: BillExtrasInput,
+    val participantUserIds: List<UserId> = emptyList(),
     val payerOutsideName: String? = null,
     val editedBy: UserId? = null,
 )

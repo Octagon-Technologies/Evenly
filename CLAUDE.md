@@ -141,8 +141,10 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   (visible + one-tap removable), *not* a confirm-first nudge — the friction budget goes only to the per-line
   reconciliation (`ItemStatus` RESOLVED/UNCLAIMED/OVERCLAIMED), the single thing the UI ever surfaces.
   `BillRepositoryImpl.setShareMember` is the only shared-set write. A bill also carries a synced
-  participant set (`bill_participants` — who it's *for*, defaulted to the whole group at create, with a
-  per-person `done_at` "I'm done" stamp that's a nudge-silencer, **not** a resolution of the bill);
+  participant set (`bill_participants` — who it's *for*, chosen in the editor via a select-all/deselect
+  chip row that defaults to the whole group; the creator pares it down. `editBill` reconciles the set but
+  an empty selection never silently wipes it). Each participant carries a per-person `done_at` "I'm done"
+  stamp that's a nudge-silencer, **not** a resolution of the bill;
   `BillRepository.observeUnresolvedBills` drives the group-home **"claim your items"** card + the
   **Unresolved bills** section (a bill is unresolved when a line still needs someone *or* a participant
   hasn't marked done — claiming ≠ paying), and tapping one opens the live claim screen (`Route.ClaimBill`).

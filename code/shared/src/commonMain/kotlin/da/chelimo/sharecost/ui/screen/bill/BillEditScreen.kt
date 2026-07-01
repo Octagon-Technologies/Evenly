@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -97,6 +99,9 @@ data class EditBillState(
     val discountText: String,
 )
 
+/** A group member shown as a selectable participant chip on the bill. */
+data class ParticipantChipUi(val userId: String, val name: String, val isMe: Boolean)
+
 /** What the editor emits on save — strings parsed to subunits by the wrapper. */
 data class EditBillSubmit(
     val title: String,
@@ -106,6 +111,7 @@ data class EditBillSubmit(
     val tipSubunits: Long,
     val tipEven: Boolean,
     val discountSubunits: Long,
+    val participantIds: Set<String>,
 )
 
 /** Parse a "18.50" style string to integer minor units; blank/garbage → 0. */
@@ -119,6 +125,7 @@ fun priceToSubunits(text: String): Long {
  * after — saving re-derives shares without disturbing claims. DI-free; the wrapper supplies state and
  * handles persistence + the optional receipt scan.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BillEditScreen(
     editing: Boolean,
@@ -126,6 +133,8 @@ fun BillEditScreen(
     currencyCode: String = "USD",
     saving: Boolean = false,
     scanning: Boolean = false,
+    participants: List<ParticipantChipUi> = emptyList(),
+    initialSelectedIds: Set<String> = emptySet(),
     onBack: () -> Unit = {},
     onScanReceipt: (PickSource) -> Unit = {},
     onSave: (EditBillSubmit) -> Unit = {},
@@ -139,6 +148,11 @@ fun BillEditScreen(
     var tipText by remember { mutableStateOf(initial?.tipText ?: "") }
     var tipEven by remember { mutableStateOf(initial?.tipEven ?: true) }
     var discountText by remember { mutableStateOf(initial?.discountText ?: "") }
+    // Null = "everyone" (the default, resilient to members loading async); an explicit set once the user
+    // deselects. So a fresh bill defaults to the whole group and the creator pares it down.
+    var selected by remember { mutableStateOf(initialSelectedIds.takeIf { it.isNotEmpty() }) }
+    val allIds = participants.mapTo(LinkedHashSet()) { it.userId }
+    val effectiveSelected: Set<String> = selected ?: allIds
 
     val symbol = currencySymbol(currencyCode)
     val subtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
@@ -169,6 +183,41 @@ fun BillEditScreen(
         ) {
             ScField("Name") {
                 ScTextField(title, { title = it }, placeholder = "Dinner at Tavolo")
+            }
+
+            // Who's on this bill — defaults to everyone; deselect anyone who wasn't there.
+            if (participants.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Who's on this bill", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        val allOn = effectiveSelected.size >= allIds.size
+                        Text(
+                            if (allOn) "Deselect all" else "Select all",
+                            color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                                .clickable { selected = if (allOn) emptySet() else allIds }
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                        )
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        participants.forEach { p ->
+                            val on = p.userId in effectiveSelected
+                            val shape = RoundedCornerShape(999.dp)
+                            Row(
+                                Modifier.clip(shape)
+                                    .background(if (on) c.blueTint else c.page)
+                                    .then(if (on) Modifier else Modifier.border(1.dp, c.borderStrong, shape))
+                                    .clickable { selected = if (on) effectiveSelected - p.userId else effectiveSelected + p.userId }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                if (on) ScIcon(ScIcons.Check, size = 14.dp, tint = c.blue)
+                                Text(if (p.isMe) "You" else p.name, color = if (on) c.blue else c.ink, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
+                            }
+                        }
+                    }
+                }
             }
 
             // Items
@@ -224,6 +273,7 @@ fun BillEditScreen(
                             tipSubunits = priceToSubunits(tipText),
                             tipEven = tipEven,
                             discountSubunits = priceToSubunits(discountText),
+                            participantIds = effectiveSelected,
                         ),
                     )
                 },
