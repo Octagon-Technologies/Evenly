@@ -10,6 +10,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.core.id.SettlementId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.core.time.todayUtc
@@ -22,10 +23,13 @@ import da.chelimo.sharecost.domain.expense.CategoryDefaults
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.NewExpense
 import da.chelimo.sharecost.domain.expense.NewShare
+import da.chelimo.sharecost.domain.expense.SPLIT_MODE_ITEMIZED
 import da.chelimo.sharecost.domain.repository.ActivityRepository
 import da.chelimo.sharecost.domain.repository.CategoryRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
+import da.chelimo.sharecost.domain.repository.SettlementRepository
+import da.chelimo.sharecost.domain.settlement.PaymentApp
 import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.PdfRasterizer
 import da.chelimo.sharecost.platform.PickKind
@@ -44,6 +48,7 @@ import da.chelimo.sharecost.ui.screen.expense.DetailShareUi
 import da.chelimo.sharecost.ui.screen.expense.ExpenseDetailScreen
 import da.chelimo.sharecost.ui.screen.expense.ExpenseDetailState
 import da.chelimo.sharecost.ui.screen.expense.HistoryUi
+import da.chelimo.sharecost.ui.screen.expense.PaymentUi
 import da.chelimo.sharecost.ui.screen.expense.PickedReceiptUi
 import da.chelimo.sharecost.ui.screen.expense.ReceiptUi
 import da.chelimo.sharecost.ui.screen.expense.ReceiptUploadUi
@@ -52,6 +57,7 @@ import da.chelimo.sharecost.ui.screen.expense.SplitMode
 import da.chelimo.sharecost.ui.screen.expense.format2dp
 import da.chelimo.sharecost.ui.screen.group.GroupHomeScreen
 import da.chelimo.sharecost.ui.screen.group.buildGroupExpenses
+import da.chelimo.sharecost.ui.screen.settle.appLabel
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.compose.getKoin
@@ -62,7 +68,7 @@ import kotlin.time.ExperimentalTime
 /** Add expense, wired: real members as participants; Save persists the split the editor computed. */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
+fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, onSwitchToItemized: (String) -> Unit = {}) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
     val categoriesRepo = koinInject<CategoryRepository>()
@@ -94,6 +100,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit) {
         receipts = pickedReceipts.map { PickedReceiptUi(it.mimeType.contains("pdf", ignoreCase = true)) },
         receiptsEnabled = uploadManager != null,
         onBack = onBack,
+        onSwitchToItemized = onSwitchToItemized,
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name) } },
         onPickReceipt = { source ->
             scope.launch {
@@ -246,10 +253,14 @@ fun ExpenseDetailRoute(
     onBack: () -> Unit,
     onSettleThis: () -> Unit,
     onEdit: () -> Unit = {},
+    // Where "Edit" goes for an ITEMIZED bill — the live claim screen, not the percent/exact/even editor
+    // (which is meaningless when the split is derived from items). Wired to Route.ClaimBill.
+    onOpenClaim: () -> Unit = {},
     onDeleted: () -> Unit = {},
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val settlements = koinInject<SettlementRepository>()
     val auth = koinInject<AuthSession>()
     val activity = koinInject<ActivityRepository>()
     val filePicker = koinInject<FilePicker>()
@@ -272,6 +283,7 @@ fun ExpenseDetailRoute(
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val comments by remember(eid) { activity.observeComments(eid) }.collectAsStateWithLifecycle(emptyList())
+    val payments by remember(eid) { settlements.observePaymentsForExpense(eid) }.collectAsStateWithLifecycle(emptyList())
     val receipts by remember(eid) { activity.observeReceipts(eid) }.collectAsStateWithLifecycle(emptyList())
     val history by remember(eid) { activity.observeHistory(eid) }.collectAsStateWithLifecycle(emptyList())
     val pendingUploads by remember(eid) {
@@ -292,6 +304,11 @@ fun ExpenseDetailRoute(
         id == userId -> "You"
         else -> nameByUser[id.value] ?: "Someone"
     }
+    // An itemized bill's shares only cover what's been claimed *so far*; the rest of the bill total isn't
+    // yet anyone's. Surface that gap as an explicit "Unclaimed" row so the split still sums to the total —
+    // e.g. of 5 diners, if only Andrew + Bob have claimed, the detail shows Andrew, Bob, then Unclaimed.
+    val isItemized = e.splitMode == SPLIT_MODE_ITEMIZED
+    val unclaimedSubunits = if (isItemized) (e.amountSubunits - ews.shares.sumOf { it.owedSubunits }).coerceAtLeast(0L) else 0L
     val rows = ews.shares.map { s ->
         DetailShareUi(
             name = nameOf(s.userId),
@@ -301,7 +318,9 @@ fun ExpenseDetailRoute(
             me = s.userId == userId,
             payer = s.userId == e.payerUserId,
         )
-    }
+    } + if (unclaimedSubunits > 0L) {
+        listOf(DetailShareUi(name = "Unclaimed", owedSubunits = unclaimedSubunits, paidSubunits = 0L, remainingSubunits = unclaimedSubunits))
+    } else emptyList()
 
     // One "now" per data change keeps the relative stamps ("2h") stable within a frame.
     val now = remember(comments, receipts, history) { Clock.System.nowEpochMillis() }
@@ -319,6 +338,20 @@ fun ExpenseDetailRoute(
         )
     }
     val historyUi = history.map { ev -> HistoryUi(historyText(ev, e.currency) { nameOf(it) }, relativeTimeLabel(ev.createdAt, now)) }
+    val paymentUi = payments.map { s ->
+        // What an edit can raise this payment to: what the payer owes on this expense (their share). The
+        // repository enforces the precise ceiling — this only drives the inline hint in the editor.
+        val owedByPayer = ews.shares.firstOrNull { it.userId == s.fromUserId }?.owedSubunits ?: s.paymentAmountSubunits
+        PaymentUi(
+            id = s.id.value,
+            payerName = nameOf(s.fromUserId),
+            byMe = s.fromUserId == userId,
+            amountSubunits = s.paymentAmountSubunits,
+            maxSubunits = owedByPayer,
+            app = s.paymentApp?.let { name -> runCatching { PaymentApp.valueOf(name).appLabel }.getOrDefault(name) },
+            dateLabel = relativeTimeLabel(s.settledAt, now),
+        )
+    }
 
     ExpenseDetailScreen(
         state = ExpenseDetailState.Content,
@@ -327,10 +360,11 @@ fun ExpenseDetailRoute(
         payerName = if (e.payerUserId == null) (e.payerOutsideName ?: "Someone") else nameOf(e.payerUserId),
         dateLabel = e.expenseDate,
         amountSubunits = e.amountSubunits,
-        remainingSubunits = ews.shares.sumOf { it.remainingSubunits },
+        remainingSubunits = ews.shares.sumOf { it.remainingSubunits } + unclaimedSubunits,
         currencyCode = e.currency,
-        splitLabel = "Split between ${ews.shares.size} · ${e.splitMode.lowercase()}",
+        splitLabel = if (isItemized) "Split by items · ${ews.shares.size} claimed" else "Split between ${ews.shares.size} · ${e.splitMode.lowercase()}",
         splitRows = rows,
+        payments = paymentUi,
         receipts = receiptUi,
         pendingUploads = pendingUi,
         comments = commentUi,
@@ -360,7 +394,12 @@ fun ExpenseDetailRoute(
         renderPdfPage = { url, page, w -> getPdfBytes(url)?.let { rasterizer.renderPage(it, page, w) } },
         onBack = onBack,
         onSettleThis = onSettleThis,
-        onEdit = onEdit,
+        onEditPayment = { id, amount -> scope.launch { settlements.editSettlement(SettlementId(id), amount, userId) } },
+        onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
+        // Editing an itemized bill means claiming, not re-splitting by percent/exact/even — route accordingly.
+        onEdit = if (isItemized) onOpenClaim else onEdit,
+        // …and surface that same claim screen as a prominent button under the split, not just the ⋯ menu.
+        onClaimItems = if (isItemized) onOpenClaim else null,
         onDelete = { scope.launch { if (expenses.deleteExpense(eid) is AppResult.Ok) onDeleted() } },
     )
 }

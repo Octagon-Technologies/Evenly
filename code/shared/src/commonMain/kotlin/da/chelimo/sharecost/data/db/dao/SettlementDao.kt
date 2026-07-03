@@ -40,6 +40,27 @@ interface SettlementDao {
     )
     fun observeByGroup(groupId: String): Flow<List<SettlementEntity>>
 
+    /**
+     * Non-voided settlements whose payment lands **entirely** on [expenseId]'s shares — the payments
+     * recorded against this one expense (via "Settle this"). A relationship-wide settlement that also paid
+     * other expenses is deliberately excluded: editing or removing it from an expense screen would
+     * silently re-scope another expense's balance. Newest first.
+     */
+    @Query(
+        """
+        SELECT st.* FROM settlements st
+        WHERE st.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM settlement_allocations sa INNER JOIN shares sh ON sh.id = sa.share_id
+            WHERE sa.settlement_id = st.id AND sh.expense_id = :expenseId)
+          AND NOT EXISTS (
+            SELECT 1 FROM settlement_allocations sa2 INNER JOIN shares sh2 ON sh2.id = sa2.share_id
+            WHERE sa2.settlement_id = st.id AND sh2.expense_id <> :expenseId)
+        ORDER BY st.settled_at DESC
+        """
+    )
+    fun observeByExpense(expenseId: String): Flow<List<SettlementEntity>>
+
     @Query("SELECT * FROM settlement_allocations WHERE settlement_id = :settlementId")
     suspend fun allocationsForSettlement(settlementId: String): List<SettlementAllocationEntity>
 

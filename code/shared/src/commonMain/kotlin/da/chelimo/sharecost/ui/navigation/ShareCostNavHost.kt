@@ -102,7 +102,7 @@ fun ShareCostNavHost(
                 groupId = r.groupId,
                 initialTab = GroupTab.entries.firstOrNull { it.name == r.tab } ?: GroupTab.Expenses,
                 onBack = { navController.popBackStack() },
-                onAdd = { navController.navigate(Route.NewExpenseChoice(r.groupId)) },
+                onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
                 onOpenBill = { navController.navigate(Route.ClaimBill(r.groupId, it)) },
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
@@ -147,12 +147,24 @@ fun ShareCostNavHost(
                 onBack = { navController.popBackStack() },
                 onSettleThis = { navController.navigate(Route.SettleExpense(r.groupId, r.expenseId)) },
                 onEdit = { navController.navigate(Route.EditExpense(r.groupId, r.expenseId)) },
+                onOpenClaim = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
                 onDeleted = { navController.popBackStack() },
             )
         }
         composable<Route.AddExpense> { entry ->
             val r = entry.toRoute<Route.AddExpense>()
-            AddExpenseRoute(groupId = r.groupId, onBack = { navController.popBackStack() }, onSaved = { navController.popBackStack() })
+            AddExpenseRoute(
+                groupId = r.groupId,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
+                // "By what each had" hands off to the itemized bill editor, replacing this editor on the
+                // back stack (inclusive pop) so Back from the bill returns to the group, not here.
+                onSwitchToItemized = { titleText ->
+                    navController.navigate(Route.SplitBill(r.groupId, title = titleText)) {
+                        popUpTo(Route.AddExpense(r.groupId)) { inclusive = true }
+                    }
+                },
+            )
         }
         composable<Route.EditExpense> { entry ->
             val r = entry.toRoute<Route.EditExpense>()
@@ -160,24 +172,16 @@ fun ShareCostNavHost(
         }
 
         // ── Split the bill (itemized) ───────────────────────────────────
-        composable<Route.NewExpenseChoice> { entry ->
-            val r = entry.toRoute<Route.NewExpenseChoice>()
-            NewExpenseChoiceRoute(
-                groupId = r.groupId,
-                onDismiss = { navController.popBackStack() },
-                onEven = { navController.navigate(Route.AddExpense(r.groupId)) { popUpTo(Route.NewExpenseChoice(r.groupId)) { inclusive = true } } },
-                onSplitBill = { navController.navigate(Route.SplitBill(r.groupId)) { popUpTo(Route.NewExpenseChoice(r.groupId)) { inclusive = true } } },
-            )
-        }
         composable<Route.SplitBill> { entry ->
             val r = entry.toRoute<Route.SplitBill>()
             BillEditRoute(
                 groupId = r.groupId,
                 expenseId = r.expenseId,
+                newTitle = r.title,
                 onBack = { navController.popBackStack() },
                 onCreated = { newId ->
                     navController.navigate(Route.ClaimBill(r.groupId, newId)) {
-                        popUpTo(Route.SplitBill(r.groupId, r.expenseId)) { inclusive = true }
+                        popUpTo(Route.SplitBill(r.groupId, r.expenseId, r.title)) { inclusive = true }
                     }
                 },
             )

@@ -95,6 +95,7 @@ class BillRepositoryImpl(
                 claimViews.toIndividualClaims(),
                 shareViews.toSharedMembers(),
                 extras.toEngine(),
+                participants = participants.map { UserId(it.userId) },
             )
             BillView(
                 expense = expense.toDomain(),
@@ -104,6 +105,7 @@ class BillRepositoryImpl(
                 participants = participants.map { BillParticipantView(UserId(it.userId), it.doneAt) },
                 extras = extras,
                 tabByUser = result.owedByUser,
+                tabBreakdownByUser = result.breakdownByUser,
                 reconcile = result.items,
             )
         }
@@ -282,6 +284,10 @@ class BillRepositoryImpl(
                 ),
             )
         }
+        // Solo-claiming a single unit takes you out of its share (the two are mutually exclusive there).
+        if (quantity > 0 && isSingleUnit(expenseId, itemId)) {
+            itemShareDao.getActiveShare(itemId, userId.value)?.let { itemShareDao.softDeleteByIds(listOf(it.id), now) }
+        }
         materializeShares(expense, now)
         return AppResult.Ok(Unit)
     }
@@ -315,9 +321,19 @@ class BillRepositoryImpl(
             )
             // already a member → no-op (the set is idempotent; auto-union means re-adding is harmless)
         }
+        // A single unit can't be both solo-claimed and split: joining its share drops your individual claim
+        // (else it lingers and would resurrect as a solo claim if you later leave the share). Multi-unit
+        // lines legitimately mix individual + leftover-share, so leave those alone.
+        if (inShare && isSingleUnit(expenseId, itemId)) {
+            itemClaimDao.getActiveClaim(itemId, memberUserId.value)?.let { itemClaimDao.softDeleteByIds(listOf(it.id), now) }
+        }
         materializeShares(expense, now)
         return AppResult.Ok(Unit)
     }
+
+    /** True when the item is a single-unit line (where individual claim and share are mutually exclusive). */
+    private suspend fun isSingleUnit(expenseId: ExpenseId, itemId: String): Boolean =
+        expenseItemDao.getByExpense(expenseId.value).firstOrNull { it.id == itemId }?.quantity == 1
 
     override suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit> {
         val expense = expenseDao.getById(expenseId.value)

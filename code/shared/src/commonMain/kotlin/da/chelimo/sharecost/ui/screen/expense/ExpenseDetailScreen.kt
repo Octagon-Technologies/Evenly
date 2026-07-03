@@ -59,8 +59,10 @@ import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScModalScaffold
 import da.chelimo.sharecost.ui.components.ScProgress
 import da.chelimo.sharecost.ui.components.ScSectionLabel
+import da.chelimo.sharecost.ui.components.ScAmountInput
 import da.chelimo.sharecost.ui.components.ScSkeleton
 import da.chelimo.sharecost.ui.components.ScSkeletonRow
+import da.chelimo.sharecost.ui.components.amountTextToSubunits
 import da.chelimo.sharecost.ui.components.moneySubunits
 import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.platform.PickSource
@@ -77,6 +79,21 @@ data class DetailShareUi(
     val remainingSubunits: Long,
     val me: Boolean = false,
     val payer: Boolean = false,
+)
+
+/**
+ * A payment recorded against this expense (a single-expense settlement). [maxSubunits] is the ceiling an
+ * edit can raise it to (what the payer owes on this expense) — used for inline validation; the repository
+ * is the true guard. [app] is a display label ("Venmo") or null; [dateLabel] a short relative stamp.
+ */
+data class PaymentUi(
+    val id: String,
+    val payerName: String,
+    val byMe: Boolean,
+    val amountSubunits: Long,
+    val maxSubunits: Long,
+    val app: String? = null,
+    val dateLabel: String = "",
 )
 
 /** A receipt thumbnail (F5). [url] null = still uploading / unavailable; [isPdf] renders a file tile. */
@@ -114,6 +131,7 @@ fun ExpenseDetailScreen(
     currencyCode: String = "USD",
     splitLabel: String = "Split between 4 · even",
     splitRows: List<DetailShareUi> = DemoSplit,
+    payments: List<PaymentUi> = emptyList(),
     receipts: List<ReceiptUi> = emptyList(),
     pendingUploads: List<ReceiptUploadUi> = emptyList(),
     comments: List<CommentUi> = DemoComments,
@@ -130,13 +148,23 @@ fun ExpenseDetailScreen(
     renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     onBack: () -> Unit = {},
     onSettleThis: () -> Unit = {},
+    // Correct a recorded payment: raise/lower its amount (void + re-record, guarded ≤ owed).
+    onEditPayment: (paymentId: String, newAmountSubunits: Long) -> Unit = { _, _ -> },
+    // Remove a recorded payment entirely (void it); its balance is restored.
+    onRemovePayment: (paymentId: String) -> Unit = {},
     onReload: () -> Unit = {},
     onEdit: () -> Unit = {},
+    // Non-null only for an itemized ("Split the bill") expense — renders a prominent "claim or edit your
+    // items" button under the split, the durable way into the claim screen once the home card is gone.
+    onClaimItems: (() -> Unit)? = null,
     onDelete: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var overflow by remember { mutableStateOf(false) }
     var showReceiptSource by remember { mutableStateOf(false) }
+    // The payment whose action sheet (Edit amount / Remove) is open, then the one being amount-edited.
+    var actionPayment by remember { mutableStateOf<PaymentUi?>(null) }
+    var editingPayment by remember { mutableStateOf<PaymentUi?>(null) }
     // Index of the receipt the in-app viewer is showing, or null when it's closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     // Your own row leads the breakdown — it's what you're here to check. `sortedByDescending` is stable,
@@ -213,9 +241,47 @@ fun ExpenseDetailScreen(
                     }
                 }
 
+                // payments — the recorded settlements against this expense. Each is tappable to correct or
+                // remove it (the only way to fix a wrong amount or clear an overpayment after a split edit).
+                if (payments.isNotEmpty()) {
+                    Column {
+                        ScSectionLabel("Payments")
+                        ScCard {
+                            payments.forEachIndexed { i, p ->
+                                val divider = if (i > 0) Modifier.topHairline(c.border) else Modifier
+                                Row(
+                                    Modifier.fillMaxWidth().then(divider).clickable { actionPayment = p }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    ScAvatar(p.payerName, me = p.byMe, size = AvatarSize.Sm)
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(if (p.byMe) "You paid" else "${p.payerName} paid", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        val sub = listOfNotNull(p.app, p.dateLabel.ifBlank { null }).joinToString(" · ")
+                                        if (sub.isNotEmpty()) Text(sub, color = c.ink2, fontSize = 12.sp)
+                                    }
+                                    Text(moneySubunits(p.amountSubunits, currencyCode), color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
+                                    ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.ink3)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // split breakdown
                 Column {
                     ScSectionLabel(splitLabel)
+                    // For an itemized bill, the split is derived from who claimed what — so give people an
+                    // obvious way to open the claim screen and change what they had, instead of hiding it in
+                    // the ⋯ menu. This is the durable entry once the home "claim your items" card is gone.
+                    onClaimItems?.let { open ->
+                        ScButton(
+                            "Claim or edit your items", open,
+                            modifier = Modifier.padding(bottom = 10.dp),
+                            variant = ButtonVariant.Tonal, leadingIcon = ScIcons.Receipt,
+                        )
+                    }
                     ScCard {
                         split.forEachIndexed { i, s ->
                             val divider = if (i > 0) Modifier.topHairline(c.border) else Modifier
@@ -256,8 +322,18 @@ fun ExpenseDetailScreen(
                                 // (for your own share) an inline settle action. Green once fully settled.
                                 val canSettle = s.me && s.remainingSubunits > 0
                                 val cleared = s.remainingSubunits == 0L
+                                // Overpaid (a split edited *down* after payment): show it as an in-credit
+                                // "you're owed back" row — orange outline + orange number, calm not alarming.
+                                val overpaid = s.remainingSubunits < 0L
+                                val rowShape = RoundedCornerShape(12.dp)
+                                val rowMod = if (overpaid) {
+                                    Modifier.fillMaxWidth().padding(10.dp).clip(rowShape).background(c.page)
+                                        .border(1.5.dp, c.credit, rowShape).padding(horizontal = 14.dp, vertical = 12.dp)
+                                } else {
+                                    Modifier.fillMaxWidth().then(divider).then(mineRail).padding(horizontal = 16.dp, vertical = 14.dp)
+                                }
                                 Row(
-                                    Modifier.fillMaxWidth().then(divider).then(mineRail).padding(horizontal = 16.dp, vertical = 14.dp),
+                                    rowMod,
                                     verticalAlignment = Alignment.Top,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
@@ -272,16 +348,25 @@ fun ExpenseDetailScreen(
                                                 color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f),
                                             )
                                             Text(
-                                                if (cleared) "settled" else moneySubunits(s.remainingSubunits, currencyCode) + " left",
-                                                color = if (cleared) c.settled else if (s.me) c.blue else c.ink,
+                                                when {
+                                                    overpaid -> moneySubunits(-s.remainingSubunits, currencyCode) + " back"
+                                                    cleared -> "settled"
+                                                    else -> moneySubunits(s.remainingSubunits, currencyCode) + " left"
+                                                },
+                                                color = when {
+                                                    overpaid -> c.credit
+                                                    cleared -> c.settled
+                                                    s.me -> c.blue
+                                                    else -> c.ink
+                                                },
                                                 fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily,
                                             )
                                         }
                                         ScProgress(
-                                            if (s.owedSubunits > 0) s.paidSubunits.toFloat() / s.owedSubunits else 0f,
+                                            if (s.owedSubunits > 0) (s.paidSubunits.toFloat() / s.owedSubunits).coerceIn(0f, 1f) else 0f,
                                             Modifier.fillMaxWidth(),
-                                            fill = if (cleared) c.settled else c.blue,
-                                            track = if (cleared) c.settledTint2 else c.blueTint2,
+                                            fill = if (overpaid) c.credit else if (cleared) c.settled else c.blue,
+                                            track = if (overpaid) c.creditTint else if (cleared) c.settledTint2 else c.blueTint2,
                                         )
                                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                             Text("Paid ${moneySubunits(s.paidSubunits, currencyCode)} of ${moneySubunits(s.owedSubunits, currencyCode)}", color = if (s.me) c.ink2 else c.ink3, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.weight(1f))
@@ -399,6 +484,45 @@ fun ExpenseDetailScreen(
             OverflowRow(ScIcons.Camera, "Camera", c.blue, c.ink) { showReceiptSource = false; onPickReceipts(PickSource.Camera) }
         }
     }
+
+    // Tap a payment → correct or remove it. Remove is destructive (voids the payment); Edit opens the
+    // amount editor below. Both are how a wrong amount — or a post-split-edit overpayment — gets fixed.
+    actionPayment?.let { p ->
+        ScModalScaffold(onDismiss = { actionPayment = null }) {
+            Text(moneySubunits(p.amountSubunits, currencyCode), color = c.ink, style = MaterialTheme.typography.titleMedium)
+            val sub = listOfNotNull(if (p.byMe) "You paid" else "${p.payerName} paid", p.app, p.dateLabel.ifBlank { null }).joinToString(" · ")
+            Text(sub, color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+            OverflowRow(ScIcons.Edit, "Edit amount", c.blue, c.ink) { actionPayment = null; editingPayment = p }
+            OverflowRow(ScIcons.Trash, "Remove payment", c.danger, c.danger) { actionPayment = null; onRemovePayment(p.id) }
+        }
+    }
+
+    editingPayment?.let { p ->
+        var amountText by remember(p.id) { mutableStateOf(format2dp(p.amountSubunits / 100.0)) }
+        val enteredSubunits = amountTextToSubunits(amountText)
+        val tooHigh = enteredSubunits > p.maxSubunits
+        val valid = enteredSubunits in 1..p.maxSubunits
+        ScModalScaffold(onDismiss = { editingPayment = null }) {
+            Text("Edit payment", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+            Text("Correct what ${if (p.byMe) "you" else p.payerName} actually paid.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+            ScAmountInput(
+                text = amountText,
+                onTextChange = { amountText = it },
+                currency = currencyCode,
+                helper = if (tooHigh) "Can't exceed the ${moneySubunits(p.maxSubunits, currencyCode)} owed" else "Up to the ${moneySubunits(p.maxSubunits, currencyCode)} owed on this expense",
+                helperColor = if (tooHigh) c.danger else c.ink2,
+            )
+            // Keep Save live and validate on tap (guide-when-blocked): a valid amount commits, an invalid
+            // one just leaves the helper showing why. The repository re-guards regardless.
+            ScButton("Save", {
+                if (valid) {
+                    val id = p.id
+                    editingPayment = null
+                    onEditPayment(id, enteredSubunits)
+                }
+            }, leadingIcon = ScIcons.Check, modifier = Modifier.padding(top = 14.dp))
+        }
+    }
 }
 
 /**
@@ -434,27 +558,55 @@ private fun PersonalStatusBand(
         )
     } else {
         if (myRow.owedSubunits == 0L) return
+        // Negative remaining = you paid more than you now owe (a split edited down after you paid) → in credit.
+        val overpaid = myRow.remainingSubunits < 0L
         val done = myRow.remainingSubunits == 0L
         BandState(
-            label = if (done) "You're all settled up" else "You still owe",
-            amount = if (done) null else moneySubunits(myRow.remainingSubunits, currencyCode),
+            label = when {
+                overpaid -> "You're owed back"
+                done -> "You're all settled up"
+                else -> "You still owe"
+            },
+            amount = when {
+                overpaid -> moneySubunits(-myRow.remainingSubunits, currencyCode)
+                done -> null
+                else -> moneySubunits(myRow.remainingSubunits, currencyCode)
+            },
             fraction = myRow.paidSubunits.toFloat() / myRow.owedSubunits,
             caption = "Paid ${moneySubunits(myRow.paidSubunits, currencyCode)} of your ${moneySubunits(myRow.owedSubunits, currencyCode)} share",
             done = done,
+            credit = overpaid,
         )
     }
-    // Owing → calm blue (action); fully settled → green (done). Same shape, theme-driven recolor.
-    val accent = if (state.done) c.settled else c.blue
-    val fill = if (state.done) c.settledTint else c.blueTint
-    val track = if (state.done) c.settledTint2 else c.blueTint2
+    // Owing → calm blue (action); fully settled → green (done); overpaid → warm amber "in credit" — a
+    // white band with an orange outline so only the number pops (per design), not a filled block.
+    val accent = when {
+        state.credit -> c.credit
+        state.done -> c.settled
+        else -> c.blue
+    }
+    val fill = when {
+        state.credit -> c.page
+        state.done -> c.settledTint
+        else -> c.blueTint
+    }
+    val track = when {
+        state.credit -> c.creditTint
+        state.done -> c.settledTint2
+        else -> c.blueTint2
+    }
+    val bandShape = RoundedCornerShape(12.dp)
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(fill).padding(horizontal = 13.dp, vertical = 11.dp),
+        modifier.fillMaxWidth().clip(bandShape).background(fill)
+            .then(if (state.credit) Modifier.border(1.5.dp, c.credit, bandShape) else Modifier)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (state.done) ScIcon(ScIcons.Check, size = 16.dp, tint = accent)
-                Text(state.label, color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                // Label stays ink on the credit band — only the amount is orange.
+                Text(state.label, color = if (state.credit) c.ink else accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
             state.amount?.let {
                 Text(it, color = accent, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
@@ -474,6 +626,7 @@ private data class BandState(
     val fraction: Float,
     val caption: String,
     val done: Boolean,
+    val credit: Boolean = false,
 )
 
 @Composable

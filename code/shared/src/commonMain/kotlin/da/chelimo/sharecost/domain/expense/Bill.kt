@@ -123,6 +123,7 @@ data class BillView(
     val participants: List<BillParticipantView> = emptyList(),
     val extras: BillExtrasInput,
     val tabByUser: Map<UserId, Long>,
+    val tabBreakdownByUser: Map<UserId, TabBreakdown> = emptyMap(),
     val reconcile: List<ItemReconcile> = emptyList(),
 ) {
     /** Claimed unit count per item (summed across people) — compare to quantity for "left"/over-claim. */

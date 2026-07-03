@@ -1,28 +1,11 @@
 package da.chelimo.sharecost.ui.navigation
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.ExpenseId
@@ -47,10 +30,6 @@ import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.PickKind
 import da.chelimo.sharecost.platform.PickedFile
-import da.chelimo.sharecost.ui.components.ScCard
-import da.chelimo.sharecost.ui.components.ScSheetScaffold
-import da.chelimo.sharecost.ui.components.icon.ScIcon
-import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.screen.bill.BillClaimScreen
 import da.chelimo.sharecost.ui.screen.bill.BillEditScreen
 import da.chelimo.sharecost.ui.screen.bill.ClaimBillState
@@ -64,7 +43,6 @@ import da.chelimo.sharecost.ui.screen.bill.ScanUiState
 import da.chelimo.sharecost.ui.screen.bill.editBillItemUi
 import da.chelimo.sharecost.ui.screen.bill.priceToSubunits
 import da.chelimo.sharecost.ui.screen.expense.format2dp
-import da.chelimo.sharecost.ui.theme.ShareCostTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.koin.compose.getKoin
@@ -74,57 +52,14 @@ import kotlin.time.ExperimentalTime
 
 private fun subunitsToText(subunits: Long): String = if (subunits == 0L) "" else format2dp(subunits / 100.0)
 
-/** The FAB chooser: "Split the bill" vs the ordinary even/custom expense. */
-@Composable
-fun NewExpenseChoiceRoute(groupId: String, onDismiss: () -> Unit, onEven: () -> Unit, onSplitBill: () -> Unit) {
-    ScSheetScaffold(onDismiss = onDismiss, title = "Add an expense") {
-        ChoiceCard(
-            icon = ScIcons.Receipt,
-            title = "Split the bill",
-            subtitle = "Everyone picks what they had",
-            featured = true,
-            onClick = onSplitBill,
-        )
-        Box(Modifier.size(10.dp))
-        ChoiceCard(
-            icon = ScIcons.Users,
-            title = "Split evenly or custom",
-            subtitle = "Rent, groceries, a shared cost",
-            featured = false,
-            onClick = onEven,
-        )
-        Box(Modifier.size(8.dp))
-    }
-}
-
-@Composable
-private fun ChoiceCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, featured: Boolean, onClick: () -> Unit) {
-    val c = ShareCostTheme.colors
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(if (featured) c.blueTint else c.page)
-            .then(if (featured) Modifier else Modifier.padding(0.dp))
-            .clickable(onClick = onClick)
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(c.page), contentAlignment = Alignment.Center) {
-            ScIcon(icon, size = 20.dp, tint = c.blue)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = c.ink2, fontSize = 13.sp)
-        }
-        ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.ink3)
-    }
-}
-
-/** Create or edit a bill (the menu + extras). On create, lands on the live claim screen. */
+/**
+ * Create or edit a bill (the menu + extras). On create, lands on the live claim screen. [newTitle] seeds
+ * the name on a brand-new bill — it's whatever the user typed in the Add-expense editor before flipping to
+ * "By what each had", so the itemized bill starts pre-named instead of dropping their input on the floor.
+ */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCreated: (String) -> Unit, newTitle: String? = null) {
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
@@ -155,6 +90,16 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // For edit, wait until the bill loads so the editor's initial state is correct.
     if (expenseId != null && existing == null) return
 
+    // A new bill starts from the title carried over from the Add-expense editor (if any); an edit seeds
+    // from the saved bill. A blank carried title falls through to the editor's own empty default.
+    val initialState = if (expenseId == null) {
+        newTitle?.takeIf { it.isNotBlank() }?.let { EditBillState(
+            title = it,
+            items = listOf(editBillItemUi(null, "", 1, 0L)),
+            taxText = "", gratuityText = "", tipText = "", discountText = "",
+        ) }
+    } else existing?.toEditState()
+
     // Run the pick → OCR round-trip as a cancellable job, mapping the typed ScanOutcome to sheet state.
     fun runScan(files: List<PickedFile>) {
         if (files.isEmpty()) return
@@ -178,7 +123,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
 
     BillEditScreen(
         editing = expenseId != null,
-        initial = existing?.toEditState(),
+        initial = initialState,
         scanned = scanned,
         currencyCode = currency,
         saving = saving,
@@ -293,17 +238,20 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
     val participantViews = view.participants
         .map { ClaimParticipantUi(it.userId.value, nameOf(it.userId), it.userId == me) }
         .ifEmpty { members.map { ClaimParticipantUi(it.userId.value, nameOf(it.userId), it.userId == me) } }
-    val imDone = me != null && view.participants.any { it.userId == me && it.doneAt != null }
+    val myBreak = me?.let { view.tabBreakdownByUser[it] }
     val state = ClaimBillState(
         title = view.expense.title,
         currency = view.expense.currency,
         yourTabSubunits = me?.let { view.tabByUser[it] } ?: 0L,
+        // Tax cell folds gratuity (already in taxSubunits) and nets discount, so Food + Tax + Tip == tab.
+        myFoodSubunits = myBreak?.itemsSubunits ?: 0L,
+        myTaxSubunits = (myBreak?.taxSubunits ?: 0L) - (myBreak?.discountSubunits ?: 0L),
+        myTipSubunits = myBreak?.tipSubunits ?: 0L,
         totalSubunits = view.expense.amountSubunits,
         claimedSubunits = view.tabByUser.values.sum(),
         items = items,
         participants = participantViews,
         myUserId = me?.value,
-        imDone = imDone,
         livePeople = (view.claims.map { it.userId } + view.shares.map { it.userId }).distinct().size,
     )
 
@@ -322,9 +270,11 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
         onAskGroup = onAskGroup,
         onDone = {
             val who = me ?: return@BillClaimScreen
+            // One "Done": stamp it and leave. No reopen toggle — claims are never locked, so returning to
+            // the bill and changing something Just Works; there's nothing to "reopen".
             scope.launch {
-                bills.markDone(eid, who, !imDone)
-                if (!imDone) onBack()
+                bills.markDone(eid, who, true)
+                onBack()
             }
         },
     )

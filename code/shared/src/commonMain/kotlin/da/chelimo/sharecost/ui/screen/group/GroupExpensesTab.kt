@@ -110,6 +110,9 @@ fun GroupExpensesTab(
     val c = ShareCostTheme.colors
     var sub by remember { mutableStateOf("Active") }
     var showInvite by remember { mutableStateOf(false) }
+    // Default open; the collapse choice sticks for the whole visit (state lives above the section so it
+    // survives the bills momentarily emptying and re-appearing).
+    var claimsExpanded by remember { mutableStateOf(true) }
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(c.surface)) {
         ScTopBar(
@@ -146,7 +149,9 @@ fun GroupExpensesTab(
             FilterFunnel(active = filterActive, onClick = onFilter)
         }
         if (filterActive) FilterChipRow(onClearFilter)
-        if (unresolvedBills.isNotEmpty()) UnresolvedBillsSection(unresolvedBills, onOpenBill)
+        if (unresolvedBills.isNotEmpty()) {
+            UnresolvedBillsSection(unresolvedBills, claimsExpanded, { claimsExpanded = !claimsExpanded }, onOpenBill)
+        }
 
         // The sub-tab narrows by settlement status; drop days that have nothing under the active view.
         val visibleDays = days.mapNotNull { day ->

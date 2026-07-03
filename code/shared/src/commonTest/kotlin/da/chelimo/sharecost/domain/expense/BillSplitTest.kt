@@ -122,6 +122,21 @@ class BillSplitTest {
         assertEquals(1, r.overClaimedCount)
     }
 
+    // A single unit that was individually claimed AND then shared is treated as fully shared: the whole
+    // line splits across the set ($5 ÷ 2 = $2.50), never $0.00 from a zero "leftover". Stray claim ignored.
+    @Test
+    fun singleUnit_claimedThenShared_isFullyShared() {
+        val items = listOf(item("juice", 500L, 1))
+        val r = splitBill(
+            items,
+            indiv(IndividualClaim("juice", A, 1)),                        // A had checked it…
+            shared(SharedMember("juice", A), SharedMember("juice", B)),   // …then split it with B
+            BillExtras(),
+        )
+        assertEquals(mapOf(A to 250L, B to 250L), r.owedByUser)           // $5 ÷ 2, not A=$5 / B=$0
+        assertEquals(ItemStatus.RESOLVED, statusOf(r, "juice"))
+    }
+
     // Tax + gratuity proportional, tip even (the default).
     @Test
     fun taxGratuityProportional_tipEven() {
@@ -148,6 +163,48 @@ class BillSplitTest {
         val disc = splitBill(items, claims, shared(), BillExtras(discountSubunits = 1000L))
         assertEquals(5400L, disc.owedByUser[A])
         assertEquals(3600L, disc.owedByUser[B])
+    }
+
+    // Regression (the $5-juice-shows-$102 bug): an early/sole claimant must NOT absorb the whole bill's
+    // tax/gratuity/tip. Extras ride proportional to the FULL bill subtotal; the unclaimed remainder stays
+    // unbilled until those items are claimed. Full subtotal $256 ($5 juice + $251 mains); A claims only the
+    // juice. A pays $5 + a proportional sliver of the $97.60 extras — ~$6.91 — never the whole $102.60.
+    @Test
+    fun earlyClaimant_doesNotAbsorbAllExtras() {
+        val items = listOf(item("juice", 500L, 1), item("mains", 25100L, 1))
+        val extras = BillExtras(taxSubunits = 2068L, gratuitySubunits = 5292L, tipSubunits = 2400L, tipSplitMode = TipSplitMode.PROPORTIONAL)
+        val r = splitBill(items, indiv(IndividualClaim("juice", A, 1)), shared(), extras, participants = listOf(A, B, C))
+        assertEquals(691L, r.owedByUser[A]) // $5.00 + $1.44 tax/grat + $0.47 tip — not $102.60
+    }
+
+    // An EVEN tip splits per head across the bill's participants (stable), not just whoever's claimed so
+    // far: with 3 participants and only A claiming, A owes 1/3 of the tip, not all of it.
+    @Test
+    fun evenTip_perParticipant_notJustClaimants() {
+        val items = listOf(item("a", 1000L, 1), item("b", 1000L, 1))
+        val r = splitBill(
+            items, indiv(IndividualClaim("a", A, 1)), shared(),
+            BillExtras(tipSubunits = 3000L, tipSplitMode = TipSplitMode.EVEN), participants = listOf(A, B, C),
+        )
+        assertEquals(2000L, r.owedByUser[A]) // $10 item + $10 tip (30 ÷ 3), not $10 + $30
+    }
+
+    // The per-person breakdown (food/tax/tip) the claim screen shows: parts sum to the tab, and the tax
+    // part folds gratuity in.
+    @Test
+    fun breakdown_partsSumToTab_taxFoldsGratuity() {
+        val items = listOf(item("a", 6000L, 1), item("b", 4000L, 1))
+        val r = splitBill(
+            items, indiv(IndividualClaim("a", A, 1), IndividualClaim("b", B, 1)), shared(),
+            BillExtras(taxSubunits = 800L, gratuitySubunits = 1200L, tipSubunits = 1000L, tipSplitMode = TipSplitMode.EVEN),
+            participants = listOf(A, B),
+        )
+        val a = r.breakdownByUser[A]!!
+        assertEquals(6000L, a.itemsSubunits)
+        assertEquals(1200L, a.taxSubunits) // (800 tax + 1200 gratuity) × 6000/10000, folded
+        assertEquals(500L, a.tipSubunits)  // 1000 ÷ 2 participants
+        assertEquals(r.owedByUser[A], a.totalSubunits) // parts reconcile to the tab
+        assertEquals(7700L, a.totalSubunits)
     }
 
     // Nothing claimed → empty tab, every line UNCLAIMED, never a divide-by-zero on a proportional extra.

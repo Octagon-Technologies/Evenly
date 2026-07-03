@@ -64,10 +64,25 @@ data class ItemReconcile(
     val status: ItemStatus,
 )
 
-/** The engine's output: what each participant owes, plus the per-line reconciliation. */
+/**
+ * One person's tab broken into its parts, so the claim screen can *explain* the number instead of a bare
+ * total (a $5 juice quietly becoming $6.94 reads as a bug). [taxSubunits] folds gratuity in; the parts sum
+ * to the tab: items + tax + tip − discount.
+ */
+data class TabBreakdown(
+    val itemsSubunits: Long,
+    val taxSubunits: Long,
+    val tipSubunits: Long,
+    val discountSubunits: Long,
+) {
+    val totalSubunits: Long get() = itemsSubunits + taxSubunits + tipSubunits - discountSubunits
+}
+
+/** The engine's output: what each participant owes (+ the breakdown behind it), plus the per-line reconciliation. */
 data class BillResult(
     val owedByUser: Map<UserId, Long>,
     val items: List<ItemReconcile>,
+    val breakdownByUser: Map<UserId, TabBreakdown> = emptyMap(),
 ) {
     /** A bill is resolved once every line is fully and correctly claimed (no unclaimed units, no over-claim). */
     val fullyResolved: Boolean get() = items.all { it.status == ItemStatus.RESOLVED }
@@ -84,13 +99,18 @@ data class BillResult(
  *
  * A line's remaining (un-individually-claimed) units are absorbed by its shared set, split evenly and
  * penny-exact. A line is UNCLAIMED if units are left over and nobody shares it, OVERCLAIMED if more units
- * were individually claimed than ordered, else RESOLVED. Extras spread over whatever's been claimed.
+ * were individually claimed than ordered, else RESOLVED. Extras are billed proportional to each person's
+ * share of the WHOLE bill (an even tip: per head across [participants]) — so the still-unclaimed portion
+ * stays unbilled instead of piling onto the first claimant.
  */
 fun splitBill(
     items: List<BillItem>,
     individualClaims: List<IndividualClaim>,
     sharedMembers: List<SharedMember>,
     extras: BillExtras,
+    // The people the bill is *for* — used only to split an EVEN tip per head (stable regardless of who
+    // has claimed yet). Empty falls back to the current claimants, preserving older callers/tests.
+    participants: List<UserId> = emptyList(),
 ): BillResult {
     val indivByItem = individualClaims.groupBy { it.itemId }
     val sharersByItem = sharedMembers.groupBy { it.itemId }.mapValues { (_, ms) -> ms.map { it.userId }.distinct() }
@@ -99,12 +119,17 @@ fun splitBill(
     val reconcile = ArrayList<ItemReconcile>(items.size)
 
     for (item in items) {
-        val unitsByUser = indivByItem[item.itemId].orEmpty()
+        val sharers = sharersByItem[item.itemId].orEmpty()
+        // A single unit can't be both solo-claimed AND split — the moment it has a share set, the whole
+        // line is shared and any individual claim on it is ignored. This is what makes a $5 juice split
+        // "$5 ÷ 2 = $2.50", not "$0.00" (which happened when someone checked it *and* shared it: the
+        // "leftover" pool the share divides was 0). Multi-unit lines still mix individual + leftover share.
+        val fullyShared = item.quantity == 1 && sharers.isNotEmpty()
+        val unitsByUser = if (fullyShared) emptyMap() else indivByItem[item.itemId].orEmpty()
             .groupBy { it.userId }
             .mapValues { (_, cs) -> cs.sumOf { it.units } }
             .filter { it.value > 0 }
         val totalIndiv = unitsByUser.values.sum()
-        val sharers = sharersByItem[item.itemId].orEmpty()
         val quantity = item.quantity
         val remainder = quantity - totalIndiv
 
@@ -146,29 +171,45 @@ fun splitBill(
     val subtotals = subtotal.toList()
     if (subtotals.isEmpty()) return BillResult(emptyMap(), reconcile)
 
-    val proportionalShares = byShareOrEven(extras.taxSubunits + extras.gratuitySubunits, subtotals)
-    val discountShares = byShareOrEven(extras.discountSubunits, subtotals)
+    // Extras (tax/gratuity/discount, and a PROPORTIONAL tip) ride proportional to each person's share of
+    // the WHOLE bill's item subtotal — NOT just what's been claimed so far. Otherwise the first person to
+    // claim absorbs 100% of tax + tip (a $5 juice showing a $102 tab). The still-unclaimed portion of the
+    // bill rides a phantom bucket whose slice is computed then dropped — it gets billed as those items are
+    // claimed, so every person's own share stays stable and correct throughout live claiming.
+    val fullSubtotal = items.sumOf { it.lineTotalSubunits }
+    val claimedSum = subtotals.sumOf { it.second }
+    fun proportionalToFullBill(amount: Long): Map<UserId, Long> {
+        if (amount == 0L) return emptyMap()
+        // All-free bill (no subtotal to weight by) → even split among claimants, never divide-by-zero.
+        if (fullSubtotal <= 0L) return allocate(amount, subtotals.map { it.first to 1L })
+        val unclaimed = (fullSubtotal - claimedSum).coerceAtLeast(0L)
+        return allocate(amount, subtotals + (UNCLAIMED_BUCKET to unclaimed)) - UNCLAIMED_BUCKET
+    }
+
+    val proportionalShares = proportionalToFullBill(extras.taxSubunits + extras.gratuitySubunits)
+    val discountShares = proportionalToFullBill(extras.discountSubunits)
     val tipShares = when (extras.tipSplitMode) {
-        TipSplitMode.PROPORTIONAL -> byShareOrEven(extras.tipSubunits, subtotals)
+        TipSplitMode.PROPORTIONAL -> proportionalToFullBill(extras.tipSubunits)
+        // Even per head across everyone the bill is for (stable regardless of claim order); non-claimers
+        // just don't pick up their slice until they claim. Fall back to claimants when no set is supplied.
         TipSplitMode.EVEN -> if (extras.tipSubunits == 0L) emptyMap()
-            else allocate(extras.tipSubunits, subtotals.map { it.first to 1L })
+            else allocate(extras.tipSubunits, participants.ifEmpty { subtotals.map { it.first } }.map { it to 1L })
     }
 
-    val owed = subtotals.associate { (id, sub) ->
-        id to sub + (proportionalShares[id] ?: 0L) - (discountShares[id] ?: 0L) + (tipShares[id] ?: 0L)
+    val breakdown = subtotals.associate { (id, sub) ->
+        id to TabBreakdown(
+            itemsSubunits = sub,
+            taxSubunits = proportionalShares[id] ?: 0L, // tax + gratuity
+            tipSubunits = tipShares[id] ?: 0L,
+            discountSubunits = discountShares[id] ?: 0L,
+        )
     }
-    return BillResult(owed, reconcile)
+    val owed = breakdown.mapValues { (_, b) -> b.totalSubunits }
+    return BillResult(owed, reconcile, breakdown)
 }
 
-/**
- * Allocate [amount] across [subtotals] by their relative size, falling back to an even split when every
- * subtotal is 0 (so a proportional extra on an all-free bill can't divide-by-zero). Zero amount → no rows.
- */
-private fun byShareOrEven(amount: Long, subtotals: List<Pair<UserId, Long>>): Map<UserId, Long> {
-    if (amount == 0L) return emptyMap()
-    return if (subtotals.sumOf { it.second } > 0L) allocate(amount, subtotals)
-    else allocate(amount, subtotals.map { it.first to 1L })
-}
+/** Sentinel weight-bucket for the un-yet-claimed portion of a bill; its extras slice is computed then dropped. */
+private val UNCLAIMED_BUCKET = UserId(" unclaimed")
 
 /**
  * The **derived** per-unit price shown next to the "each" field — the line total shared evenly and

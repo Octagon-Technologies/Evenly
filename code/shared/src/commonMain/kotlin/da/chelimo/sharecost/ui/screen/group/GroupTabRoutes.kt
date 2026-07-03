@@ -89,7 +89,7 @@ fun GroupExpensesRoute(
     val unresolvedUi = unresolved.map { u ->
         val sub = if (u.unclaimedCount > 0) "${u.unclaimedCount} ${if (u.unclaimedCount == 1) "dish" else "dishes"} still need someone"
             else "${u.stillToClaimCount} still to claim"
-        UnresolvedBillUi(u.expenseId.value, u.title, moneySubunits(u.amountSubunits, u.currency), sub, u.youNeedToClaim)
+        UnresolvedBillUi(u.expenseId.value, u.title, sub, u.youNeedToClaim)
     }
     // Invite link (same source/format as Group settings): the token resolves once the group has synced.
     val scope = rememberCoroutineScope()

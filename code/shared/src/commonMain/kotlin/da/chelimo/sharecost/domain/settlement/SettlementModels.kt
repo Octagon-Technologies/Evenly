@@ -19,6 +19,8 @@ data class SettlementRecord(
     val paymentAmountSubunits: Long,
     val settledAt: Long,
     val notes: String?,
+    /** Which payment app was used ("VENMO"…), if any — surfaced on the expense's payments list. */
+    val paymentApp: String? = null,
 )
 
 /**

@@ -103,6 +103,9 @@ fun AddExpenseScreen(
     onAddPlaceholder: (String) -> Unit = {},
     onPickReceipt: (PickSource) -> Unit = {},
     onRemoveReceipt: (Int) -> Unit = {},
+    // Leaves this editor for the itemized bill flow, carrying the title already typed. Only offered on a
+    // *new* expense (editing a divided split into an itemized one isn't a thing) — see [SplitApproachSelector].
+    onSwitchToItemized: (String) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     val scope = rememberCoroutineScope()
@@ -380,6 +383,12 @@ fun AddExpenseScreen(
             // split
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Split", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                // The honest first question: divide one total (the four modes below) or itemize (a whole
+                // different flow, where the total *builds up* from claimed items). Itemizing hands off to
+                // the bill editor, so it's a one-way door offered only when creating.
+                if (!editing) {
+                    SplitApproachSelector(onItemized = { onSwitchToItemized(title.trim()) })
+                }
                 ScSegmented(options = SplitMode.labels, selected = split, onSelect = { split = it })
                 ScCard(modifier = Modifier.padding(top = 4.dp)) {
                     selectedList.forEachIndexed { i, p ->
@@ -592,6 +601,41 @@ fun AddExpenseScreen(
                     }, enabled = outsideDraft.isNotBlank())
                 }
             }
+        }
+    }
+}
+
+/**
+ * The top-tier split choice: "Divide the total" (this editor, always the active side) vs "By what each
+ * person had" (the itemized bill flow). It reads like a segmented control, but the itemize side isn't a
+ * selectable state here — tapping it navigates away, so it's a launcher, not a toggle. Presenting itemize
+ * one level *above* Even/Shares/%/Exact is deliberate: those four are ways to divide a known total; this
+ * is a different beast where the total is derived from items, so it doesn't belong beside them.
+ */
+@Composable
+private fun SplitApproachSelector(onItemized: () -> Unit) {
+    val c = ShareCostTheme.colors
+    val track = RoundedCornerShape(11.dp)
+    val cell = RoundedCornerShape(9.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(track).background(c.blueTint).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        // Active side — this very editor. A raised white chip, like the selected cell of ScSegmented.
+        Column(
+            Modifier.weight(1f).clip(cell).background(c.page).border(1.dp, c.borderStrong, cell).padding(vertical = 9.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Divide the total", color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("Evenly, %, shares, exact", color = c.ink2, fontSize = 11.sp)
+        }
+        // Itemize side — a doorway into the bill editor.
+        Column(
+            Modifier.weight(1f).clip(cell).clickable(onClick = onItemized).padding(vertical = 9.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("By what each had", color = c.bluePressed, fontSize = 13.sp)
+            Text("Claim items", color = c.ink2, fontSize = 11.sp)
         }
     }
 }

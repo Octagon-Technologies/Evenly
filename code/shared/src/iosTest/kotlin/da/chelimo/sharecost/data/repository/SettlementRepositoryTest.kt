@@ -132,6 +132,42 @@ class SettlementRepositoryTest {
     }
 
     @Test
+    fun editSettlement_correctsAmount_reallocates() = runTest {
+        val e1 = owedExpense("2026-06-01", 1000, payer = "u1", debtor = "u2")
+        val applied = settlements.applySettlement(newSettlement(1000).copy(expenseId = e1.id))
+        assertTrue(applied is AppResult.Ok)
+        assertEquals(0, remaining(e1.id)) // fully paid
+
+        // Correct the recorded payment down to 600 → 400 still owed; the old payment is replaced in place.
+        val edited = settlements.editSettlement(applied.value.id, 600)
+        assertTrue(edited is AppResult.Ok)
+        assertEquals(600, edited.value.paymentAmountSubunits)
+        assertEquals(400, remaining(e1.id))
+
+        // Exactly one live payment on the expense (old voided, new recorded).
+        val payments = settlements.observePaymentsForExpense(e1.id).first()
+        assertEquals(1, payments.size)
+        assertEquals(600, payments.first().paymentAmountSubunits)
+    }
+
+    @Test
+    fun editSettlement_aboveOwed_rejectsAndKeepsOriginal() = runTest {
+        val e1 = owedExpense("2026-06-01", 1000, payer = "u1", debtor = "u2")
+        val applied = settlements.applySettlement(newSettlement(500).copy(expenseId = e1.id))
+        assertTrue(applied is AppResult.Ok)
+
+        // Editing above what's owed (1000) is rejected — and because the guard runs *before* the void,
+        // the original 500 payment must survive intact (a rejected correction never loses money).
+        val edited = settlements.editSettlement(applied.value.id, 2000)
+        assertTrue(edited is AppResult.Err)
+        assertTrue((edited.error as AppError.Validation).fieldErrors.containsKey("amount"))
+        assertEquals(500, remaining(e1.id)) // unchanged: still 500 of 1000 paid
+        val payments = settlements.observePaymentsForExpense(e1.id).first()
+        assertEquals(1, payments.size)
+        assertEquals(500, payments.first().paymentAmountSubunits)
+    }
+
+    @Test
     fun voidSettlement_restoresSharesAndReactivates() = runTest {
         val e1 = owedExpense("2026-06-01", 1000, payer = "u1", debtor = "u2")
         val e2 = owedExpense("2026-06-03", 1000, payer = "u1", debtor = "u2")

@@ -356,8 +356,8 @@ fun BillEditScreen(
 
         if (scanSource) {
             ScModalScaffold(onDismiss = { scanSource = false }) {
-                Text("Scan a receipt", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-                Text("Pick photos or PDFs — several pages read as one bill — or snap a fresh photo.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Text("Scan the bill", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+                Text("A restaurant check or store receipt with line items — we'll pull them out for you. Several pages read as one bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
                 ScanSourceRow(ScIcons.Image, "Photos") { scanSource = false; onScanReceipt(PickSource.Photos) }
                 ScanSourceRow(ScIcons.Archive, "Files (image or PDF)") { scanSource = false; onScanReceipt(PickSource.Files) }
                 ScanSourceRow(ScIcons.Camera, "Take a photo") { scanSource = false; onScanReceipt(PickSource.Camera) }

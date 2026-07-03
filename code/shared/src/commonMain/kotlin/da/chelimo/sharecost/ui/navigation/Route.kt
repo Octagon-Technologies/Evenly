@@ -42,8 +42,9 @@ sealed interface Route {
     @Serializable data class EditExpense(val groupId: String, val expenseId: String) : Route
 
     // ── Split the bill (itemized) ──────────────────────────────────────
-    @Serializable data class NewExpenseChoice(val groupId: String) : Route   // sheet: pick expense kind
-    @Serializable data class SplitBill(val groupId: String, val expenseId: String? = null) : Route  // edit menu (null = new)
+    // Reached from the Add-expense editor's "By what each had" toggle (no separate kind-picker sheet).
+    // [title] carries whatever the user already typed in that editor so the itemized bill starts pre-named.
+    @Serializable data class SplitBill(val groupId: String, val expenseId: String? = null, val title: String? = null) : Route  // edit menu (null = new)
     @Serializable data class ClaimBill(val groupId: String, val expenseId: String) : Route           // live claim screen
 
     // ── Settle ─────────────────────────────────────────────────────────

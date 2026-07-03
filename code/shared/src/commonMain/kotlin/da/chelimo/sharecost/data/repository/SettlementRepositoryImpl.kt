@@ -4,8 +4,10 @@ import da.chelimo.sharecost.core.error.AppError
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.error.asErr
 import da.chelimo.sharecost.core.error.asOk
+import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.SettlementId
+import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
 import da.chelimo.sharecost.data.db.dao.SettlementDao
@@ -44,14 +46,46 @@ class SettlementRepositoryImpl(
         settlementDao.observeByGroup(groupId.value).map { rows -> rows.map { it.toDomain() } }
 
     override suspend fun applySettlement(input: NewSettlement): AppResult<SettlementRecord> {
+        val write = writeSettlement(input)
+        return when (write) {
+            is AppResult.Err -> write
+            is AppResult.Ok -> {
+                // One SETTLED activity-log row per expense this payment touched (no-op when the log isn't
+                // wired). [detail] carries the amount as a raw token ("amt:<subunits>") so the UI formats it
+                // in the expense's currency at render time — the repo stays free of currency-formatting.
+                historyEventDao?.let { dao ->
+                    write.value.appliedByExpense.forEach { (expenseId, applied) ->
+                        dao.upsert(
+                            HistoryEventEntity(
+                                id = newId(),
+                                expenseId = expenseId,
+                                groupId = input.groupId.value,
+                                actorUserId = input.createdBy.value,
+                                type = HistoryEventType.SETTLED.name,
+                                detail = "amt:$applied",
+                                createdAt = write.value.settledAt,
+                            ),
+                        )
+                    }
+                }
+                write.value.record.asOk()
+            }
+        }
+    }
+
+    /**
+     * The shared write core behind [applySettlement] and [editSettlement]: validate, allocate the payment
+     * across the debtor→creditor outstanding shares (oldest-first, [NewSettlement.expenseId]-scoped when
+     * set), then write the settlement + its allocations atomically. Shares are **not** mutated — remaining
+     * derives on read. Returns the applied-per-expense breakdown so the caller logs the right activity row.
+     */
+    private suspend fun writeSettlement(input: NewSettlement): AppResult<WriteResult> {
         if (input.paymentAmountSubunits <= 0L) {
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
         }
-
-        // Same-currency shares the debtor still owes the creditor, oldest first (03 §4.2). When the
-        // settlement is scoped to a single expense (the "Settle 'X'" sheet), restrict allocation to that
-        // expense's shares so a *partial* payment pays down the expense the user is actually looking at —
-        // not whatever happens to be the oldest outstanding expense to this payer.
+        // Same-currency shares the debtor still owes the creditor, oldest first (03 §4.2). When scoped to a
+        // single expense (the "Settle 'X'" sheet), restrict allocation to that expense's shares so a
+        // *partial* payment pays down the expense the user is looking at — not the oldest outstanding one.
         val outstanding = shareDao
             .outstandingForPair(input.groupId.value, input.fromUserId.value, input.toUserId.value)
             .filter { it.currency == input.paymentCurrency }
@@ -61,12 +95,10 @@ class SettlementRepositoryImpl(
             // PAYMENT_OVERALLOCATED (04 §2.2): can't pay more than is owed in this currency.
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
         }
-
         val allocations = allocateSameCurrency(
             paymentAmountSubunits = input.paymentAmountSubunits,
             shares = outstanding.map { ShareBalance(it.shareId, it.currency, it.remainingSubunits) },
         )
-
         val now = clock.nowEpochMillis()
         val settlementId = newId()
         val settlement = SettlementEntity(
@@ -97,33 +129,91 @@ class SettlementRepositoryImpl(
                 createdAt = now,
             )
         }
-        val affectedExpenseIds = allocations.mapNotNull { expenseIdByShare[it.shareId] }.distinct()
-        // How much of this payment landed on each expense — the audit-visible amount per SETTLED row.
+        // How much of this payment landed on each expense — the audit-visible amount per activity row.
         val appliedByExpense = allocations
             .groupBy { expenseIdByShare[it.shareId] }
-            .mapValues { (_, allocs) -> allocs.sumOf { it.appliedSubunits } }
+            .mapNotNull { (expenseId, allocs) -> expenseId?.let { it to allocs.sumOf { a -> a.appliedSubunits } } }
+            .toMap()
         // Just record the settlement + allocations — shares aren't touched; remaining derives from these.
         settlementDao.applySettlement(settlement, allocationEntities)
-        // One SETTLED activity-log row per expense this payment touched (no-op when the log isn't wired).
-        // [detail] carries the amount as a raw token ("amt:<subunits>") so the UI formats it in the
-        // expense's currency at render time — the repo stays free of currency-formatting concerns.
-        historyEventDao?.let { dao ->
-            affectedExpenseIds.forEach { expenseId ->
-                val applied = appliedByExpense[expenseId] ?: input.paymentAmountSubunits
-                dao.upsert(
+        return WriteResult(settlement.toDomain(), appliedByExpense, now).asOk()
+    }
+
+    private data class WriteResult(
+        val record: SettlementRecord,
+        val appliedByExpense: Map<String, Long>,
+        val settledAt: Long,
+    )
+
+    override fun observePaymentsForExpense(expenseId: ExpenseId): Flow<List<SettlementRecord>> =
+        settlementDao.observeByExpense(expenseId.value).map { rows -> rows.map { it.toDomain() } }
+
+    override suspend fun editSettlement(
+        settlementId: SettlementId,
+        newAmountSubunits: Long,
+        actor: UserId?,
+    ): AppResult<SettlementRecord> {
+        if (newAmountSubunits <= 0L) {
+            return validationErr("amount", AppError.Validation.Reason.OutOfRange)
+        }
+        val existing = settlementDao.getById(settlementId.value)
+        if (existing == null || existing.deletedAt != null) {
+            return validationErr("settlement", AppError.Validation.Reason.Required)
+        }
+        // Only single-expense payments are correctable from an expense screen: re-recording a
+        // relationship-wide payment here would silently re-scope another expense's balance.
+        val allocations = settlementDao.allocationsForSettlement(settlementId.value)
+        val expenseIds = shareDao.expenseIdsForShares(allocations.map { it.shareId }).distinct()
+        if (expenseIds.size != 1) {
+            return validationErr("settlement", AppError.Validation.Reason.OutOfRange)
+        }
+        val expenseId = expenseIds.first()
+        // Ceiling: what's still owed on this expense for the pair, PLUS what this payment currently covers
+        // (it's about to be replaced). Guarding here — *before* voiding — means a rejected edit never
+        // destroys the existing payment, and a correction can't manufacture an overpayment (Rule 5).
+        val outstandingNow = shareDao
+            .outstandingForPair(existing.groupId, existing.fromUserId, existing.toUserId)
+            .filter { it.currency == existing.paymentCurrency && it.expenseId == expenseId }
+            .sumOf { it.remainingSubunits }
+        val thisApplied = allocations.sumOf { it.appliedAmountSubunits }
+        if (newAmountSubunits > outstandingNow + thisApplied) {
+            return validationErr("amount", AppError.Validation.Reason.OutOfRange)
+        }
+        // Correct in place: void the old payment (soft-delete, Rule 1) then re-record the new amount,
+        // preserving the original payer, payee, currency, app, and notes.
+        val now = clock.nowEpochMillis()
+        settlementDao.voidSettlement(settlementId.value, now)
+        val write = writeSettlement(
+            NewSettlement(
+                groupId = GroupId(existing.groupId),
+                fromUserId = UserId(existing.fromUserId),
+                toUserId = UserId(existing.toUserId),
+                paymentCurrency = existing.paymentCurrency,
+                paymentAmountSubunits = newAmountSubunits,
+                createdBy = actor ?: UserId(existing.createdBy),
+                expenseId = ExpenseId(expenseId),
+                notes = existing.notes,
+                paymentApp = existing.paymentApp,
+            ),
+        )
+        return when (write) {
+            is AppResult.Err -> write
+            is AppResult.Ok -> {
+                // Activity feed: "corrected a payment · $old → $new" (edit:<old>:<new> token).
+                historyEventDao?.upsert(
                     HistoryEventEntity(
                         id = newId(),
                         expenseId = expenseId,
-                        groupId = input.groupId.value,
-                        actorUserId = input.createdBy.value,
-                        type = HistoryEventType.SETTLED.name,
-                        detail = "amt:$applied",
+                        groupId = existing.groupId,
+                        actorUserId = (actor ?: UserId(existing.createdBy)).value,
+                        type = HistoryEventType.SETTLEMENT_EDITED.name,
+                        detail = "edit:${existing.paymentAmountSubunits}:$newAmountSubunits",
                         createdAt = now,
                     ),
                 )
+                write.value.record.asOk()
             }
         }
-        return settlement.toDomain().asOk()
     }
 
     override suspend fun voidSettlement(settlementId: SettlementId): AppResult<Unit> {

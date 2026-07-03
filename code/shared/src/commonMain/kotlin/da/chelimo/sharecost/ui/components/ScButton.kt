@@ -48,11 +48,11 @@ fun ScButton(
     val c = ShareCostTheme.colors
     val style = when (variant) {
         // Primary hero: a WHITE chip with bold blue text. The hairline does the edge definition, so the
-        // shadow only needs to whisper a little lift — 2dp (≈ Material 3 elevation level 1–2, where
-        // buttons live; 8dp/level-4 is for prominent app bars and read as "shouting"). It enhances, not
-        // screams. In dark mode `page` is the elevated near-ink surface, so it reads as a lifted button.
+        // shadow only needs to *barely* whisper a lift — 1dp. Anything more reads as a hard grey halo on
+        // white and looks unrealistic; the border already separates it from the page. In dark mode `page`
+        // is the elevated near-ink surface, so it still reads as a lifted button.
         ButtonVariant.Primary ->
-            if (enabled) BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 2.dp)
+            if (enabled) BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
             else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
         ButtonVariant.Secondary -> BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.5f)
         // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button
@@ -146,21 +146,23 @@ fun ScFab(
     icon: ImageVector = ScIcons.Plus,
 ) {
     val c = ShareCostTheme.colors
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(16.dp)
     Row(
         modifier = modifier
-            .shadow(elevation = 12.dp, shape = shape, ambientColor = c.blue, spotColor = c.blue)
+            // Gentle lift, not a glowing slab: 4dp with a half-strength blue tint reads as "raised" without
+            // the oversized colored halo. Trimmed height/padding so it stops dominating the corner.
+            .shadow(elevation = 4.dp, shape = shape, ambientColor = c.blue.copy(alpha = 0.5f), spotColor = c.blue.copy(alpha = 0.5f))
             .clip(shape)
             .background(c.blue)
             .clickable(onClick = onClick)
-            .height(56.dp)
-            .then(if (label == null) Modifier.width(56.dp) else Modifier.padding(horizontal = 20.dp)),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            .height(48.dp)
+            .then(if (label == null) Modifier.width(48.dp) else Modifier.padding(horizontal = 16.dp)),
+        horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ScIcon(icon, size = 22.dp, tint = c.onAccent)
+        ScIcon(icon, size = 20.dp, tint = c.onAccent)
         if (label != null) {
-            Text(text = label, color = c.onAccent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = label, color = c.onAccent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }

@@ -101,4 +101,5 @@ internal fun SettlementEntity.toDomain(): SettlementRecord = SettlementRecord(
     paymentAmountSubunits = paymentAmountSubunits,
     settledAt = settledAt,
     notes = notes,
+    paymentApp = paymentApp,
 )
