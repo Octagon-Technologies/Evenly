@@ -115,10 +115,17 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var billReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
+    // The group's most recent expense — its participant set seeds a *new* expense's default selection
+    // (whoever was actually there last time, not the whole group). null = the flow hasn't emitted yet.
+    val recentExpenses by remember(gid) { expenses.observeExpensesWithShares(gid) }.collectAsStateWithLifecycle(null)
+    // Wait for the group's history to load before rendering — same "gate on first load" convention as
+    // BillEditRoute/EditExpenseRoute — so the default participant set is computed exactly once, correctly.
+    if (recentExpenses == null) return
 
     val participants = members.map { AddParticipantUi(it.userId.value, it.displayName ?: "Someone", it.userId == userId) }
         .ifEmpty { listOfNotNull(userId?.let { AddParticipantUi(it.value, "You", true) }) }
     val currency = group?.baseCurrency ?: "USD"
+    val lastExpenseParticipantIds: Set<String> = recentExpenses?.firstOrNull()?.shares?.mapTo(HashSet()) { it.userId.value } ?: emptySet()
 
     fun runScan(files: List<PickedFile>) {
         if (files.isEmpty()) return
@@ -145,6 +152,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
         categories = categories,
         currencyCode = currency,
         saving = saving,
+        lastExpenseParticipantIds = lastExpenseParticipantIds,
         receipts = pickedReceipts.map { PickedReceiptUi(it.mimeType.contains("pdf", ignoreCase = true)) },
         receiptsEnabled = uploadManager != null,
         scanState = scanState,

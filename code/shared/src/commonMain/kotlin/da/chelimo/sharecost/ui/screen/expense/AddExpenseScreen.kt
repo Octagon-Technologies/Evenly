@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -48,11 +49,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.AvatarSize
-import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ChipVariant
 import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
+import da.chelimo.sharecost.ui.components.ScCheck
 import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScField
 import da.chelimo.sharecost.ui.components.ScIconButton
@@ -111,6 +112,10 @@ fun AddExpenseScreen(
     currencyCode: String = "USD",
     saving: Boolean = false,
     prefill: AddExpensePrefill? = null,
+    // Who was on the group's most recent expense — defaults a brand-new expense's participant selection
+    // to "whoever was actually there last time" instead of the whole group. Ignored when [prefill] is set
+    // (editing always wins) or when nobody in it is a current participant (a fresh/first expense).
+    lastExpenseParticipantIds: Set<String> = emptySet(),
     receipts: List<PickedReceiptUi> = emptyList(),
     receiptsEnabled: Boolean = false,
     // ── itemized ("By what each had") body — only used when creating (editing keeps its single mode) ──
@@ -146,7 +151,16 @@ fun AddExpenseScreen(
     var amountText by remember { mutableStateOf(prefill?.let { format2dp(it.amountSubunits / 100.0) } ?: "") }
     var title by remember { mutableStateOf(prefill?.title ?: "") }
     var split by remember { mutableStateOf((prefill?.mode ?: SplitMode.Even).label) }
-    var selected by remember { mutableStateOf(prefill?.selectedUserIds ?: participants.map { it.userId }.toSet()) }
+    // Default selection: editing keeps its saved shares; a new expense defaults to whoever was on the
+    // group's last expense (filtered to people still around); with no such signal, everyone's selected.
+    var selected by remember {
+        mutableStateOf(
+            prefill?.selectedUserIds
+                ?: lastExpenseParticipantIds.filterTo(HashSet()) { id -> participants.any { it.userId == id } }
+                    .takeIf { it.isNotEmpty() }
+                ?: participants.map { it.userId }.toSet(),
+        )
+    }
     var known by remember { mutableStateOf(participants.map { it.userId }.toSet()) }
     var showAddDialog by remember { mutableStateOf(false) }
     var payerId by remember { mutableStateOf(prefill?.payerUserId ?: "") }
@@ -329,43 +343,44 @@ fun AddExpenseScreen(
                 }
             }
 
-            // category (F2) — optional; drives the Balances "Spending by category" card. Collapsed to a
-            // single tappable picker row (like "Paid by") so the editor stays compact and scannable.
+            // category (F2, optional) + paid by — side by side to keep the editor compact. Each is still
+            // its own tappable picker row (like before), just half-width now.
             val selectedCategory = categories.firstOrNull { it.key == categoryId }
-            ScField("Category") {
-                ScSelectField(
-                    selectedCategory?.label ?: "Add category",
-                    { showCategoryDialog = true },
-                    valueColor = if (selectedCategory != null) c.ink else c.ink3,
-                    leading = {
-                        if (selectedCategory != null) {
-                            val catColor = Color(selectedCategory.colorHex)
-                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                                ScIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ScField("Category", modifier = Modifier.weight(1f)) {
+                    ScSelectField(
+                        selectedCategory?.label ?: "Add category",
+                        { showCategoryDialog = true },
+                        valueColor = if (selectedCategory != null) c.ink else c.ink3,
+                        leading = {
+                            if (selectedCategory != null) {
+                                val catColor = Color(selectedCategory.colorHex)
+                                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                    ScIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
+                                }
+                            } else {
+                                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                    ScIcon(ScIcons.Tag, size = 15.dp, tint = c.blue)
+                                }
                             }
-                        } else {
-                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                                ScIcon(ScIcons.Tag, size = 15.dp, tint = c.blue)
+                        },
+                    )
+                }
+                ScField("Paid by", modifier = Modifier.weight(1f)) {
+                    ScSelectField(
+                        payerDisplayName,
+                        { showPayerDialog = true },
+                        leading = {
+                            if (isOutsidePayer) {
+                                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                    ScIcon(ScIcons.User, size = 15.dp, tint = c.blue)
+                                }
+                            } else {
+                                ScAvatar(payerDisplayName, me = payer?.isMe == true, size = AvatarSize.Sm)
                             }
-                        }
-                    },
-                )
-            }
-
-            ScField("Paid by") {
-                ScSelectField(
-                    payerDisplayName,
-                    { showPayerDialog = true },
-                    leading = {
-                        if (isOutsidePayer) {
-                            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                                ScIcon(ScIcons.User, size = 15.dp, tint = c.blue)
-                            }
-                        } else {
-                            ScAvatar(payerDisplayName, me = payer?.isMe == true, size = AvatarSize.Sm)
-                        }
-                    },
-                )
+                        },
+                    )
+                }
             }
 
             // receipt — held locally, uploaded in the background right after the expense is created. Only
@@ -405,21 +420,14 @@ fun AddExpenseScreen(
             }
 
             // participants
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Participants", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    participants.forEach { p ->
-                        val on = p.userId in selected
-                        ScParticipantChip(
-                            p.name, selected = on,
-                            leading = { ScAvatar(p.name, me = p.isMe, size = AvatarSize.Xs) },
-                            trailing = if (on) ({ ScIcon(ScIcons.Check, size = 14.dp) }) else null,
-                            onClick = { selected = if (on) selected - p.userId else selected + p.userId },
-                        )
-                    }
-                    ScParticipantChip("Add", selected = false, leading = { ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue) }, onClick = { showAddDialog = true })
-                }
-            }
+            ParticipantsField(
+                participants = participants,
+                selected = selected,
+                onToggle = { id -> selected = if (id in selected) selected - id else selected + id },
+                onSelectAll = { selected = participants.map { it.userId }.toSet() },
+                onDeselectAll = { selected = emptySet() },
+                onAddClick = { showAddDialog = true },
+            )
 
             // ── how to split ──
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -445,10 +453,18 @@ fun AddExpenseScreen(
                             )
                         }
                     }
-                    // Type items by hand, or scan a bill to fill them in — equal-weight, no assumed path.
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ScButton("Add item", { items = items + editBillItemUi(null, "", 1, 0L) }, modifier = Modifier.weight(1f), variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Plus)
-                        ScButton("Scan", { showScanSource = true }, modifier = Modifier.weight(1f), variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Camera)
+                    // A quiet header: "Items" label + an equally-quiet "Scan" link (not a prominent button —
+                    // the tabs above should read as the strongest thing on this section, not these buttons).
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Row(
+                            Modifier.clip(RoundedCornerShape(8.dp)).clickable { showScanSource = true }.padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            ScIcon(ScIcons.Camera, size = 14.dp, tint = c.blue)
+                            Text("Scan", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                     ScCard {
                         items.forEachIndexed { i, item ->
@@ -460,6 +476,15 @@ fun AddExpenseScreen(
                                 onRemove = { items = items.filterIndexed { idx, _ -> idx != i } },
                             )
                         }
+                    }
+                    // Add item sits below the item cards — that's where a new one actually lands.
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { items = items + editBillItemUi(null, "", 1, 0L) }.padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue)
+                        Text("Add item", color = c.blue, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                     if (showErrors && !hasItem) {
                         Text("Add at least one item with a name", color = c.danger, fontSize = 12.sp)
@@ -773,11 +798,108 @@ private fun ApproachCell(modifier: Modifier, title: String, subtitle: String, ac
         modifier.clip(cell)
             .then(if (active) Modifier.background(c.page).border(1.dp, c.borderStrong, cell) else Modifier)
             .clickable(onClick = onClick)
-            .padding(vertical = 9.dp, horizontal = 4.dp),
+            .padding(vertical = 12.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(title, color = if (active) c.ink else c.bluePressed, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
-        Text(subtitle, color = c.ink2, fontSize = 11.sp)
+        // Bigger, bolder than the section's own body copy — this is the strongest thing in the section,
+        // stronger than the Add item / Scan links inside the itemized body below.
+        Text(title, color = if (active) c.ink else c.bluePressed, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(subtitle, color = c.ink2, fontSize = 12.sp)
+    }
+}
+
+/** Small groups render inline; past this count the list collapses into an expandable row (below). */
+private const val PARTICIPANTS_INLINE_THRESHOLD = 6
+
+/**
+ * "Participants" — inline toggle chips for a small group (unchanged; it already reads well at that size).
+ * Past [PARTICIPANTS_INLINE_THRESHOLD] members that same chip grid gets long, so it collapses to a single
+ * summary row ("5 of 15 selected" — a count, not names, to stay compact) that expands in place into a
+ * checkbox list, mirroring the collapsed-row language already used for Category/Paid by above.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ParticipantsField(
+    participants: List<AddParticipantUi>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit,
+    onAddClick: () -> Unit,
+) {
+    val c = ShareCostTheme.colors
+    if (participants.size <= PARTICIPANTS_INLINE_THRESHOLD) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Participants", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                participants.forEach { p ->
+                    val on = p.userId in selected
+                    ScParticipantChip(
+                        p.name, selected = on,
+                        leading = { ScAvatar(p.name, me = p.isMe, size = AvatarSize.Xs) },
+                        trailing = if (on) ({ ScIcon(ScIcons.Check, size = 14.dp) }) else null,
+                        onClick = { onToggle(p.userId) },
+                    )
+                }
+                ScParticipantChip("Add", selected = false, leading = { ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue) }, onClick = onAddClick)
+            }
+        }
+        return
+    }
+
+    var expanded by remember { mutableStateOf(false) }
+    val count = selected.size
+    val allOn = count >= participants.size
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Participants", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        val rowShape = RoundedCornerShape(12.dp)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(rowShape).background(c.page)
+                .border(1.dp, c.borderStrong, rowShape).clickable { expanded = !expanded }.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                ScIcon(ScIcons.Users, size = 15.dp, tint = c.blue)
+            }
+            Text("$count of ${participants.size} selected", color = c.ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            ScIcon(if (expanded) ScIcons.ChevU else ScIcons.ChevD, size = 16.dp, tint = c.ink3)
+        }
+        if (expanded) {
+            ScCard {
+                Column {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (allOn) "Deselect all" else "Select all",
+                            color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                                .clickable { if (allOn) onDeselectAll() else onSelectAll() }
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                        )
+                        Box(Modifier.weight(1f))
+                        Text(
+                            "Add", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onAddClick).padding(horizontal = 6.dp, vertical = 4.dp),
+                        )
+                    }
+                    Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
+                        participants.forEachIndexed { i, p ->
+                            val on = p.userId in selected
+                            Row(
+                                Modifier.fillMaxWidth().then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
+                                    .clickable { onToggle(p.userId) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                ScAvatar(p.name, me = p.isMe, size = AvatarSize.Xs)
+                                Text(p.name, color = c.ink, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                ScCheck(checked = on, onCheckedChange = { onToggle(p.userId) })
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

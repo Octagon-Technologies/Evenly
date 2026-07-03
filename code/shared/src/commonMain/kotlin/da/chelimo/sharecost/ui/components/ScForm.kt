@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -122,7 +123,7 @@ fun ScSelectField(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         leading?.invoke()
-        Text(value, color = valueColor, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        Text(value, color = valueColor, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         ScIcon(trailingIcon, size = 16.dp, tint = c.ink3)
     }
 }
