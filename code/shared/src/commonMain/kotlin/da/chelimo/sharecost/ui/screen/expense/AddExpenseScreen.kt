@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.AvatarSize
+import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ChipVariant
 import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
@@ -70,9 +71,23 @@ import da.chelimo.sharecost.ui.theme.ShareCostTheme
 import da.chelimo.sharecost.domain.expense.CategoryDefaults
 import da.chelimo.sharecost.domain.expense.GroupCategory
 import da.chelimo.sharecost.platform.PickSource
+import da.chelimo.sharecost.ui.screen.bill.EditBillItemUi
+import da.chelimo.sharecost.ui.screen.bill.EditBillState
+import da.chelimo.sharecost.ui.screen.bill.EditBillSubmit
+import da.chelimo.sharecost.ui.screen.bill.ExtrasCard
+import da.chelimo.sharecost.ui.screen.bill.ItemEditorRow
+import da.chelimo.sharecost.ui.screen.bill.ScanErrorSheet
+import da.chelimo.sharecost.ui.screen.bill.ScanProgressSheet
+import da.chelimo.sharecost.ui.screen.bill.ScanSourceRow
+import da.chelimo.sharecost.ui.screen.bill.ScanUiState
+import da.chelimo.sharecost.ui.screen.bill.editBillItemUi
+import da.chelimo.sharecost.ui.screen.bill.priceToSubunits
 import da.chelimo.sharecost.ui.screen.group.CategoryCatalog
 import kotlinx.coroutines.launch
 import kotlin.math.roundToLong
+
+/** Which way the creator is splitting: divide one total, or itemize (claim by item). */
+enum class SplitApproach { Divide, ByItem }
 
 /** A participant the expense can be split between (real members are passed by the route). */
 data class AddParticipantUi(val userId: String, val name: String, val isMe: Boolean)
@@ -98,14 +113,22 @@ fun AddExpenseScreen(
     prefill: AddExpensePrefill? = null,
     receipts: List<PickedReceiptUi> = emptyList(),
     receiptsEnabled: Boolean = false,
+    // ── itemized ("By what each had") body — only used when creating (editing keeps its single mode) ──
+    // The scan pipeline is driven by the route: [scanState] shows progress/errors, [scanned] delivers a
+    // completed draft that pre-fills the item list, and the on* callbacks pick/cancel/retry the scan.
+    scanState: ScanUiState = ScanUiState.Idle,
+    scanned: EditBillState? = null,
+    attachedReceiptCount: Int = 0,
     onBack: () -> Unit = {},
     onSave: (AddExpenseSubmit) -> Unit = {},
+    onSaveItemized: (EditBillSubmit) -> Unit = {},
+    onScanReceipt: (PickSource) -> Unit = {},
+    onCancelScan: () -> Unit = {},
+    onRetryScan: () -> Unit = {},
+    onDismissScan: () -> Unit = {},
     onAddPlaceholder: (String) -> Unit = {},
     onPickReceipt: (PickSource) -> Unit = {},
     onRemoveReceipt: (Int) -> Unit = {},
-    // Leaves this editor for the itemized bill flow, carrying the title already typed. Only offered on a
-    // *new* expense (editing a divided split into an itemized one isn't a thing) — see [SplitApproachSelector].
-    onSwitchToItemized: (String) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     val scope = rememberCoroutineScope()
@@ -135,6 +158,28 @@ fun AddExpenseScreen(
     var shareUnits by remember { mutableStateOf(prefill?.shareUnits ?: emptyMap()) }
     var percentText by remember { mutableStateOf(prefill?.percentText ?: emptyMap()) }
     var exactText by remember { mutableStateOf(prefill?.exactText ?: emptyMap()) }
+
+    // Which body is showing. Only creation offers the choice; an edit stays in its (divide) body.
+    var splitApproach by remember { mutableStateOf(SplitApproach.Divide) }
+    // "By what each had" body state — a typed-or-scanned item list plus the bill-level extras.
+    var items by remember { mutableStateOf(listOf(editBillItemUi(null, "", 1, 0L))) }
+    var taxText by remember { mutableStateOf("") }
+    var gratuityText by remember { mutableStateOf("") }
+    var tipText by remember { mutableStateOf("") }
+    var discountText by remember { mutableStateOf("") }
+    var showScanSource by remember { mutableStateOf(false) }
+    // A completed scan pre-fills the items + extras (never the shared name/participants) and lands you in
+    // the itemized body — a fresh [scanned] instance each time, so a re-scan replaces the list.
+    LaunchedEffect(scanned) {
+        scanned?.let { s ->
+            items = s.items
+            taxText = s.taxText
+            gratuityText = s.gratuityText
+            tipText = s.tipText
+            discountText = s.discountText
+            splitApproach = SplitApproach.ByItem
+        }
+    }
 
     val effectivePayerId = participants.firstOrNull { it.userId == payerId }?.userId
         ?: participants.firstOrNull { it.isMe }?.userId
@@ -179,9 +224,22 @@ fun AddExpenseScreen(
         SplitMode.Percent -> percentScaled == 10_000L
         SplitMode.Exact -> exactTotal == amountSubunits
     }
-    val isValid = amountSubunits > 0 && title.isNotBlank() && selected.isNotEmpty() && splitValid
-    // What's still missing, phrased for the hint that shows above the form until the expense can be saved.
-    val missing = buildList {
+
+    // ── itemized body derived values ──
+    val isItemized = splitApproach == SplitApproach.ByItem
+    val itemSubtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
+    val itemTotal = itemSubtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
+        priceToSubunits(tipText) - priceToSubunits(discountText)
+    val hasItem = items.any { it.label.trim().isNotEmpty() }
+
+    val divideValid = amountSubunits > 0 && title.isNotBlank() && selected.isNotEmpty() && splitValid
+    val itemizedValid = title.isNotBlank() && hasItem
+    val isValid = if (isItemized) itemizedValid else divideValid
+    // What's still missing, phrased for the hint that shows above the form until it can be saved.
+    val missing = if (isItemized) buildList {
+        if (title.isBlank()) add("a title")
+        if (!hasItem) add("at least one item")
+    } else buildList {
         if (amountSubunits <= 0) add("an amount")
         if (title.isBlank()) add("a title")
         if (selected.isEmpty()) add("a participant")
@@ -205,7 +263,21 @@ fun AddExpenseScreen(
                                 scope.launch { scrollState.animateScrollTo(0) }
                                 return@clickable
                             }
-                            onSave(
+                            if (isItemized) {
+                                onSaveItemized(
+                                    EditBillSubmit(
+                                        title = title.trim(),
+                                        items = items.filter { it.label.trim().isNotEmpty() },
+                                        taxSubunits = priceToSubunits(taxText),
+                                        gratuitySubunits = priceToSubunits(gratuityText),
+                                        tipSubunits = priceToSubunits(tipText),
+                                        discountSubunits = priceToSubunits(discountText),
+                                        participantIds = selected,
+                                        // An itemized bill is paid by a member (outside-payer isn't a thing here).
+                                        payerUserId = if (isOutsidePayer) null else effectivePayerId,
+                                    ),
+                                )
+                            } else onSave(
                                 AddExpenseSubmit(
                                     amountSubunits = amountSubunits,
                                     title = title.trim(),
@@ -247,39 +319,7 @@ fun AddExpenseScreen(
                     )
                 }
             }
-            // amount (editable, calculator-style)
-            ScCard(padded = true) {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(symbol, color = c.ink3, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
-                        BasicTextField(
-                            value = amountText,
-                            onValueChange = { amountText = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                            textStyle = ShareCostTheme.amounts.input.copy(color = c.ink),
-                            singleLine = true,
-                            cursorBrush = SolidColor(c.blue),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            decorationBox = { inner ->
-                                Box {
-                                    if (amountText.isEmpty()) Text("0.00", style = ShareCostTheme.amounts.input, color = c.ink3)
-                                    inner()
-                                }
-                            },
-                        )
-                    }
-                    ScChip(
-                        currency,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { showCurrencyDialog = true },
-                        variant = ChipVariant.Ghost,
-                        leadingIcon = ScIcons.Globe,
-                    )
-                }
-            }
-
-            if (showErrors && amountSubunits <= 0) {
-                Text("Enter an amount", color = c.danger, fontSize = 12.sp)
-            }
-
+            // ── shared header: title, category, paid by, participants — entered once, both modes ──
             ScField("Title") {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     ScTextField(title, { title = it }, placeholder = "What was it for?", isError = showErrors && title.isBlank())
@@ -328,8 +368,9 @@ fun AddExpenseScreen(
                 )
             }
 
-            // receipt — held locally, uploaded in the background right after the expense is created
-            if (receiptsEnabled) {
+            // receipt — held locally, uploaded in the background right after the expense is created. Only
+            // in the divide flow; the itemized body attaches the pages you scan instead.
+            if (receiptsEnabled && !isItemized) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Receipt", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -380,14 +421,90 @@ fun AddExpenseScreen(
                 }
             }
 
-            // split
+            // ── how to split ──
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Split", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                // The honest first question: divide one total (the four modes below) or itemize (a whole
-                // different flow, where the total *builds up* from claimed items). Itemizing hands off to
-                // the bill editor, so it's a one-way door offered only when creating.
+                Text("How to split", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                // Divide one known total (the four modes) or itemize (claim by item, total builds from the
+                // list). The choice swaps the body below; on an edit the mode is fixed, so there's no toggle.
                 if (!editing) {
-                    SplitApproachSelector(onItemized = { onSwitchToItemized(title.trim()) })
+                    SplitApproachSelector(selected = splitApproach, onSelect = { splitApproach = it })
+                }
+                if (isItemized) {
+                    // ── By what each had: a typed-or-scanned item list, bill extras, derived total ──
+                    if (attachedReceiptCount > 0) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.blueTint).padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            ScIcon(ScIcons.Receipt, size = 16.dp, tint = c.blue)
+                            Text(
+                                if (attachedReceiptCount == 1) "Receipt attached — saves with the bill"
+                                else "$attachedReceiptCount receipt pages attached — save with the bill",
+                                color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                    // Type items by hand, or scan a bill to fill them in — equal-weight, no assumed path.
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ScButton("Add item", { items = items + editBillItemUi(null, "", 1, 0L) }, modifier = Modifier.weight(1f), variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Plus)
+                        ScButton("Scan", { showScanSource = true }, modifier = Modifier.weight(1f), variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Camera)
+                    }
+                    ScCard {
+                        items.forEachIndexed { i, item ->
+                            ItemEditorRow(
+                                item = item,
+                                symbol = symbol,
+                                showDivider = i > 0,
+                                onChange = { updated -> items = items.toMutableList().also { it[i] = updated } },
+                                onRemove = { items = items.filterIndexed { idx, _ -> idx != i } },
+                            )
+                        }
+                    }
+                    if (showErrors && !hasItem) {
+                        Text("Add at least one item with a name", color = c.danger, fontSize = 12.sp)
+                    }
+                    ExtrasCard(
+                        symbol = symbol,
+                        subtotalSubunits = itemSubtotal,
+                        totalSubunits = itemTotal,
+                        currencyCode = currency,
+                        taxText = taxText, onTax = { taxText = it },
+                        gratuityText = gratuityText, onGratuity = { gratuityText = it },
+                        tipText = tipText, onTip = { tipText = it },
+                        discountText = discountText, onDiscount = { discountText = it },
+                    )
+                } else {
+                // ── Divide the total: the amount to split, the method, and the per-person preview ──
+                ScCard(padded = true) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(symbol, color = c.ink3, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily)
+                            BasicTextField(
+                                value = amountText,
+                                onValueChange = { amountText = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                                textStyle = ShareCostTheme.amounts.input.copy(color = c.ink),
+                                singleLine = true,
+                                cursorBrush = SolidColor(c.blue),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (amountText.isEmpty()) Text("0.00", style = ShareCostTheme.amounts.input, color = c.ink3)
+                                        inner()
+                                    }
+                                },
+                            )
+                        }
+                        ScChip(
+                            currency,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { showCurrencyDialog = true },
+                            variant = ChipVariant.Ghost,
+                            leadingIcon = ScIcons.Globe,
+                        )
+                    }
+                }
+                if (showErrors && amountSubunits <= 0) {
+                    Text("Enter an amount", color = c.danger, fontSize = 12.sp)
                 }
                 ScSegmented(options = SplitMode.labels, selected = split, onSelect = { split = it })
                 ScCard(modifier = Modifier.padding(top = 4.dp)) {
@@ -476,6 +593,7 @@ fun AddExpenseScreen(
                         )
                     }
                 }
+                } // ── end Divide body ──
             }
         }
     }
@@ -603,40 +721,63 @@ fun AddExpenseScreen(
             }
         }
     }
+
+    // ── itemized scan sheets: source picker + progress/error, driven by the route's scan state ──
+    if (showScanSource) {
+        ScModalScaffold(onDismiss = { showScanSource = false }) {
+            Text("Scan the bill", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+            Text(
+                "A restaurant check or store receipt with line items — we'll pull them out for you. Several pages read as one bill.",
+                color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp),
+            )
+            ScanSourceRow(ScIcons.Image, "Photos") { showScanSource = false; onScanReceipt(PickSource.Photos) }
+            ScanSourceRow(ScIcons.Archive, "Files (image or PDF)") { showScanSource = false; onScanReceipt(PickSource.Files) }
+            ScanSourceRow(ScIcons.Camera, "Take a photo") { showScanSource = false; onScanReceipt(PickSource.Camera) }
+        }
+    }
+    when (val s = scanState) {
+        is ScanUiState.Working -> ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
+        is ScanUiState.Failed -> ScanErrorSheet(
+            kind = s.kind,
+            onManual = onDismissScan,
+            onRetry = onRetryScan,
+            onPickAgain = { onDismissScan(); showScanSource = true },
+        )
+        ScanUiState.Idle -> {}
+    }
 }
 
 /**
- * The top-tier split choice: "Divide the total" (this editor, always the active side) vs "By what each
- * person had" (the itemized bill flow). It reads like a segmented control, but the itemize side isn't a
- * selectable state here — tapping it navigates away, so it's a launcher, not a toggle. Presenting itemize
- * one level *above* Even/Shares/%/Exact is deliberate: those four are ways to divide a known total; this
- * is a different beast where the total is derived from items, so it doesn't belong beside them.
+ * The top-tier split choice — "Divide the total" vs "By what each had". A real two-cell toggle (both
+ * selectable): the selected side is a raised white chip; tapping the other swaps the body below. Itemize
+ * sits one level *above* Even/Shares/%/Exact on purpose — those divide a known total; this derives the
+ * total from items, so it isn't a peer of them.
  */
 @Composable
-private fun SplitApproachSelector(onItemized: () -> Unit) {
-    val c = ShareCostTheme.colors
+private fun SplitApproachSelector(selected: SplitApproach, onSelect: (SplitApproach) -> Unit) {
     val track = RoundedCornerShape(11.dp)
-    val cell = RoundedCornerShape(9.dp)
     Row(
-        Modifier.fillMaxWidth().clip(track).background(c.blueTint).padding(3.dp),
+        Modifier.fillMaxWidth().clip(track).background(ShareCostTheme.colors.blueTint).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        // Active side — this very editor. A raised white chip, like the selected cell of ScSegmented.
-        Column(
-            Modifier.weight(1f).clip(cell).background(c.page).border(1.dp, c.borderStrong, cell).padding(vertical = 9.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("Divide the total", color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text("Evenly, %, shares, exact", color = c.ink2, fontSize = 11.sp)
-        }
-        // Itemize side — a doorway into the bill editor.
-        Column(
-            Modifier.weight(1f).clip(cell).clickable(onClick = onItemized).padding(vertical = 9.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("By what each had", color = c.bluePressed, fontSize = 13.sp)
-            Text("Claim items", color = c.ink2, fontSize = 11.sp)
-        }
+        ApproachCell(Modifier.weight(1f), "Divide the total", "Evenly, %, shares, exact", selected == SplitApproach.Divide) { onSelect(SplitApproach.Divide) }
+        ApproachCell(Modifier.weight(1f), "By what each had", "Claim items", selected == SplitApproach.ByItem) { onSelect(SplitApproach.ByItem) }
+    }
+}
+
+@Composable
+private fun ApproachCell(modifier: Modifier, title: String, subtitle: String, active: Boolean, onClick: () -> Unit) {
+    val c = ShareCostTheme.colors
+    val cell = RoundedCornerShape(9.dp)
+    Column(
+        modifier.clip(cell)
+            .then(if (active) Modifier.background(c.page).border(1.dp, c.borderStrong, cell) else Modifier)
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(title, color = if (active) c.ink else c.bluePressed, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+        Text(subtitle, color = c.ink2, fontSize = 11.sp)
     }
 }
 

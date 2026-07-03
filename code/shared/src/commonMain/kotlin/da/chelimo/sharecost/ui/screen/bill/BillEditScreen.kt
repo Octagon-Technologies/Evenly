@@ -121,6 +121,9 @@ data class EditBillSubmit(
     val tipSubunits: Long,
     val discountSubunits: Long,
     val participantIds: Set<String>,
+    // Who paid — set by the unified add-expense editor's shared header; null when the bill editor (which
+    // has no payer picker) is used for editing, in which case the wrapper keeps the existing payer.
+    val payerUserId: String? = null,
 )
 
 /** Parse a "18.50" style string to integer minor units; blank/garbage → 0. */
@@ -394,7 +397,7 @@ fun BillEditScreen(
 
 /** The bottom sheet shown while OCR runs: the pages being read, an indeterminate bar, and rotating copy. */
 @Composable
-private fun ScanProgressSheet(pages: List<ScanPageUi>, onCancel: () -> Unit) {
+internal fun ScanProgressSheet(pages: List<ScanPageUi>, onCancel: () -> Unit) {
     val c = ShareCostTheme.colors
     val phrases = remember { listOf("Reading the receipt…", "Finding the items…", "Adding up the totals…", "Almost there…") }
     var phraseIdx by remember { mutableStateOf(0) }
@@ -452,7 +455,7 @@ private fun ScanPageTile(page: ScanPageUi) {
 
 /** The bottom sheet for a scan that couldn't finish. Copy + actions vary by [kind]; manual entry is always here. */
 @Composable
-private fun ScanErrorSheet(
+internal fun ScanErrorSheet(
     kind: ScanErrorKind,
     onManual: () -> Unit,
     onRetry: () -> Unit,
@@ -522,7 +525,7 @@ private fun ScanErrorSheet(
 }
 
 @Composable
-private fun ScanSourceRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+internal fun ScanSourceRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     val c = ShareCostTheme.colors
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
@@ -535,7 +538,7 @@ private fun ScanSourceRow(icon: androidx.compose.ui.graphics.vector.ImageVector,
 }
 
 @Composable
-private fun ItemEditorRow(
+internal fun ItemEditorRow(
     item: EditBillItemUi,
     symbol: String,
     showDivider: Boolean,
@@ -701,7 +704,7 @@ private fun LabeledPriceField(
 }
 
 @Composable
-private fun ExtrasCard(
+internal fun ExtrasCard(
     symbol: String,
     subtotalSubunits: Long,
     totalSubunits: Long,

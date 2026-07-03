@@ -52,14 +52,10 @@ import kotlin.time.ExperimentalTime
 
 private fun subunitsToText(subunits: Long): String = if (subunits == 0L) "" else format2dp(subunits / 100.0)
 
-/**
- * Create or edit a bill (the menu + extras). On create, lands on the live claim screen. [newTitle] seeds
- * the name on a brand-new bill — it's whatever the user typed in the Add-expense editor before flipping to
- * "By what each had", so the itemized bill starts pre-named instead of dropping their input on the floor.
- */
+/** Create or edit a bill (the menu + extras). On create, lands on the live claim screen. */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCreated: (String) -> Unit, newTitle: String? = null) {
+fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
@@ -90,16 +86,6 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // For edit, wait until the bill loads so the editor's initial state is correct.
     if (expenseId != null && existing == null) return
 
-    // A new bill starts from the title carried over from the Add-expense editor (if any); an edit seeds
-    // from the saved bill. A blank carried title falls through to the editor's own empty default.
-    val initialState = if (expenseId == null) {
-        newTitle?.takeIf { it.isNotBlank() }?.let { EditBillState(
-            title = it,
-            items = listOf(editBillItemUi(null, "", 1, 0L)),
-            taxText = "", gratuityText = "", tipText = "", discountText = "",
-        ) }
-    } else existing?.toEditState()
-
     // Run the pick → OCR round-trip as a cancellable job, mapping the typed ScanOutcome to sheet state.
     fun runScan(files: List<PickedFile>) {
         if (files.isEmpty()) return
@@ -123,7 +109,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
 
     BillEditScreen(
         editing = expenseId != null,
-        initial = initialState,
+        initial = existing?.toEditState(),
         scanned = scanned,
         currencyCode = currency,
         saving = saving,

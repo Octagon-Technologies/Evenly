@@ -157,10 +157,10 @@ fun ShareCostNavHost(
                 groupId = r.groupId,
                 onBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
-                // "By what each had" hands off to the itemized bill editor, replacing this editor on the
-                // back stack (inclusive pop) so Back from the bill returns to the group, not here.
-                onSwitchToItemized = { titleText ->
-                    navController.navigate(Route.SplitBill(r.groupId, title = titleText)) {
+                // An itemized ("By what each had") save creates the bill in-place, then opens its live claim
+                // screen — replacing this editor on the back stack so Back lands on the group, not here.
+                onCreatedBill = { newId ->
+                    navController.navigate(Route.ClaimBill(r.groupId, newId)) {
                         popUpTo(Route.AddExpense(r.groupId)) { inclusive = true }
                     }
                 },
@@ -177,11 +177,10 @@ fun ShareCostNavHost(
             BillEditRoute(
                 groupId = r.groupId,
                 expenseId = r.expenseId,
-                newTitle = r.title,
                 onBack = { navController.popBackStack() },
                 onCreated = { newId ->
                     navController.navigate(Route.ClaimBill(r.groupId, newId)) {
-                        popUpTo(Route.SplitBill(r.groupId, r.expenseId, r.title)) { inclusive = true }
+                        popUpTo(Route.SplitBill(r.groupId, r.expenseId)) { inclusive = true }
                     }
                 },
             )
