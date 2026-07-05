@@ -63,6 +63,21 @@ class BillSplitTest {
         assertEquals(ItemStatus.RESOLVED, statusOf(r, "pizza"))
     }
 
+    // Per-item "who pays what" (the assign screen's rows): 2 fish @ $24, A had one whole plate and split
+    // the second with B → A $36, B $12. perItemByUser is penny-exact and, with no extras, sums to owed.
+    @Test
+    fun perItemByUser_splitsALineByPerson() {
+        val items = listOf(item("fish", 2400L, quantity = 2))
+        val r = splitBill(
+            items,
+            indiv(IndividualClaim("fish", A, 1)),
+            shared(SharedMember("fish", A), SharedMember("fish", B)),
+            BillExtras(),
+        )
+        assertEquals(mapOf(A to 3600L, B to 1200L), r.perItemByUser["fish"])
+        assertEquals(r.owedByUser, r.perItemByUser["fish"]) // no extras → per-item sums to the tab
+    }
+
     // Shared by everyone (case 4): the whole line splits across the set. Auto-union = it's just a set.
     @Test
     fun sharedByEveryone_wholeLine() {

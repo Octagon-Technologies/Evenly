@@ -83,6 +83,10 @@ data class BillResult(
     val owedByUser: Map<UserId, Long>,
     val items: List<ItemReconcile>,
     val breakdownByUser: Map<UserId, TabBreakdown> = emptyMap(),
+    // Per-item food allocation: itemId -> (user -> subunits owed FOR THAT LINE). Recorded in lockstep with
+    // the running subtotal, so the assign screen can show a penny-exact "who pays what" per line without
+    // recomputing it (a separate recompute would drift from this engine by a cent or two). Excludes extras.
+    val perItemByUser: Map<String, Map<UserId, Long>> = emptyMap(),
 ) {
     /** A bill is resolved once every line is fully and correctly claimed (no unclaimed units, no over-claim). */
     val fullyResolved: Boolean get() = items.all { it.status == ItemStatus.RESOLVED }
@@ -117,6 +121,9 @@ fun splitBill(
 
     val subtotal = LinkedHashMap<UserId, Long>()
     val reconcile = ArrayList<ItemReconcile>(items.size)
+    // Per-item food allocation, recorded via [charge] alongside the running subtotal so per-line "who pays
+    // what" is penny-exact and can never drift from the totals.
+    val perItem = LinkedHashMap<String, Map<UserId, Long>>()
 
     for (item in items) {
         val sharers = sharersByItem[item.itemId].orEmpty()
@@ -132,14 +139,17 @@ fun splitBill(
         val totalIndiv = unitsByUser.values.sum()
         val quantity = item.quantity
         val remainder = quantity - totalIndiv
+        val itemAlloc = LinkedHashMap<UserId, Long>()
+        fun charge(user: UserId, amount: Long) {
+            subtotal[user] = (subtotal[user] ?: 0L) + amount
+            itemAlloc[user] = (itemAlloc[user] ?: 0L) + amount
+        }
 
         if (totalIndiv > quantity) {
             // Over-claim: more units claimed than ordered. Cost every claimed unit at the derived per-unit
             // price so the tab exceeds the line total — surfaced as OVERCLAIMED, never silently capped.
             val perUnit = perUnitSubunits(item.lineTotalSubunits, quantity)
-            for ((user, units) in unitsByUser) {
-                subtotal[user] = (subtotal[user] ?: 0L) + units.toLong() * perUnit
-            }
+            for ((user, units) in unitsByUser) charge(user, units.toLong() * perUnit)
         } else {
             // Split the line total penny-exact across its units, then hand each unit to its claimant.
             val unitCosts = splitEven(item.lineTotalSubunits, quantity)
@@ -147,18 +157,17 @@ fun splitBill(
             for ((user, units) in unitsByUser.entries.sortedBy { it.key.value }) {
                 var owed = 0L
                 repeat(units) { owed += unitCosts[cursor++] }
-                subtotal[user] = (subtotal[user] ?: 0L) + owed
+                charge(user, owed)
             }
             // The shared set absorbs the leftover units, split evenly (penny-exact via allocate). With no
             // sharers the leftover units simply aren't billed (the line reconciles as UNCLAIMED).
             if (remainder > 0 && sharers.isNotEmpty()) {
                 var pool = 0L
                 while (cursor < quantity) pool += unitCosts[cursor++]
-                for ((user, amount) in allocate(pool, sharers.map { it to 1L })) {
-                    subtotal[user] = (subtotal[user] ?: 0L) + amount
-                }
+                for ((user, amount) in allocate(pool, sharers.map { it to 1L })) charge(user, amount)
             }
         }
+        if (itemAlloc.isNotEmpty()) perItem[item.itemId] = itemAlloc
 
         val status = when {
             totalIndiv > quantity -> ItemStatus.OVERCLAIMED
@@ -169,7 +178,7 @@ fun splitBill(
     }
 
     val subtotals = subtotal.toList()
-    if (subtotals.isEmpty()) return BillResult(emptyMap(), reconcile)
+    if (subtotals.isEmpty()) return BillResult(emptyMap(), reconcile, perItemByUser = perItem)
 
     // Extras (tax/gratuity/discount, and a PROPORTIONAL tip) ride proportional to each person's share of
     // the WHOLE bill's item subtotal — NOT just what's been claimed so far. Otherwise the first person to
@@ -205,7 +214,7 @@ fun splitBill(
         )
     }
     val owed = breakdown.mapValues { (_, b) -> b.totalSubunits }
-    return BillResult(owed, reconcile, breakdown)
+    return BillResult(owed, reconcile, breakdown, perItem)
 }
 
 /** Sentinel weight-bucket for the un-yet-claimed portion of a bill; its extras slice is computed then dropped. */
