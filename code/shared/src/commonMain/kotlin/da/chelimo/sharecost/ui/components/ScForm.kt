@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,9 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -61,15 +65,24 @@ fun ScTextField(
     singleLine: Boolean = true,
     minHeight: Dp = 52.dp,
     keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
     isError: Boolean = false,
 ) {
     val c = ShareCostTheme.colors
+    val focusManager = LocalFocusManager.current
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(12.dp)
     // Focus wins (blue ring); otherwise a required-but-empty field reads red so the gap is obvious.
     val borderColor = if (focused) c.blue else if (isError) c.danger else c.borderStrong
     val borderWidth = if (focused) 2.dp else if (isError) 1.5.dp else 1.dp
+    // A single-line field's Enter should complete + collapse the keyboard, never insert a newline.
+    val effectiveImeAction = when {
+        imeAction != ImeAction.Default -> imeAction
+        singleLine -> ImeAction.Done
+        else -> ImeAction.Default
+    }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -78,7 +91,14 @@ fun ScTextField(
         textStyle = TextStyle(color = c.ink, fontSize = 16.sp, fontFamily = if (mono) ShareCostTheme.monoFamily else null),
         cursorBrush = SolidColor(c.blue),
         interactionSource = interaction,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        visualTransformation = visualTransformation,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = effectiveImeAction),
+        keyboardActions = KeyboardActions(
+            onDone = { focusManager.clearFocus() },
+            onGo = { focusManager.clearFocus() },
+            onSend = { focusManager.clearFocus() },
+            onSearch = { focusManager.clearFocus() },
+        ),
         decorationBox = { inner ->
             Row(
                 modifier = Modifier

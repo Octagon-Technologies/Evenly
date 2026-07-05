@@ -39,6 +39,7 @@ import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 
 enum class MagicLinkState { Input, Loading, Sent }
 
@@ -103,7 +104,7 @@ fun MagicLinkScreen(
                 // in release builds (see isDebugBuild()); leave blank for the normal magic-link / OTP flow.
                 if (allowPassword) {
                     ScField("Password (test accounts — optional)") {
-                        ScTextField(password, { password = it }, placeholder = "•••••••", keyboardType = KeyboardType.Password)
+                        ScTextField(password, { password = it }, placeholder = "•••••••", keyboardType = KeyboardType.Password, visualTransformation = PasswordVisualTransformation())
                     }
                 }
                 error?.let { Text(it, color = c.danger, fontSize = 13.sp) }
