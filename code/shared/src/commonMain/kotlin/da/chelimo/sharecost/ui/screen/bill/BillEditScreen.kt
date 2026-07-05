@@ -545,35 +545,25 @@ internal fun ItemEditorRow(
                 QtyField(value = item.quantity, onChange = { onChange(item.withQuantity(it)) })
             }
             Box(Modifier.weight(1f))
-            if (item.quantity > 1) {
-                // Type whichever the receipt shows — the other derives. The highlighted box is the truth.
-                LabeledPriceField(
-                    label = "each",
-                    text = item.eachText,
-                    active = item.driver == PriceDriver.EACH,
-                    symbol = symbol,
-                    onChange = { onChange(item.withEach(it)) },
-                    modifier = Modifier.width(94.dp),
-                )
-                LabeledPriceField(
-                    label = "total of ${item.quantity}",
-                    text = item.totalText,
-                    active = item.driver == PriceDriver.TOTAL,
-                    symbol = symbol,
-                    onChange = { onChange(item.withTotal(it)) },
-                    modifier = Modifier.width(94.dp),
-                )
-            } else {
-                // Single unit — each and total are the same, so just one plain price box (kept clean).
-                LabeledPriceField(
-                    label = "price",
-                    text = item.totalText,
-                    active = false,
-                    symbol = symbol,
-                    onChange = { onChange(item.withTotal(it)) },
-                    modifier = Modifier.width(110.dp),
-                )
-            }
+            // Both "each" and "total" show on EVERY item (not just qty>1), so you can always type whichever
+            // the receipt lists — never dividing by hand. Editing one derives the other; the highlighted box
+            // is the source of truth. At qty 1 they mirror each other; past that the "total of N" earns its keep.
+            LabeledPriceField(
+                label = "each",
+                text = item.eachText,
+                active = item.driver == PriceDriver.EACH,
+                symbol = symbol,
+                onChange = { onChange(item.withEach(it)) },
+                modifier = Modifier.width(94.dp),
+            )
+            LabeledPriceField(
+                label = if (item.quantity > 1) "total of ${item.quantity}" else "total",
+                text = item.totalText,
+                active = item.driver == PriceDriver.TOTAL,
+                symbol = symbol,
+                onChange = { onChange(item.withTotal(it)) },
+                modifier = Modifier.width(94.dp),
+            )
         }
     }
 }

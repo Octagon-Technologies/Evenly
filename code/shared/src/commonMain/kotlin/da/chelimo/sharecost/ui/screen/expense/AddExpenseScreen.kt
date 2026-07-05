@@ -251,6 +251,49 @@ fun AddExpenseScreen(
     val itemizedValid = title.isNotBlank() && hasItem
     val isValid = if (isItemized) itemizedValid else divideValid
 
+    // The Save action, shared by the top bar and the button under the totals (A4). Stays live so we can
+    // validate on tap and reveal the gaps instead of leaving a dead, greyed button.
+    val submit = fun() {
+        if (!isValid) {
+            showErrors = true
+            scope.launch { scrollState.animateScrollTo(0) }
+            return
+        }
+        if (isItemized) {
+            onSaveItemized(
+                EditBillSubmit(
+                    title = title.trim(),
+                    items = items.filter { it.label.trim().isNotEmpty() },
+                    taxSubunits = priceToSubunits(taxText),
+                    gratuitySubunits = priceToSubunits(gratuityText),
+                    tipSubunits = priceToSubunits(tipText),
+                    discountSubunits = priceToSubunits(discountText),
+                    participantIds = selected,
+                    payerUserId = if (isOutsidePayer) null else effectivePayerId,
+                ),
+            )
+        } else onSave(
+            AddExpenseSubmit(
+                amountSubunits = amountSubunits,
+                title = title.trim(),
+                payerUserId = if (isOutsidePayer) "" else effectivePayerId,
+                payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
+                mode = mode,
+                currency = currency,
+                categoryId = categoryId,
+                shares = ids.map { id ->
+                    SplitShareInput(
+                        userId = id,
+                        owedSubunits = owed[id] ?: 0L,
+                        units = if (mode == SplitMode.Share) (shareUnits[id] ?: 1) else null,
+                        percent = if (mode == SplitMode.Percent) parsePercent(percentText[id]) else null,
+                        exactSubunits = if (mode == SplitMode.Exact) parseAmountSubunits(exactText[id].orEmpty()) else null,
+                    )
+                },
+            ),
+        )
+    }
+
     // Up-front split-type question: a focused editor beats a toggle you can flip by accident. Until it's
     // answered on a new expense, show the chooser; Back from the editor returns here (see navIcon below).
     if (splitApproach == null) {
@@ -272,47 +315,7 @@ fun AddExpenseScreen(
                 val fg = if (active) c.onAccent else c.disabledInk
                 Box(
                     Modifier.clip(RoundedCornerShape(11.dp)).background(bg)
-                        .then(if (active) Modifier.clickable {
-                            if (!isValid) {
-                                showErrors = true
-                                scope.launch { scrollState.animateScrollTo(0) }
-                                return@clickable
-                            }
-                            if (isItemized) {
-                                onSaveItemized(
-                                    EditBillSubmit(
-                                        title = title.trim(),
-                                        items = items.filter { it.label.trim().isNotEmpty() },
-                                        taxSubunits = priceToSubunits(taxText),
-                                        gratuitySubunits = priceToSubunits(gratuityText),
-                                        tipSubunits = priceToSubunits(tipText),
-                                        discountSubunits = priceToSubunits(discountText),
-                                        participantIds = selected,
-                                        // An itemized bill is paid by a member (outside-payer isn't a thing here).
-                                        payerUserId = if (isOutsidePayer) null else effectivePayerId,
-                                    ),
-                                )
-                            } else onSave(
-                                AddExpenseSubmit(
-                                    amountSubunits = amountSubunits,
-                                    title = title.trim(),
-                                    payerUserId = if (isOutsidePayer) "" else effectivePayerId,
-                                    payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
-                                    mode = mode,
-                                    currency = currency,
-                                    categoryId = categoryId,
-                                    shares = ids.map { id ->
-                                        SplitShareInput(
-                                            userId = id,
-                                            owedSubunits = owed[id] ?: 0L,
-                                            units = if (mode == SplitMode.Share) (shareUnits[id] ?: 1) else null,
-                                            percent = if (mode == SplitMode.Percent) parsePercent(percentText[id]) else null,
-                                            exactSubunits = if (mode == SplitMode.Exact) parseAmountSubunits(exactText[id].orEmpty()) else null,
-                                        )
-                                    },
-                                ),
-                            )
-                        } else Modifier)
+                        .then(if (active) Modifier.clickable { submit() } else Modifier)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
             },
@@ -327,6 +330,17 @@ fun AddExpenseScreen(
                     }
                 }
             }
+
+            // Who's splitting this — asked FIRST, before "Paid by": pick the people, THEN the payer. Testers
+            // reached for the payer before adding anyone, so the payer picker misread as "who's in the split".
+            ParticipantsField(
+                participants = participants,
+                selected = selected,
+                onToggle = { id -> selected = if (id in selected) selected - id else selected + id },
+                onSelectAll = { selected = participants.map { it.userId }.toSet() },
+                onDeselectAll = { selected = emptySet() },
+                onAddClick = { showAddDialog = true },
+            )
 
             // category (F2, optional) + paid by — side by side to keep the editor compact. Each is still
             // its own tappable picker row (like before), just half-width now.
@@ -404,20 +418,27 @@ fun AddExpenseScreen(
                 }
             }
 
-            // participants
-            ParticipantsField(
-                participants = participants,
-                selected = selected,
-                onToggle = { id -> selected = if (id in selected) selected - id else selected + id },
-                onSelectAll = { selected = participants.map { it.userId }.toSet() },
-                onDeselectAll = { selected = emptySet() },
-                onAddClick = { showAddDialog = true },
-            )
-
             // ── the split body (the divide-vs-itemize choice was made up front, so no in-editor toggle) ──
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (isItemized) {
                     // ── By what each had: a typed-or-scanned item list, bill extras, derived total ──
+                    // Scan is the marquee action — a prominent hero card at the top, not a quiet link (A5).
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.blueTint)
+                            .border(1.dp, c.border, RoundedCornerShape(16.dp)).clickable { showScanSource = true }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(c.blue), contentAlignment = Alignment.Center) {
+                            ScIcon(ScIcons.Camera, size = 22.dp, tint = c.onAccent)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Scan the receipt", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("Snap a photo or PDF and we'll fill in the items.", color = c.ink2, fontSize = 12.sp)
+                        }
+                        ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.blue)
+                    }
                     if (attachedReceiptCount > 0) {
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.blueTint).padding(horizontal = 12.dp, vertical = 10.dp),
@@ -432,19 +453,13 @@ fun AddExpenseScreen(
                             )
                         }
                     }
-                    // A quiet header: "Items" label + an equally-quiet "Scan" link (not a prominent button —
-                    // the tabs above should read as the strongest thing on this section, not these buttons).
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Row(
-                            Modifier.clip(RoundedCornerShape(8.dp)).clickable { showScanSource = true }.padding(horizontal = 6.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            ScIcon(ScIcons.Camera, size = 14.dp, tint = c.blue)
-                            Text("Scan", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
+                    // A quiet "or add items by hand" divider under the scan hero, then the item list.
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f).height(1.dp).background(c.border))
+                        Text("or add items by hand", color = c.ink3, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Box(Modifier.weight(1f).height(1.dp).background(c.border))
                     }
+                    Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     ScCard {
                         items.forEachIndexed { i, item ->
                             ItemEditorRow(
@@ -478,6 +493,8 @@ fun AddExpenseScreen(
                         tipText = tipText, onTip = { tipText = it },
                         discountText = discountText, onDiscount = { discountText = it },
                     )
+                    // Save right under the total — where you look when you're done (A4).
+                    ScButton(if (saving) "Saving…" else "Save & assign items", { submit() }, enabled = !saving)
                 } else {
                 // ── Divide the total: the amount to split, the method, and the per-person preview ──
                 ScCard(padded = true) {
@@ -598,6 +615,8 @@ fun AddExpenseScreen(
                         )
                     }
                 }
+                // Save right under the per-person split — where you look when you're done (A4).
+                ScButton(if (saving) "Saving…" else "Save expense", { submit() }, enabled = !saving)
                 } // ── end Divide body ──
             }
         }
@@ -693,6 +712,22 @@ fun AddExpenseScreen(
                     if (!isOutsidePayer && p.userId == effectivePayerId) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
                 }
             }
+            // Add a brand-new person right here (creates a placeholder member) — a member who paid must
+            // exist first, and this covers "the payer isn't in the group yet".
+            Box(Modifier.topHairline(c.border)) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { showPayerDialog = false; showAddDialog = true }.padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue)
+                    }
+                    Text("Add someone new", color = c.blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                }
+            }
+            // An outside payer (not a group member, not in the split) — clearer than the old "Someone else",
+            // which testers read as "another member".
             Box(Modifier.topHairline(c.border)) {
                 Row(
                     Modifier.fillMaxWidth().clickable { someoneElse = true }.padding(vertical = 12.dp),
@@ -702,7 +737,7 @@ fun AddExpenseScreen(
                     Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
                         ScIcon(ScIcons.User, size = 15.dp, tint = c.blue)
                     }
-                    Text("Someone else", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("Someone outside the group", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     if (isOutsidePayer && !someoneElse) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
                 }
             }
@@ -832,7 +867,10 @@ private fun ParticipantsField(
     val c = ShareCostTheme.colors
     if (participants.size <= PARTICIPANTS_INLINE_THRESHOLD) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Participants", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("Who's splitting this?", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (participants.size <= 1) {
+                Text("Add the people splitting this bill.", color = c.ink3, fontSize = 12.sp)
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 participants.forEach { p ->
                     val on = p.userId in selected
@@ -853,7 +891,7 @@ private fun ParticipantsField(
     val count = selected.size
     val allOn = count >= participants.size
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Participants", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("Who's splitting this?", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         val rowShape = RoundedCornerShape(12.dp)
         Row(
             Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(rowShape).background(c.page)
