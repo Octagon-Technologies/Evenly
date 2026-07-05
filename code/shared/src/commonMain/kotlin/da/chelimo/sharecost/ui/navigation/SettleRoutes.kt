@@ -21,8 +21,12 @@ import da.chelimo.sharecost.ui.screen.settle.SettlePersonScreen
 import da.chelimo.sharecost.ui.screen.settle.SettleShareUi
 import da.chelimo.sharecost.ui.screen.settle.SettleSingleSheet
 import da.chelimo.sharecost.ui.screen.settle.appLabel
+import da.chelimo.sharecost.core.time.todayUtc
+import da.chelimo.sharecost.ui.screen.group.dayLabel
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 /**
  * Settle a person, wired: settles the net amount the current user owes the peer (debtor→creditor) via
@@ -31,6 +35,7 @@ import org.koin.compose.koinInject
  * fires the deep link (or copies the fallback) and the confirm sheet records the payment only once the
  * user confirms it went through. "Mark paid" records directly with no deep link attempted.
  */
+@OptIn(ExperimentalTime::class)
 @Composable
 fun SettlePersonRoute(groupId: String, peerUserId: String, onBack: () -> Unit, onSettled: () -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
@@ -41,26 +46,29 @@ fun SettlePersonRoute(groupId: String, peerUserId: String, onBack: () -> Unit, o
 
     val gid = remember(groupId) { GroupId(groupId) }
     val peerId = remember(peerUserId) { UserId(peerUserId) }
-    val debts by remember(gid) { expenses.observeBalances(gid) }.collectAsStateWithLifecycle(emptyList())
+    val items by remember(gid) { expenses.observeOutstandingItems(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val today = remember { Clock.System.todayUtc() }
 
     val peer = members.firstOrNull { it.userId == peerId }
     val peerName = peer?.displayName ?: "Someone"
     val currency = group?.baseCurrency ?: "USD"
-    val owed = debts.firstOrNull { it.debtorUserId == userId && it.creditorUserId == peerId }?.amountSubunits ?: 0L
-    val shares = if (owed > 0) listOf(SettleShareUi("Outstanding balance", "", owed)) else emptyList()
-    // The payee's real handles drive the "Pay with" choices; ordered VENMO, CASH_APP, PAYPAL, ZELLE.
+    // What the current user still owes this peer, per expense (oldest first) — the checkable settle list.
+    val shares = items
+        .filter { it.debtorUserId == userId && it.creditorUserId == peerId }
+        .map { SettleShareUi(it.expenseId.value, it.title, dayLabel(it.expenseDate, today), it.remainingSubunits) }
+    // The payee's real handles drive the "Pay with" choices; their preferred one is highlighted.
     val handles = PaymentApp.entries.mapNotNull { app ->
         peer?.paymentHandles?.get(app)?.let { PeerPaymentHandle(app, app.appLabel, it) }
     }
 
-    /** Records the payment, optionally noting that a confirmed deep link was used. */
-    fun record(amount: Long, app: PaymentApp?, linkConfirmed: Boolean) {
+    /** Records the payment, confined to the ticked expenses, optionally noting a confirmed deep link. */
+    fun record(amount: Long, app: PaymentApp?, linkConfirmed: Boolean, expenseIds: List<String>) {
         val me = userId ?: return
-        if (amount <= 0) return
+        if (amount <= 0 || expenseIds.isEmpty()) return
         scope.launch {
             settlements.applySettlement(
                 NewSettlement(
@@ -70,6 +78,9 @@ fun SettlePersonRoute(groupId: String, peerUserId: String, onBack: () -> Unit, o
                     paymentCurrency = currency,
                     paymentAmountSubunits = amount,
                     createdBy = me,
+                    // Scope to exactly what the user ticked, so paying the Uber clears the Uber (not the
+                    // oldest outstanding expense to this peer).
+                    expenseIds = expenseIds.map { ExpenseId(it) },
                     paymentApp = app?.name,
                     deepLinkAttempted = app != null,
                     deepLinkSucceeded = if (app != null) linkConfirmed else null,
@@ -84,13 +95,14 @@ fun SettlePersonRoute(groupId: String, peerUserId: String, onBack: () -> Unit, o
         currencyCode = currency,
         shares = shares,
         handles = handles,
+        preferredApp = peer?.preferredPaymentApp,
         onBack = onBack,
-        onOpenApp = { amount, app, handle ->
+        onOpenApp = { amount, app, handle, _ ->
             // Fire the deep link best-effort; the clipboard fallback lives on the confirm sheet's "Copy".
             buildDeepLink(app, handle, amount, group?.name ?: "ShareCost", "balance").url?.let { urlOpener.open(it) }
         },
-        onConfirmPaid = { amount, app -> record(amount, app, linkConfirmed = true) },
-        onMarkPaid = { amount -> record(amount, app = null, linkConfirmed = false) },
+        onConfirmPaid = { amount, app, expenseIds -> record(amount, app, linkConfirmed = true, expenseIds) },
+        onMarkPaid = { amount, expenseIds -> record(amount, app = null, linkConfirmed = false, expenseIds) },
     )
 }
 

@@ -10,6 +10,8 @@ import da.chelimo.sharecost.domain.settlement.PaymentApp
  *
  * [paymentHandles] is the member's own per-payee handles (03 §5.1) — only the apps they've set. The
  * settle screen reads the *payee's* map to deep-link into the right app; it's empty for placeholders.
+ * [preferredPaymentApp] is the member's own favourite among those — the settle screen highlights it as
+ * the default way to pay them (null when unset).
  */
 data class Member(
     val userId: UserId,
@@ -18,4 +20,5 @@ data class Member(
     val isAdmin: Boolean,
     val joinedAt: Long,
     val paymentHandles: Map<PaymentApp, String> = emptyMap(),
+    val preferredPaymentApp: PaymentApp? = null,
 )

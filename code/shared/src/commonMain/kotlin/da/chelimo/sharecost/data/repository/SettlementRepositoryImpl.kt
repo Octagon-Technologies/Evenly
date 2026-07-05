@@ -86,10 +86,17 @@ class SettlementRepositoryImpl(
         // Same-currency shares the debtor still owes the creditor, oldest first (03 §4.2). When scoped to a
         // single expense (the "Settle 'X'" sheet), restrict allocation to that expense's shares so a
         // *partial* payment pays down the expense the user is looking at — not the oldest outstanding one.
+        val selectedExpenseIds = input.expenseIds?.map { it.value }?.toSet()
         val outstanding = shareDao
             .outstandingForPair(input.groupId.value, input.fromUserId.value, input.toUserId.value)
             .filter { it.currency == input.paymentCurrency }
-            .filter { input.expenseId == null || it.expenseId == input.expenseId.value }
+            .filter {
+                when {
+                    input.expenseId != null -> it.expenseId == input.expenseId.value
+                    selectedExpenseIds != null -> it.expenseId in selectedExpenseIds
+                    else -> true
+                }
+            }
         val totalOutstanding = outstanding.sumOf { it.remainingSubunits }
         if (input.paymentAmountSubunits > totalOutstanding) {
             // PAYMENT_OVERALLOCATED (04 §2.2): can't pay more than is owed in this currency.

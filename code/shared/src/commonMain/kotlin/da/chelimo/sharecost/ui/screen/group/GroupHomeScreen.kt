@@ -68,7 +68,7 @@ fun GroupHomeScreen(
         val items = buildList {
             add(BottomNavItem("expenses", "Expenses", ScIcons.Receipt))
             add(BottomNavItem("balances", "Balances", ScIcons.Swap))
-            if (conflictCount > 0) add(BottomNavItem("conflicts", "Conflicts", ScIcons.Flag, badge = conflictCount))
+            if (conflictCount > 0) add(BottomNavItem("conflicts", "Review", ScIcons.Flag, badge = conflictCount))
             add(BottomNavItem("overview", "Overview", ScIcons.Chart))
         }
         ScBottomNav(

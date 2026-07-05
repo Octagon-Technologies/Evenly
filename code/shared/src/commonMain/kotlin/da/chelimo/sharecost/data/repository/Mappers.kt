@@ -41,7 +41,12 @@ internal fun MemberWithUserRow.toDomain(): Member = Member(
     isAdmin = isAdmin,
     joinedAt = joinedAt,
     paymentHandles = paymentHandles(venmoHandle, cashappHandle, paypalHandle, zelleHandle),
+    preferredPaymentApp = parsePaymentApp(preferredPaymentApp),
 )
+
+/** Parses a stored [PaymentApp] name; unknown/null → null (tolerant of older/newer rows). */
+internal fun parsePaymentApp(name: String?): PaymentApp? =
+    name?.let { n -> PaymentApp.entries.firstOrNull { it.name == n } }
 
 /** Folds the four nullable handle columns into a [PaymentApp]-keyed map (only the apps that are set). */
 internal fun paymentHandles(venmo: String?, cashapp: String?, paypal: String?, zelle: String?): Map<PaymentApp, String> =

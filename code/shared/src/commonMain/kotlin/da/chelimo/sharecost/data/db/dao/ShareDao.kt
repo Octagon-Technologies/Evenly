@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
 import da.chelimo.sharecost.data.db.entity.ShareEntity
+import da.chelimo.sharecost.data.db.projection.OutstandingItemRow
 import da.chelimo.sharecost.data.db.projection.OutstandingShareForPair
 import da.chelimo.sharecost.data.db.projection.OutstandingShareRow
 import da.chelimo.sharecost.data.db.projection.ReconcileExpenseRow
@@ -105,6 +106,31 @@ interface ShareDao {
         """
     )
     fun observeOutstandingShares(groupId: String): Flow<List<OutstandingShareRow>>
+
+    /**
+     * Every outstanding line in a group, joined to its expense for title/date/currency + payer — the
+     * input to the Balances per-counterparty breakdown and the one-page settle checklist. Remaining is
+     * derived (owed − applied); excludes fully-paid shares, the payer's own share, outside-payer
+     * expenses (no member creditor), soft-deleted shares, and soft-deleted expenses. Oldest first.
+     */
+    @Query(
+        """
+        SELECT * FROM (
+            SELECT s.expense_id AS expense_id, e.title AS title, e.expense_date AS expense_date,
+                   e.currency AS currency, s.user_id AS debtor_user_id,
+                   e.payer_user_id AS creditor_user_id,
+                   s.share_owed_subunits - COALESCE((
+                       SELECT SUM(sa.applied_amount_subunits) FROM settlement_allocations sa
+                       INNER JOIN settlements st ON st.id = sa.settlement_id
+                       WHERE sa.share_id = s.id AND st.deleted_at IS NULL), 0) AS remaining_subunits
+            FROM shares s INNER JOIN expenses e ON e.id = s.expense_id
+            WHERE e.group_id = :groupId AND e.deleted_at IS NULL AND s.deleted_at IS NULL
+              AND e.payer_user_id IS NOT NULL AND s.user_id <> e.payer_user_id
+        ) WHERE remaining_subunits > 0
+        ORDER BY expense_date ASC, expense_id ASC
+        """
+    )
+    fun observeOutstandingItems(groupId: String): Flow<List<OutstandingItemRow>>
 
     /**
      * Outstanding shares [fromUserId] (debtor) still owes [toUserId] (payer), oldest expense first —

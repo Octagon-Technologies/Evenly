@@ -58,7 +58,8 @@ interface MemberDao {
         """
         SELECT m.user_id, u.display_name, COALESCE(u.is_placeholder, 0) AS is_placeholder,
                m.is_admin, m.joined_at,
-               u.venmo_handle, u.cashapp_handle, u.paypal_handle, u.zelle_handle
+               u.venmo_handle, u.cashapp_handle, u.paypal_handle, u.zelle_handle,
+               u.preferred_payment_app
         FROM members m
         LEFT JOIN users u ON u.id = m.user_id
         WHERE m.group_id = :groupId AND m.status = 'ACTIVE'

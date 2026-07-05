@@ -197,11 +197,6 @@ fun BillEditScreen(
     val nameValid = title.trim().isNotEmpty()
     val hasItem = items.any { it.label.trim().isNotEmpty() }
     val isValid = nameValid && hasItem
-    // What's still missing, phrased for the hint that sits above Save whenever the bill can't be saved.
-    val missing = buildList {
-        if (!nameValid) add("a name")
-        if (!hasItem) add("at least one item")
-    }
 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(c.surface)) {
@@ -315,22 +310,8 @@ fun BillEditScreen(
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The button stays live; a quiet hint names what's still needed. Tapping while incomplete
-                // reddens the gaps and scrolls back to them, so Save is never a silent dead end.
-                if (!isValid && !saving) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                    ) {
-                        ScIcon(ScIcons.Info, size = 15.dp, tint = if (showErrors) c.danger else c.ink3)
-                        Text(
-                            "Add ${missing.joinToString(" and ")} to save",
-                            color = if (showErrors) c.danger else c.ink2,
-                            fontSize = 13.sp,
-                        )
-                    }
-                }
+                // The button stays live. Tapping while incomplete reddens the gaps and scrolls back to
+                // them (the contextual errors under Name/Items), so Save is never a silent dead end.
                 ScButton(
                     text = if (saving) "Saving…" else "Save bill",
                     onClick = {

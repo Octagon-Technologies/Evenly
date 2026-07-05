@@ -271,6 +271,7 @@ fun ProfileRoute(onSignedOut: () -> Unit, onEditPaymentApps: () -> Unit) {
         email = profile?.email ?: "",
         baseCurrency = profile?.baseCurrency ?: "USD",
         paymentAppsSummary = paymentAppsSummary(handles),
+        paymentAppsSet = handles.isNotEmpty(),
         onSignOut = { auth.signOut(); onSignedOut() },
         onEditPaymentApps = onEditPaymentApps,
         onEditName = { name -> scope.launch { profiles.updateDisplayName(name) } },
@@ -293,8 +294,15 @@ fun PaymentHandlesRoute(onBack: () -> Unit) {
     val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
     PaymentHandlesScreen(
         initial = profile?.paymentHandles ?: emptyMap(),
+        initialPreferred = profile?.preferredPaymentApp,
         onBack = onBack,
-        onSave = { handles -> scope.launch { profiles.updatePaymentHandles(handles); onBack() } },
+        onSave = { handles, preferred ->
+            scope.launch {
+                profiles.updatePaymentHandles(handles)
+                profiles.updatePreferredPaymentApp(preferred)
+                onBack()
+            }
+        },
     )
 }
 

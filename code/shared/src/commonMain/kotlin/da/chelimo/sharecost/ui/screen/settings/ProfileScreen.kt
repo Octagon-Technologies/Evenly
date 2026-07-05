@@ -53,6 +53,7 @@ fun ProfileScreen(
     email: String = "alex@hey.com",
     baseCurrency: String = "USD",
     paymentAppsSummary: String = "Venmo +2",
+    paymentAppsSet: Boolean = true,
     onSignOut: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
     onEditName: (String) -> Unit = {},
@@ -101,14 +102,24 @@ fun ProfileScreen(
             // ── Preferences ────────────────────────────────────
             ProfileGroup("Preferences") {
                 ProfileRow(icon = ScIcons.Globe, label = "Base currency", value = baseCurrency)
-                ProfileRow(icon = ScIcons.Wallet, label = "Payment apps", value = paymentAppsSummary, last = true, onClick = onEditPaymentApps)
+                // Nudge the app's signature feature: an unset handle means peers can only "mark as
+                // paid" instead of paying you through your own app. Surface it as an action, not a dead value.
+                ProfileRow(
+                    icon = ScIcons.Wallet,
+                    label = "Payment apps",
+                    value = if (paymentAppsSet) paymentAppsSummary else "Add one",
+                    valueColor = if (paymentAppsSet) null else c.blue,
+                    hint = if (paymentAppsSet) null else "So friends can pay you back",
+                    last = true,
+                    onClick = onEditPaymentApps,
+                )
             }
 
             // ── Notifications ──────────────────────────────────
             ProfileGroup("Notifications") {
                 NotifRow("New expenses", notifications.newExpenses) { onNotificationsChange(notifications.copy(newExpenses = it)) }
                 NotifRow("Someone pays you", notifications.payments) { onNotificationsChange(notifications.copy(payments = it)) }
-                NotifRow("Conflict reminders", notifications.conflictReminders, last = true) { onNotificationsChange(notifications.copy(conflictReminders = it)) }
+                NotifRow("Review reminders", notifications.conflictReminders, last = true) { onNotificationsChange(notifications.copy(conflictReminders = it)) }
             }
 
             // ── Privacy ────────────────────────────────────────
@@ -196,6 +207,8 @@ private fun ProfileRow(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     value: String? = null,
+    valueColor: androidx.compose.ui.graphics.Color? = null,
+    hint: String? = null,
     danger: Boolean = false,
     last: Boolean = false,
     showChevron: Boolean = true,
@@ -213,8 +226,11 @@ private fun ProfileRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         icon?.let { ScIcon(it, size = 20.dp, tint = if (danger) c.danger else c.ink2) }
-        Text(label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start, modifier = Modifier.weight(1f))
-        value?.let { Text(it, color = c.ink2, fontSize = 14.sp) }
+        Column(Modifier.weight(1f)) {
+            Text(label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start)
+            hint?.let { Text(it, color = c.ink3, fontSize = 12.sp) }
+        }
+        value?.let { Text(it, color = valueColor ?: c.ink2, fontSize = 14.sp) }
         if (!danger && showChevron) ScIcon(ScIcons.ChevR, size = 15.dp, tint = c.ink3)
     }
 }

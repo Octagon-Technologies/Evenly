@@ -18,6 +18,7 @@ import da.chelimo.sharecost.data.db.dao.ShareDao
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.domain.activity.HistoryEventType
 import da.chelimo.sharecost.domain.balance.Debt
+import da.chelimo.sharecost.domain.balance.OutstandingItem
 import da.chelimo.sharecost.domain.balance.Share as BalanceShare
 import da.chelimo.sharecost.domain.balance.buildBilateralBalances
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
@@ -117,6 +118,21 @@ class ExpenseRepositoryImpl(
             buildBilateralBalances(converted)
         }
     }
+
+    override fun observeOutstandingItems(groupId: GroupId): Flow<List<OutstandingItem>> =
+        shareDao.observeOutstandingItems(groupId.value).map { rows ->
+            rows.map { r ->
+                OutstandingItem(
+                    expenseId = ExpenseId(r.expenseId),
+                    title = r.title,
+                    expenseDate = r.expenseDate,
+                    currency = r.currency,
+                    debtorUserId = UserId(r.debtorUserId),
+                    creditorUserId = UserId(r.creditorUserId),
+                    remainingSubunits = r.remainingSubunits,
+                )
+            }
+        }
 
     private fun OutstandingShareRow.toBalanceShare(currency: String, remaining: Long): BalanceShare? {
         val payer = payerUserId ?: return null

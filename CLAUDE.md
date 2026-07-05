@@ -50,6 +50,11 @@ failure in the last 10% never threatens work that already passed.
 Kotlin/Native (e.g. `RoomDatabase.clearAllTables()` resolves on Android, fails on Native). Android-green
 ≠ iOS-green.
 
+**Always run the app on the simulator after making changes.** Compiling + tests passing is necessary but
+not sufficient — after any change to the app, launch it on a simulator and leave it running so the owner
+can pick it up and manually check the change. A green build that was never actually run doesn't count as
+done here.
+
 JDK 17. Toolchain anchor: **Kotlin 2.3.21** (pinned by supabase-kt 3.6.0 / Ktor 3.4.3). minSdk 24,
 compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
 
@@ -72,6 +77,13 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   (naming, controls, density, flow) and only then do you implement — this has repeatedly surfaced
   simplifications that would have been costly to discover in code. Design decisions get made in the
   mock, not the PR. (For big features, also discuss the data/logic model to agreement first.)
+- **First-time-user check before any UI change is "done."** The author's curse of knowledge makes
+  everything feel intuitive; it usually isn't. Before finishing *any* new/changed screen or flow, run
+  the **`ux-firsttimer`** skill in build-time mode: walk that flow cold as the relevant persona
+  (usually Sam the invited friend or Diego the dinner claimer — the low-patience ones), clear every
+  P0/P1 it surfaces, and grep new user-facing strings against its jargon blocklist. "Compiles + runs"
+  is necessary, not sufficient — "a confused friend could do this unaided" is the bar. The same skill
+  runs a full cold audit of the app before a beta round.
 
 ---
 
@@ -126,7 +138,15 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   preserve each surviving participant's share `id` (matched by `user_id`) so allocations stay linked.
   `shares` has `deleted_at` (removed participants are soft-deleted, Rule 1) + a partial unique index over
   active rows; the old hard-delete `deleteSharesForExpense` is gone. Don't reintroduce a stored remaining
-  or a stored SETTLED status — that's the staleness bug this design removes.
+  or a stored SETTLED status — that's the staleness bug this design removes. A payment can be scoped three
+  ways in `NewSettlement`: `expenseId` (one expense — the single-expense sheet), `expenseIds` (a *subset* —
+  the one-page "settle with X" screen, where you tick which expenses you're paying off), or neither (all
+  outstanding to the creditor). Allocation still runs oldest-first *within* whatever set is chosen. The
+  Balances tab is two sections (**You owe** / **Owes you**), each row expandable to its per-expense
+  breakdown, fed by `ExpenseRepository.observeOutstandingItems` (derived remaining, per-expense currency);
+  the settle screen lists those same lines as the checkable targets. Members carry a
+  `preferredPaymentApp` (a synced `users.preferred_payment_app` column, set in the Payment-apps editor)
+  that the settle screen highlights as the default way to pay them.
 - **"Split the bill" expenses derive shares from items + claims, never stored input.** An itemized
   expense (`split_mode = "ITEMIZED"`) keeps its line items in the synced `expense_items` table and
   who-had-what in the synced `item_claims` table; bill-level extras ride on the expense row

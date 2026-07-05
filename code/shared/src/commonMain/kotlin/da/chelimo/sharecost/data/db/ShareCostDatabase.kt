@@ -85,7 +85,7 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         ItemShareEntity::class,
         BillParticipantEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)

@@ -6,6 +6,7 @@ import da.chelimo.sharecost.domain.receipt.ReceiptOcr
 import da.chelimo.sharecost.domain.receipt.ReceiptOcrFile
 import da.chelimo.sharecost.domain.receipt.ScanOutcome
 import da.chelimo.sharecost.platform.ConnectivityObserver
+import da.chelimo.sharecost.platform.ImageProcessor
 import da.chelimo.sharecost.platform.NetworkStatus
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -31,6 +32,8 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 class ReceiptOcrHttp(
     private val http: HttpClient,
     private val connectivity: ConnectivityObserver,
+    // Optional-ctor-dep pattern: production DI passes the real compressor; tests may omit it (raw bytes).
+    private val imageProcessor: ImageProcessor? = null,
 ) : ReceiptOcr {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -42,7 +45,15 @@ class ReceiptOcrHttp(
         // Don't burn a doomed round-trip (or leave the user staring at a spinner) when there's no network.
         if (connectivity.status.first() == NetworkStatus.Offline) return ScanOutcome.Offline
         return try {
-            val parts = files.map { ExtractPart(Base64.encode(it.bytes), it.mimeType) }
+            // Downscale + re-encode each image BEFORE base64 (PDFs pass through). A raw phone-camera photo is
+            // several MB and, once base64-inflated ~33%, blows past Anthropic vision's 5 MB/image limit — the
+            // edge function then relays a 400 as a 502 and the scan "just fails" on real devices (never on the
+            // emulator, whose synthetic image is tiny). Compressing here keeps every caller under the limit.
+            val parts = files.map { file ->
+                val processed = imageProcessor?.compress(file.bytes, file.mimeType)
+                if (processed != null) ExtractPart(Base64.encode(processed.bytes), processed.mimeType)
+                else ExtractPart(Base64.encode(file.bytes), file.mimeType)
+            }
             val body = json.encodeToString(ExtractReq(files = parts))
             val raw = http.post("${SupabaseConfig.URL}/functions/v1/extract-receipt") {
                 header("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
@@ -56,8 +67,8 @@ class ReceiptOcrHttp(
                 resp.receipt == null || resp.receipt.items.isEmpty() -> ScanOutcome.NoReceiptFound
                 else -> ScanOutcome.Success(resp.receipt.toDraft())
             }
-        } catch (_: Throwable) {
-            ScanOutcome.Failed()
+        } catch (t: Throwable) {
+            ScanOutcome.Failed(t.message)
         }
     }
 }

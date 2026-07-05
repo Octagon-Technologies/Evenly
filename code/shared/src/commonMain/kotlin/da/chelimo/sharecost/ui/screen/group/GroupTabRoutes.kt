@@ -16,6 +16,7 @@ import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.core.time.todayUtc
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.balance.Debt
+import da.chelimo.sharecost.domain.balance.OutstandingItem
 import da.chelimo.sharecost.domain.expense.ConflictSide
 import da.chelimo.sharecost.domain.group.Member
 import da.chelimo.sharecost.domain.repository.BillRepository
@@ -28,20 +29,37 @@ import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
 /**
- * Maps bilateral [Debt]s to display rows, resolving names (current user → "You") and the settle peer.
- * Shows only the current user's own balances — what they owe or are owed — not the full who-owes-whom log.
+ * Maps the current user's bilateral [Debt]s to display rows (one per counterparty + currency),
+ * attaching the per-expense breakdown ([items], filtered to the row's direction + currency). Only the
+ * user's own balances are shown — what they owe or are owed — not the full who-owes-whom log. Each
+ * breakdown line is in its own expense's currency, matched to the (per-currency) debt it belongs to.
  */
-fun buildBalances(debts: List<Debt>, members: List<Member>, currentUserId: UserId?): List<DebtUi> {
+fun buildBalances(
+    debts: List<Debt>,
+    items: List<OutstandingItem>,
+    members: List<Member>,
+    currentUserId: UserId?,
+    today: String,
+): List<DebtUi> {
+    val me = currentUserId ?: return emptyList()
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
-    fun name(id: UserId): String = if (id == currentUserId) "You" else (nameByUser[id.value] ?: "Someone")
-    return debts.filter { it.debtorUserId == currentUserId || it.creditorUserId == currentUserId }.map { d ->
-        val peer = if (d.debtorUserId == currentUserId) d.creditorUserId else d.debtorUserId
+    fun name(id: UserId): String = nameByUser[id.value] ?: "Someone"
+    return debts.filter { it.debtorUserId == me || it.creditorUserId == me }.map { d ->
+        val owedToYou = d.creditorUserId == me
+        val peer = if (owedToYou) d.debtorUserId else d.creditorUserId
+        val lines = items
+            .filter {
+                it.currency == d.currency &&
+                    it.debtorUserId == (if (owedToYou) peer else me) &&
+                    it.creditorUserId == (if (owedToYou) me else peer)
+            }
+            .map { BalanceLineUi(it.expenseId.value, it.title, dayLabel(it.expenseDate, today), moneySubunits(it.remainingSubunits, it.currency)) }
         DebtUi(
-            from = name(d.debtorUserId),
-            to = name(d.creditorUserId),
-            amount = d.amountSubunits / 100.0,
-            owedToYou = d.creditorUserId == currentUserId,
             peerUserId = peer.value,
+            peerName = name(peer),
+            amountText = moneySubunits(d.amountSubunits, d.currency),
+            owedToYou = owedToYou,
+            lines = lines,
         )
     }
 }
@@ -109,7 +127,9 @@ fun GroupExpensesRoute(
     )
 }
 
-/** Balances tab content, wired: the current user's pairwise debts (converted to the group base, F2). */
+/** Balances tab content, wired: the current user's pairwise debts (converted to the group base, F2),
+ *  split into owe / owed sections with a per-expense breakdown behind each row (F2). */
+@OptIn(ExperimentalTime::class)
 @Composable
 fun GroupBalancesRoute(groupId: String, onBack: () -> Unit, onSettleNav: (String) -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
@@ -117,10 +137,12 @@ fun GroupBalancesRoute(groupId: String, onBack: () -> Unit, onSettleNav: (String
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val debts by remember(gid) { expenses.observeBalances(gid) }.collectAsStateWithLifecycle(emptyList())
+    val items by remember(gid) { expenses.observeOutstandingItems(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    val rows = buildBalances(debts, members, userId)
-    GroupBalancesTab(empty = rows.isEmpty(), debts = rows, onBack = onBack, onSettle = { onSettleNav(it.peerUserId) })
+    val today = remember { Clock.System.todayUtc() }
+    val rows = buildBalances(debts, items, members, userId, today)
+    GroupBalancesTab(debts = rows, onBack = onBack, onSettle = { onSettleNav(it.peerUserId) })
 }
 
 /** Conflicts tab content, wired: streams unresolved conflicts; Skip dismisses, Include opens the sheet. */

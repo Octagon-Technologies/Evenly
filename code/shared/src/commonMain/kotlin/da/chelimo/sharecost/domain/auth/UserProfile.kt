@@ -13,6 +13,8 @@ data class UserProfile(
     val email: String?,
     val baseCurrency: String,
     val paymentHandles: Map<PaymentApp, String>,
+    /** The user's favourite among [paymentHandles] — the default others see when settling with them. */
+    val preferredPaymentApp: PaymentApp? = null,
     val notifications: NotificationPrefs = NotificationPrefs(),
     val themeMode: ThemeMode = ThemeMode.System,
 )

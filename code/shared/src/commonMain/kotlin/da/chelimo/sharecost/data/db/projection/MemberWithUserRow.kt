@@ -17,4 +17,5 @@ data class MemberWithUserRow(
     @ColumnInfo(name = "cashapp_handle") val cashappHandle: String? = null,
     @ColumnInfo(name = "paypal_handle") val paypalHandle: String? = null,
     @ColumnInfo(name = "zelle_handle") val zelleHandle: String? = null,
+    @ColumnInfo(name = "preferred_payment_app") val preferredPaymentApp: String? = null,
 )

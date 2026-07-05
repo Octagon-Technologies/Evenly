@@ -52,6 +52,13 @@ class ProfileRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
+    override suspend fun updatePreferredPaymentApp(app: PaymentApp?): AppResult<Unit> {
+        val id = auth.currentUserId.value
+            ?: return AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
+        userDao.updatePreferredPaymentApp(id = id.value, app = app?.name, now = clock.nowEpochMillis())
+        return AppResult.Ok(Unit)
+    }
+
     override suspend fun updateProfile(displayName: String, baseCurrency: String): AppResult<Unit> {
         val id = auth.currentUserId.value
             ?: return AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
@@ -100,6 +107,7 @@ private fun UserEntity.toProfile(): UserProfile = UserProfile(
     email = email,
     baseCurrency = baseCurrency ?: "USD",
     paymentHandles = paymentHandles(venmoHandle, cashappHandle, paypalHandle, zelleHandle),
+    preferredPaymentApp = parsePaymentApp(preferredPaymentApp),
     notifications = NotificationPrefs(
         newExpenses = notifyNewExpenses,
         payments = notifyPayments,

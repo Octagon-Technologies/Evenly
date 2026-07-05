@@ -98,7 +98,7 @@ fun GroupConflictsTab(
         else -> "Decide who shares these costs."
     }
     Column(Modifier.fillMaxSize().background(c.surface)) {
-        ScTopBar("Conflicts", subtitle = subtitle, navIcon = { ScIconButton(ScIcons.Back, onBack) })
+        ScTopBar("Review", subtitle = subtitle, navIcon = { ScIconButton(ScIcons.Back, onBack) })
         ScBanner(bannerText, variant = BannerVariant.Amber, leadingIcon = ScIcons.Alert)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // Edit-collisions first: two people edited the same expense offline. Pick a side; never auto-merge.

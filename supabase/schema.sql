@@ -15,6 +15,7 @@ create table if not exists public.users (
   cashapp_handle text,
   paypal_handle text,
   zelle_handle text,
+  preferred_payment_app text,
   placeholder_group_id text,
   notify_new_expenses boolean not null default true,
   notify_payments boolean not null default true,

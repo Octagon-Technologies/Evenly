@@ -5,6 +5,7 @@ import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.domain.balance.Debt
+import da.chelimo.sharecost.domain.balance.OutstandingItem
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.ExpenseEditConflict
@@ -33,6 +34,13 @@ interface ExpenseRepository {
 
     /** Bilateral debts for the group (03 §2.2) — pairwise nets of outstanding shares, never simplified. */
     fun observeBalances(groupId: GroupId): Flow<List<Debt>>
+
+    /**
+     * Every outstanding line in the group (debtor still owes creditor on expense X) — the per-expense
+     * breakdown behind the Balances rows and the one-page settle checklist. Each line is in its own
+     * expense's currency; the caller filters to the counterparty + direction it's showing.
+     */
+    fun observeOutstandingItems(groupId: GroupId): Flow<List<OutstandingItem>>
 
     /** Add an expense + shares in one transaction. Rejects when `sum(shares) != amount` (AC-INV-001). */
     suspend fun addExpense(input: NewExpense): AppResult<Expense>

@@ -243,7 +243,7 @@ fun GroupRow(g: GroupCardUi, modifier: Modifier = Modifier, onClick: () -> Unit 
                 Text(g.name, color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (g.unread) ScDot()
             }
-            Text("${g.members} members · ${g.last}", color = c.ink2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${g.members} ${if (g.members == 1) "member" else "members"} · ${g.last}", color = c.ink2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         when {
             archived -> ScChip("Unarchive", variant = ChipVariant.Ghost, leadingIcon = ScIcons.Archive)

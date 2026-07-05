@@ -249,16 +249,6 @@ fun AddExpenseScreen(
     val divideValid = amountSubunits > 0 && title.isNotBlank() && selected.isNotEmpty() && splitValid
     val itemizedValid = title.isNotBlank() && hasItem
     val isValid = if (isItemized) itemizedValid else divideValid
-    // What's still missing, phrased for the hint that shows above the form until it can be saved.
-    val missing = if (isItemized) buildList {
-        if (title.isBlank()) add("a title")
-        if (!hasItem) add("at least one item")
-    } else buildList {
-        if (amountSubunits <= 0) add("an amount")
-        if (title.isBlank()) add("a title")
-        if (selected.isEmpty()) add("a participant")
-        if (amountSubunits > 0 && selected.isNotEmpty() && !splitValid) add("a valid split")
-    }
 
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         ScTopBar(
@@ -317,22 +307,6 @@ fun AddExpenseScreen(
             },
         )
         Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            // A quiet, always-present hint of what Save still needs — so the button is never a silent dead end.
-            if (!isValid && !saving) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .background(if (showErrors) c.danger.copy(alpha = 0.10f) else c.blueTint)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ScIcon(ScIcons.Info, size = 15.dp, tint = if (showErrors) c.danger else c.blue)
-                    Text(
-                        "Add ${missing.joinToString(" and ")} to save",
-                        color = if (showErrors) c.danger else c.blue, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                    )
-                }
-            }
             // ── shared header: title, category, paid by, participants — entered once, both modes ──
             ScField("Title") {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {

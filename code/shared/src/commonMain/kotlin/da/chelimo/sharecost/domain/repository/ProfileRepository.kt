@@ -19,6 +19,10 @@ interface ProfileRepository {
     /** Replace the current user's payment handles (apps absent from the map are cleared). */
     suspend fun updatePaymentHandles(handles: Map<PaymentApp, String>): AppResult<Unit>
 
+    /** Set the current user's preferred payment app (null to clear) — the default others see when
+     *  paying them back. Callers should pass an app the user actually has a handle for. */
+    suspend fun updatePreferredPaymentApp(app: PaymentApp?): AppResult<Unit>
+
     /** Persist the onboarding basics — display name + default base currency for new groups. */
     suspend fun updateProfile(displayName: String, baseCurrency: String): AppResult<Unit>
 

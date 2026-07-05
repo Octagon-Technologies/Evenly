@@ -51,6 +51,11 @@ interface UserDao {
     )
     suspend fun updatePaymentHandles(id: String, venmo: String?, cashapp: String?, paypal: String?, zelle: String?, now: Long)
 
+    /** Set the user's preferred payment app (a [da.chelimo.sharecost.domain.settlement.PaymentApp]
+     *  name, or null to clear) — the default others see when settling with them. */
+    @Query("UPDATE users SET preferred_payment_app = :app, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
+    suspend fun updatePreferredPaymentApp(id: String, app: String?, now: Long)
+
     /** Persist onboarding basics (display name + base currency). */
     @Query(
         """

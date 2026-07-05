@@ -144,7 +144,7 @@ fun GroupSettingsScreen(
                             small = true,
                         )
                         ScButton(
-                            "Rotate",
+                            "New link",
                             onRotateInvite,
                             modifier = Modifier.weight(1f),
                             variant = ButtonVariant.Secondary,

@@ -43,6 +43,14 @@ data class NewSettlement(
      * single-expense sheet is showing.
      */
     val expenseId: ExpenseId? = null,
+    /**
+     * When set (and [expenseId] is null), the payment is confined to **these** expenses' outstanding
+     * shares — the one-page "settle with X" flow, where the user ticks which specific expenses they're
+     * paying off (the Uber but not yet the Airbnb). Allocation still runs oldest-first *within* the
+     * selected set. Null = all outstanding to the creditor (the pay-everything default). [expenseId]
+     * (single) takes precedence when both are set.
+     */
+    val expenseIds: List<ExpenseId>? = null,
     val notes: String? = null,
     val paymentApp: String? = null,
     /** Whether a payment-app deep link was opened for this settlement, and whether the user then

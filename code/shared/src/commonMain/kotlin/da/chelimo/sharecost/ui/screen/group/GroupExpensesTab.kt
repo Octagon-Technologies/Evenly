@@ -280,7 +280,7 @@ private fun InviteSheet(
         )
         Spacer(Modifier.height(4.dp))
         ScButton(
-            text = "Rotate link",
+            text = "New link",
             onClick = onRotate,
             variant = ButtonVariant.Text,
             leadingIcon = ScIcons.Reload,
@@ -350,8 +350,11 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
             when {
                 it.settled -> ScChip("Settled", variant = ChipVariant.Green, leadingIcon = ScIcons.Check)
                 it.stakeLabel != null && it.stakeAmount != null -> Column(horizontalAlignment = Alignment.End) {
-                    Text(it.stakeLabel, color = if (it.stakeOwedToYou) c.blue else c.ink2, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    Text(it.stakeAmount, color = if (it.stakeOwedToYou) c.blue else c.ink, fontFamily = ShareCostTheme.monoFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    // Owed-to-you → amber (in your favour); you-owe → blue (the action). Mirrors the
+                    // home card + Balances chip so "blue" never means opposite things across screens.
+                    val stakeColor = if (it.stakeOwedToYou) c.credit else c.blue
+                    Text(it.stakeLabel, color = stakeColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(it.stakeAmount, color = stakeColor, fontFamily = ShareCostTheme.monoFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
                 it.amountLabel.isNotBlank() -> Text(it.amountLabel, color = c.ink2, fontFamily = ShareCostTheme.monoFamily, fontSize = 14.sp)
             }

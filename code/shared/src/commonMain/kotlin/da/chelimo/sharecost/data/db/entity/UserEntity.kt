@@ -55,6 +55,13 @@ data class UserEntity(
     @ColumnInfo(name = "zelle_handle")
     val zelleHandle: String? = null,
 
+    /**
+     * The user's *preferred* payment app (a [PaymentApp] name, or null). Highlighted as the default
+     * when others settle with them; only meaningful when the matching `*_handle` above is also set.
+     */
+    @ColumnInfo(name = "preferred_payment_app")
+    val preferredPaymentApp: String? = null,
+
     /** Non-null iff [isPlaceholder]; the group the placeholder lives in (02 §3.2 invariant). */
     @ColumnInfo(name = "placeholder_group_id")
     val placeholderGroupId: String? = null,
