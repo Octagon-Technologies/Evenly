@@ -4,6 +4,15 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Receipt capture (D-22). iOS shows these strings in its own permission prompt (this IS the
+	     "explain why" step). WITHOUT NSCameraUsageDescription the app HARD-CRASHES (SIGABRT) the moment
+	     the camera opens on a real device — the simulator is guarded out, which is why it only surfaced
+	     on a physical device. Photos go through PHPicker (out-of-process, no auth), but the library
+	     string is declared defensively for any direct-library path. -->
+	<key>NSCameraUsageDescription</key>
+	<string>ShareCost uses your camera to snap receipts, so you can split a bill by scanning it. Photos stay on your device and are only attached to the expense you add them to.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ShareCost accesses the photos you choose so you can attach receipts to an expense. Only the photos you pick are used.</string>
 	<!-- OAuth / magic-link redirect target (sharecost://login-callback). Must match the Auth deep
 	     link in SupabaseClientFactory + the Supabase Auth URL allow-list. -->
 	<key>CFBundleURLTypes</key>
