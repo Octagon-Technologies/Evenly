@@ -173,8 +173,9 @@ fun AddExpenseScreen(
     var percentText by remember { mutableStateOf(prefill?.percentText ?: emptyMap()) }
     var exactText by remember { mutableStateOf(prefill?.exactText ?: emptyMap()) }
 
-    // Which body is showing. Only creation offers the choice; an edit stays in its (divide) body.
-    var splitApproach by remember { mutableStateOf(SplitApproach.Divide) }
+    // Which body is showing. The choice is an up-front question (below): null = not yet chosen on a new
+    // expense (show the chooser); an edit skips it and stays in its (divide) body.
+    var splitApproach by remember { mutableStateOf<SplitApproach?>(if (editing) SplitApproach.Divide else null) }
     // "By what each had" body state — a typed-or-scanned item list plus the bill-level extras.
     var items by remember { mutableStateOf(listOf(editBillItemUi(null, "", 1, 0L))) }
     var taxText by remember { mutableStateOf("") }
@@ -250,10 +251,20 @@ fun AddExpenseScreen(
     val itemizedValid = title.isNotBlank() && hasItem
     val isValid = if (isItemized) itemizedValid else divideValid
 
+    // Up-front split-type question: a focused editor beats a toggle you can flip by accident. Until it's
+    // answered on a new expense, show the chooser; Back from the editor returns here (see navIcon below).
+    if (splitApproach == null) {
+        Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+            ScTopBar(title = "New expense", navIcon = { ScIconButton(ScIcons.Close, onBack) })
+            SplitApproachChooser(onChoose = { splitApproach = it })
+        }
+        return
+    }
+
     Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
         ScTopBar(
-            title = if (editing) "Edit expense" else "New expense",
-            navIcon = { ScIconButton(ScIcons.Close, onBack) },
+            title = if (editing) "Edit expense" else if (isItemized) "By what each had" else "Divide the total",
+            navIcon = { ScIconButton(if (editing) ScIcons.Close else ScIcons.Back, { if (editing) onBack() else splitApproach = null }) },
             actions = {
                 // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
                 val active = !saving
@@ -403,14 +414,8 @@ fun AddExpenseScreen(
                 onAddClick = { showAddDialog = true },
             )
 
-            // ── how to split ──
+            // ── the split body (the divide-vs-itemize choice was made up front, so no in-editor toggle) ──
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("How to split", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                // Divide one known total (the four modes) or itemize (claim by item, total builds from the
-                // list). The choice swaps the body below; on an edit the mode is fixed, so there's no toggle.
-                if (!editing) {
-                    SplitApproachSelector(selected = splitApproach, onSelect = { splitApproach = it })
-                }
                 if (isItemized) {
                     // ── By what each had: a typed-or-scanned item list, bill extras, derived total ──
                     if (attachedReceiptCount > 0) {
@@ -505,6 +510,7 @@ fun AddExpenseScreen(
                 if (showErrors && amountSubunits <= 0) {
                     Text("Enter an amount", color = c.danger, fontSize = 12.sp)
                 }
+                Text("How to split", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 ScSegmented(options = SplitMode.labels, selected = split, onSelect = { split = it })
                 ScCard(modifier = Modifier.padding(top = 4.dp)) {
                     selectedList.forEachIndexed { i, p ->
@@ -747,38 +753,60 @@ fun AddExpenseScreen(
 }
 
 /**
- * The top-tier split choice — "Divide the total" vs "By what each had". A real two-cell toggle (both
- * selectable): the selected side is a raised white chip; tapping the other swaps the body below. Itemize
- * sits one level *above* Even/Shares/%/Exact on purpose — those divide a known total; this derives the
- * total from items, so it isn't a peer of them.
+ * The up-front split-type question, shown before the editor: "Divide the total" vs "By what each had".
+ * Choosing one opens a focused editor for that mode — no in-editor toggle to flip by accident. Itemize
+ * sits a level *above* Even/Shares/%/Exact on purpose: those divide a known total; this derives the total
+ * from items, so it isn't a peer of them.
  */
 @Composable
-private fun SplitApproachSelector(selected: SplitApproach, onSelect: (SplitApproach) -> Unit) {
-    val track = RoundedCornerShape(11.dp)
-    Row(
-        Modifier.fillMaxWidth().clip(track).background(ShareCostTheme.colors.blueTint).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+private fun SplitApproachChooser(onChoose: (SplitApproach) -> Unit) {
+    val c = ShareCostTheme.colors
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ApproachCell(Modifier.weight(1f), "Divide the total", "Evenly, %, shares, exact", selected == SplitApproach.Divide) { onSelect(SplitApproach.Divide) }
-        ApproachCell(Modifier.weight(1f), "By what each had", "Claim items", selected == SplitApproach.ByItem) { onSelect(SplitApproach.ByItem) }
+        Column(Modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("How are you splitting this?", color = c.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
+            Text("Pick once — you'll get a focused editor.", color = c.ink2, fontSize = 14.sp)
+        }
+        ApproachChoiceCard(
+            icon = ScIcons.Split,
+            title = "Divide the total",
+            subtitle = "One amount — split evenly, by %, shares, or exact.",
+            onClick = { onChoose(SplitApproach.Divide) },
+        )
+        ApproachChoiceCard(
+            icon = ScIcons.Receipt,
+            title = "By what each had",
+            subtitle = "Scan a receipt or list items — everyone pays for what they got.",
+            onClick = { onChoose(SplitApproach.ByItem) },
+        )
     }
 }
 
 @Composable
-private fun ApproachCell(modifier: Modifier, title: String, subtitle: String, active: Boolean, onClick: () -> Unit) {
+private fun ApproachChoiceCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
     val c = ShareCostTheme.colors
-    val cell = RoundedCornerShape(9.dp)
-    Column(
-        modifier.clip(cell)
-            .then(if (active) Modifier.background(c.page).border(1.dp, c.borderStrong, cell) else Modifier)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(c.page).border(1.dp, c.borderStrong, shape)
+            .clickable(onClick = onClick).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // Bigger, bolder than the section's own body copy — this is the strongest thing in the section,
-        // stronger than the Add item / Scan links inside the itemized body below.
-        Text(title, color = if (active) c.ink else c.bluePressed, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text(subtitle, color = c.ink2, fontSize = 12.sp)
+        Box(Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+            ScIcon(icon, size = 24.dp, tint = c.blue)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = c.ink2, fontSize = 13.sp, lineHeight = 17.sp)
+        }
+        ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.ink3)
     }
 }
 
