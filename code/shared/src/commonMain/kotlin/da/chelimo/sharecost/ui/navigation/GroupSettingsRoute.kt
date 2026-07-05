@@ -12,6 +12,7 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.repository.GroupRepository
+import da.chelimo.sharecost.platform.PlatformShare
 import da.chelimo.sharecost.ui.screen.settings.GroupSettingsScreen
 import da.chelimo.sharecost.ui.screen.settings.MemberRowUi
 import kotlinx.coroutines.launch
@@ -35,6 +36,7 @@ fun GroupSettingsRoute(
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val share = koinInject<PlatformShare>()
     val inviteToken = group?.inviteToken
     val inviteLink = inviteToken?.let { "sharecost.app/j/$it" } ?: "Generating link…"
 
@@ -70,6 +72,7 @@ fun GroupSettingsRoute(
         },
         onRename = { name -> scope.launch { groups.renameGroup(gid, name) } },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("sharecost.app/j/$it")) } },
+        onShareInvite = { inviteToken?.let { share.shareText("Join my group on ShareCost: sharecost.app/j/$it", "Join my ShareCost group") } },
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
         onReconcile = onReconcile,

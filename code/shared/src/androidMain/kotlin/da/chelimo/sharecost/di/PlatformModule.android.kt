@@ -7,6 +7,7 @@ import da.chelimo.sharecost.platform.ConnectivityObserver
 import da.chelimo.sharecost.platform.CurrentActivity
 import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.ImageProcessor
+import da.chelimo.sharecost.platform.PlatformShare
 import da.chelimo.sharecost.platform.PushService
 import da.chelimo.sharecost.platform.ReceiptFileStore
 import da.chelimo.sharecost.platform.ReceiptUploadScheduler
@@ -26,6 +27,7 @@ actual fun platformModule(): Module = module {
     single { SecureStorage(androidContext()) }
     single { ConnectivityObserver(androidContext()) }
     single { UrlOpener(androidContext()) }
+    single { PlatformShare(androidContext()) }
     single { PushService() }
     single { FilePicker { CurrentActivity.get() } }
     single { ImageProcessor() }

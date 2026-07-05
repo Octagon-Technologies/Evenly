@@ -20,6 +20,7 @@ supabase = "3.6.0"                     # BOM
 ktor = "3.4.3"                         # EXACT match to supabase-kt 3.6.0 (its hardest pin)
 koin = "4.2.1"
 coil = "3.4.0"
+qrose = "1.0.1"                        # pure-Compose-MP QR renderer (invite QR); no platform bitmap interop
 room = "2.8.4"
 sqlite = "2.6.2"                       # co-released with Room 2.8.4
 kermit = "2.1.0"
@@ -86,6 +87,7 @@ koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
 
 # Coil 3 (images)
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
 coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
 
 # Room + SQLite (local DB) — KSP wiring is added when the first @Entity lands (data layer)

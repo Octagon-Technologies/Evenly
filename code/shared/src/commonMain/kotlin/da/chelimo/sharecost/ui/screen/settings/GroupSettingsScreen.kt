@@ -76,6 +76,7 @@ fun GroupSettingsScreen(
     onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
     onRename: (String) -> Unit = {},
     onCopyInvite: () -> Unit = {},
+    onShareInvite: () -> Unit = {},
     onRotateInvite: () -> Unit = {},
     onRemoveMember: (MemberRowUi) -> Unit = {},
     onReconcile: () -> Unit = {},
@@ -134,6 +135,12 @@ fun GroupSettingsScreen(
                             )
                         }
                     }
+                    ScButton(
+                        "Share link",
+                        onShareInvite,
+                        leadingIcon = ScIcons.Share,
+                        small = true,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScButton(
                             "Copy link",

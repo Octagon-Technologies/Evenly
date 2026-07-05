@@ -22,6 +22,7 @@ import da.chelimo.sharecost.domain.group.Member
 import da.chelimo.sharecost.domain.repository.BillRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
+import da.chelimo.sharecost.platform.PlatformShare
 import da.chelimo.sharecost.ui.components.moneySubunits
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -112,6 +113,7 @@ fun GroupExpensesRoute(
     // Invite link (same source/format as Group settings): the token resolves once the group has synced.
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val share = koinInject<PlatformShare>()
     val inviteToken = group?.inviteToken
     val inviteLink = inviteToken?.let { "sharecost.app/j/$it" } ?: "Generating link…"
     GroupExpensesTab(
@@ -121,6 +123,7 @@ fun GroupExpensesRoute(
         onBack = onBack, onOpenSettings = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = onFilter,
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("sharecost.app/j/$it")) } },
+        onShareInvite = { inviteToken?.let { share.shareText("Join my group on ShareCost: sharecost.app/j/$it", "Join my ShareCost group") } },
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,

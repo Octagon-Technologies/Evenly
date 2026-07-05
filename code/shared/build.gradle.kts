@@ -107,6 +107,7 @@ kotlin {
             // Images
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
+            implementation(libs.qrose) // QR code rendering for the invite sheet (pure Compose MP)
 
             // Local DB (KSP/room-compiler wired with the first @Entity — data layer)
             implementation(libs.room.runtime)

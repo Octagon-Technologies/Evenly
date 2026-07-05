@@ -1,6 +1,7 @@
 package da.chelimo.sharecost.ui.screen.group
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import io.github.alexzhirkevich.qrose.rememberQrCodePainter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -103,6 +105,7 @@ fun GroupExpensesTab(
     onClearFilter: () -> Unit = {},
     onOpenDrafts: () -> Unit = {},
     onCopyInvite: () -> Unit = {},
+    onShareInvite: () -> Unit = {},
     onRotateInvite: () -> Unit = {},
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
@@ -228,6 +231,7 @@ fun GroupExpensesTab(
             groupName = groupName,
             inviteLink = inviteLink,
             onCopy = onCopyInvite,
+            onShare = onShareInvite,
             onRotate = onRotateInvite,
             onDismiss = { showInvite = false },
         )
@@ -245,6 +249,7 @@ private fun InviteSheet(
     groupName: String,
     inviteLink: String,
     onCopy: () -> Unit,
+    onShare: () -> Unit,
     onRotate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -255,6 +260,19 @@ private fun InviteSheet(
         title = "Invite to $groupName",
         sub = "Anyone with this link can join.",
     ) {
+        // Scannable QR of the join link — hand the phone across the table instead of typing a URL.
+        // White plate + dark modules so it scans in both light and dark themes. Hidden until the token syncs.
+        if (inviteLink.startsWith("sharecost")) {
+            Box(Modifier.fillMaxWidth().padding(bottom = 12.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White).padding(14.dp)) {
+                    Image(
+                        painter = rememberQrCodePainter(inviteLink),
+                        contentDescription = "QR code to join $groupName",
+                        modifier = Modifier.size(176.dp),
+                    )
+                }
+            }
+        }
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface)
                 .border(1.dp, c.border, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 12.dp),
@@ -274,8 +292,15 @@ private fun InviteSheet(
         }
         Spacer(Modifier.height(12.dp))
         ScButton(
+            text = "Share link",
+            onClick = onShare,
+            leadingIcon = ScIcons.Share,
+        )
+        Spacer(Modifier.height(8.dp))
+        ScButton(
             text = if (copied) "Link copied" else "Copy link",
             onClick = { onCopy(); copied = true },
+            variant = ButtonVariant.Secondary,
             leadingIcon = if (copied) ScIcons.Check else ScIcons.Copy,
         )
         Spacer(Modifier.height(4.dp))
