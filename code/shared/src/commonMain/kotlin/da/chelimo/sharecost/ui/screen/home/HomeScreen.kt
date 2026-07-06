@@ -62,7 +62,7 @@ data class GroupCardUi(
     val unread: Boolean = false,
 )
 
-enum class GroupBalanceStatus { Owe, Owed, Settled }
+enum class GroupBalanceStatus { Owe, Owed, Settled, Empty }
 
 sealed interface HomeUiState {
     data object Loading : HomeUiState
@@ -247,6 +247,7 @@ fun GroupRow(g: GroupCardUi, modifier: Modifier = Modifier, onClick: () -> Unit 
         }
         when {
             archived -> ScChip("Unarchive", variant = ChipVariant.Ghost, leadingIcon = ScIcons.Archive)
+            g.status == GroupBalanceStatus.Empty -> Unit // no expenses yet → no status chip, just the "No expenses yet" subtitle
             g.status == GroupBalanceStatus.Settled -> ScChip("Settled", variant = ChipVariant.Green, leadingIcon = ScIcons.Check)
             else -> {
                 // Group-level balance, color-coded: you owe → blue (the action); you're owed / in credit →

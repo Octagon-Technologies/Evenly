@@ -62,7 +62,8 @@ class HomeViewModel(
         combine(
             groups.observeMembers(group.id),
             expenses.observeBalances(group.id),
-        ) { members, debts ->
+            expenses.observeExpenses(group.id),
+        ) { members, debts, groupExpenses ->
             // creditor==you → owed to you (+); debtor==you → you owe (−). Sum nets across peers.
             val netSubunits = if (archived) 0L else debts.sumOf { d ->
                 when (uid) {
@@ -71,7 +72,11 @@ class HomeViewModel(
                     else -> 0L
                 }
             }
-            group.toCard(memberCount = members.size.coerceAtLeast(1), netSubunits = netSubunits)
+            group.toCard(
+                memberCount = members.size.coerceAtLeast(1),
+                netSubunits = netSubunits,
+                hasExpenses = groupExpenses.isNotEmpty(),
+            )
         }
 
     private val _errors = Channel<String>(Channel.BUFFERED)
@@ -89,18 +94,22 @@ class HomeViewModel(
     }
 }
 
-private fun Group.toCard(memberCount: Int, netSubunits: Long): GroupCardUi = GroupCardUi(
+private fun Group.toCard(memberCount: Int, netSubunits: Long, hasExpenses: Boolean): GroupCardUi = GroupCardUi(
     id = id.value,
     emoji = emoji,
     name = name,
     members = memberCount,
+    // A group with no expenses yet isn't "settled" — there's nothing to settle. Empty is its own state:
+    // no chip, and an honest subtitle rather than a misleading "All settled up".
     status = when {
+        !hasExpenses -> GroupBalanceStatus.Empty
         netSubunits > 0L -> GroupBalanceStatus.Owed
         netSubunits < 0L -> GroupBalanceStatus.Owe
         else -> GroupBalanceStatus.Settled
     },
     amount = if (netSubunits == 0L) null else abs(netSubunits) / 100.0,
     last = when {
+        !hasExpenses -> "No expenses yet"
         netSubunits > 0L -> "You're owed"
         netSubunits < 0L -> "You owe"
         else -> "All settled up"
