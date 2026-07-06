@@ -149,7 +149,7 @@ private fun BalanceRow(d: DebtUi, expanded: Boolean, onToggle: () -> Unit) {
             )
         }
         // Owed-to-you → amber (in your favour); you-owe → blue (the action). Mirrors the home card.
-        ScChip(d.amountText, variant = if (d.owedToYou) ChipVariant.Credit else ChipVariant.Blue, mono = true)
+        ScChip(d.amountText, variant = if (d.owedToYou) ChipVariant.Owed else ChipVariant.Owe, mono = true)
         ScIcon(if (expanded) ScIcons.ChevU else ScIcons.ChevD, size = 18.dp, tint = c.ink3)
     }
 }

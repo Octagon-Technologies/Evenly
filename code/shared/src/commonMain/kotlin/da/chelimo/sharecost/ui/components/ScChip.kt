@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-enum class ChipVariant { Neutral, Blue, Solid, Amber, Red, Green, Credit, Ghost }
+enum class ChipVariant { Neutral, Blue, Solid, Amber, Red, Green, Credit, Ghost, Owe, Owed }
 
 private data class ChipColors(val bg: Color, val fg: Color, val border: Color)
 
@@ -41,6 +41,15 @@ private fun chipColors(variant: ChipVariant): ChipColors {
         ChipVariant.Green -> ChipColors(c.settledTint, c.settled, c.settled.copy(alpha = 0.20f))
         ChipVariant.Credit -> ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
         ChipVariant.Ghost -> ChipColors(Color.Transparent, c.ink2, c.border)
+        // Balance amounts — you-owe (blue) / you're-owed (amber). In DARK they render as outlined pills
+        // (transparent fill + colored ring + colored text) so the amount stands clearly apart from the
+        // near-black background; in LIGHT they stay the original filled tint chips (identical to before).
+        ChipVariant.Owe ->
+            if (c.isDark) ChipColors(Color.Transparent, c.owe, c.owe)
+            else ChipColors(c.blueTint, c.blue, c.blueTint2)
+        ChipVariant.Owed ->
+            if (c.isDark) ChipColors(Color.Transparent, c.credit, c.credit)
+            else ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
     }
 }
 

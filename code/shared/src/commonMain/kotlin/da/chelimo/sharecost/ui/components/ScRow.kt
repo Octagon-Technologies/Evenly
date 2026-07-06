@@ -128,7 +128,7 @@ fun ScDebtRow(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // Group-balance color code: you're owed / in credit → amber (attention, in your favor);
             // you owe → blue (the action). Mirrors the home group card.
-            ScChip(amount, variant = if (owedToYou) ChipVariant.Credit else ChipVariant.Blue, mono = true)
+            ScChip(amount, variant = if (owedToYou) ChipVariant.Owed else ChipVariant.Owe, mono = true)
             ScIcon(ScIcons.ChevR, size = 16.dp, tint = c.ink3)
         }
     }

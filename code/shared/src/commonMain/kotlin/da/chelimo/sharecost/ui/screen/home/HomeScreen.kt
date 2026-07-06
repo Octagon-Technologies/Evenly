@@ -254,8 +254,8 @@ fun GroupRow(g: GroupCardUi, modifier: Modifier = Modifier, onClick: () -> Unit 
                 // amber (money coming back to you — draws attention without red's "you did wrong").
                 val owed = g.status == GroupBalanceStatus.Owed
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(if (owed) "you're owed" else "you owe", color = if (owed) c.credit else c.blue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    ScChip(money(g.amount ?: 0.0), variant = if (owed) ChipVariant.Credit else ChipVariant.Blue, mono = true)
+                    Text(if (owed) "you're owed" else "you owe", color = if (owed) c.credit else c.owe, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    ScChip(money(g.amount ?: 0.0), variant = if (owed) ChipVariant.Owed else ChipVariant.Owe, mono = true)
                 }
             }
         }

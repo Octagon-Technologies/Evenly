@@ -53,6 +53,10 @@ val ScBlueDark = Color(0xFF5B8DEF)        // lifted for AA on a dark page
 val ScBluePressedDark = Color(0xFF3D6FD6)
 val ScBlueTintDark = Color(0xFF16243F)
 val ScBlueTint2Dark = Color(0xFF1E3357)
+// "You owe" accent — a brighter sky-blue so the debt amount reads clearly on the dark page (the plain
+// #5B8DEF sank into the navy tint and blended in). Paired with an outlined chip in dark, mirroring the
+// amber "you're owed". Light mode keeps the brand blue (owe == blue there), so only dark shifts.
+val ScOweDark = Color(0xFF7AA6FF)
 
 val ScPageDark = Color(0xFF0B0F17)        // near-ink, shares the ink hue family
 val ScSurfaceDark = Color(0xFF141A24)

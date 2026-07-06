@@ -19,11 +19,15 @@ import androidx.compose.ui.text.font.FontFamily
  */
 @Immutable
 data class ExtendedColors(
+    // True in the dark scheme. A few components (e.g. the owe/owed amount chips) render differently by
+    // theme — filled in light, outlined in dark — and read this rather than recomputing from the OS.
+    val isDark: Boolean,
     // primary, expressed by weight
     val blue: Color,
     val bluePressed: Color,
     val blueTint: Color,
     val blueTint2: Color,
+    val owe: Color,               // "you owe" accent — brighter than blue in dark so the debt reads
     val onAccent: Color,          // text/icon on a blue fill
     // text ramp (3 tiers; Material gives ~2 useful)
     val ink: Color,
@@ -59,10 +63,12 @@ data class ExtendedColors(
 )
 
 internal val ExtendedLight = ExtendedColors(
+    isDark = false,
     blue = ScBlue,
     bluePressed = ScBluePressed,
     blueTint = ScBlueTint,
     blueTint2 = ScBlueTint2,
+    owe = ScBlue,                 // light: owe == the brand blue (chip stays filled, unchanged)
     onAccent = ScOnAccent,
     ink = ScInk,
     ink2 = ScInk2,
@@ -92,10 +98,12 @@ internal val ExtendedLight = ExtendedColors(
 )
 
 internal val ExtendedDark = ExtendedColors(
+    isDark = true,
     blue = ScBlueDark,
     bluePressed = ScBluePressedDark,
     blueTint = ScBlueTintDark,
     blueTint2 = ScBlueTint2Dark,
+    owe = ScOweDark,              // dark: brighter sky-blue so the outlined owe chip + label read
     onAccent = ScOnAccent,
     ink = ScInkDark,
     ink2 = ScInk2Dark,
