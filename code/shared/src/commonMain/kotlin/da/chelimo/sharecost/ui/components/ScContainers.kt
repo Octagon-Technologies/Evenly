@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,7 +27,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import da.chelimo.sharecost.ui.components.icon.ScIcon
+import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
+
+/** How much a focused card (sheet/modal) dims the screen behind it — just enough to read as
+ *  "this has focus," not so much it reads as "the app is blocked." Paired with an explicit close
+ *  control on the card itself, since tap-outside-to-dismiss alone isn't discoverable. */
+private const val ScScrimAlpha = 0.22f
 
 private val CardShape = RoundedCornerShape(16.dp)
 
@@ -64,12 +73,13 @@ fun <T> ScListCard(
     }
 }
 
-/** Visual of `.sc-sheet` (grabber, rounded top, title/sub) without the scrim. */
+/** Visual of `.sc-sheet` (close button + title/sub) without the scrim. */
 @Composable
 fun ScSheetSurface(
     modifier: Modifier = Modifier,
     title: String? = null,
     sub: String? = null,
+    onClose: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = ShareCostTheme.colors
@@ -78,20 +88,40 @@ fun ScSheetSurface(
             .fillMaxWidth()
             .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             .background(c.page)
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
     ) {
-        Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp, bottom = 14.dp).size(width = 36.dp, height = 5.dp).clip(RoundedCornerShape(99.dp)).background(c.borderStrong))
-        title?.let {
-            Text(it, Modifier.fillMaxWidth().padding(bottom = 4.dp), color = c.ink, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.Center)
+        if (onClose != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                ScSheetCloseButton(onClose)
+                title?.let { Text(it, color = c.ink, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) }
+            }
+        } else {
+            title?.let {
+                Text(it, Modifier.fillMaxWidth().padding(bottom = 4.dp), color = c.ink, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.Center)
+            }
         }
         sub?.let {
-            Text(it, Modifier.fillMaxWidth().padding(bottom = 16.dp), color = c.ink2, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+            Text(it, Modifier.fillMaxWidth().padding(bottom = 16.dp), color = c.ink2, style = MaterialTheme.typography.bodyMedium, textAlign = if (onClose != null) TextAlign.Start else TextAlign.Center)
         }
         content()
     }
 }
 
-/** `.sc-scrim` + bottom-aligned [ScSheetSurface]. Tapping the scrim dismisses; the sheet consumes. */
+/** The small circular ✕ used on every sheet/modal — an explicit, discoverable way to close, since
+ *  a tap on the dimmed backdrop alone isn't something a first-time user reliably finds. */
+@Composable
+private fun ScSheetCloseButton(onClose: () -> Unit) {
+    val c = ShareCostTheme.colors
+    Box(
+        Modifier.size(30.dp).clip(RoundedCornerShape(10.dp)).background(c.surface).clickable(onClick = onClose),
+        contentAlignment = Alignment.Center,
+    ) {
+        ScIcon(ScIcons.Close, size = 14.dp, tint = c.ink2)
+    }
+}
+
+/** `.sc-scrim` + bottom-aligned [ScSheetSurface]. A tap on the (lightly) dimmed backdrop dismisses,
+ *  same as an explicit close button in the sheet's top-left — belt and suspenders, not either/or. */
 @Composable
 fun ScSheetScaffold(
     onDismiss: () -> Unit,
@@ -100,17 +130,19 @@ fun ScSheetScaffold(
     sub: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Box(modifier.fillMaxSize().background(ShareCostTheme.colors.ink.copy(alpha = 0.4f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)) {
+    Box(modifier.fillMaxSize().background(ShareCostTheme.colors.ink.copy(alpha = ScScrimAlpha)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)) {
         ScSheetSurface(
             modifier = Modifier.align(Alignment.BottomCenter).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
             title = title,
             sub = sub,
+            onClose = onDismiss,
             content = content,
         )
     }
 }
 
-/** `.sc-scrim--center` + `.sc-modal` (centered dialog card, max 320dp). */
+/** `.sc-scrim--center` + `.sc-modal` (centered dialog card, max 320dp) — with an explicit close
+ *  button pinned top-left of the card, for the same reason [ScSheetScaffold] has one. */
 @Composable
 fun ScModalScaffold(
     onDismiss: () -> Unit,
@@ -119,13 +151,15 @@ fun ScModalScaffold(
 ) {
     val c = ShareCostTheme.colors
     Box(
-        modifier.fillMaxSize().background(c.ink.copy(alpha = 0.4f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss).padding(24.dp),
+        modifier.fillMaxSize().background(c.ink.copy(alpha = ScScrimAlpha)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss).padding(24.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.page)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}).padding(24.dp),
-            content = content,
-        )
+        ) {
+            Box(Modifier.padding(bottom = 12.dp)) { ScSheetCloseButton(onDismiss) }
+            content()
+        }
     }
 }

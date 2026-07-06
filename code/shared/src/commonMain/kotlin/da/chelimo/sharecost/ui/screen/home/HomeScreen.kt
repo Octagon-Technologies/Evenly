@@ -1,13 +1,10 @@
 package da.chelimo.sharecost.ui.screen.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,11 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,8 +26,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -40,6 +41,7 @@ import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScDot
 import da.chelimo.sharecost.ui.components.ScFab
+import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.ScSkeletonRow
@@ -77,21 +79,36 @@ fun HomeScreen(
     userName: String = "there",
     onOpenGroup: (String) -> Unit = {},
     onNewGroup: () -> Unit = {},
-    onNewGroupTemplate: (emoji: String, name: String) -> Unit = { _, _ -> },
     onJoin: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    onEmptyStateChanged: (Boolean) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var showActions by remember { mutableStateOf(false) }
+    val isEmpty = state is HomeUiState.Empty
+    LaunchedEffect(isEmpty) { onEmptyStateChanged(isEmpty) }
 
     // No systemBarsPadding here: the root MainShell paints the status-bar scrim above and hosts the
     // bottom nav below, so this content fills the space between.
     Column(Modifier.fillMaxSize().background(c.surface)) {
-        ScTopBar(title = "ShareCost", center = true)
+        // The empty state hides MainShell's bottom nav (see HomeWelcome's doc), so Settings needs a
+        // stand-in entry point here instead of the usual centered "ShareCost" title bar.
+        if (isEmpty) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("ShareCost", modifier = Modifier.weight(1f), color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                ScIconButton(ScIcons.Gear, onClick = onOpenSettings)
+            }
+        } else {
+            ScTopBar(title = "ShareCost", center = true)
+        }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (state) {
                 HomeUiState.Loading -> Column(Modifier.padding(top = 8.dp)) { repeat(3) { ScSkeletonRow() } }
-                HomeUiState.Empty -> HomeWelcome(userName, onNewGroup, onJoin, onNewGroupTemplate)
+                HomeUiState.Empty -> HomeWelcome(onNewGroup, onJoin)
                 is HomeUiState.Content -> Column(
                     Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -138,71 +155,43 @@ fun HomeScreen(
     }
 }
 
-/** First-run welcome: greeting, the two entry paths, a 3-step primer, and one-tap group templates. */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * First-run welcome — no template chips, no numbered primer, no bottom nav (MainShell hides it while
+ * this is showing; Settings moves to the gear button in [HomeScreen]'s stand-in top row instead). One
+ * hero, one headline, one job: get the first group started. "Join with a link" sits right under the
+ * primary action as a full secondary button — same spot as before, just no longer a barely-there link.
+ */
 @Composable
 private fun HomeWelcome(
-    userName: String,
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
-    onTemplate: (emoji: String, name: String) -> Unit,
 ) {
     val c = ShareCostTheme.colors
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Welcome, $userName", color = c.ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "Track who owes whom and settle up — no spreadsheets, no awkward texts.",
-                color = c.ink2, fontSize = 14.sp, lineHeight = 21.sp,
-            )
+        Box(
+            Modifier.size(96.dp).clip(RoundedCornerShape(24.dp))
+                .background(Brush.linearGradient(listOf(c.blue, c.bluePressed))),
+            contentAlignment = Alignment.Center,
+        ) {
+            ScIcon(ScIcons.Users, size = 44.dp, tint = c.onAccent)
         }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Spacer(Modifier.height(24.dp))
+        Text("Start your first group", color = c.ink, fontSize = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Split costs and settle up with friends — no spreadsheets.",
+            color = c.ink2, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 260.dp),
+        )
+        Spacer(Modifier.height(28.dp))
+        Column(Modifier.widthIn(max = 280.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             ScButton("Start a group", onNewGroup, leadingIcon = ScIcons.Plus)
             ScButton("Join with a link", onJoin, variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Link)
         }
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ScSectionLabel("How it works")
-            HowStep(1, "Create a group & invite people")
-            HowStep(2, "Add expenses as you go")
-            HowStep(3, "Settle up in a tap")
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            ScSectionLabel("Or start from a template")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TemplateChip("🏝️", "Trip", onTemplate)
-                TemplateChip("🏠", "Apartment", onTemplate)
-                TemplateChip("🍝", "Dinner", onTemplate)
-                TemplateChip("🎉", "Event", onTemplate)
-            }
-        }
-    }
-}
-
-@Composable
-private fun HowStep(n: Int, text: String) {
-    val c = ShareCostTheme.colors
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(26.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-            Text("$n", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        }
-        Text(text, color = c.ink, fontSize = 14.sp)
-    }
-}
-
-@Composable
-private fun TemplateChip(emoji: String, label: String, onTemplate: (emoji: String, name: String) -> Unit) {
-    val c = ShareCostTheme.colors
-    val shape = RoundedCornerShape(11.dp)
-    Row(
-        Modifier.clip(shape).background(c.page).border(1.dp, c.border, shape).clickable { onTemplate(emoji, label) }.padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        Text(emoji, fontSize = 16.sp)
-        Text(label, color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

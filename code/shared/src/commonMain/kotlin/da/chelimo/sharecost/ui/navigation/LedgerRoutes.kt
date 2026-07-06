@@ -395,6 +395,8 @@ fun ExpenseDetailRoute(
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val gid = remember(groupId) { GroupId(groupId) }
     val detail by remember(eid) { expenses.observeExpense(eid) }.collectAsStateWithLifecycle(null)
+    // Track F one-sided nudge: this device's split edit was superseded while it was behind.
+    val supersededNotice by remember(eid) { expenses.observeSupersededNotice(eid) }.collectAsStateWithLifecycle(false)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val comments by remember(eid) { activity.observeComments(eid) }.collectAsStateWithLifecycle(emptyList())
@@ -516,6 +518,8 @@ fun ExpenseDetailRoute(
         onEdit = onEdit,
         onClaimItems = if (isItemized) onOpenClaim else null,
         onEditBill = if (isItemized) onEditBill else null,
+        supersededNotice = supersededNotice,
+        onDismissSupersededNotice = { scope.launch { expenses.dismissSupersededNotice(eid) } },
         onDelete = { scope.launch { if (expenses.deleteExpense(eid) is AppResult.Ok) onDeleted() } },
     )
 }

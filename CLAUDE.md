@@ -55,6 +55,14 @@ not sufficient — after any change to the app, launch it on a simulator and lea
 can pick it up and manually check the change. A green build that was never actually run doesn't count as
 done here.
 
+**Default to the iOS simulator for manual verification when either platform would do.** The owner
+usually already has it open, and running both an iOS simulator and an Android emulator at once burns
+CPU/RAM for no benefit. Use `code/iosApp/run-ios-sim.sh` (mirrors the Android Studio "iOS App
+(Simulator)" run config: boots/reuses a sim, builds via `xcodebuild` — which also compiles the shared
+Kotlin/Native framework — then installs + launches). Only reach for the Android emulator when the change
+is Android-specific (androidMain, Compose-on-Android quirks, manifest/Firebase) or the owner asks for
+Android explicitly.
+
 JDK 17. Toolchain anchor: **Kotlin 2.3.21** (pinned by supabase-kt 3.6.0 / Ktor 3.4.3). minSdk 24,
 compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
 
@@ -106,28 +114,37 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
 - **Synced Room entities double as wire DTOs:** snake_case `@ColumnInfo` names mirror the Postgres
   columns 1:1, the entity is `@Serializable`, and the client uses a snake_case `JsonNamingStrategy`. **No
   Room foreign keys** (rows sync in dependency-arbitrary order).
-- **Expenses sync through an optimistic-concurrency RPC, not a blind upsert.** An expense + its full
-  share set are one atomic, versioned unit. `SyncEngine.pushExpenses` routes each *dirty* expense (local
-  `row_version` ≠ its device-local `expense_sync_state.synced_version`) through the server
-  `commit_expense(p_expense, p_shares, p_base_version, p_actor)` RPC, which compare-and-swaps on
-  `row_version`: the first writer to advance `base→base+1` wins; a stale writer's payload is **parked** in
-  `expense_edit_conflicts` instead of clobbering. Shares ride *with* the expense (the RPC soft-deletes
-  removed ones server-side), so a losing edit's shares never land on the live `shares` table and corrupt a
-  split — do **not** reintroduce a blind bulk `expenses`/`shares` push. Soft-deleted expenses are
-  tombstones (plain upsert, LWW-safe). Before parking, the RPC **suppresses a no-op**: if a stale-base
-  payload is materially identical to canonical (same scalar fields *and* active share split — a stale
-  re-push, or two edits that converged), it returns `noop` instead of `conflict`, and the client silently
-  reverts local to canonical. This is what kills the bogus "you edited this while you did too" cards with
-  identical numbers on both sides — don't remove it. A real conflict records the **winner**:
-  `commit_expense` stamps `expenses.last_editor = p_actor` on every write and copies it into
-  `expense_edit_conflicts.server_actor`, so the client can attribute the collision to the person who
-  actually won (`ExpenseEditConflict.winnerBy`) rather than the misleading `rejected_by` (always the local
-  pusher). On `noop`/`conflict` the client reverts its cache to canonical
-  (`ExpenseDao.overwriteFromServer`); a parked edit syncs back for a **pick-a-side** resolution
-  (`ExpenseRepository.observeEditConflicts` now exposes BOTH full sides — title/amount/split/payer/per-user
-  shares — so `GroupConflictsTab` renders a field-level **diff** led by the viewer's own share, not a bare
-  total; `resolveEditConflict` unchanged; both kinds of conflict share the Conflicts tab). The whole
-  rationale is in the "When Two Edits Collide" article in Notion.
+- **Expenses sync through a ZONE-AWARE MERGE RPC, not a blind upsert or a whole-expense CAS (Track F).**
+  An expense is split into concurrency zones by *invariant boundary* (the "When Two Edits Collide" model):
+  **Zone 1 — metadata** (`title`, `notes`, `category_id`+`subcategory_id`, `expense_date`): independent
+  scalars, each carrying its own `*_updated_at` stamp, merged **per-field by newest timestamp**, so two
+  people editing *different* fields both survive (no conflict). **Zone 2 — the split** (`amount_subunits`,
+  `currency`, `split_mode`, `payer`, the bill-extras, and the per-user `shares`): one atomic money value
+  guarded by a **causal `split_version`** — NOT wall-clock. `SyncEngine.pushExpenses` routes each *dirty*
+  expense (local `row_version` ≠ `expense_sync_state.synced_version`) through
+  `merge_expense(p_expense, p_shares, p_base_split_version, p_actor)`, where `p_base_split_version` is the
+  device's last server-confirmed split version. The client sets its local `split_version` to
+  `synced_split_version + 1` **only when it actually changed the split** (see `ExpenseRepositoryImpl.edit*`
+  / `BillRepositoryImpl.editBill`), so the server distinguishes a real split edit from a metadata-only one:
+  base matches ⇒ apply + advance the split; **base is stale (a split edit made against an older version
+  than canonical) ⇒ the server keeps its advanced split and the loser is APPENDED to the append-only
+  `superseded_split_edits` audit — never applied, never lost.** This is the fix for the offline-for-weeks
+  device eating a dozen newer edits: it loses *because it's causally behind*, not because of who reached the
+  server last. `merge_expense` returns the merged canonical `{expense, shares}`, and the client adopts it
+  directly (`ExpenseDao.overwriteFromServer`) — no re-pull. Shares ride *with* the expense (the RPC
+  soft-deletes removed ones server-side); soft-deleted expenses are tombstones (LWW by `updated_at`). Do
+  **not** reintroduce a blind bulk `expenses`/`shares` push, a whole-expense CAS, or field-level merging of
+  the split (that's what produces a $35 split of a $30 dinner).
+- **There are NO bilateral "you both edited this" conflict cards (Track F).** A superseded split edit
+  surfaces to its author ALONE as a one-sided, dismissible **"your change was superseded — review?"** notice
+  (device-local `superseded_notices` table → `ExpenseRepository.observeSupersededNotice` → a banner on the
+  expense detail). `merge_expense` never writes `expense_edit_conflicts`, so `observeEditConflicts` is
+  hard-wired to empty and the Conflicts-tab edit half is dead. (The old `commit_expense` RPC +
+  `expense_edit_conflicts` parking table + `ExpenseEditConflict*` client code are left inert for now, to be
+  fully removed once the branch settles with the concurrent RowSyncState sync work — nothing populates them.)
+  The full rationale is the "When Two Edits Collide" article in Notion. Zone 3 — **settlements** — needs no
+  version pointer: `remaining` is DERIVED on read from current shares + allocations (see the settlement
+  rule below), so there is no stored "settled" to go stale.
 - **Settlement state is DERIVED on read, never stored.** A share's `remaining` is computed as
   `owed − Σ(applied allocations of non-voided settlements)` (the payer's own share is always 0); balance
   and "settled" follow from it (an expense is settled iff every share's derived remaining is 0). So:

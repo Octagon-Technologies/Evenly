@@ -51,7 +51,7 @@ interface ExpenseRepository {
     /** Soft-delete an expense (04 §2.3 `delete_expense`); status becomes DELETED. */
     suspend fun deleteExpense(expenseId: ExpenseId): AppResult<Unit>
 
-    /** Unresolved parked edit-collisions for a group — the pick-a-side queue (optimistic-concurrency losers). */
+    /** Retired (Track F): the zone-aware merge no longer parks bilateral edit-collisions, so this is empty. */
     fun observeEditConflicts(groupId: GroupId): Flow<List<ExpenseEditConflict>>
 
     /**
@@ -59,4 +59,14 @@ interface ExpenseRepository {
      * the rejected payload as a fresh edit on top of the current version (a clean base, so it commits).
      */
     suspend fun resolveEditConflict(conflictId: String, useRejected: Boolean, resolvedBy: UserId?): AppResult<Unit>
+
+    /**
+     * Track F one-sided nudge: `true` when THIS device pushed a split edit that lost the causal guard
+     * (the server kept its advanced split; ours was logged) and the author hasn't reviewed it yet. Drives
+     * a dismissible "your change was superseded — review the current split?" banner on the expense.
+     */
+    fun observeSupersededNotice(expenseId: ExpenseId): Flow<Boolean>
+
+    /** Dismiss the superseded-edit notice for [expenseId] (the user acknowledged it). */
+    suspend fun dismissSupersededNotice(expenseId: ExpenseId)
 }

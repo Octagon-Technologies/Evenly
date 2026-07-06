@@ -114,4 +114,29 @@ data class ExpenseEntity(
 
     @ColumnInfo(name = "deleted_at")
     val deletedAt: Long? = null,
+
+    // ── Track F: zone-aware merge (see the `merge_expense` RPC). ──────────────────────────────────────
+    // Zone 1 — per-field last-edited stamps so independent metadata edits coexist (title vs category by
+    // two people both survive). Stamped only when THAT field actually changes (see ExpenseRepositoryImpl).
+    @ColumnInfo(name = "title_updated_at")
+    val titleUpdatedAt: Long? = null,
+
+    @ColumnInfo(name = "notes_updated_at")
+    val notesUpdatedAt: Long? = null,
+
+    // Covers category_id + subcategory_id (they move together in the editor).
+    @ColumnInfo(name = "category_updated_at")
+    val categoryUpdatedAt: Long? = null,
+
+    @ColumnInfo(name = "date_updated_at")
+    val dateUpdatedAt: Long? = null,
+
+    // Zone 2 — a CAUSAL version guarding the money value as one atomic unit (amount + split_mode + payer +
+    // bill-extras + the per-user shares). Local value is (synced split_version + 1) iff the split changed
+    // since last sync; the server assigns the canonical number in `merge_expense`.
+    @ColumnInfo(name = "split_version")
+    val splitVersion: Long = 1,
+
+    @ColumnInfo(name = "split_updated_by")
+    val splitUpdatedBy: String? = null,
 )

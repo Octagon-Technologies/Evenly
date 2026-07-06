@@ -144,9 +144,10 @@ fun OnboardingRoute(onFinished: () -> Unit) {
 fun HomeRoute(
     onOpenGroup: (String) -> Unit,
     onNewGroup: () -> Unit,
-    onNewGroupTemplate: (emoji: String, name: String) -> Unit,
     onJoin: () -> Unit,
     onOpenArchived: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+    onEmptyStateChanged: (Boolean) -> Unit = {},
 ) {
     val vm = koinViewModel<HomeViewModel>()
     val fx = koinInject<FxRepository>()
@@ -161,9 +162,10 @@ fun HomeRoute(
         userName = name,
         onOpenGroup = onOpenGroup,
         onNewGroup = onNewGroup,
-        onNewGroupTemplate = onNewGroupTemplate,
         onJoin = onJoin,
         onOpenArchived = onOpenArchived,
+        onOpenSettings = onOpenSettings,
+        onEmptyStateChanged = onEmptyStateChanged,
     )
 }
 
@@ -229,8 +231,6 @@ fun ArchivedRoute(onBack: () -> Unit) {
 fun NewGroupRoute(
     onDismiss: () -> Unit,
     onCreated: (String) -> Unit,
-    initialEmoji: String = "💸",
-    initialName: String = "",
 ) {
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
@@ -247,8 +247,6 @@ fun NewGroupRoute(
                 }
             }
         },
-        initialEmoji = initialEmoji,
-        initialName = initialName,
     )
 }
 

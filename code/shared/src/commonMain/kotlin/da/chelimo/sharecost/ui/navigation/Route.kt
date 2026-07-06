@@ -9,9 +9,11 @@ import kotlinx.serialization.Serializable
  * - The in-group tabs (Expenses/Balances/Conflicts/Overview) are **state inside one [GroupHome]
  *   destination**, not separate destinations — back should leave the group, not cycle tabs. The
  *   [GroupHome.tab] arg lets a deep link / notification open a specific tab.
- * - Bottom-sheets and dialogs ([NewGroup], [Join], [Filter], [IncludeMember], [SettleExpense],
- *   [SettleConfirm]) are rendered as dialog destinations so the screen behind stays visible under
- *   the scrim (matching the design's dimmed backdrop).
+ * - [NewGroup] is a real full-screen destination (back arrow, no scrim) — it used to be a bottom
+ *   sheet, but a sheet with no drag affordance and tap-outside-only dismissal read as broken to a
+ *   first-time tester. [Join], [Filter], [IncludeMember], [SettleExpense], [SettleConfirm] still
+ *   render as dialog-style destinations so the screen behind stays visible under a (now lighter)
+ *   scrim, but each now carries an explicit close control too — see [ScSheetScaffold]/[ScModalScaffold].
  */
 sealed interface Route {
 
@@ -22,7 +24,7 @@ sealed interface Route {
 
     // ── Home ───────────────────────────────────────────────────────────
     @Serializable data object Home : Route
-    @Serializable data class NewGroup(val emoji: String? = null, val name: String? = null) : Route   // sheet
+    @Serializable data object NewGroup : Route   // full-screen
     @Serializable data object Archived : Route
     @Serializable data object JoinByLink : Route          // sheet — paste an invite manually
     @Serializable data class Join(val token: String) : Route   // sheet + deep link

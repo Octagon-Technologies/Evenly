@@ -35,7 +35,6 @@ enum class RootTab { Groups, Settings }
 fun MainShell(
     onOpenGroup: (String) -> Unit = {},
     onNewGroup: () -> Unit = {},
-    onNewGroupTemplate: (emoji: String, name: String) -> Unit = { _, _ -> },
     onJoin: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onSignedOut: () -> Unit = {},
@@ -43,6 +42,9 @@ fun MainShell(
 ) {
     val c = ShareCostTheme.colors
     var tab by remember { mutableStateOf(RootTab.Groups) }
+    // The Groups tab's empty state (no groups yet) hides this bar entirely and offers its own way
+    // into Settings (a gear button) — see HomeScreen/HomeWelcome. Nothing to switch to while empty.
+    var homeIsEmpty by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(c.surface)) {
         StatusBarScrim(c.page)
@@ -51,9 +53,10 @@ fun MainShell(
                 RootTab.Groups -> HomeRoute(
                     onOpenGroup = onOpenGroup,
                     onNewGroup = onNewGroup,
-                    onNewGroupTemplate = onNewGroupTemplate,
                     onJoin = onJoin,
                     onOpenArchived = onOpenArchived,
+                    onOpenSettings = { tab = RootTab.Settings },
+                    onEmptyStateChanged = { homeIsEmpty = it },
                 )
                 RootTab.Settings -> ProfileRoute(
                     onSignedOut = onSignedOut,
@@ -61,14 +64,16 @@ fun MainShell(
                 )
             }
         }
-        ScBottomNav(
-            items = listOf(
-                BottomNavItem("groups", "Groups", ScIcons.Users),
-                BottomNavItem("settings", "Settings", ScIcons.Gear),
-            ),
-            selectedId = tab.name.lowercase(),
-            onSelect = { id -> tab = if (id == "settings") RootTab.Settings else RootTab.Groups },
-            navBarInset = true,
-        )
+        if (!(tab == RootTab.Groups && homeIsEmpty)) {
+            ScBottomNav(
+                items = listOf(
+                    BottomNavItem("groups", "Groups", ScIcons.Users),
+                    BottomNavItem("settings", "Settings", ScIcons.Gear),
+                ),
+                selectedId = tab.name.lowercase(),
+                onSelect = { id -> tab = if (id == "settings") RootTab.Settings else RootTab.Groups },
+                navBarInset = true,
+            )
+        }
     }
 }

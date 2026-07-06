@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only manifest fragment, merged only into debug builds: points the app at the local
+     network security config so it can reach a `supabase start` Docker stack over plain HTTP/WS. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

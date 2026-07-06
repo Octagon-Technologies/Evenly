@@ -160,6 +160,10 @@ fun ExpenseDetailScreen(
     // Non-null only for an itemized bill — the ⋯ menu's "Edit bill" opens the menu/items/extras editor
     // (Route.SplitBill). For a plain expense this is null and the menu shows the generic "Edit" → onEdit.
     onEditBill: (() -> Unit)? = null,
+    // Track F one-sided nudge: this device's split edit was superseded by a newer one while it was behind.
+    // Shows a dismissible banner inviting the author to review the current split (never a two-sided card).
+    supersededNotice: Boolean = false,
+    onDismissSupersededNotice: () -> Unit = {},
     onDelete: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
@@ -193,6 +197,27 @@ fun ExpenseDetailScreen(
             }
             ExpenseDetailState.Error -> ErrorContent(onReload = onReload)
             ExpenseDetailState.Content -> Column(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                // Track F one-sided nudge — the author's split edit was superseded by a newer one while
+                // this device was behind. A calm, dismissible "review?" prompt; never a two-sided card.
+                if (supersededNotice) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.warningTint)
+                            .border(1.dp, c.warning.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        ScIcon(ScIcons.Info, size = 16.dp, tint = c.warning, modifier = Modifier.padding(top = 2.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Your change was superseded", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "The split changed again while your edit was offline, so a newer version was kept. Review the current split below.",
+                                color = c.ink2, fontSize = 12.5.sp,
+                            )
+                        }
+                        ScIconButton(ScIcons.Close, onDismissSupersededNotice, tint = c.ink3, size = 16.dp)
+                    }
+                }
                 // header card — the expense total is the headline; your personal stake is the band below
                 // it (what you actually track), and the group-wide remainder is demoted to that band's caption.
                 ScCard(padded = true) {

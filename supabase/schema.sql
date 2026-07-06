@@ -86,11 +86,19 @@ create table if not exists public.expenses (
   is_auto_refund boolean not null default false,
   status text not null default 'ACTIVE',
   created_by text not null,
-  last_editor text,                              -- who wrote the canonical version (set by commit_expense); names the "winner" of a parked edit conflict
+  last_editor text,                              -- vestigial (old commit_expense CAS); merge_expense uses split_updated_by
   created_at bigint not null,
   updated_at bigint not null,
   row_version bigint not null default 1,
-  deleted_at bigint
+  deleted_at bigint,
+  -- Track F zone-aware merge (see merge_expense()). Zone 1 = per-field last-edited stamps so independent
+  -- metadata edits coexist; Zone 2 = a causal split_version guarding the money value as one atomic unit.
+  title_updated_at bigint,                       -- Zone 1
+  notes_updated_at bigint,                       -- Zone 1
+  category_updated_at bigint,                    -- Zone 1 (covers category_id + subcategory_id)
+  date_updated_at bigint,                        -- Zone 1
+  split_version bigint not null default 1,       -- Zone 2 causal version (amount/split_mode/payer/extras/shares)
+  split_updated_by text                          -- who last advanced the split
 );
 create index if not exists expenses_group_idx on public.expenses (group_id, expense_date);
 
@@ -276,6 +284,22 @@ create table if not exists public.expense_edit_conflicts (
 );
 create index if not exists expense_edit_conflicts_group_idx on public.expense_edit_conflicts (group_id);
 create index if not exists expense_edit_conflicts_expense_idx on public.expense_edit_conflicts (expense_id);
+
+-- Track F: append-only audit of split edits that lost the causal guard in merge_expense() (the superseded
+-- "loser"). Server-side only — NOT synced. The loser learns it was superseded from the merge_expense
+-- response and shows a one-sided nudge; this table is the recoverable record. Never updated/deleted.
+create table if not exists public.superseded_split_edits (
+  id text primary key,
+  group_id text not null,
+  expense_id text not null,
+  base_split_version bigint not null,     -- the split version the rejected edit was built on
+  server_split_version bigint not null,   -- canonical split version at the moment of rejection
+  superseded_by text,                     -- actor whose split edit was set aside
+  rejected_expense text not null,         -- full rejected expense payload (JSON text)
+  rejected_shares text not null,          -- full rejected share set (JSON text)
+  created_at bigint not null
+);
+create index if not exists superseded_split_edits_expense_idx on public.superseded_split_edits (expense_id);
 
 -- ── Expense activity (F5): comments, receipts, append-only history ───────────────────────────────
 create table if not exists public.comments (
@@ -569,5 +593,136 @@ begin
     p_expense::text, p_shares::text, v_now)
   on conflict (id) do nothing;
   return jsonb_build_object('status', 'conflict', 'server_version', v_current.row_version, 'conflict_id', v_conflict_id);
+end;
+$$;
+
+-- Track F — merge_expense() replaces commit_expense()'s whole-expense CAS with a zone-aware merge.
+--   Zone 1 (title/notes/category/date): per-field newest-timestamp wins, so independent metadata edits
+--     coexist (two people editing different fields both survive — no conflict).
+--   Zone 2 (amount/currency/split_mode/payer/bill-extras/shares): one atomic unit guarded by a CAUSAL
+--     split_version. p_base_split_version is the client's last server-confirmed split version; the client
+--     sets its local split_version to base+1 iff it changed the split. So:
+--       client_changed = client.split_version > base;  server_advanced = canonical.split_version > base
+--       changed & !advanced -> apply the client's split, bump canonical split_version + stamp actor
+--       changed &  advanced -> SUPERSEDED: keep canonical split, append the loser to superseded_split_edits
+--       !changed            -> canonical split stands (client adopts server's on the returned payload)
+--   A soft delete (deleted_at set) is a tombstone: plain LWW by updated_at (Rule 1), no zone logic.
+--   Returns the merged canonical {expense, shares} so the client adopts it directly (no re-pull). This is
+--   what retires the parked-conflict pick-a-side: the causal winner is applied and the loser is logged +
+--   nudged one-sidedly, never surfaced as a two-sided "you both edited this" card.
+create or replace function public.merge_expense(
+  p_expense jsonb,
+  p_shares jsonb,
+  p_base_split_version bigint,
+  p_actor text
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_id text := p_expense->>'id';
+  v_group_id text := p_expense->>'group_id';
+  v_now bigint := coalesce((p_expense->>'updated_at')::bigint, 0);
+  v_cur public.expenses%rowtype;
+  v_client_split_ver bigint := coalesce((p_expense->>'split_version')::bigint, 1);
+  v_client_changed boolean;
+  v_server_advanced boolean;
+  v_status text;
+  v_title text; v_title_at bigint;
+  v_notes text; v_notes_at bigint;
+  v_cat text; v_subcat text; v_cat_at bigint;
+  v_date text; v_date_at bigint;
+begin
+  select * into v_cur from public.expenses where id = v_id for update;
+
+  if not found then
+    insert into public.expenses select * from jsonb_populate_record(null::public.expenses, p_expense);
+    update public.expenses set split_updated_by = p_actor where id = v_id;
+    perform public._replace_expense_shares(v_id, p_shares, v_now);
+    return jsonb_build_object(
+      'status', 'created',
+      'split_version', coalesce((p_expense->>'split_version')::bigint, 1),
+      'expense', (select to_jsonb(e) from public.expenses e where e.id = v_id),
+      'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id));
+  end if;
+
+  if (p_expense->>'deleted_at') is not null then
+    if v_now >= v_cur.updated_at then
+      update public.expenses
+         set deleted_at = (p_expense->>'deleted_at')::bigint, status = 'DELETED',
+             updated_at = v_now, row_version = v_cur.row_version + 1
+       where id = v_id;
+    end if;
+    return jsonb_build_object(
+      'status', 'deleted',
+      'split_version', v_cur.split_version,
+      'expense', (select to_jsonb(e) from public.expenses e where e.id = v_id),
+      'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id and s.deleted_at is null));
+  end if;
+
+  if coalesce((p_expense->>'title_updated_at')::bigint, 0) > coalesce(v_cur.title_updated_at, 0) then
+    v_title := p_expense->>'title'; v_title_at := (p_expense->>'title_updated_at')::bigint;
+  else v_title := v_cur.title; v_title_at := v_cur.title_updated_at; end if;
+
+  if coalesce((p_expense->>'notes_updated_at')::bigint, 0) > coalesce(v_cur.notes_updated_at, 0) then
+    v_notes := p_expense->>'notes'; v_notes_at := (p_expense->>'notes_updated_at')::bigint;
+  else v_notes := v_cur.notes; v_notes_at := v_cur.notes_updated_at; end if;
+
+  if coalesce((p_expense->>'category_updated_at')::bigint, 0) > coalesce(v_cur.category_updated_at, 0) then
+    v_cat := p_expense->>'category_id'; v_subcat := p_expense->>'subcategory_id'; v_cat_at := (p_expense->>'category_updated_at')::bigint;
+  else v_cat := v_cur.category_id; v_subcat := v_cur.subcategory_id; v_cat_at := v_cur.category_updated_at; end if;
+
+  if coalesce((p_expense->>'date_updated_at')::bigint, 0) > coalesce(v_cur.date_updated_at, 0) then
+    v_date := p_expense->>'expense_date'; v_date_at := (p_expense->>'date_updated_at')::bigint;
+  else v_date := v_cur.expense_date; v_date_at := v_cur.date_updated_at; end if;
+
+  v_client_changed := v_client_split_ver > p_base_split_version;
+  v_server_advanced := v_cur.split_version > p_base_split_version;
+
+  if v_client_changed and not v_server_advanced then
+    v_status := 'merged';
+    update public.expenses set
+      amount_subunits    = (p_expense->>'amount_subunits')::bigint,
+      currency           = p_expense->>'currency',
+      split_mode         = p_expense->>'split_mode',
+      payer_user_id      = p_expense->>'payer_user_id',
+      payer_outside_name = p_expense->>'payer_outside_name',
+      has_tax_row        = coalesce((p_expense->>'has_tax_row')::boolean, false),
+      tax_subunits       = coalesce((p_expense->>'tax_subunits')::bigint, 0),
+      tip_subunits       = coalesce((p_expense->>'tip_subunits')::bigint, 0),
+      tip_split_mode     = coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL'),
+      gratuity_subunits  = coalesce((p_expense->>'gratuity_subunits')::bigint, 0),
+      discount_subunits  = coalesce((p_expense->>'discount_subunits')::bigint, 0),
+      split_version      = v_cur.split_version + 1,
+      split_updated_by   = p_actor
+    where id = v_id;
+    perform public._replace_expense_shares(v_id, p_shares, v_now);
+  elsif v_client_changed and v_server_advanced then
+    v_status := 'superseded';
+    insert into public.superseded_split_edits(
+      id, group_id, expense_id, base_split_version, server_split_version, superseded_by,
+      rejected_expense, rejected_shares, created_at)
+    values (
+      v_id || ':' || p_base_split_version::text || ':' || p_actor,
+      v_group_id, v_id, p_base_split_version, v_cur.split_version, p_actor,
+      p_expense::text, p_shares::text, v_now)
+    on conflict (id) do nothing;
+  else
+    v_status := 'merged';
+  end if;
+
+  update public.expenses set
+    title = v_title, title_updated_at = v_title_at,
+    notes = v_notes, notes_updated_at = v_notes_at,
+    category_id = v_cat, subcategory_id = v_subcat, category_updated_at = v_cat_at,
+    expense_date = v_date, date_updated_at = v_date_at,
+    updated_at = greatest(v_cur.updated_at, v_now),
+    row_version = v_cur.row_version + 1
+  where id = v_id;
+
+  return jsonb_build_object(
+    'status', v_status,
+    'split_version', (select split_version from public.expenses where id = v_id),
+    'expense', (select to_jsonb(e) from public.expenses e where e.id = v_id),
+    'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id and s.deleted_at is null));
 end;
 $$;

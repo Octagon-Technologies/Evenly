@@ -22,6 +22,8 @@ import da.chelimo.sharecost.data.db.dao.ItemShareDao
 import da.chelimo.sharecost.data.db.dao.MemberDao
 import da.chelimo.sharecost.data.db.dao.ReceiptDao
 import da.chelimo.sharecost.data.db.dao.ReceiptUploadDao
+import da.chelimo.sharecost.data.db.dao.RowSyncStateDao
+import da.chelimo.sharecost.data.db.dao.SupersededNoticeDao
 import da.chelimo.sharecost.data.db.dao.SettlementDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
 import da.chelimo.sharecost.data.db.dao.UserDao
@@ -42,6 +44,8 @@ import da.chelimo.sharecost.data.db.entity.ItemShareEntity
 import da.chelimo.sharecost.data.db.entity.MemberEntity
 import da.chelimo.sharecost.data.db.entity.ReceiptEntity
 import da.chelimo.sharecost.data.db.entity.ReceiptUploadEntity
+import da.chelimo.sharecost.data.db.entity.RowSyncStateEntity
+import da.chelimo.sharecost.data.db.entity.SupersededNoticeEntity
 import da.chelimo.sharecost.data.db.entity.SettlementAllocationEntity
 import da.chelimo.sharecost.data.db.entity.SettlementEntity
 import da.chelimo.sharecost.data.db.entity.ShareEntity
@@ -84,8 +88,10 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         ItemClaimEntity::class,
         ItemShareEntity::class,
         BillParticipantEntity::class,
+        RowSyncStateEntity::class,
+        SupersededNoticeEntity::class,
     ],
-    version = 16,
+    version = 18,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)
@@ -109,6 +115,8 @@ abstract class ShareCostDatabase : RoomDatabase() {
     abstract fun itemClaimDao(): ItemClaimDao
     abstract fun itemShareDao(): ItemShareDao
     abstract fun billParticipantDao(): BillParticipantDao
+    abstract fun rowSyncStateDao(): RowSyncStateDao
+    abstract fun supersededNoticeDao(): SupersededNoticeDao
 }
 
 /**

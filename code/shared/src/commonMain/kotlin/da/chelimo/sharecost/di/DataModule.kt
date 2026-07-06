@@ -53,6 +53,7 @@ val dataModule: Module = module {
     single { get<ShareCostDatabase>().itemClaimDao() }
     single { get<ShareCostDatabase>().itemShareDao() }
     single { get<ShareCostDatabase>().billParticipantDao() }
+    single { get<ShareCostDatabase>().supersededNoticeDao() }
 
     // Remote
     single<FxRateFetcher> { FrankfurterFxFetcher(get()) }
@@ -66,7 +67,7 @@ val dataModule: Module = module {
     single<GroupRepository> { GroupRepositoryImpl(get(), get(), get(), get(), get(), get(), remoteGroups = getOrNull<RemoteGroupGateway>(), receiptDao = get()) }
     // ExpenseRepository takes the FX repo + group DAO so balances convert to the group base currency (F2),
     // and the history DAO so create/edit/delete append to the activity log (F5).
-    single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get(), editConflictDao = get()) }
+    single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get(), editConflictDao = get(), supersededNoticeDao = get()) }
     // "Split the bill" (itemized): items + claims + extras → derived shares (deterministic ids).
     single<BillRepository> { BillRepositoryImpl(get(), get(), get(), get(), get(), get(), historyEventDao = get()) }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get()) }

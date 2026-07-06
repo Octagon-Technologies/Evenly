@@ -60,21 +60,17 @@ fun ShareCostNavHost(
         composable<Route.Home> {
             MainShell(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
-                onNewGroup = { navController.navigate(Route.NewGroup()) },
-                onNewGroupTemplate = { emoji, name -> navController.navigate(Route.NewGroup(emoji, name)) },
+                onNewGroup = { navController.navigate(Route.NewGroup) },
                 onJoin = { navController.navigate(Route.JoinByLink) },
                 onOpenArchived = { navController.navigate(Route.Archived) },
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
             )
         }
-        composable<Route.NewGroup> { entry ->
-            val r = entry.toRoute<Route.NewGroup>()
+        composable<Route.NewGroup> {
             NewGroupRoute(
                 onDismiss = { navController.popBackStack() },
                 onCreated = { id -> navController.navigate(Route.GroupHome(id)) { popUpTo(Route.Home) } },
-                initialEmoji = r.emoji ?: "💸",
-                initialName = r.name ?: "",
             )
         }
         composable<Route.Archived> { ArchivedRoute(onBack = { navController.popBackStack() }) }

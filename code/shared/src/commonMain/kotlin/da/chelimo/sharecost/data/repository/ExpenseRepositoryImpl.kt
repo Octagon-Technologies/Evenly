@@ -15,6 +15,7 @@ import da.chelimo.sharecost.data.db.dao.ExpenseEditConflictDao
 import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
 import da.chelimo.sharecost.data.db.dao.ShareDao
+import da.chelimo.sharecost.data.db.dao.SupersededNoticeDao
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.domain.activity.HistoryEventType
 import da.chelimo.sharecost.domain.balance.Debt
@@ -64,7 +65,16 @@ class ExpenseRepositoryImpl(
     private val historyEventDao: HistoryEventDao? = null,
     // Optional parked-edit store (versioning). Null in unit tests that don't exercise conflict resolution.
     private val editConflictDao: ExpenseEditConflictDao? = null,
+    // Track F: device-local one-sided "your split edit was superseded" notices. Null in unit tests.
+    private val supersededNoticeDao: SupersededNoticeDao? = null,
 ) : ExpenseRepository {
+
+    override fun observeSupersededNotice(expenseId: ExpenseId): Flow<Boolean> =
+        supersededNoticeDao?.observeForExpense(expenseId.value)?.map { it != null } ?: flowOf(false)
+
+    override suspend fun dismissSupersededNotice(expenseId: ExpenseId) {
+        supersededNoticeDao?.dismiss(expenseId.value)
+    }
 
     // Parks store the rejected payload as the snake_case JSON the client sent to commit_expense.
     @OptIn(ExperimentalSerializationApi::class)
@@ -177,6 +187,13 @@ class ExpenseRepositoryImpl(
             createdBy = input.createdBy.value,
             createdAt = now,
             updatedAt = now,
+            // Track F: a fresh expense stamps every Zone-1 field at `now` and starts the split at gen 1.
+            titleUpdatedAt = now,
+            notesUpdatedAt = now,
+            categoryUpdatedAt = now,
+            dateUpdatedAt = now,
+            splitVersion = 1,
+            splitUpdatedBy = input.createdBy.value,
         )
         expenseDao.insertWithShares(expense, shares)
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
@@ -196,8 +213,21 @@ class ExpenseRepositoryImpl(
         // Participants the edit dropped are tombstoned. status stays ACTIVE — "settled" is derived.
         val existingShares = shareDao.getByExpense(expenseId.value)
         val (shares, removedShareIds) = mergeShares(existingShares, input.shares.toDesired(), expenseId.value, now)
+        // Track F zone-aware stamping. Zone 1: stamp a field's `*_updated_at` only when it actually
+        // changed, so a field this edit leaves alone keeps its prior stamp and correctly LOSES the
+        // per-field merge to a concurrent newer edit of that same field on another device. Zone 2:
+        // advance the causal split_version (base+1) only when the money value changed — amount, mode,
+        // payer, or the active share split — so a metadata-only edit never collides with a split edit.
+        val newTitle = input.title.trim()
+        val oldSplit = existingShares.filter { it.deletedAt == null }.associate { it.userId to it.shareOwedSubunits }
+        val newSplit = shares.filter { it.deletedAt == null }.associate { it.userId to it.shareOwedSubunits }
+        val splitChanged = input.amountSubunits != existing.amountSubunits ||
+            input.splitMode != existing.splitMode ||
+            input.payerUserId?.value != existing.payerUserId ||
+            input.payerOutsideName != existing.payerOutsideName ||
+            oldSplit != newSplit
         val updated = existing.copy(
-            title = input.title.trim(),
+            title = newTitle,
             notes = input.notes,
             amountSubunits = input.amountSubunits,
             currency = input.currency,
@@ -209,6 +239,12 @@ class ExpenseRepositoryImpl(
             status = ExpenseStatus.ACTIVE,
             updatedAt = now,
             rowVersion = existing.rowVersion + 1,
+            titleUpdatedAt = if (newTitle != existing.title) now else existing.titleUpdatedAt,
+            notesUpdatedAt = if (input.notes != existing.notes) now else existing.notesUpdatedAt,
+            categoryUpdatedAt = if (input.categoryId != existing.categoryId) now else existing.categoryUpdatedAt,
+            dateUpdatedAt = if (input.expenseDate != existing.expenseDate) now else existing.dateUpdatedAt,
+            splitVersion = if (splitChanged) existing.splitVersion + 1 else existing.splitVersion,
+            splitUpdatedBy = if (splitChanged) input.editedBy?.value else existing.splitUpdatedBy,
         )
         expenseDao.replaceWithShares(updated, shares, removedShareIds, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
@@ -224,11 +260,19 @@ class ExpenseRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
-    override fun observeEditConflicts(groupId: GroupId): Flow<List<ExpenseEditConflict>> {
+    // Track F retired bilateral edit-collision cards. Expenses now sync through the zone-aware
+    // `merge_expense` (per-field metadata merge + causal split guard), which NEVER parks a two-sided
+    // conflict — a superseded split edit is logged server-side and surfaces to its author ALONE as a
+    // one-sided "your change was superseded — review?" notice (see SupersededNoticeDao). So this stream
+    // is always empty; the Conflicts tab's edit half is dead. (The parking table + this method's old
+    // body are left in place only until the branch is settled, to avoid colliding with concurrent sync
+    // work; nothing writes to `expense_edit_conflicts` anymore.)
+    override fun observeEditConflicts(groupId: GroupId): Flow<List<ExpenseEditConflict>> =
+        flowOf(emptyList())
+
+    @Suppress("unused")
+    private fun observeEditConflictsLegacy(groupId: GroupId): Flow<List<ExpenseEditConflict>> {
         val dao = editConflictDao ?: return flowOf(emptyList())
-        // Join each parked edit (its rejected payload) to the live expense AND its live shares so the UI
-        // can diff both sides field-by-field (total, split mode, payer, each participant's owed amount) —
-        // not just show a bare total. Current shares come from the group's active share set, keyed by user.
         return combine(
             dao.observeUnresolved(groupId.value),
             expenseDao.observeByGroup(groupId.value),

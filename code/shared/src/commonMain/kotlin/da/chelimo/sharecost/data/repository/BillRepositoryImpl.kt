@@ -139,6 +139,13 @@ class BillRepositoryImpl(
             createdBy = input.createdBy.value,
             createdAt = now,
             updatedAt = now,
+            // Track F: a fresh bill stamps every Zone-1 field at `now` and starts the split at gen 1.
+            titleUpdatedAt = now,
+            notesUpdatedAt = now,
+            categoryUpdatedAt = now,
+            dateUpdatedAt = now,
+            splitVersion = 1,
+            splitUpdatedBy = input.createdBy.value,
         )
         val items = input.items.mapIndexed { index, item ->
             ExpenseItemEntity(
@@ -215,8 +222,24 @@ class BillRepositoryImpl(
         val removedItemIds = existingItems.filter { it.id !in desiredIds }.map { it.id }
 
         val amount = total(input.items.map { it.quantity to it.lineTotalSubunits }, input.extras)
+        // Track F Zone 2: the bill's money value is the split. Advance the causal split_version whenever
+        // anything money-relevant changed — the total (covers price/qty/extra/count changes), the payer,
+        // the item set (add/remove/swap), or who's on the bill. Over-bumping is harmless (a re-apply);
+        // under-bumping would let the merge drop a real split edit, so we err toward bumping.
+        val newTitle = input.title.trim()
+        val amountChanged = amount != existing.amountSubunits
+        val payerChanged = input.payerUserId?.value != existing.payerUserId ||
+            input.payerOutsideName != existing.payerOutsideName
+        val itemsChanged = removedItemIds.isNotEmpty() || input.items.any { it.id == null } ||
+            input.items.size != existingItems.count { it.deletedAt == null }
+        val participantsChanged = input.participantUserIds.isNotEmpty() && run {
+            val desired = input.participantUserIds.mapTo(HashSet()) { it.value }
+            desired != billParticipantDao.getByExpense(expenseId.value)
+                .filter { it.deletedAt == null }.mapTo(HashSet()) { it.userId }
+        }
+        val splitChanged = amountChanged || payerChanged || itemsChanged || participantsChanged
         val updated = existing.copy(
-            title = input.title.trim(),
+            title = newTitle,
             amountSubunits = amount,
             expenseDate = input.expenseDate,
             payerUserId = input.payerUserId?.value,
@@ -229,6 +252,10 @@ class BillRepositoryImpl(
             status = ExpenseStatus.ACTIVE,
             updatedAt = now,
             rowVersion = existing.rowVersion + 1,
+            titleUpdatedAt = if (newTitle != existing.title) now else existing.titleUpdatedAt,
+            dateUpdatedAt = if (input.expenseDate != existing.expenseDate) now else existing.dateUpdatedAt,
+            splitVersion = if (splitChanged) existing.splitVersion + 1 else existing.splitVersion,
+            splitUpdatedBy = if (splitChanged) input.editedBy?.value else existing.splitUpdatedBy,
         )
         expenseDao.upsert(updated)
         expenseItemDao.upsertAll(upserts)
