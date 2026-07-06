@@ -152,15 +152,22 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   who-had-what in the synced `item_claims` table; bill-level extras ride on the expense row
   (`tax_subunits`/`gratuity_subunits`/`tip_subunits`/`tip_split_mode`/`discount_subunits`). **Claims are
   partitioned by user** — each device only ever writes its *own* claim — so live multi-device claiming is
-  conflict-free and needs no CAS (unlike an expense edit). Each unit of a line is **owned by a set**:
-  individual whole-unit claims (`item_claims`, per-user) plus a **shared-membership set** (`item_shares`)
-  that splits a line's *leftover* (un-individually-claimed) units evenly. `item_shares` is an additive
-  **auto-union** set — because it's a set, overlapping "shared with X" declarations merge for free
-  (Bob adds Mary, Steve adds Bob → {Bob, Mary, Steve}, ÷3) with nothing to confirm; a member can leave
-  (soft-delete = opt-out), and `added_by` records who put them in. Adding a friend charges them by default
-  (visible + one-tap removable), *not* a confirm-first nudge — the friction budget goes only to the per-line
-  reconciliation (`ItemStatus` RESOLVED/UNCLAIMED/OVERCLAIMED), the single thing the UI ever surfaces.
-  `BillRepositoryImpl.setShareMember` is the only shared-set write. A bill also carries a synced
+  conflict-free and needs no CAS (unlike an expense edit). A line's units are distributed by **portions**:
+  each portion is a *quantity of units + the people splitting it*. A **solo** assignment is an `item_claims`
+  row (per-user quantity); a **shared slice** is a set of `item_shares` rows sharing a `portion_id` +
+  `quantity` — so MULTIPLE distinct slices coexist on one line ("Andrew ×2, Bob ×3, {Bob,Mary} ×1, 2 left"),
+  which the old single all-leftover set couldn't express. A person is in at most one shared slice per line
+  (the active `(item_id,user_id)` unique index); a null `portion_id` is a legacy all-leftover slice, read
+  byte-identically (so old bills are unchanged). `splitBill`'s portions path is penny-exact (largest-
+  remainder) and returns `perItemByUser` (the per-line "who pays what"); leftover units reconcile as
+  UNCLAIMED. The assign screen — **"Who had what?"** (`BillClaimScreen`) — is **assignment-first**: the
+  person holding the phone taps who had each item, for ANYONE (app or not — proxy assignment writes
+  claims/portions on their behalf), so a bill works when only one person has the app. Simple items are
+  tap-chips (same `ScParticipantChip` as the participant picker); a multi-count line with mixed amounts
+  opens the portions builder. Shares soft-delete (opt-out); `added_by` records who assigned; per-line
+  reconciliation (`ItemStatus` RESOLVED/UNCLAIMED/OVERCLAIMED) is what the UI surfaces. `BillRepositoryImpl
+  .setClaim` (solo) + `.setPortion(portionId, members, quantity)` (shared slice) are the assignment writes;
+  the old per-line "Ask the group" jump and the per-current-user "your tab" claim UI are retired. A bill also carries a synced
   participant set (`bill_participants` — who it's *for*, chosen in the editor and defaulting to the whole
   group; the creator pares it down. The picker **scales with group size**: ≤6 members render as inline
   select-all/deselect toggle chips, larger groups collapse to a summary row that opens a searchable

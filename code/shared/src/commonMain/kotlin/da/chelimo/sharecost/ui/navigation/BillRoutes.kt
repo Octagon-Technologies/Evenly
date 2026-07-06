@@ -8,6 +8,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.error.AppResult
+import da.chelimo.sharecost.newId
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
@@ -17,6 +18,8 @@ import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.expense.BillExtrasInput
 import da.chelimo.sharecost.domain.expense.BillView
 import da.chelimo.sharecost.domain.expense.EditBill
+import da.chelimo.sharecost.domain.expense.ItemStatus
+import da.chelimo.sharecost.ui.screen.bill.AssignRowUi
 import da.chelimo.sharecost.domain.expense.EditBillItem
 import da.chelimo.sharecost.domain.expense.NewBill
 import da.chelimo.sharecost.domain.expense.NewBillItem
@@ -184,7 +187,9 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     )
 }
 
-/** The live claim screen — everyone taps what they had; the tab + shares derive in real time. */
+/** The assign screen — "who had what?". Assignments (incl. for people without the app) go through the
+ *  conflict-free claim/portion writes; the tab + per-line amounts derive in real time. [onAskGroup] is
+ *  retired but kept in the signature to avoid churning the NavHost. */
 @Composable
 fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEditBill: () -> Unit, onAskGroup: () -> Unit) {
     val bills = koinInject<BillRepository>()
@@ -200,68 +205,75 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
     val view = bill ?: return
     val me = userId
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
-    val claimsByItem = view.claims.groupBy { it.itemId }
+    fun nameOf(uid: String): String = if (me != null && uid == me.value) "You" else (nameByUser[uid] ?: "Someone")
 
-    val sharesByItem = view.shares.groupBy { it.itemId }
-    fun nameOf(uid: UserId): String = if (uid == me) "You" else (nameByUser[uid.value] ?: "Someone")
+    val participants = view.participants.map { it.userId.value }
+        .ifEmpty { members.map { it.userId.value } }
+        .distinct()
+        .map { ClaimParticipantUi(it, nameByUser[it] ?: "Someone", me != null && it == me.value) }
+
+    val claimsByItem = view.claims.groupBy { it.itemId }
+    val portionsByItemPortion = view.shares.filter { it.portionId != null }.groupBy { it.itemId to it.portionId!! }
+
     val items = view.items.map { item ->
-        val claims = claimsByItem[item.id].orEmpty()
-        val mine = claims.filter { it.userId == me }.sumOf { it.quantity }
-        val others = claims.filter { it.userId != me }
-        val shareRows = sharesByItem[item.id].orEmpty()
+        val perUnit = if (item.quantity <= 0) item.lineTotalSubunits else (item.lineTotalSubunits + item.quantity / 2) / item.quantity
+        val soloRows = claimsByItem[item.id].orEmpty().map { claim ->
+            AssignRowUi(null, listOf(claim.userId.value), listOf(nameOf(claim.userId.value)), claim.quantity, perUnit * claim.quantity)
+        }
+        val portionRows = portionsByItemPortion.filterKeys { it.first == item.id }.map { (key, rows) ->
+            AssignRowUi(key.second, rows.map { it.userId.value }, rows.map { nameOf(it.userId.value) }, rows.first().quantity, perUnit * rows.first().quantity)
+        }
         ClaimItemUi(
             id = item.id,
             label = item.label,
             quantity = item.quantity,
-            unitPriceSubunits = item.unitPriceSubunits,
-            myQuantity = mine,
-            othersQuantity = others.sumOf { it.quantity },
-            otherNames = others.mapNotNull { nameByUser[it.userId.value] }.distinct(),
-            shareMemberIds = shareRows.mapTo(HashSet()) { it.userId.value },
-            shareMemberNames = shareRows.map { nameOf(it.userId) },
+            lineTotalSubunits = item.lineTotalSubunits,
+            rows = soloRows + portionRows,
+            status = view.reconcile.firstOrNull { it.itemId == item.id }?.status ?: ItemStatus.UNCLAIMED,
         )
     }
-    val participantViews = view.participants
-        .map { ClaimParticipantUi(it.userId.value, nameOf(it.userId), it.userId == me) }
-        .ifEmpty { members.map { ClaimParticipantUi(it.userId.value, nameOf(it.userId), it.userId == me) } }
-    val myBreak = me?.let { view.tabBreakdownByUser[it] }
+
+    val totals = participants.map { p -> p to (view.tabByUser[UserId(p.userId)] ?: 0L) }
     val state = ClaimBillState(
         title = view.expense.title,
         currency = view.expense.currency,
-        yourTabSubunits = me?.let { view.tabByUser[it] } ?: 0L,
-        // Tax cell folds gratuity (already in taxSubunits) and nets discount, so Food + Tax + Tip == tab.
-        myFoodSubunits = myBreak?.itemsSubunits ?: 0L,
-        myTaxSubunits = (myBreak?.taxSubunits ?: 0L) - (myBreak?.discountSubunits ?: 0L),
-        myTipSubunits = myBreak?.tipSubunits ?: 0L,
-        totalSubunits = view.expense.amountSubunits,
-        claimedSubunits = view.tabByUser.values.sum(),
+        totals = totals,
         items = items,
-        participants = participantViews,
+        participants = participants,
         myUserId = me?.value,
-        livePeople = (view.claims.map { it.userId } + view.shares.map { it.userId }).distinct().size,
     )
 
+    fun qtyOf(itemId: String) = view.items.firstOrNull { it.id == itemId }?.quantity ?: 1
     BillClaimScreen(
         state = state,
         onBack = onBack,
-        onSetClaim = { itemId, qty ->
+        onSetEveryone = { itemId, memberIds ->
             val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setClaim(eid, itemId, UserId(who.value), qty) }
+            scope.launch { bills.setPortion(eid, itemId, "${itemId}__all", memberIds.map { UserId(it) }, qtyOf(itemId), who) }
         },
-        onSetShareMember = { itemId, uid, inShare ->
+        onSetSolo = { itemId, uid, quantity -> scope.launch { bills.setClaim(eid, itemId, UserId(uid), quantity) } },
+        onAddPortion = { itemId, memberIds, quantity ->
             val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setShareMember(eid, itemId, UserId(uid), who, inShare) }
+            scope.launch { bills.setPortion(eid, itemId, newId(), memberIds.map { UserId(it) }, quantity, who) }
         },
+        onEditPortion = { itemId, pid, memberIds, quantity ->
+            val who = me ?: return@BillClaimScreen
+            scope.launch { bills.setPortion(eid, itemId, pid, memberIds.map { UserId(it) }, quantity, who) }
+        },
+        onRemovePortion = { itemId, pid ->
+            val who = me ?: return@BillClaimScreen
+            scope.launch { bills.setPortion(eid, itemId, pid, emptyList(), 0, who) }
+        },
+        onRemoveSolo = { itemId, uid -> scope.launch { bills.setClaim(eid, itemId, UserId(uid), 0) } },
+        onClearEveryone = { itemId ->
+            val who = me ?: return@BillClaimScreen
+            scope.launch { bills.setPortion(eid, itemId, "${itemId}__all", emptyList(), 0, who) }
+        },
+        onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name) } },
         onEditBill = onEditBill,
-        onAskGroup = onAskGroup,
         onDone = {
             val who = me ?: return@BillClaimScreen
-            // One "Done": stamp it and leave. No reopen toggle — claims are never locked, so returning to
-            // the bill and changing something Just Works; there's nothing to "reopen".
-            scope.launch {
-                bills.markDone(eid, who, true)
-                onBack()
-            }
+            scope.launch { bills.markDone(eid, who, true); onBack() }
         },
     )
 }
