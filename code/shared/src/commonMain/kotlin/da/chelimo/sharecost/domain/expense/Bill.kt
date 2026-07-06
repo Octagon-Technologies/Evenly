@@ -84,12 +84,15 @@ data class BillClaimView(
     val quantity: Int,
 )
 
-/** One person's active membership in a line's shared split. */
+/** One person's active membership in a shared *portion* of a line ([portionId] groups a slice's members;
+ *  null on legacy rows). [quantity] is the slice's unit count (same across its members). */
 data class BillShareView(
     val id: String,
     val itemId: String,
     val userId: UserId,
     val addedBy: UserId,
+    val portionId: String? = null,
+    val quantity: Int = 1,
 )
 
 /** A person the bill is for. [doneAt] is their "I'm done claiming" stamp (null = still to claim). */
@@ -125,10 +128,24 @@ data class BillView(
     val tabByUser: Map<UserId, Long>,
     val tabBreakdownByUser: Map<UserId, TabBreakdown> = emptyMap(),
     val reconcile: List<ItemReconcile> = emptyList(),
+    // Per-item food allocation (itemId -> user -> subunits owed for that line) — the assign screen's
+    // penny-exact "who pays what" rows, straight from the engine (never recomputed).
+    val perItemByUser: Map<String, Map<UserId, Long>> = emptyMap(),
 ) {
     /** Claimed unit count per item (summed across people) — compare to quantity for "left"/over-claim. */
     val claimedQuantityByItem: Map<String, Int>
         get() = claims.groupBy { it.itemId }.mapValues { (_, cs) -> cs.sumOf { it.quantity } }
+
+    /** Units ASSIGNED per item = solo claims + each shared portion's quantity (counted once). "N of Q left". */
+    val assignedQuantityByItem: Map<String, Int>
+        get() {
+            val out = HashMap<String, Int>()
+            claims.forEach { out[it.itemId] = (out[it.itemId] ?: 0) + it.quantity }
+            shares.filter { it.portionId != null }
+                .groupBy { it.itemId to it.portionId }
+                .forEach { (key, rows) -> out[key.first] = (out[key.first] ?: 0) + rows.first().quantity }
+            return out
+        }
 
     /** The bill is resolved once every line is fully and correctly claimed. */
     val fullyResolved: Boolean get() = reconcile.isNotEmpty() && reconcile.all { it.status == ItemStatus.RESOLVED }

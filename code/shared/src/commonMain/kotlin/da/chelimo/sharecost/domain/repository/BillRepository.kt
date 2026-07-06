@@ -51,6 +51,22 @@ interface BillRepository {
         inShare: Boolean,
     ): AppResult<Unit>
 
+    /**
+     * Set a **shared portion** of a line: [memberIds] split [quantity] units evenly, grouped under
+     * [portionId]. Multiple distinct portions can coexist on one line (that's what "2 solo, 3 solo, 1
+     * shared, 2 left" needs). Empty members or quantity ≤ 0 removes the portion. A member is moved out of
+     * any other portion of the same line (at most one shared slice per line). [addedBy] is who assigned it.
+     * Re-derives the bill's shares.
+     */
+    suspend fun setPortion(
+        expenseId: ExpenseId,
+        itemId: String,
+        portionId: String,
+        memberIds: List<UserId>,
+        quantity: Int,
+        addedBy: UserId,
+    ): AppResult<Unit>
+
     /** Add or remove a participant from a bill (who it's *for*). */
     suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit>
 

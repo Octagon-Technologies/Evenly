@@ -37,6 +37,7 @@ import da.chelimo.sharecost.domain.expense.BillShareView
 import da.chelimo.sharecost.domain.expense.ItemStatus
 import da.chelimo.sharecost.domain.expense.NewBill
 import da.chelimo.sharecost.domain.expense.SharedMember
+import da.chelimo.sharecost.domain.expense.SharedPortion
 import da.chelimo.sharecost.domain.expense.SPLIT_MODE_ITEMIZED
 import da.chelimo.sharecost.domain.expense.UnresolvedBill
 import da.chelimo.sharecost.domain.expense.TipSplitMode
@@ -96,6 +97,7 @@ class BillRepositoryImpl(
                 shareViews.toSharedMembers(),
                 extras.toEngine(),
                 participants = participants.map { UserId(it.userId) },
+                sharedPortions = shareViews.toSharedPortions(),
             )
             BillView(
                 expense = expense.toDomain(),
@@ -107,6 +109,7 @@ class BillRepositoryImpl(
                 tabByUser = result.owedByUser,
                 tabBreakdownByUser = result.breakdownByUser,
                 reconcile = result.items,
+                perItemByUser = result.perItemByUser,
             )
         }
 
@@ -331,6 +334,64 @@ class BillRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
+    override suspend fun setPortion(
+        expenseId: ExpenseId,
+        itemId: String,
+        portionId: String,
+        memberIds: List<UserId>,
+        quantity: Int,
+        addedBy: UserId,
+    ): AppResult<Unit> {
+        val expense = expenseDao.getById(expenseId.value)
+        if (expense == null || expense.deletedAt != null) {
+            return validationErr("expense", AppError.Validation.Reason.Required)
+        }
+        val now = clock.nowEpochMillis()
+        val targets = memberIds.mapTo(LinkedHashSet()) { it.value }
+        val activeForItem = itemShareDao.getByExpense(expenseId.value).filter { it.itemId == itemId && it.deletedAt == null }
+
+        // Empty set or non-positive quantity removes the whole slice.
+        if (targets.isEmpty() || quantity <= 0) {
+            val ids = activeForItem.filter { it.portionId == portionId }.map { it.id }
+            if (ids.isNotEmpty()) itemShareDao.softDeleteByIds(ids, now)
+            materializeShares(expense, now)
+            return AppResult.Ok(Unit)
+        }
+        // Drop this slice's former members who aren't in the target set any more.
+        val dropped = activeForItem.filter { it.portionId == portionId && it.userId !in targets }.map { it.id }
+        if (dropped.isNotEmpty()) itemShareDao.softDeleteByIds(dropped, now)
+        for (uid in targets) {
+            val theirRows = activeForItem.filter { it.userId == uid }
+            // Move them out of any OTHER slice of this line — a person is in at most one shared slice per
+            // line (the active (item_id, user_id) unique index would otherwise reject the second row).
+            val elsewhere = theirRows.filter { it.portionId != portionId }.map { it.id }
+            if (elsewhere.isNotEmpty()) itemShareDao.softDeleteByIds(elsewhere, now)
+            val here = theirRows.firstOrNull { it.portionId == portionId }
+            if (here != null) {
+                if (here.quantity != quantity) {
+                    itemShareDao.upsert(here.copy(quantity = quantity, updatedAt = now, rowVersion = here.rowVersion + 1))
+                }
+            } else {
+                itemShareDao.upsert(
+                    ItemShareEntity(
+                        id = newId(),
+                        itemId = itemId,
+                        expenseId = expenseId.value,
+                        groupId = expense.groupId,
+                        userId = uid,
+                        portionId = portionId,
+                        quantity = quantity,
+                        addedBy = addedBy.value,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+            }
+        }
+        materializeShares(expense, now)
+        return AppResult.Ok(Unit)
+    }
+
     /** True when the item is a single-unit line (where individual claim and share are mutually exclusive). */
     private suspend fun isSingleUnit(expenseId: ExpenseId, itemId: String): Boolean =
         expenseItemDao.getByExpense(expenseId.value).firstOrNull { it.id == itemId }?.quantity == 1
@@ -397,11 +458,13 @@ class BillRepositoryImpl(
                 .mapNotNull { e ->
                     val its = itemsByExpense[e.id].orEmpty()
                     if (its.isEmpty()) return@mapNotNull null
+                    val sharedRows = sharesByExpense[e.id].orEmpty()
                     val result = splitBill(
                         its.map { BillItem(it.id, it.lineTotalSubunits, it.quantity) },
                         claimsByExpense[e.id].orEmpty().map { IndividualClaim(it.itemId, UserId(it.userId), it.quantity) },
-                        sharesByExpense[e.id].orEmpty().map { SharedMember(it.itemId, UserId(it.userId)) },
+                        sharedRows.toLegacyMembers(),
                         e.toExtras().toEngine(),
+                        sharedPortions = sharedRows.toEnginePortions(),
                     )
                     val parts = partsByExpense[e.id].orEmpty()
                     val stillToClaim = parts.count { it.doneAt == null }
@@ -429,12 +492,13 @@ class BillRepositoryImpl(
     private suspend fun materializeShares(expense: ExpenseEntity, now: Long) {
         val items = expenseItemDao.getByExpense(expense.id)
         val claims = itemClaimDao.getByExpense(expense.id)
-        val sharedMembers = itemShareDao.getByExpense(expense.id)
+        val sharedRows = itemShareDao.getByExpense(expense.id)
         val owed = splitBill(
             items.map { BillItem(it.id, it.lineTotalSubunits, it.quantity) },
             claims.map { IndividualClaim(it.itemId, UserId(it.userId), it.quantity) },
-            sharedMembers.map { SharedMember(it.itemId, UserId(it.userId)) },
+            sharedRows.toLegacyMembers(),
             expense.toExtras().toEngine(),
+            sharedPortions = sharedRows.toEnginePortions(),
         ).owedByUser
         val owedUsers = owed.keys.mapTo(HashSet()) { it.value }
         val existing = shareDao.getByExpense(expense.id).associateBy { it.userId }
@@ -494,7 +558,7 @@ class BillRepositoryImpl(
 
 private fun ExpenseItemEntity.toView() = BillItemView(id, label, quantity, lineTotalSubunits, sortOrder)
 private fun ItemClaimEntity.toView() = BillClaimView(id, itemId, UserId(userId), quantity)
-private fun ItemShareEntity.toView() = BillShareView(id, itemId, UserId(userId), UserId(addedBy))
+private fun ItemShareEntity.toView() = BillShareView(id, itemId, UserId(userId), UserId(addedBy), portionId, quantity)
 
 private fun ExpenseEntity.toExtras() = BillExtrasInput(
     taxSubunits = taxSubunits,
@@ -514,4 +578,16 @@ private fun BillExtrasInput.toEngine() = BillExtras(
 
 private fun List<BillItemView>.toBillItems() = map { BillItem(it.id, it.lineTotalSubunits, it.quantity) }
 private fun List<BillClaimView>.toIndividualClaims() = map { IndividualClaim(it.itemId, it.userId, it.quantity) }
-private fun List<BillShareView>.toSharedMembers() = map { SharedMember(it.itemId, it.userId) }
+
+// A line's sharing splits two ways: legacy rows (no portion) feed the old single all-leftover set; portioned
+// rows group by portion_id into explicit slices (quantity is denormalised, so take the first row's).
+private fun List<BillShareView>.toSharedMembers() = filter { it.portionId == null }.map { SharedMember(it.itemId, it.userId) }
+private fun List<BillShareView>.toSharedPortions(): List<SharedPortion> =
+    filter { it.portionId != null }
+        .groupBy { it.itemId to it.portionId!! }
+        .map { (key, rows) -> SharedPortion(key.first, key.second, rows.first().quantity, rows.map { it.userId }) }
+private fun List<ItemShareEntity>.toLegacyMembers() = filter { it.portionId == null }.map { SharedMember(it.itemId, UserId(it.userId)) }
+private fun List<ItemShareEntity>.toEnginePortions(): List<SharedPortion> =
+    filter { it.portionId != null }
+        .groupBy { it.itemId to it.portionId!! }
+        .map { (key, rows) -> SharedPortion(key.first, key.second, rows.first().quantity, rows.map { UserId(it.userId) }) }
