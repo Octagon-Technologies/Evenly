@@ -201,14 +201,18 @@ create unique index if not exists item_claims_item_user_active_uidx
 
 -- Item shares: one person's membership in a line's SHARED split (the "I split this with these people"
 -- set). The active rows per item are the sharer group; the line's leftover units split evenly across it.
--- Additive auto-union set — overlapping "shared with" declarations merge for free. added_by records who
--- put a member in; the member has final say (they can leave). Soft-delete (Rule 1).
+-- A line's sharing is a set of PORTIONS: portion_id groups a slice's members, quantity is its unit count.
+-- Multiple distinct portions can coexist on one line ("2 solo, 3 solo, 1 shared, 2 left"). Legacy rows
+-- (null portion_id) = one implicit all-leftover portion. Additive auto-union within a portion; added_by
+-- records who put a member in; the member has final say (they can leave). Soft-delete (Rule 1).
 create table if not exists public.item_shares (
   id text primary key,
   item_id text not null,
   expense_id text not null,
   group_id text not null,
   user_id text not null,
+  portion_id text,
+  quantity integer not null default 1,
   added_by text not null,
   created_at bigint not null,
   updated_at bigint not null,

@@ -7,14 +7,15 @@ import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
 
 /**
- * Local mirror of `item_shares` — one person's membership in a line's **shared split** (the "I split this
- * with these people" set). The set of active rows for an item is its sharer group; the line's leftover
- * (un-individually-claimed) units split evenly across it.
+ * Local mirror of `item_shares` — one person's membership in a **shared portion** of a line. A line's
+ * sharing is a set of PORTIONS ([portionId] groups a slice's members), each covering [quantity] units and
+ * split evenly among its members — so "2 solo, 3 solo, 1 shared, 2 left" is expressible (a single
+ * all-leftover set couldn't). A legacy row (null [portionId]) is one implicit all-leftover portion.
  *
- * Membership is an **additive, auto-union set**: because it's a set, overlapping "shared with"
- * declarations merge for free (Bob adds Mary, Steve adds Bob → {Bob, Mary, Steve}) with nothing to
- * confirm. [addedBy] records who put a member in (for display / undo); the *member* always has the final
- * say — they can remove themselves (soft-delete), and last-write-wins on `(item_id, user_id)` settles it.
+ * Membership is an **additive, auto-union set** within a portion: overlapping "shared with" declarations
+ * merge for free. [addedBy] records who put a member in; the *member* always has the final say — they can
+ * remove themselves (soft-delete), and last-write-wins on `(item_id, user_id)` settles it. (A person is in
+ * at most one shared slice per line for now — the common case, incl. the 8-nacho scenario.)
  *
  * Synced (`@Serializable`, carries `group_id` + `expense_id` for pull scoping, `row_version` +
  * `updated_at` for the `keepNewer` guard). Soft-delete only (Rule 1): leaving a share tombstones the row.
@@ -44,6 +45,14 @@ data class ItemShareEntity(
 
     @ColumnInfo(name = "user_id")
     val userId: String,
+
+    // Groups the members of one shared slice; null on legacy rows (one implicit all-leftover portion).
+    @ColumnInfo(name = "portion_id")
+    val portionId: String? = null,
+
+    // Units this shared slice covers (denormalised onto each member row; same across a portion's members).
+    @ColumnInfo(name = "quantity")
+    val quantity: Int = 1,
 
     @ColumnInfo(name = "added_by")
     val addedBy: String,
