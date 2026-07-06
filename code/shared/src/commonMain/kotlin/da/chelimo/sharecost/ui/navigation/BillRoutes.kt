@@ -133,6 +133,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         },
         onRetryScan = { runScan(scanFiles) },
         onDismissScan = { scanState = ScanUiState.Idle },
+        onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name) } },
         onSave = { submit ->
             val me = userId ?: return@BillEditScreen
             saving = true

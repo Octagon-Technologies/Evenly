@@ -157,6 +157,9 @@ fun ExpenseDetailScreen(
     // Non-null only for an itemized ("Split the bill") expense — renders a prominent "claim or edit your
     // items" button under the split, the durable way into the claim screen once the home card is gone.
     onClaimItems: (() -> Unit)? = null,
+    // Non-null only for an itemized bill — the ⋯ menu's "Edit bill" opens the menu/items/extras editor
+    // (Route.SplitBill). For a plain expense this is null and the menu shows the generic "Edit" → onEdit.
+    onEditBill: (() -> Unit)? = null,
     onDelete: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
@@ -464,7 +467,13 @@ fun ExpenseDetailScreen(
 
     if (overflow) {
         ScModalScaffold(onDismiss = { overflow = false }) {
-            OverflowRow(ScIcons.Edit, "Edit", c.ink2, c.ink) { overflow = false; onEdit() }
+            // For an itemized bill, "Edit" means the menu/items/extras editor — labelled "Edit bill" and
+            // routed there. Assigning who-had-what stays on the prominent "Claim or edit your items" button.
+            if (onEditBill != null) {
+                OverflowRow(ScIcons.Edit, "Edit bill", c.ink2, c.ink) { overflow = false; onEditBill() }
+            } else {
+                OverflowRow(ScIcons.Edit, "Edit", c.ink2, c.ink) { overflow = false; onEdit() }
+            }
             listOf(ScIcons.Refund to "Issue refund", ScIcons.Camera to "Add receipt", ScIcons.Share to "Share").forEach { (ic, label) ->
                 OverflowRow(ic, label, c.ink2, c.ink) {
                     overflow = false

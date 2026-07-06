@@ -148,6 +148,7 @@ fun ShareCostNavHost(
                 onSettleThis = { navController.navigate(Route.SettleExpense(r.groupId, r.expenseId)) },
                 onEdit = { navController.navigate(Route.EditExpense(r.groupId, r.expenseId)) },
                 onOpenClaim = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
+                onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
                 onDeleted = { navController.popBackStack() },
             )
         }

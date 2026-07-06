@@ -154,6 +154,9 @@ fun BillEditScreen(
     onCancelScan: () -> Unit = {},
     onRetryScan: () -> Unit = {},
     onDismissScan: () -> Unit = {},
+    // Add someone who isn't in the group yet (a placeholder member) straight from the bill — so a bill can
+    // include a friend without the app. The new member arrives via [participants] and is auto-selected.
+    onAddPerson: (String) -> Unit = {},
     onSave: (EditBillSubmit) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
@@ -176,6 +179,23 @@ fun BillEditScreen(
     val effectiveSelected: Set<String> = selected ?: allIds
     var showPicker by remember { mutableStateOf(false) }
     var pickerQuery by remember { mutableStateOf("") }
+    var showAddDialog by remember { mutableStateOf(false) }
+    // Auto-select a person added mid-edit (a placeholder), without disturbing the current selection. The
+    // baseline is set on the FIRST non-empty member load so a pared-down [initialSelectedIds] survives the
+    // async load; only members that appear *after* that (i.e. just added) are folded into an explicit set.
+    // A null selection already means "everyone", so a newcomer is included with no change needed.
+    var memberBaseline by remember { mutableStateOf<Set<String>?>(null) }
+    LaunchedEffect(participants) {
+        if (participants.isEmpty()) return@LaunchedEffect
+        val ids = participants.mapTo(HashSet()) { it.userId }
+        val prev = memberBaseline
+        if (prev == null) { memberBaseline = ids; return@LaunchedEffect }
+        val fresh = ids - prev
+        if (fresh.isNotEmpty()) {
+            selected = selected?.plus(fresh)
+            memberBaseline = ids
+        }
+    }
 
     // A completed scan pre-fills ONLY the item list + extras — never the name or who's-on-the-bill the
     // user already typed. Applied as an update (not by recreating the editor, which is what used to wipe
@@ -255,6 +275,7 @@ fun BillEditScreen(
                         onToggle = { id -> selected = if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id },
                         onSelectAll = { selected = allIds },
                         onDeselectAll = { selected = emptySet() },
+                        onAddClick = { showAddDialog = true },
                     )
                 } else {
                     ParticipantSummary(
@@ -358,8 +379,21 @@ fun BillEditScreen(
                 onToggle = { id -> selected = if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id },
                 onSelectAll = { selected = allIds },
                 onDeselectAll = { selected = emptySet() },
+                onAddPerson = { showPicker = false; pickerQuery = ""; showAddDialog = true },
                 onDone = { showPicker = false; pickerQuery = "" },
             )
+        }
+
+        if (showAddDialog) {
+            var newName by remember { mutableStateOf("") }
+            ScModalScaffold(onDismiss = { showAddDialog = false }) {
+                Text("Add a person", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+                Text("Add someone who isn't in the group yet — even if they don't have the app. They'll be on this bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                ScField("Name") { ScTextField(newName, { newName = it }, placeholder = "e.g. Bob") }
+                Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    ScButton("Add", { if (newName.isNotBlank()) { onAddPerson(newName.trim()); showAddDialog = false } }, enabled = newName.isNotBlank())
+                }
+            }
         }
 
         // The scan round-trip drives its own sheet: progress while reading, a typed error card otherwise.
@@ -729,6 +763,7 @@ private fun ParticipantChips(
     onToggle: (String) -> Unit,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
+    onAddClick: () -> Unit,
 ) {
     val c = ShareCostTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -759,6 +794,18 @@ private fun ParticipantChips(
                     if (on) ScIcon(ScIcons.Check, size = 14.dp, tint = c.blue)
                     Text(if (p.isMe) "You" else p.name, color = if (on) c.blue else c.ink, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
                 }
+            }
+            // Add a person who isn't in the group yet, right from the roster — mirrors the add-expense editor.
+            val addShape = RoundedCornerShape(999.dp)
+            Row(
+                Modifier.clip(addShape).border(1.dp, c.borderStrong, addShape)
+                    .clickable(onClick = onAddClick)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ScIcon(ScIcons.Plus, size = 14.dp, tint = c.blue)
+                Text("Add", color = c.blue, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -813,6 +860,7 @@ private fun ParticipantPickerSheet(
     onToggle: (String) -> Unit,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
+    onAddPerson: () -> Unit,
     onDone: () -> Unit,
 ) {
     val c = ShareCostTheme.colors
@@ -850,6 +898,18 @@ private fun ParticipantPickerSheet(
             )
         }
         Column(Modifier.fillMaxWidth().heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+            // Add a person who isn't in the group yet (a placeholder) — they'll be added and put on the bill.
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onAddPerson)
+                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(Modifier.size(32.dp).clip(RoundedCornerShape(999.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                    ScIcon(ScIcons.Plus, size = 16.dp, tint = c.blue)
+                }
+                Text("Add a person", color = c.blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            }
             filtered.forEach { p ->
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onToggle(p.userId) }

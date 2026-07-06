@@ -369,6 +369,8 @@ fun ExpenseDetailRoute(
     // Where "Edit" goes for an ITEMIZED bill — the live claim screen, not the percent/exact/even editor
     // (which is meaningless when the split is derived from items). Wired to Route.ClaimBill.
     onOpenClaim: () -> Unit = {},
+    // The itemized bill's menu/items/extras editor (Route.SplitBill) — surfaced as the ⋯ "Edit bill" row.
+    onEditBill: () -> Unit = {},
     onDeleted: () -> Unit = {},
 ) {
     val expenses = koinInject<ExpenseRepository>()
@@ -509,10 +511,11 @@ fun ExpenseDetailRoute(
         onSettleThis = onSettleThis,
         onEditPayment = { id, amount -> scope.launch { settlements.editSettlement(SettlementId(id), amount, userId) } },
         onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
-        // Editing an itemized bill means claiming, not re-splitting by percent/exact/even — route accordingly.
-        onEdit = if (isItemized) onOpenClaim else onEdit,
-        // …and surface that same claim screen as a prominent button under the split, not just the ⋯ menu.
+        // A plain expense edits via the percent/exact/even editor. An itemized bill splits two ways: the
+        // ⋯ "Edit bill" opens the menu/items editor, and the prominent button below opens the claim screen.
+        onEdit = onEdit,
         onClaimItems = if (isItemized) onOpenClaim else null,
+        onEditBill = if (isItemized) onEditBill else null,
         onDelete = { scope.launch { if (expenses.deleteExpense(eid) is AppResult.Ok) onDeleted() } },
     )
 }
