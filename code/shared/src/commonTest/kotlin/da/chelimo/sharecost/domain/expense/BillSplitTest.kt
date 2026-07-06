@@ -78,6 +78,41 @@ class BillSplitTest {
         assertEquals(r.owedByUser, r.perItemByUser["fish"]) // no extras → per-item sums to the tab
     }
 
+    // PORTIONS — the 8-nacho case that the single-share-set model can't express: 8 nachos @ $4, Andrew 2
+    // solo, Bob 3 solo, {Bob, Mary} split 1, 2 still unassigned. (A=Andrew, B=Bob, C=Mary.)
+    @Test
+    fun portions_mixedCountsPlusSharedSlice_andLeftover() {
+        val items = listOf(item("nachos", 400L, quantity = 8))
+        val r = splitBill(
+            items,
+            indiv(IndividualClaim("nachos", A, 2), IndividualClaim("nachos", B, 3)),
+            shared(),
+            BillExtras(),
+            sharedPortions = listOf(SharedPortion("nachos", "p1", quantity = 1, members = listOf(B, C))),
+        )
+        // Andrew 2×$4=$8; Bob 3×$4=$12 + half of the shared $4 = $2 → $14; Mary $2.
+        assertEquals(mapOf(A to 800L, B to 1400L, C to 200L), r.owedByUser)
+        assertEquals(mapOf(A to 800L, B to 1400L, C to 200L), r.perItemByUser["nachos"])
+        assertEquals(2400L, r.owedByUser.values.sum()) // $24 of $32 assigned…
+        assertEquals(ItemStatus.UNCLAIMED, statusOf(r, "nachos")) // …2 orders still need someone
+    }
+
+    // A multi-count line fully covered by several distinct shared slices → RESOLVED, penny-exact.
+    @Test
+    fun portions_multipleSharedSlices_resolve() {
+        val items = listOf(item("wings", 300L, quantity = 4)) // 4 × $3 = $12
+        val r = splitBill(
+            items, indiv(), shared(), BillExtras(),
+            sharedPortions = listOf(
+                SharedPortion("wings", "p1", quantity = 2, members = listOf(A, B)), // $6 ÷ 2 = $3 each
+                SharedPortion("wings", "p2", quantity = 2, members = listOf(C, D)), // $6 ÷ 2 = $3 each
+            ),
+        )
+        assertEquals(mapOf(A to 300L, B to 300L, C to 300L, D to 300L), r.owedByUser)
+        assertEquals(1200L, r.owedByUser.values.sum())
+        assertEquals(ItemStatus.RESOLVED, statusOf(r, "wings"))
+    }
+
     // Shared by everyone (case 4): the whole line splits across the set. Auto-union = it's just a set.
     @Test
     fun sharedByEveryone_wholeLine() {

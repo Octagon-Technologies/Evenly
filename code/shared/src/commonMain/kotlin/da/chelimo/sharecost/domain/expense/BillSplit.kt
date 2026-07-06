@@ -43,6 +43,19 @@ data class SharedMember(
     val userId: UserId,
 )
 
+/**
+ * A shared *slice* of a line: [quantity] units split evenly among [members]. Unlike [SharedMember] (one
+ * set per line, swallowing ALL leftover), MULTIPLE portions can coexist on a line — each its own
+ * [portionId] — which is what "2 solo, 3 solo, 1 shared, 2 left" needs and a single set can't express. A
+ * solo assignment is just an [IndividualClaim]; 2+ [members] here = an evenly-split shared slice.
+ */
+data class SharedPortion(
+    val itemId: String,
+    val portionId: String,
+    val quantity: Int,
+    val members: List<UserId>,
+)
+
 /** Bill-level surcharges. Tip defaults to an even split (toggleable); tax & gratuity ride proportionally. */
 data class BillExtras(
     val taxSubunits: Long = 0L,
@@ -115,9 +128,14 @@ fun splitBill(
     // The people the bill is *for* — used only to split an EVEN tip per head (stable regardless of who
     // has claimed yet). Empty falls back to the current claimants, preserving older callers/tests.
     participants: List<UserId> = emptyList(),
+    // Explicit shared slices (each a quantity + member set). When an item has any, they define its sharing;
+    // otherwise [sharedMembers] falls back to the legacy single "all-leftover" set. Additive — old callers
+    // pass nothing and get identical results.
+    sharedPortions: List<SharedPortion> = emptyList(),
 ): BillResult {
     val indivByItem = individualClaims.groupBy { it.itemId }
     val sharersByItem = sharedMembers.groupBy { it.itemId }.mapValues { (_, ms) -> ms.map { it.userId }.distinct() }
+    val portionsByItem = sharedPortions.groupBy { it.itemId }
 
     val subtotal = LinkedHashMap<UserId, Long>()
     val reconcile = ArrayList<ItemReconcile>(items.size)
@@ -126,32 +144,46 @@ fun splitBill(
     val perItem = LinkedHashMap<String, Map<UserId, Long>>()
 
     for (item in items) {
-        val sharers = sharersByItem[item.itemId].orEmpty()
-        // A single unit can't be both solo-claimed AND split — the moment it has a share set, the whole
-        // line is shared and any individual claim on it is ignored. This is what makes a $5 juice split
-        // "$5 ÷ 2 = $2.50", not "$0.00" (which happened when someone checked it *and* shared it: the
-        // "leftover" pool the share divides was 0). Multi-unit lines still mix individual + leftover share.
-        val fullyShared = item.quantity == 1 && sharers.isNotEmpty()
+        val quantity = item.quantity
+        val explicitPortions = portionsByItem[item.itemId].orEmpty()
+        val legacyMembers = sharersByItem[item.itemId].orEmpty()
+        // A single unit can't be both solo-claimed AND split via the LEGACY set — the moment that set
+        // exists the whole 1-unit line is shared and any individual claim on it is ignored (a $5 juice
+        // split reads "$2.50 each", not "$0.00"). Explicit portions don't need this guard: the UI never
+        // hands the same unit out twice, and over-assignment is surfaced as OVERCLAIMED below.
+        val fullyShared = explicitPortions.isEmpty() && quantity == 1 && legacyMembers.isNotEmpty()
         val unitsByUser = if (fullyShared) emptyMap() else indivByItem[item.itemId].orEmpty()
             .groupBy { it.userId }
             .mapValues { (_, cs) -> cs.sumOf { it.units } }
             .filter { it.value > 0 }
         val totalIndiv = unitsByUser.values.sum()
-        val quantity = item.quantity
-        val remainder = quantity - totalIndiv
+        // Effective shared slices: explicit portions (each carries its own quantity) win; otherwise the
+        // legacy set becomes ONE portion covering everything left after individual claims — which is
+        // byte-for-byte the old "share absorbs the leftover" behaviour.
+        val portions: List<LinePortion> = when {
+            explicitPortions.isNotEmpty() -> explicitPortions.map { LinePortion(it.quantity, it.members.distinct()) }
+            legacyMembers.isNotEmpty() -> listOf(LinePortion((quantity - totalIndiv).coerceAtLeast(0), legacyMembers))
+            else -> emptyList()
+        }
+        val totalAssigned = totalIndiv + portions.sumOf { it.quantity }
         val itemAlloc = LinkedHashMap<UserId, Long>()
         fun charge(user: UserId, amount: Long) {
             subtotal[user] = (subtotal[user] ?: 0L) + amount
             itemAlloc[user] = (itemAlloc[user] ?: 0L) + amount
         }
 
-        if (totalIndiv > quantity) {
-            // Over-claim: more units claimed than ordered. Cost every claimed unit at the derived per-unit
+        if (totalAssigned > quantity) {
+            // Over-assignment: more units handed out than ordered. Cost every unit at the derived per-unit
             // price so the tab exceeds the line total — surfaced as OVERCLAIMED, never silently capped.
             val perUnit = perUnitSubunits(item.lineTotalSubunits, quantity)
             for ((user, units) in unitsByUser) charge(user, units.toLong() * perUnit)
+            for (p in portions) if (p.members.isNotEmpty()) {
+                for ((user, amt) in allocate(p.quantity.toLong() * perUnit, p.members.map { it to 1L })) charge(user, amt)
+            }
         } else {
-            // Split the line total penny-exact across its units, then hand each unit to its claimant.
+            // Split the line total penny-exact across its units, then hand slices out in order: individual
+            // whole units first, then each shared portion its quantity of slices (split evenly). Any slices
+            // left over stay unbilled → the line reconciles as UNCLAIMED (its units still "need someone").
             val unitCosts = splitEven(item.lineTotalSubunits, quantity)
             var cursor = 0
             for ((user, units) in unitsByUser.entries.sortedBy { it.key.value }) {
@@ -159,22 +191,21 @@ fun splitBill(
                 repeat(units) { owed += unitCosts[cursor++] }
                 charge(user, owed)
             }
-            // The shared set absorbs the leftover units, split evenly (penny-exact via allocate). With no
-            // sharers the leftover units simply aren't billed (the line reconciles as UNCLAIMED).
-            if (remainder > 0 && sharers.isNotEmpty()) {
+            for (p in portions) {
+                if (p.quantity <= 0 || p.members.isEmpty()) continue
                 var pool = 0L
-                while (cursor < quantity) pool += unitCosts[cursor++]
-                for ((user, amount) in allocate(pool, sharers.map { it to 1L })) charge(user, amount)
+                repeat(p.quantity) { pool += unitCosts[cursor++] }
+                for ((user, amt) in allocate(pool, p.members.map { it to 1L })) charge(user, amt)
             }
         }
         if (itemAlloc.isNotEmpty()) perItem[item.itemId] = itemAlloc
 
         val status = when {
-            totalIndiv > quantity -> ItemStatus.OVERCLAIMED
-            totalIndiv < quantity && sharers.isEmpty() -> ItemStatus.UNCLAIMED
+            totalAssigned > quantity -> ItemStatus.OVERCLAIMED
+            totalAssigned < quantity -> ItemStatus.UNCLAIMED
             else -> ItemStatus.RESOLVED
         }
-        reconcile += ItemReconcile(item.itemId, quantity, totalIndiv, sharers.isNotEmpty(), status)
+        reconcile += ItemReconcile(item.itemId, quantity, totalIndiv, portions.isNotEmpty(), status)
     }
 
     val subtotals = subtotal.toList()
@@ -216,6 +247,9 @@ fun splitBill(
     val owed = breakdown.mapValues { (_, b) -> b.totalSubunits }
     return BillResult(owed, reconcile, breakdown, perItem)
 }
+
+/** A line's effective shared slice inside [splitBill]: [quantity] units split evenly among [members]. */
+private class LinePortion(val quantity: Int, val members: List<UserId>)
 
 /** Sentinel weight-bucket for the un-yet-claimed portion of a bill; its extras slice is computed then dropped. */
 private val UNCLAIMED_BUCKET = UserId(" unclaimed")
