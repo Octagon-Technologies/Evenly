@@ -6,6 +6,7 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.domain.balance.Debt
 import da.chelimo.sharecost.domain.balance.OutstandingItem
+import da.chelimo.sharecost.domain.balance.Overpayment
 import da.chelimo.sharecost.domain.expense.EditExpense
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.ExpenseEditConflict
@@ -41,6 +42,14 @@ interface ExpenseRepository {
      * expense's currency; the caller filters to the counterparty + direction it's showing.
      */
     fun observeOutstandingItems(groupId: GroupId): Flow<List<OutstandingItem>>
+
+    /**
+     * Over-paid pairs the [viewer] is party to (P1 #9) — a debtor→creditor pair whose derived remaining
+     * has gone negative, i.e. the same payment was recorded twice. Drives the "possible double payment"
+     * banner on the Balances tab. Empty when nothing is over-paid; clears the instant the extra payment is
+     * voided (it's derived, never stored). Pass a null viewer to see every over-paid pair in the group.
+     */
+    fun observeOverpayments(groupId: GroupId, viewer: UserId?): Flow<List<Overpayment>>
 
     /** Add an expense + shares in one transaction. Rejects when `sum(shares) != amount` (AC-INV-001). */
     suspend fun addExpense(input: NewExpense): AppResult<Expense>

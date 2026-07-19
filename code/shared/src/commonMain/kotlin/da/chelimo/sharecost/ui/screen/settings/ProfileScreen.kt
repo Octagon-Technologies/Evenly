@@ -1,6 +1,7 @@
 package da.chelimo.sharecost.ui.screen.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +57,9 @@ fun ProfileScreen(
     baseCurrency: String = "USD",
     paymentAppsSummary: String = "Venmo +2",
     paymentAppsSet: Boolean = true,
+    isSignedIn: Boolean = true,
+    onSignIn: () -> Unit = {},
+    onBack: () -> Unit = {},
     onSignOut: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
     onEditName: (String) -> Unit = {},
@@ -61,6 +67,7 @@ fun ProfileScreen(
     onPrivacy: () -> Unit = {},
     onTerms: () -> Unit = {},
     notifications: NotificationPrefs = NotificationPrefs(),
+    notificationsBlocked: Boolean = false,
     onNotificationsChange: (NotificationPrefs) -> Unit = {},
     themeMode: ThemeMode = ThemeMode.System,
     onThemeModeChange: (ThemeMode) -> Unit = {},
@@ -72,29 +79,49 @@ fun ProfileScreen(
     var nameDraft by remember(displayName) { mutableStateOf(displayName) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    // A root tab of MainShell (no back button); the shell owns the status-bar scrim + bottom nav.
-    Column(Modifier.fillMaxSize().background(c.surface)) {
-        ScTopBar(title = "Settings", center = true)
+    // A root tab of MainShell (the shell owns the status-bar scrim), but no bottom nav of its own —
+    // matching Home, the only way back is this top-bar back button, not a persistent nav bar.
+    Column(Modifier.fillMaxSize().background(c.page)) {
+        ScTopBar(title = "Settings", center = true, navIcon = { ScIconButton(ScIcons.Back, onClick = onBack) })
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // ── Account header card ────────────────────────────
-            ScCard(padded = true) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ScAvatar(displayName, me = true, size = AvatarSize.Lg)
-                    Column(Modifier.weight(1f)) {
+            if (isSignedIn) {
+                ScCard(padded = true) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ScAvatar(displayName, me = true, size = AvatarSize.Lg)
+                        Column(Modifier.weight(1f)) {
+                            if (editingName) {
+                                ScTextField(nameDraft, { nameDraft = it }, placeholder = "Your name")
+                            } else {
+                                Text(displayName, color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                Text(email, color = c.ink2, fontSize = 12.sp)
+                            }
+                        }
                         if (editingName) {
-                            ScTextField(nameDraft, { nameDraft = it }, placeholder = "Your name")
+                            ScIconButton(ScIcons.Check, { onEditName(nameDraft.trim()); editingName = false }, size = 20.dp, tint = c.blueText)
                         } else {
-                            Text(displayName, color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                            Text(email, color = c.ink2, fontSize = 12.sp)
+                            ScIconButton(ScIcons.Edit, { nameDraft = displayName; editingName = true }, size = 20.dp, tint = c.ink2)
                         }
                     }
-                    if (editingName) {
-                        ScIconButton(ScIcons.Check, { onEditName(nameDraft.trim()); editingName = false }, size = 20.dp, tint = c.blue)
-                    } else {
-                        ScIconButton(ScIcons.Edit, { nameDraft = displayName; editingName = true }, size = 20.dp, tint = c.ink2)
+                }
+            } else {
+                ScCard(padded = true, modifier = Modifier.clickable(onClick = onSignIn)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(
+                            Modifier.height(56.dp).width(56.dp).background(c.surface, shape = CircleShape)
+                                .border(1.dp, c.border, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ScIcon(ScIcons.User, size = 24.dp, tint = c.ink2)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text("Not signed in", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Text("Tap to sign in", color = c.ink2, fontSize = 12.sp)
+                        }
+                        ScIcon(ScIcons.ChevR, size = 15.dp, tint = c.ink3)
                     }
                 }
             }
@@ -108,7 +135,7 @@ fun ProfileScreen(
                     icon = ScIcons.Wallet,
                     label = "Payment apps",
                     value = if (paymentAppsSet) paymentAppsSummary else "Add one",
-                    valueColor = if (paymentAppsSet) null else c.blue,
+                    valueColor = if (paymentAppsSet) null else c.blueText,
                     hint = if (paymentAppsSet) null else "So friends can pay you back",
                     last = true,
                     onClick = onEditPaymentApps,
@@ -117,9 +144,18 @@ fun ProfileScreen(
 
             // ── Notifications ──────────────────────────────────
             ProfileGroup("Notifications") {
-                NotifRow("New expenses", notifications.newExpenses) { onNotificationsChange(notifications.copy(newExpenses = it)) }
-                NotifRow("Someone pays you", notifications.payments) { onNotificationsChange(notifications.copy(payments = it)) }
-                NotifRow("Review reminders", notifications.conflictReminders, last = true) { onNotificationsChange(notifications.copy(conflictReminders = it)) }
+                // Only shown once the OS permission has actually been asked and refused — explains why
+                // the toggles below won't turn on (a constraint the user needs to act on, not marketing).
+                if (notificationsBlocked) {
+                    Text(
+                        "Blocked in system settings",
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                        color = c.ink3,
+                        fontSize = 12.sp,
+                    )
+                }
+                NotifRow("Someone adds an expense", notifications.newExpenses) { onNotificationsChange(notifications.copy(newExpenses = it)) }
+                NotifRow("Someone pays you", notifications.payments, last = true) { onNotificationsChange(notifications.copy(payments = it)) }
             }
 
             // ── Privacy ────────────────────────────────────────

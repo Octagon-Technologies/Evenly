@@ -12,6 +12,8 @@ import da.chelimo.sharecost.data.remote.supabase.SyncEngine
 import da.chelimo.sharecost.data.remote.supabase.SyncManager
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.auth.OAuthProvider
+import da.chelimo.sharecost.platform.AppForeground
+import da.chelimo.sharecost.platform.ScAnalytics
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
@@ -30,6 +32,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -53,8 +56,10 @@ class SupabaseAuthSession(
     private val syncEngine: SyncEngine? = null,
     private val syncManager: SyncManager? = null,
     private val pushController: PushController? = null,
+    private val appForeground: AppForeground? = null,
     private val clock: Clock = Clock.System,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val analytics: ScAnalytics? = null,
 ) : AuthSession {
 
     private val _currentUserId = MutableStateFlow(client.auth.currentUserOrNull()?.id?.let(::UserId))
@@ -70,9 +75,11 @@ class SupabaseAuthSession(
         }
         // A restored session (relaunch) should hydrate from the server immediately.
         client.auth.currentUserOrNull()?.id?.let { id -> scope.launch { syncEngine?.pull(id) } }
-        // Live sync (F7): prompt push-on-write + Realtime pull + a periodic safety net, replacing the
-        // old fixed 15s heartbeat. Falls back to nothing extra when no SyncManager is wired (tests).
-        syncManager?.bind(scope, currentUserId)
+        // Live sync (F7): prompt push-on-write + Realtime doorbell pull + a periodic safety net,
+        // replacing the old fixed 15s heartbeat. Gated on the app being visible so a backgrounded
+        // device holds no socket and runs no loops; with no AppForeground wired (tests) it runs
+        // ungated, as before. Falls back to nothing extra when no SyncManager is wired (tests).
+        syncManager?.bind(scope, currentUserId, appForeground?.state ?: flowOf(true))
         // Push (F7): register the FCM token for the signed-in user + pull on delivered messages.
         pushController?.bind(scope, currentUserId)
     }
@@ -147,6 +154,8 @@ class SupabaseAuthSession(
     }
 
     override fun signOut() {
+        analytics?.capture("user_signed_out")
+        analytics?.reset()
         scope.launch { client.auth.signOut() }
         _currentUserId.value = null
     }
@@ -161,34 +170,61 @@ class SupabaseAuthSession(
         uid?.let { runCatching { userDao.delete(it) } }
         _currentUserId.value = null
         return server.fold(
-            onSuccess = { AppResult.Ok(Unit) },
+            onSuccess = {
+                analytics?.capture("account_deleted")
+                analytics?.reset()
+                AppResult.Ok(Unit)
+            },
             onFailure = { AppError.Unexpected(it).asErr() },
         )
     }
 
     /**
-     * Upsert the live Supabase user into Room. A brand-new sign-in inserts the row (display name from
-     * the OAuth provider metadata when present); an existing local row is left intact except its email,
-     * so a user's own name/currency/handle edits are never clobbered by a session refresh.
+     * Upsert the live Supabase user into Room. When there's no local row yet, a RETURNING account already
+     * has a real server `users` row (display name, base currency, payment handles, notification prefs), so
+     * we SELECT and mirror THAT — never a fresh-stamped "You" default. Seeding a default here was a silent
+     * profile-wipe: `mirrorCurrentUser` runs `syncNow` (push before pull), so the default's `now` timestamp
+     * beat the server via `keepNewer` and the real profile was erased on every device (P0 #4). We seed the
+     * default ONLY when the server confirms it has no row (a genuinely new account); on a network failure we
+     * seed nothing and let the subsequent pull hydrate, rather than risk pushing a default over a real row.
+     * An existing local row is left intact except its email, so a user's own edits survive a session refresh.
      */
     private suspend fun mirrorCurrentUser(fallbackName: String? = null) {
         val user = client.auth.currentUserOrNull() ?: return
+        val wasSignedOut = _currentUserId.value == null
         val now = clock.nowEpochMillis()
         val existing = userDao.getById(user.id)
         when {
-            existing == null -> userDao.upsert(
-                UserEntity(
-                    id = user.id,
-                    displayName = providerName(user) ?: fallbackName ?: PLACEHOLDER_NAME,
-                    email = user.email,
-                    baseCurrency = "USD",
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            )
+            existing == null -> {
+                val fetch = runCatching {
+                    client.from("users").select(Columns.ALL) { filter { eq("id", user.id) } }
+                        .decodeList<UserEntity>()
+                }
+                val serverRow = fetch.getOrNull()?.firstOrNull()
+                when {
+                    // Returning account → mirror the real profile verbatim (same timestamp, so it can't
+                    // out-race a newer edit made elsewhere).
+                    serverRow != null -> userDao.upsert(serverRow)
+                    // Server confirmed no row → brand-new account, seed the default.
+                    fetch.isSuccess -> userDao.upsert(
+                        UserEntity(
+                            id = user.id,
+                            displayName = providerName(user) ?: fallbackName ?: PLACEHOLDER_NAME,
+                            email = user.email,
+                            baseCurrency = "USD",
+                            createdAt = now,
+                            updatedAt = now,
+                        ),
+                    )
+                    // Network/decode failure → seed nothing; the pull triggered below hydrates the profile.
+                    else -> Unit
+                }
+            }
             existing.email != user.email -> userDao.upsert(existing.copy(email = user.email, updatedAt = now))
         }
         _currentUserId.value = UserId(user.id)
+        analytics?.identify(user.id)
+        if (wasSignedOut) analytics?.capture("user_signed_in")
         scope.launch { syncEngine?.syncNow(user.id) }
     }
 

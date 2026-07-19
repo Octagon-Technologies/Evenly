@@ -59,12 +59,12 @@ fun UnresolvedBillsSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                ScIcon(ScIcons.CheckCircle, size = 18.dp, tint = c.blue)
-                Text("Claim your items", color = c.bluePressed, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                ScIcon(ScIcons.CheckCircle, size = 18.dp, tint = c.blueText)
+                Text("Claim your items", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Box(
-                    Modifier.clip(RoundedCornerShape(99.dp)).background(c.blue).padding(horizontal = 6.dp, vertical = 2.dp),
-                ) { Text("${bills.size}", color = c.onAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-                ScIcon(if (expanded) ScIcons.ChevU else ScIcons.ChevD, size = 18.dp, tint = c.blue)
+                    Modifier.clip(RoundedCornerShape(6.dp)).background(c.borderStrong).padding(horizontal = 7.dp, vertical = 2.dp),
+                ) { Text("${bills.size}", color = c.ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                ScIcon(if (expanded) ScIcons.ChevU else ScIcons.ChevD, size = 18.dp, tint = c.blueText)
             }
             if (expanded) {
                 // The ones that need YOU first.

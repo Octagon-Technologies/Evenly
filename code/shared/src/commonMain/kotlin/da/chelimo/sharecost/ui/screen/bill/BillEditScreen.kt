@@ -1,5 +1,11 @@
 package da.chelimo.sharecost.ui.screen.bill
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -219,7 +227,7 @@ fun BillEditScreen(
     val isValid = nameValid && hasItem
 
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.page)) {
         StatusBarScrim()
         ScTopBar(
             title = if (editing) "Edit bill" else "Split the bill",
@@ -246,11 +254,11 @@ fun BillEditScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ScIcon(ScIcons.Receipt, size = 16.dp, tint = c.blue)
+                    ScIcon(ScIcons.Receipt, size = 16.dp, tint = c.blueText)
                     Text(
-                        if (attachedReceiptCount == 1) "Receipt attached — saves with the bill"
-                        else "$attachedReceiptCount receipt pages attached — save with the bill",
-                        color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                        if (attachedReceiptCount == 1) "Receipt attached, saves with the bill"
+                        else "$attachedReceiptCount receipt pages attached, save with the bill",
+                        color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                     )
                 }
             }
@@ -298,8 +306,8 @@ fun BillEditScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue)
-                        Text("Add item", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blueText)
+                        Text("Add item", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 ScCard {
@@ -362,7 +370,7 @@ fun BillEditScreen(
         if (scanSource) {
             ScModalScaffold(onDismiss = { scanSource = false }) {
                 Text("Scan the bill", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-                Text("A restaurant check or store receipt with line items — we'll pull them out for you. Several pages read as one bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Text("A restaurant check or store receipt with line items. We'll pull them out for you, several pages read as one bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
                 ScanSourceRow(ScIcons.Image, "Photos") { scanSource = false; onScanReceipt(PickSource.Photos) }
                 ScanSourceRow(ScIcons.Archive, "Files (image or PDF)") { scanSource = false; onScanReceipt(PickSource.Files) }
                 ScanSourceRow(ScIcons.Camera, "Take a photo") { scanSource = false; onScanReceipt(PickSource.Camera) }
@@ -388,7 +396,7 @@ fun BillEditScreen(
             var newName by remember { mutableStateOf("") }
             ScModalScaffold(onDismiss = { showAddDialog = false }) {
                 Text("Add a person", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-                Text("Add someone who isn't in the group yet — even if they don't have the app. They'll be on this bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                Text("Add someone who isn't in the group yet, even if they don't have the app. They'll be on this bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
                 ScField("Name") { ScTextField(newName, { newName = it }, placeholder = "e.g. Bob") }
                 Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                     ScButton("Add", { if (newName.isNotBlank()) { onAddPerson(newName.trim()); showAddDialog = false } }, enabled = newName.isNotBlank())
@@ -410,7 +418,11 @@ fun BillEditScreen(
     }
 }
 
-/** The bottom sheet shown while OCR runs: the pages being read, an indeterminate bar, and rotating copy. */
+/**
+ * The bottom sheet shown while OCR runs: a single centered animated scan icon, an indeterminate bar,
+ * and rotating copy. Replaces the old row-of-page-tiles — [pages] is now only used to compute the
+ * "page N of M" subtitle text, not rendered per-tile.
+ */
 @Composable
 internal fun ScanProgressSheet(pages: List<ScanPageUi>, onCancel: () -> Unit) {
     val c = ShareCostTheme.colors
@@ -423,27 +435,20 @@ internal fun ScanProgressSheet(pages: List<ScanPageUi>, onCancel: () -> Unit) {
     val pageLine = if (pages.size == 1) "1 page · this usually takes a few seconds"
     else "${pages.size} pages · this usually takes a few seconds"
     ScSheetScaffold(onDismiss = onCancel, title = "Scanning your receipt", sub = pageLine) {
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            pages.take(4).forEach { ScanPageTile(it) }
-            if (pages.size > 4) {
-                Text("+${pages.size - 4}", color = c.ink2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
+        Box(Modifier.fillMaxWidth().padding(bottom = 20.dp), contentAlignment = Alignment.Center) {
+            ScanPulseTile()
         }
         LinearProgressIndicator(
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(99.dp)),
-            color = c.blue,
-            trackColor = c.blueTint,
+            color = c.blueText,
+            trackColor = c.selectionTint,
         )
         Row(
             Modifier.fillMaxWidth().padding(top = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ScIcon(ScIcons.Sparkle, size = 15.dp, tint = c.blue)
+            ScIcon(ScIcons.Sparkle, size = 15.dp, tint = c.blueText)
             Text(phrases[phraseIdx], color = c.ink2, fontSize = 13.sp)
         }
         Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
@@ -456,15 +461,33 @@ internal fun ScanProgressSheet(pages: List<ScanPageUi>, onCancel: () -> Unit) {
     }
 }
 
+/** A rounded-square tile with a receipt icon and a thin blue "scan line" sweeping top-to-bottom-to-top. */
 @Composable
-private fun ScanPageTile(page: ScanPageUi) {
+private fun ScanPulseTile() {
     val c = ShareCostTheme.colors
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RoundedCornerShape(20.dp)
+    val transition = rememberInfiniteTransition(label = "scanLine")
+    val sweep by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "scanLineSweep",
+    )
     Box(
-        Modifier.size(width = 56.dp, height = 72.dp).clip(shape).background(c.blueTint).border(1.dp, c.border, shape),
+        Modifier.size(88.dp).clip(shape).background(c.selectionTint).border(1.dp, c.border, shape),
         contentAlignment = Alignment.Center,
     ) {
-        ScIcon(if (page.isPdf) ScIcons.Receipt else ScIcons.Image, size = 22.dp, tint = c.blue)
+        ScIcon(ScIcons.Receipt, size = 34.dp, tint = c.blueText)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .offset(y = 42.dp * (sweep * 2f - 1f))
+                .background(c.blue.copy(alpha = 0.7f)),
+        )
     }
 }
 
@@ -496,7 +519,7 @@ internal fun ScanErrorSheet(
     }
     val body = when (kind) {
         ScanErrorKind.Offline -> "Scanning needs a connection. You can still type the bill in now."
-        ScanErrorKind.NoReceiptFound -> "No items found — the photo may be blurry or not a receipt."
+        ScanErrorKind.NoReceiptFound -> "No items found. The photo may be blurry or not a receipt."
         ScanErrorKind.Unavailable -> "Receipt scanning isn't set up here. Add the bill by hand."
         ScanErrorKind.Error -> "The scan failed. Give it another try, or type it in."
     }
@@ -547,7 +570,7 @@ internal fun ScanSourceRow(icon: androidx.compose.ui.graphics.vector.ImageVector
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScIcon(icon, size = 20.dp, tint = c.blue)
+        ScIcon(icon, size = 20.dp, tint = c.blueText)
         Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }
@@ -631,7 +654,7 @@ private fun QtyField(value: Int, onChange: (Int) -> Unit) {
                 modifier = Modifier.width(36.dp),
             )
         }
-        StepBtn(ScIcons.Plus, enabled = true, tint = c.blue) { onChange(value + 1) }
+        StepBtn(ScIcons.Plus, enabled = true, tint = c.blueText) { onChange(value + 1) }
     }
 }
 
@@ -667,9 +690,12 @@ private fun LabeledPriceField(
     val c = ShareCostTheme.colors
     val shape = RoundedCornerShape(10.dp)
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        // Active (source-of-truth) is signalled by the blue ring + subtle fill + a bolder white label —
+        // NOT by colouring the value blue. Blue digits on the dark field read poorly; white stays legible
+        // and the border carries the "this is the one I'm editing" cue.
         Text(
             label,
-            color = if (active) c.blue else c.ink3,
+            color = if (active) c.ink else c.ink3,
             fontSize = 11.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
@@ -682,13 +708,13 @@ private fun LabeledPriceField(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(symbol, color = if (active) c.blue else c.ink3, fontSize = 13.sp)
+            Text(symbol, color = if (active) c.ink2 else c.ink3, fontSize = 13.sp)
             BasicTextField(
                 value = text,
                 onValueChange = { onChange(it.filter { ch -> ch.isDigit() || ch == '.' }) },
                 singleLine = true,
                 textStyle = TextStyle(
-                    color = if (active) c.blue else c.ink,
+                    color = c.ink,
                     fontSize = 14.sp,
                     textAlign = TextAlign.End,
                     fontFamily = ShareCostTheme.monoFamily,
@@ -729,8 +755,11 @@ internal fun ExtrasCard(
             ExtraRow("Gratuity") { PriceField(gratuityText, onGratuity, symbol) }
             // Tip is firmly an even split now — no per-bill toggle; the caption just states it.
             ExtraRow("Tip", "Split evenly") { PriceField(tipText, onTip, symbol) }
-            // Discount is the one line that *reduces* the total — the leading "−" + caption make that clear.
-            ExtraRow("Discount", "Comes off the total") { PriceField(discountText, onDiscount, symbol, sign = "−") }
+            // Discount is the one line that *reduces* the total — a green field + leading "−" make that
+            // unmistakable while typing (green = money coming back off).
+            ExtraRow("Discount", "Comes off the total") {
+                PriceField(discountText, onDiscount, symbol, sign = "−", accent = c.settled, accentFill = c.settledTint)
+            }
             Box(Modifier.fillMaxWidth().topHairline(c.border).padding(top = 12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Total", color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -772,7 +801,7 @@ private fun ParticipantChips(
             val allOn = selected.size >= allIds.size
             Text(
                 if (allOn) "Deselect all" else "Select all",
-                color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp))
                     .clickable { if (allOn) onDeselectAll() else onSelectAll() }
                     .padding(horizontal = 6.dp, vertical = 4.dp),
@@ -784,15 +813,15 @@ private fun ParticipantChips(
                 val shape = RoundedCornerShape(999.dp)
                 Row(
                     Modifier.clip(shape)
-                        .background(if (on) c.blueTint else c.page)
+                        .background(if (on) c.blue else c.page)
                         .then(if (on) Modifier else Modifier.border(1.dp, c.borderStrong, shape))
                         .clickable { onToggle(p.userId) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (on) ScIcon(ScIcons.Check, size = 14.dp, tint = c.blue)
-                    Text(if (p.isMe) "You" else p.name, color = if (on) c.blue else c.ink, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
+                    if (on) ScIcon(ScIcons.Check, size = 14.dp, tint = c.onAccent)
+                    Text(if (p.isMe) "You" else p.name, color = if (on) c.onAccent else c.ink, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
                 }
             }
             // Add a person who isn't in the group yet, right from the roster — mirrors the add-expense editor.
@@ -804,8 +833,8 @@ private fun ParticipantChips(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                ScIcon(ScIcons.Plus, size = 14.dp, tint = c.blue)
-                Text("Add", color = c.blue, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                ScIcon(ScIcons.Plus, size = 14.dp, tint = c.blueText)
+                Text("Add", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -841,9 +870,9 @@ private fun ParticipantSummary(
                         count >= allCount -> "Everyone · $allCount"
                         else -> "$count of $allCount"
                     },
-                    color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 )
-                ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.blue)
+                ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.blueText)
             }
         }
     }
@@ -891,7 +920,7 @@ private fun ParticipantPickerSheet(
             )
             Text(
                 if (allOn) "Deselect all" else "Select all",
-                color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp))
                     .clickable { if (allOn) onDeselectAll() else onSelectAll() }
                     .padding(horizontal = 6.dp, vertical = 4.dp),
@@ -906,9 +935,9 @@ private fun ParticipantPickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(Modifier.size(32.dp).clip(RoundedCornerShape(999.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                    ScIcon(ScIcons.Plus, size = 16.dp, tint = c.blue)
+                    ScIcon(ScIcons.Plus, size = 16.dp, tint = c.blueText)
                 }
-                Text("Add a person", color = c.blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text("Add a person", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             }
             filtered.forEach { p ->
                 Row(
@@ -937,23 +966,32 @@ private fun ParticipantPickerSheet(
  * leading glyph (e.g. "−" for the discount) that flags the amount as a deduction without recoloring it.
  */
 @Composable
-private fun PriceField(text: String, onChange: (String) -> Unit, symbol: String, sign: String = "") {
+// [accent]/[accentFill] tint the whole field (border, sign, symbol, value) one colour — used to paint
+// the discount GREEN, so the "−" and the box read as "this reduces the total" while you type.
+private fun PriceField(
+    text: String,
+    onChange: (String) -> Unit,
+    symbol: String,
+    sign: String = "",
+    accent: Color? = null,
+    accentFill: Color? = null,
+) {
     val c = ShareCostTheme.colors
     val shape = RoundedCornerShape(10.dp)
     Row(
-        Modifier.width(96.dp).clip(shape).background(c.page).border(1.dp, c.borderStrong, shape)
+        Modifier.width(96.dp).clip(shape).background(accentFill ?: c.page).border(1.dp, accent ?: c.borderStrong, shape)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (sign.isNotEmpty()) Text(sign, color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Text(symbol, color = c.ink3, fontSize = 13.sp)
+        if (sign.isNotEmpty()) Text(sign, color = accent ?: c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(symbol, color = accent ?: c.ink3, fontSize = 13.sp)
         BasicTextField(
             value = text,
             onValueChange = { onChange(it.filter { ch -> ch.isDigit() || ch == '.' }) },
             singleLine = true,
-            textStyle = TextStyle(color = c.ink, fontSize = 14.sp, textAlign = TextAlign.End, fontFamily = ShareCostTheme.monoFamily),
-            cursorBrush = SolidColor(c.blue),
+            textStyle = TextStyle(color = accent ?: c.ink, fontSize = 14.sp, textAlign = TextAlign.End, fontFamily = ShareCostTheme.monoFamily),
+            cursorBrush = SolidColor(accent ?: c.blue),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f),
             decorationBox = { inner ->
@@ -973,7 +1011,7 @@ fun Stepper(value: Int, onChange: (Int) -> Unit, min: Int = 0, modifier: Modifie
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         StepBtn(ScIcons.Minus, enabled = value > min, tint = if (value > min) c.blue else c.ink3) { onChange((value - 1).coerceAtLeast(min)) }
         Text("$value", color = if (value > 0) c.ink else c.ink3, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(16.dp), textAlign = TextAlign.Center)
-        StepBtn(ScIcons.Plus, enabled = true, tint = c.blue) { onChange(value + 1) }
+        StepBtn(ScIcons.Plus, enabled = true, tint = c.blueText) { onChange(value + 1) }
     }
 }
 

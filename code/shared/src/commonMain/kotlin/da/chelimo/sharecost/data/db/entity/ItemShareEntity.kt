@@ -14,8 +14,9 @@ import kotlinx.serialization.Serializable
  *
  * Membership is an **additive, auto-union set** within a portion: overlapping "shared with" declarations
  * merge for free. [addedBy] records who put a member in; the *member* always has the final say — they can
- * remove themselves (soft-delete), and last-write-wins on `(item_id, user_id)` settles it. (A person is in
- * at most one shared slice per line for now — the common case, incl. the 8-nacho scenario.)
+ * remove themselves (soft-delete). A person CAN be in more than one portion of the same line at once (the
+ * per-serving assign sheet needs this: solo on one serving, shared with someone else on another) — the
+ * uniqueness key is `(item_id, user_id, portion_id)`, not `(item_id, user_id)`.
  *
  * Synced (`@Serializable`, carries `group_id` + `expense_id` for pull scoping, `row_version` +
  * `updated_at` for the `keepNewer` guard). Soft-delete only (Rule 1): leaving a share tombstones the row.

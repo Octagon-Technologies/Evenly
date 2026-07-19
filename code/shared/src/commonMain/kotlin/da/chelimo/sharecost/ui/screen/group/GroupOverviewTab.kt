@@ -89,7 +89,7 @@ fun GroupOverviewTab(
     val maxD = (byDay.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
     val maxM = (byMember.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
 
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.page)) {
         ScTopBar("Overview", navIcon = { ScIconButton(ScIcons.Back, onBack) }, actions = { ScChip("Export", variant = ChipVariant.Ghost, leadingIcon = ScIcons.Download) })
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             // header

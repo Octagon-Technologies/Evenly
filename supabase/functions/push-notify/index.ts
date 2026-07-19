@@ -9,8 +9,11 @@
 //   POST  { "groupId": "...", "title": "...", "body": "...",
 //           "data"?: {..}, "excludeUserId"?: "...", "pref"?: "newExpenses"|"payments"|"conflictReminders" }
 //
-// Auth: send the project's service-role key or anon key as the Bearer; this function uses the service
-// role internally (env SUPABASE_SERVICE_ROLE_KEY) to read tokens regardless of the caller.
+// Auth: the caller MUST present the project's service-role key as the Bearer. Title/body/data are fully
+// caller-controlled and this function fans a push out to every device in a group, so an anon-key caller
+// (the shipped app's key) must NOT be able to reach it — that would be arbitrary-content push spam to any
+// group (P1 #14). Legitimate callers are server-side only: a DB webhook/trigger or an admin task, both of
+// which hold the service role. This check MUST stay in place before the FCM secret is ever configured.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -31,6 +34,15 @@ const PREF_COLUMN: Record<string, string> = {
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
+
+  // Require the service-role key explicitly (P1 #14). Anything else — anon key, a user JWT, nothing — is
+  // rejected before any work, so the shipped app's anon key can't drive arbitrary push. Constant-time-ish
+  // compare on the raw Bearer against the service-role secret.
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!serviceRoleKey || bearer !== serviceRoleKey) {
+    return json({ error: "forbidden" }, 403);
+  }
 
   let payload: NotifyRequest;
   try {

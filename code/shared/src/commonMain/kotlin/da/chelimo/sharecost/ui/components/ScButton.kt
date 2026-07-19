@@ -30,7 +30,7 @@ import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
-enum class ButtonVariant { Primary, Secondary, Tonal, Text, Danger }
+enum class ButtonVariant { Primary, Secondary, Tonal, Text, Danger, PrimarySolid }
 
 private data class BtnStyle(val bg: Color, val fg: Color, val border: Color, val borderWidth: Float, val elevation: Dp = 0.dp)
 
@@ -54,7 +54,11 @@ fun ScButton(
         ButtonVariant.Primary ->
             if (enabled) BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
             else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
-        ButtonVariant.Secondary -> BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.5f)
+        // In dark mode a transparent bg + blue outline barely reads against the near-black page, so
+        // Secondary goes solid there (same treatment as PrimarySolid) instead of staying an outline.
+        ButtonVariant.Secondary ->
+            if (c.isDark) BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
+            else BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.5f)
         // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button
         // (distinct from the solid-blue Primary hero above it).
         ButtonVariant.Tonal ->
@@ -62,6 +66,12 @@ fun ScButton(
             else BtnStyle(c.blueTint, c.disabledInk, Color.Transparent, 0f)
         ButtonVariant.Text -> BtnStyle(Color.Transparent, c.blue, Color.Transparent, 0f)
         ButtonVariant.Danger -> BtnStyle(Color.Transparent, c.danger, c.danger.copy(alpha = 0.3f), 1f)
+        // Solid variants: for surfaces (like dark mode's near-black page) where the white-chip Primary
+        // and transparent Secondary don't read as buttons at all — a solid blue fill / blue hairline
+        // with white content instead.
+        ButtonVariant.PrimarySolid ->
+            if (enabled) BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
+            else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
     }
     val height = when { small -> 40.dp; variant == ButtonVariant.Text -> 44.dp; else -> 52.dp }
     val shape = RoundedCornerShape(if (small) 11.dp else 14.dp)
@@ -101,8 +111,13 @@ fun ScButton(
             text = text,
             color = LocalContentColor.current,
             fontSize = if (small) 14.sp else 16.sp,
-            // The white-chip Primary needs heavier weight so the blue label stays legible on white.
-            fontWeight = if (variant == ButtonVariant.Primary) FontWeight.Bold else FontWeight.SemiBold,
+            // The white-chip Primary needs heavier weight so the blue label stays legible on white; the
+            // solid variants go a step heavier still since white-on-blue/transparent needs it.
+            fontWeight = when (variant) {
+                ButtonVariant.Primary -> FontWeight.Bold
+                ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
+                else -> FontWeight.SemiBold
+            },
             letterSpacing = (-0.1).sp,
         )
     }
@@ -149,9 +164,10 @@ fun ScFab(
     val shape = RoundedCornerShape(16.dp)
     Row(
         modifier = modifier
-            // Gentle lift, not a glowing slab: 4dp with a half-strength blue tint reads as "raised" without
-            // the oversized colored halo. Trimmed height/padding so it stops dominating the corner.
-            .shadow(elevation = 4.dp, shape = shape, ambientColor = c.blue.copy(alpha = 0.5f), spotColor = c.blue.copy(alpha = 0.5f))
+            // Natural lift, no coloured halo: a soft neutral 2dp shadow. The blue-tinted glow read as a
+            // slab hovering off the page; a plain shadow settles it in (and simply blends on the dark page,
+            // where the solid-blue fill against black is lift enough).
+            .shadow(elevation = 2.dp, shape = shape)
             .clip(shape)
             .background(c.blue)
             .clickable(onClick = onClick)

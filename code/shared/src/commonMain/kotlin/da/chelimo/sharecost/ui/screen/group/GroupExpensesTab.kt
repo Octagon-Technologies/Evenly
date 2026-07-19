@@ -1,6 +1,5 @@
 package da.chelimo.sharecost.ui.screen.group
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -85,7 +84,6 @@ enum class ExpensesState { Loading, Empty, Populated }
 private val ExpenseCardShape = RoundedCornerShape(14.dp)
 
 /** 6 · Group · Expenses tab (design/src/screens-group.jsx). Hosted inside GroupHomeScreen. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GroupExpensesTab(
     groupEmoji: String = "🏝️",
@@ -117,7 +115,7 @@ fun GroupExpensesTab(
     // survives the bills momentarily emptying and re-appearing).
     var claimsExpanded by remember { mutableStateOf(true) }
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.page)) {
         ScTopBar(
             title = groupName,
             navIcon = {
@@ -135,7 +133,7 @@ fun GroupExpensesTab(
                 ScIconButton(ScIcons.Gear, onOpenSettings)
             },
         )
-        if (offline) ScBanner("Offline — your changes will sync.")
+        if (offline) ScBanner("Offline. Your changes will sync.")
         // Tab island: a segmented pill below the title (not an underline bar in the app bar), with the
         // advanced-filter funnel beside it so the bar stays uncluttered.
         Row(
@@ -197,15 +195,18 @@ fun GroupExpensesTab(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    ScIcon(ScIcons.Edit, size = 16.dp, tint = c.bluePressed)
-                                    Text("Drafts ($drafts)", color = c.bluePressed, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    ScIcon(ScIcons.Edit, size = 16.dp, tint = c.blueText)
+                                    Text("Drafts ($drafts)", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 }
-                                ScIcon(ScIcons.ChevR, size = 16.dp, tint = c.blue)
+                                ScIcon(ScIcons.ChevR, size = 16.dp, tint = c.blueText)
                             }
                         }
                     }
                     visibleDays.forEach { day ->
-                        stickyHeader(key = day.label) { ScDayHeader(day.label) }
+                        // A plain item, not a stickyHeader: pinned it overlapped the rows it scrolled
+                        // over (its surface band is a near-transparent wash in dark mode). Scrolling with
+                        // the content is the familiar pattern and sidesteps the bleed-through entirely.
+                        item(key = day.label) { ScDayHeader(day.label) }
                         // Each expense is its own card (side margins + small gap, no hairlines).
                         itemsIndexed(day.active, key = { _, it -> it.id }) { _, it ->
                             ExpenseRowFrom(it, onOpenExpense)
@@ -327,10 +328,10 @@ private fun FilterChipRow(onClear: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ScIcon(ScIcons.Filter, size = 14.dp, tint = c.blue)
+            ScIcon(ScIcons.Filter, size = 14.dp, tint = c.blueText)
             Text("Filtered", color = c.ink2, fontSize = 13.sp)
         }
-        Text("Clear", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onClear() })
+        Text("Clear", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onClear() })
     }
 }
 
@@ -375,9 +376,10 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
             when {
                 it.settled -> ScChip("Settled", variant = ChipVariant.Green, leadingIcon = ScIcons.Check)
                 it.stakeLabel != null && it.stakeAmount != null -> Column(horizontalAlignment = Alignment.End) {
-                    // Owed-to-you → amber (in your favour); you-owe → blue (the action). Mirrors the
-                    // home card + Balances chip so "blue" never means opposite things across screens.
-                    val stakeColor = if (it.stakeOwedToYou) c.credit else c.blue
+                    // Owed-to-you → amber (in your favour); you-owe → plain ink (white on dark). Blue as
+                    // the "you owe" amount sank into the dark page; a neutral ink amount reads clearly and
+                    // still lets the amber "you're owed" stand out as the one colour that matters.
+                    val stakeColor = if (it.stakeOwedToYou) c.credit else c.ink
                     Text(it.stakeLabel, color = stakeColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Text(it.stakeAmount, color = stakeColor, fontFamily = ShareCostTheme.monoFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
@@ -421,7 +423,7 @@ private fun SettledTray(items: List<ExpenseItemUi>, onOpen: (String) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                ScIcon(ScIcons.Check, size = 20.dp, tint = c.blue)
+                ScIcon(ScIcons.Check, size = 20.dp, tint = c.blueText)
             }
             Text("Settled (${items.size})", color = c.ink2, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             ScIcon(if (open) ScIcons.ChevU else ScIcons.ChevD, size = 16.dp, tint = c.ink3)

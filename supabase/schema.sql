@@ -229,8 +229,10 @@ create table if not exists public.item_shares (
 );
 create index if not exists item_shares_expense_idx on public.item_shares (expense_id);
 create index if not exists item_shares_group_idx on public.item_shares (group_id);
-create unique index if not exists item_shares_item_user_active_uidx
-  on public.item_shares (item_id, user_id) where deleted_at is null;
+-- A person can be in more than one portion of the same line at once (per-serving assignment: solo on
+-- one serving, shared with someone else on another) — the uniqueness key is per-portion, not per-item.
+create unique index if not exists item_shares_item_user_portion_active_uidx
+  on public.item_shares (item_id, user_id, portion_id) where deleted_at is null;
 
 -- Bill participants: who a "Split the bill" expense is FOR (the creator picks them). The bill surfaces to
 -- each as a "claim your items" card until they've claimed. done_at is the per-person "I'm done" stamp
@@ -300,6 +302,17 @@ create table if not exists public.superseded_split_edits (
   created_at bigint not null
 );
 create index if not exists superseded_split_edits_expense_idx on public.superseded_split_edits (expense_id);
+
+-- RLS (P1 #13): this append-only audit holds FULL rejected money payloads (amounts, notes, user ids).
+-- It is written ONLY by merge_expense() (which runs as the authenticated caller) and read by NO client,
+-- so it takes a single INSERT-only policy — NOT the permissive `_rw` loop below, which would grant the
+-- SELECT/UPDATE/DELETE this table must never expose. With RLS on and no read/update/delete policy, those
+-- are denied by default; the explicit REVOKE is belt-and-suspenders against a stray table grant.
+alter table public.superseded_split_edits enable row level security;
+drop policy if exists superseded_split_edits_insert on public.superseded_split_edits;
+create policy superseded_split_edits_insert on public.superseded_split_edits
+  for insert to authenticated with check (true);
+revoke update, delete on public.superseded_split_edits from anon, authenticated;
 
 -- ── Expense activity (F5): comments, receipts, append-only history ───────────────────────────────
 create table if not exists public.comments (
@@ -380,6 +393,36 @@ create table if not exists public.device_tokens (
 );
 create index if not exists device_tokens_user_idx on public.device_tokens (user_id);
 
+-- ── Receipt-OCR rate limiting ───────────────────────────────────────────────────────────────────
+-- One row per successful `extract-receipt` scan. Device-local-ish in purpose (not a synced entity —
+-- not in the client's SyncEngine table list), used only server-side by the edge function to enforce a
+-- per-user rate limit (20 scans/hour) against the paid, Claude-vision-backed OCR endpoint.
+create table if not exists public.receipt_scan_log (
+  id uuid primary key default gen_random_uuid(),
+  -- ON DELETE CASCADE so delete_my_account() (which deletes the auth.users row) doesn't FK-violate once
+  -- scan rows exist. A rate-limit log is ephemeral operational data, not financial history, so a hard
+  -- cascade here is correct (P1 #12). The migration below re-adds the FK with the cascade on live DBs.
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- P1 #12: existing DBs created the FK without ON DELETE — re-add it with the cascade (idempotent).
+do $$
+begin
+  alter table public.receipt_scan_log drop constraint if exists receipt_scan_log_user_id_fkey;
+  alter table public.receipt_scan_log
+    add constraint receipt_scan_log_user_id_fkey
+    foreign key (user_id) references auth.users(id) on delete cascade;
+end $$;
+
+alter table public.receipt_scan_log enable row level security;
+
+drop policy if exists "own scan log" on public.receipt_scan_log;
+create policy "own scan log" on public.receipt_scan_log
+  for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
 -- ── Row-Level Security ──────────────────────────────────────────────────────────────────────────
 -- PERMISSIVE policies so sync works immediately for testing: any authenticated (incl. anonymous)
 -- user can read/write every row. NOT safe for real multi-user data — see the membership-scoped sketch
@@ -398,19 +441,148 @@ begin
   end loop;
 end $$;
 
--- ── Realtime (F7): enable Postgres CDC on the synced tables ──────────────────────────────────────
--- The client subscribes to `public` changes via Supabase Realtime to pull in near-real-time. Tables
--- must be in the `supabase_realtime` publication for change events to be emitted. Idempotent: skip a
--- table that's already published.
+-- ── Realtime: the per-group DOORBELL (replaces per-table CDC) ────────────────────────────────────
+-- The client IGNORES realtime payloads: an event only ever means "something changed, pull now".
+-- Publishing the 16 app tables therefore fanned out one message PER ROW PER CONNECTED CLIENT for no
+-- benefit — combined with a blind full-table re-push it burned 13.9M messages against a 5M quota.
+-- Instead: ONE tiny row per group, bumped by statement-level triggers, is the ONLY published table,
+-- and its own membership RLS policy scopes delivery to that group's members. A sync cycle now costs
+-- ~1 message per online member instead of ~rows × every connected client.
+--
+-- ⚠️ Do NOT re-add the app tables to `supabase_realtime`. That single line is what the overage was.
+
+create table if not exists public.group_activity (
+  group_id   text primary key,
+  bumped_at  timestamptz not null default now()
+);
+
+alter table public.group_activity enable row level security;
+grant select on public.group_activity to authenticated;
+
+-- Membership-scoped: WALRUS evaluates this per subscriber, so a bump reaches only that group's
+-- members (verified: insider sees it, outsider sees nothing). No insert/update policy exists, so a
+-- client can never ring the doorbell itself — only the SECURITY DEFINER triggers below.
+drop policy if exists group_activity_member_read on public.group_activity;
+create policy group_activity_member_read on public.group_activity
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.members m
+      where m.group_id = group_activity.group_id
+        and m.user_id = (select auth.uid())::text
+    )
+  );
+
+-- Two variants: PL/pgSQL cannot reference a transition table from dynamic SQL, and `groups` keys on
+-- `id` while every other table keys on `group_id`.
+--
+-- SECURITY DEFINER: the definer bypasses the read-only RLS above to write the bump.
+-- Exception-swallowed: a doorbell failure must NEVER abort the user's real write (Rule 1 territory —
+-- a missed bump costs at most 60s of latency via the client's fallback tick; a lost expense is
+-- unrecoverable). Verified by test: a forced doorbell failure leaves the user's insert committed.
+-- The `is distinct from` arm: now() is constant within a transaction, so a multi-statement writer
+-- (merge_expense fires 2–3 times) collapses to exactly ONE WAL record per group per transaction.
+create or replace function public.bump_group_activity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    insert into public.group_activity (group_id, bumped_at)
+    select distinct n.group_id, now() from new_rows n where n.group_id is not null
+    on conflict (group_id) do update set bumped_at = excluded.bumped_at
+      where group_activity.bumped_at is distinct from excluded.bumped_at;
+  exception when others then
+    null;
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.bump_group_activity_groups()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    insert into public.group_activity (group_id, bumped_at)
+    select distinct n.id, now() from new_rows n where n.id is not null
+    on conflict (group_id) do update set bumped_at = excluded.bumped_at
+      where group_activity.bumped_at is distinct from excluded.bumped_at;
+  exception when others then
+    null;
+  end;
+  return null;
+end;
+$$;
+
+-- AFTER INSERT + AFTER UPDATE as a PAIR: declaring a transition table forbids a combined
+-- `insert or update` trigger. A PostgREST bulk upsert fires both, with inserted vs conflict-updated
+-- rows split correctly across the two transition tables. No DELETE trigger — everything soft-deletes.
+--
+-- `shares` is deliberately ABSENT: it carries no group_id (the generic body would raise 42703 and,
+-- but for the exception handler, abort merge_expense). Safe — shares are only ever written
+-- server-side inside merge_expense / _replace_expense_shares, which always update `expenses` in the
+-- same transaction, and that bump already covers the change. `users` has no group scope and has
+-- never been published (profile renames propagate via pull).
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','expense_items','item_claims','item_shares','bill_participants']
+  foreach t in array array[
+    'members','expenses','settlements','settlement_allocations','conflicts',
+    'expense_edit_conflicts','comments','receipts','categories','expense_history',
+    'expense_items','item_claims','item_shares','bill_participants'
+  ]
+  loop
+    execute format('drop trigger if exists bump_activity_ins on public.%I;', t);
+    execute format('drop trigger if exists bump_activity_upd on public.%I;', t);
+    execute format(
+      'create trigger bump_activity_ins after insert on public.%I '
+      'referencing new table as new_rows for each statement '
+      'execute function public.bump_group_activity();', t);
+    execute format(
+      'create trigger bump_activity_upd after update on public.%I '
+      'referencing new table as new_rows for each statement '
+      'execute function public.bump_group_activity();', t);
+  end loop;
+end $$;
+
+drop trigger if exists bump_activity_ins on public.groups;
+drop trigger if exists bump_activity_upd on public.groups;
+create trigger bump_activity_ins after insert on public.groups
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity_groups();
+create trigger bump_activity_upd after update on public.groups
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity_groups();
+
+-- Publish ONLY the doorbell, and unpublish every app table. Older already-installed clients
+-- subscribe schema-wide, so they still receive doorbells and still pull — no forced upgrade.
+do $$
+begin
+  begin
+    execute 'alter publication supabase_realtime add table public.group_activity';
+  exception when duplicate_object then null;
+  end;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'groups','members','expenses','shares','settlements','settlement_allocations','conflicts',
+    'expense_edit_conflicts','comments','receipts','categories','expense_history','expense_items',
+    'item_claims','item_shares','bill_participants'
+  ]
   loop
     begin
-      execute format('alter publication supabase_realtime add table public.%I;', t);
+      execute format('alter publication supabase_realtime drop table public.%I;', t);
     exception
-      when duplicate_object then null;
+      when undefined_object then null;
       when others then null;
     end;
   end loop;
@@ -631,6 +803,9 @@ declare
   v_notes text; v_notes_at bigint;
   v_cat text; v_subcat text; v_cat_at bigint;
   v_date text; v_date_at bigint;
+  v_same boolean;                        -- #6: is a "superseded" edit actually identical to canonical?
+  v_current_shares jsonb;
+  v_incoming_shares jsonb;
 begin
   select * into v_cur from public.expenses where id = v_id for update;
 
@@ -697,15 +872,39 @@ begin
     where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
   elsif v_client_changed and v_server_advanced then
-    v_status := 'superseded';
-    insert into public.superseded_split_edits(
-      id, group_id, expense_id, base_split_version, server_split_version, superseded_by,
-      rejected_expense, rejected_shares, created_at)
-    values (
-      v_id || ':' || p_base_split_version::text || ':' || p_actor,
-      v_group_id, v_id, p_base_split_version, v_cur.split_version, p_actor,
-      p_expense::text, p_shares::text, v_now)
-    on conflict (id) do nothing;
+    -- Causally stale split edit. But before logging it, check whether the incoming split is materially
+    -- IDENTICAL to canonical (#6): if so this is a SELF-supersede — a stale re-push after a lost response,
+    -- or two overlapping push loops sending the same edit. Logging it would spam the append-only audit AND
+    -- raise a false "your change was superseded" notice to the author whose edit actually won. Treat an
+    -- identical payload as a merged no-op (adopt canonical, no audit), mirroring commit_expense's v_same.
+    select coalesce(jsonb_object_agg(user_id, share_owed_subunits), '{}'::jsonb)
+      into v_current_shares from public.shares where expense_id = v_id and deleted_at is null;
+    select coalesce(jsonb_object_agg(s->>'user_id', (s->>'share_owed_subunits')::bigint), '{}'::jsonb)
+      into v_incoming_shares from jsonb_array_elements(p_shares) s where s->>'deleted_at' is null;
+    v_same := v_cur.amount_subunits    is not distinct from (p_expense->>'amount_subunits')::bigint
+      and v_cur.currency           is not distinct from p_expense->>'currency'
+      and v_cur.split_mode         is not distinct from p_expense->>'split_mode'
+      and v_cur.payer_user_id      is not distinct from p_expense->>'payer_user_id'
+      and v_cur.payer_outside_name is not distinct from p_expense->>'payer_outside_name'
+      and v_cur.tax_subunits       is not distinct from coalesce((p_expense->>'tax_subunits')::bigint, 0)
+      and v_cur.tip_subunits       is not distinct from coalesce((p_expense->>'tip_subunits')::bigint, 0)
+      and v_cur.tip_split_mode     is not distinct from coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL')
+      and v_cur.gratuity_subunits  is not distinct from coalesce((p_expense->>'gratuity_subunits')::bigint, 0)
+      and v_cur.discount_subunits  is not distinct from coalesce((p_expense->>'discount_subunits')::bigint, 0)
+      and v_current_shares = v_incoming_shares;
+    if v_same then
+      v_status := 'merged'; -- canonical already equals the incoming split; adopt it, log nothing
+    else
+      v_status := 'superseded';
+      insert into public.superseded_split_edits(
+        id, group_id, expense_id, base_split_version, server_split_version, superseded_by,
+        rejected_expense, rejected_shares, created_at)
+      values (
+        v_id || ':' || p_base_split_version::text || ':' || p_actor,
+        v_group_id, v_id, p_base_split_version, v_cur.split_version, p_actor,
+        p_expense::text, p_shares::text, v_now)
+      on conflict (id) do nothing;
+    end if;
   else
     v_status := 'merged';
   end if;

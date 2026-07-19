@@ -35,6 +35,20 @@ class FrankfurterFxFetcher(
             AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, e))
         }
 
+    override suspend fun fetchCurrencies(): AppResult<Map<String, String>> =
+        try {
+            val response: Map<String, String> = withTimeout(TIMEOUT_MS) {
+                client.get("$baseUrl/currencies").body()
+            }
+            AppResult.Ok(response)
+        } catch (e: TimeoutCancellationException) {
+            AppResult.Err(AppError.Network(AppError.Network.Kind.Timeout, e))
+        } catch (e: CancellationException) {
+            throw e // never swallow structured-concurrency cancellation
+        } catch (e: Exception) {
+            AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, e))
+        }
+
     /** Frankfurter shape: `{ "amount":1.0, "base":"USD", "date":"YYYY-MM-DD", "rates":{ "EUR":0.9, ... } }`. */
     @Serializable
     private data class LatestResponse(

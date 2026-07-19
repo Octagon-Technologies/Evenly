@@ -180,4 +180,22 @@ class BillRepositoryTest {
         assertEquals(3600L, view.tabByUser[bob])
         assertEquals(2, view.claimedQuantityByItem[pizza])
     }
+
+    /**
+     * P1 #15: `setServings` re-slices an item in ONE atomic teardown+rebuild. Here the pizza (2 × $18) is
+     * first split one-unit-each (me, bob), then fully replaced by a shared serving (me+bob on one unit)
+     * plus a solo (cara on the other). The old assignment must be gone and the shares re-derived cleanly.
+     */
+    @Test
+    fun setServings_atomicallyReslicesTheItem() = runTest {
+        val bill = newBill()
+        val pizza = itemId(bill, "Margherita pizza") // qty 2, $18/unit
+
+        bills.setServings(bill, pizza, listOf(listOf(me), listOf(bob)), addedBy = me)
+        assertEquals(mapOf("a" to 1800L, "b" to 1800L), owed(bill), "two solo servings")
+
+        // Fully replace: unit 1 shared by me+bob ($9 each), unit 2 solo cara ($18). Old rows torn down.
+        bills.setServings(bill, pizza, listOf(listOf(me, bob), listOf(cara)), addedBy = me)
+        assertEquals(mapOf("a" to 900L, "b" to 900L, "c" to 1800L), owed(bill), "reslice replaces cleanly")
+    }
 }

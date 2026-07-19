@@ -69,7 +69,7 @@ fun MagicLinkScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(Modifier.size(72.dp).clip(RoundedCornerShape(20.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                    ScIcon(ScIcons.Mail, size = 34.dp, tint = c.blue)
+                    ScIcon(ScIcons.Mail, size = 34.dp, tint = c.blueText)
                 }
                 Text("Check your email", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.ink)
                 Text(
@@ -103,7 +103,7 @@ fun MagicLinkScreen(
                 // Debug-only: seeded test accounts sign in with a password (no email round-trip). Hidden
                 // in release builds (see isDebugBuild()); leave blank for the normal magic-link / OTP flow.
                 if (allowPassword) {
-                    ScField("Password (test accounts — optional)") {
+                    ScField("Password (test accounts, optional)") {
                         ScTextField(password, { password = it }, placeholder = "•••••••", keyboardType = KeyboardType.Password, visualTransformation = PasswordVisualTransformation())
                     }
                 }

@@ -17,15 +17,20 @@ import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.auth.NotificationPrefs
 import da.chelimo.sharecost.domain.auth.OAuthProvider
 import da.chelimo.sharecost.domain.auth.ThemeMode
+import da.chelimo.sharecost.domain.fx.FxCurrencyDefaults
 import da.chelimo.sharecost.domain.group.Group
 import da.chelimo.sharecost.domain.group.NewGroup
 import da.chelimo.sharecost.domain.repository.FxRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.domain.repository.ProfileRepository
 import da.chelimo.sharecost.domain.settlement.PaymentApp
+import da.chelimo.sharecost.platform.NotificationPermission
+import da.chelimo.sharecost.platform.NotificationPermissionStatus
+import da.chelimo.sharecost.platform.SecureStorage
 import da.chelimo.sharecost.platform.UrlOpener
 import da.chelimo.sharecost.platform.isDebugBuild
 import da.chelimo.sharecost.ui.screen.auth.MagicLinkScreen
+import da.chelimo.sharecost.ui.screen.auth.WelcomeScreen
 import da.chelimo.sharecost.ui.screen.auth.MagicLinkState
 import da.chelimo.sharecost.ui.screen.auth.OnboardingScreen
 import da.chelimo.sharecost.ui.screen.auth.SignInScreen
@@ -103,7 +108,7 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) ->
             scope.launch {
                 when (auth.verifyEmailOtp(email, code)) {
                     is AppResult.Ok -> onVerified(!auth.hasOnboardedProfile())
-                    is AppResult.Err -> error = "That code didn't work — check it or resend."
+                    is AppResult.Err -> error = "That code didn't work. Check it or resend."
                 }
             }
         },
@@ -113,7 +118,7 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) ->
             scope.launch {
                 when (auth.signInWithPassword(e, pw)) {
                     is AppResult.Ok -> onVerified(!auth.hasOnboardedProfile())
-                    is AppResult.Err -> { state = MagicLinkState.Input; error = "Couldn't sign in — check the email and password." }
+                    is AppResult.Err -> { state = MagicLinkState.Input; error = "Couldn't sign in. Check the email and password." }
                 }
             }
         },
@@ -123,19 +128,37 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) ->
 /** Turn an email-send failure into a message the user can act on (429 throttling vs. everything else). */
 private fun sendErrorMessage(error: AppError): String = when {
     error is AppError.Backend && error.status == 429 ->
-        "Too many requests — wait a minute, then try again."
+        "Too many requests. Wait a minute, then try again."
     else -> "Couldn't send the code. Check the address and try again."
 }
+
+/**
+ * First-launch product intro. Shows the [WelcomeScreen] carousel; on Skip/Get-started it stamps the
+ * device-local [WELCOME_SEEN_KEY] so the carousel never shows again, then continues to sign-in.
+ */
+@Composable
+fun WelcomeRoute(onFinished: () -> Unit) {
+    val storage = koinInject<SecureStorage>()
+    val scope = rememberCoroutineScope()
+    WelcomeScreen(onFinish = { scope.launch { storage.putString(WELCOME_SEEN_KEY, "1"); onFinished() } })
+}
+
+/** Device-local flag: set once the welcome carousel has been dismissed. */
+const val WELCOME_SEEN_KEY = "welcome_seen"
 
 /** First-run profile capture: persists the chosen display name + base currency, then continues. */
 @Composable
 fun OnboardingRoute(onFinished: () -> Unit) {
     val profiles = koinInject<ProfileRepository>()
+    val notifications = koinInject<NotificationPermission>()
     val scope = rememberCoroutineScope()
     val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
     OnboardingScreen(
         initialName = profile?.displayName?.takeIf { it.isNotBlank() && it != "You" } ?: "",
         initialCurrency = profile?.baseCurrency ?: "USD",
+        // The app's only notification-permission ask, and only on an explicit opt-in tap. The grant/refusal
+        // isn't acted on here: the FCM token registers regardless, and the OS drops what it won't show.
+        onEnableNotifications = { notifications.request() },
         onFinish = { name, currency -> scope.launch { profiles.updateProfile(name, currency); onFinished() } },
     )
 }
@@ -147,7 +170,6 @@ fun HomeRoute(
     onJoin: () -> Unit,
     onOpenArchived: () -> Unit,
     onOpenSettings: () -> Unit = {},
-    onEmptyStateChanged: (Boolean) -> Unit = {},
 ) {
     val vm = koinViewModel<HomeViewModel>()
     val fx = koinInject<FxRepository>()
@@ -165,7 +187,6 @@ fun HomeRoute(
         onJoin = onJoin,
         onOpenArchived = onOpenArchived,
         onOpenSettings = onOpenSettings,
-        onEmptyStateChanged = onEmptyStateChanged,
     )
 }
 
@@ -234,13 +255,19 @@ fun NewGroupRoute(
 ) {
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
+    val fx = koinInject<FxRepository>()
     val scope = rememberCoroutineScope()
+    // The FX provider's currency list is effectively static (fetched once, cached locally by the
+    // repository) — loaded here so the DI-free NewGroupSheet stays a plain-callback screen.
+    var currencies by remember { mutableStateOf(FxCurrencyDefaults.fallback) }
+    LaunchedEffect(Unit) { currencies = fx.currencies() }
     NewGroupSheet(
         onDismiss = onDismiss,
-        onCreate = { name, emoji ->
+        currencies = currencies,
+        onCreate = { name, emoji, baseCurrency ->
             val uid = auth.currentUserId.value ?: return@NewGroupSheet
             scope.launch {
-                val input = NewGroup(name = name.ifBlank { "New group" }, baseCurrency = "USD", creatorUserId = uid, emoji = emoji)
+                val input = NewGroup(name = name.ifBlank { "New group" }, baseCurrency = baseCurrency, creatorUserId = uid, emoji = emoji)
                 when (val result = groups.createGroup(input)) {
                     is AppResult.Ok -> onCreated(result.value.id.value)
                     is AppResult.Err -> Unit
@@ -257,19 +284,26 @@ fun JoinByLinkRoute(onDismiss: () -> Unit, onResolved: (token: String) -> Unit) 
 }
 
 @Composable
-fun ProfileRoute(onSignedOut: () -> Unit, onEditPaymentApps: () -> Unit) {
+fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onSignIn: () -> Unit, onEditPaymentApps: () -> Unit) {
     val auth = koinInject<AuthSession>()
     val profiles = koinInject<ProfileRepository>()
     val urlOpener = koinInject<UrlOpener>()
+    val notificationPermission = koinInject<NotificationPermission>()
     val scope = rememberCoroutineScope()
     val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
+    val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val handles = profile?.paymentHandles ?: emptyMap()
+    var notifStatus by remember { mutableStateOf(NotificationPermissionStatus.NotDetermined) }
+    LaunchedEffect(Unit) { notifStatus = notificationPermission.status() }
     ProfileScreen(
         displayName = profile?.displayName ?: "You",
         email = profile?.email ?: "",
         baseCurrency = profile?.baseCurrency ?: "USD",
         paymentAppsSummary = paymentAppsSummary(handles),
         paymentAppsSet = handles.isNotEmpty(),
+        isSignedIn = userId != null,
+        onSignIn = onSignIn,
+        onBack = onBack,
         onSignOut = { auth.signOut(); onSignedOut() },
         onEditPaymentApps = onEditPaymentApps,
         onEditName = { name -> scope.launch { profiles.updateDisplayName(name) } },
@@ -277,7 +311,24 @@ fun ProfileRoute(onSignedOut: () -> Unit, onEditPaymentApps: () -> Unit) {
         onPrivacy = { urlOpener.open("https://sharecost.app/privacy") },
         onTerms = { urlOpener.open("https://sharecost.app/terms") },
         notifications = profile?.notifications ?: NotificationPrefs(),
-        onNotificationsChange = { prefs -> scope.launch { profiles.updateNotificationPrefs(prefs) } },
+        notificationsBlocked = notifStatus == NotificationPermissionStatus.Denied,
+        onNotificationsChange = { prefs ->
+            val current = profile?.notifications ?: NotificationPrefs()
+            val turnedOn = (prefs.newExpenses && !current.newExpenses) || (prefs.payments && !current.payments)
+            scope.launch {
+                // A toggle switching ON needs the OS permission first — request() shows the one-time
+                // system prompt if it hasn't fired yet, or just reports the existing grant/refusal. If
+                // refused, the pref stays at its previous (off) value instead of silently persisting "on".
+                val toApply = if (turnedOn) {
+                    val granted = notifStatus == NotificationPermissionStatus.Granted || notificationPermission.request()
+                    notifStatus = notificationPermission.status()
+                    if (granted) prefs else current
+                } else {
+                    prefs
+                }
+                profiles.updateNotificationPrefs(toApply)
+            }
+        },
         themeMode = profile?.themeMode ?: ThemeMode.System,
         onThemeModeChange = { mode -> scope.launch { profiles.updateThemeMode(mode) } },
         onDeleteAccount = { scope.launch { auth.deleteAccount(); onSignedOut() } },

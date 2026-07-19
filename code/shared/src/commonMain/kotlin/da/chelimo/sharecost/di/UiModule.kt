@@ -15,7 +15,9 @@ import da.chelimo.sharecost.data.remote.supabase.createShareCostSupabaseClient
 import da.chelimo.sharecost.data.upload.AccessTokenProvider
 import da.chelimo.sharecost.data.upload.ReceiptUploadManager
 import da.chelimo.sharecost.domain.auth.AuthSession
+import da.chelimo.sharecost.platform.AppForeground
 import da.chelimo.sharecost.platform.PushService
+import da.chelimo.sharecost.platform.ScAnalytics
 import da.chelimo.sharecost.ui.screen.group.GroupFilterStore
 import da.chelimo.sharecost.ui.screen.home.HomeViewModel
 import io.github.jan.supabase.SupabaseClient
@@ -36,7 +38,7 @@ val authModule = module {
         single { SyncManager(get<SupabaseClient>(), get<SyncEngine>(), get<ShareCostDatabase>()) }
         // Push registration + delivery glue (F7): needs the platform PushService (from platformModule).
         single { PushController(get<PushService>(), get<SyncEngine>(), get<SupabaseClient>()) }
-        single<AuthSession> { SupabaseAuthSession(get<SupabaseClient>(), get(), get<SyncEngine>(), get<SyncManager>(), get<PushController>()) }
+        single<AuthSession> { SupabaseAuthSession(get<SupabaseClient>(), get(), get<SyncEngine>(), get<SyncManager>(), get<PushController>(), get<AppForeground>(), analytics = getOrNull<ScAnalytics>()) }
         // Receipt bytes (F5) go to Supabase Storage; bound only here, so the offline stub build has none.
         single<ReceiptStorage> { SupabaseReceiptStorage(get<SupabaseClient>()) }
         // Resilient receipt upload (D-22): token for the Storage REST PUT + the durable outbox manager.

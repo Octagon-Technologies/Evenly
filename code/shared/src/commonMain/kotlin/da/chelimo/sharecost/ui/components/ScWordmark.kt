@@ -67,7 +67,7 @@ fun ScWordmark(modifier: Modifier = Modifier, size: Dp = 34.dp) {
         Text(
             text = buildAnnotatedString {
                 append("Share")
-                withStyle(SpanStyle(color = colors.blue)) { append("Cost") }
+                withStyle(SpanStyle(color = colors.blueText)) { append("Cost") }
             },
             color = colors.ink,
             fontSize = size.value.sp,

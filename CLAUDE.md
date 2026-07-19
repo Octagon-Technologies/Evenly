@@ -92,6 +92,18 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   P0/P1 it surfaces, and grep new user-facing strings against its jargon blocklist. "Compiles + runs"
   is necessary, not sufficient — "a confused friend could do this unaided" is the bar. The same skill
   runs a full cold audit of the app before a beta round.
+- **User-facing copy is concise and functional, never explanatory marketing.** A subtitle/caption under a
+  heading, sheet, or section earns its place only if it tells the user something they'd otherwise be
+  confused about (a constraint, a warning, what happens next, e.g. "It uploads after you save."). Cut
+  copy that describes or sells the feature instead ("Pick once — you'll get a focused editor.",
+  "Balances are shown per person and never simplified across the group." — both removed; they explained
+  the *design*, not anything the user needed to act on). When unsure whether a line earns its place, ask:
+  does removing it leave the user unable to do something, or just unable to appreciate the reasoning?
+  If the latter, cut it. This applies to Compose `Text`/caption/subtitle strings actually rendered to
+  users — not code comments, KDoc, or commit messages.
+- **Never use em dashes (—) in user-facing strings.** Hard rule, no exceptions. Rewrite with a period,
+  comma, or parentheses instead (e.g. "It uploads after you save." not "It uploads — after you save.").
+  Scope is the same as above: Compose UI copy only, not comments/docs/commit messages.
 
 ---
 
@@ -100,6 +112,23 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
 - **Local-first.** Reads stream from Room; writes land in Room first; the `SyncEngine`/`SyncManager`
   carry them to Supabase. UI is wired via **Route wrappers** in `ui/navigation/` (screens stay DI-free,
   taking plain callbacks so `@Preview` works; the wrapper `koinInject`s repos and binds callbacks).
+- **Realtime is a per-group DOORBELL, never per-table CDC — and the sync driver is lifecycle-gated.**
+  The client *ignores* every realtime payload: an event only means "something changed, pull now". So the
+  server publishes exactly ONE table, `group_activity` (one row per group, bumped once per writing
+  transaction by statement-level `AFTER INSERT/UPDATE` triggers — see `supabase/schema.sql`), and its own
+  membership RLS scopes delivery to that group's members. `SyncManager` subscribes to that one table
+  (`DOORBELL_TABLE`) and treats it as the "pull now" signal. **NEVER re-add app tables to the
+  `supabase_realtime` publication** — publishing all 16 tables fanned out one message *per row per
+  connected client*, which (with the old blind full-table re-push, now fixed by `pushDirty` hash-gating)
+  burned 13.9M messages against a 5M quota. Triggers skip `shares` (no `group_id`; covered by the
+  same-txn `expenses` bump) and `users` (no group scope). The whole `SyncManager` driver — realtime
+  socket, push-on-write, the 60s `syncNow` tick — is gated by `gatedUser(currentUserId, foreground)` on
+  **signed-in ∧ app-visible**: backgrounding tears the channel down (after a ~5s grace that absorbs
+  Android activity recreation) and foregrounding restarts with a catch-up sync. `App.kt` feeds the
+  visibility signal into the `AppForeground` Koin single (in the always-loaded `appModule`, default
+  `false` so an FCM-woken headless process never loops); `PushController` stays ungated (background
+  FCM → pull is intended). Don't run any of these loops from `onCreate`/first-composition or for the
+  process lifetime again.
 - **Tabs are screen *state*, not routes.** The app-root nav (`ui/navigation/MainShell.kt`, rendered at
   `Route.Home`) and the in-group nav (`GroupHomeScreen`) both keep their tabs as a `remember`ed enum
   inside a single destination — so Back leaves the section instead of cycling tabs, and there's no enum
@@ -242,6 +271,24 @@ compile/target 36, iOS 16, Compose MP 1.11.0, Room 2.8.4.
   completion (session id `da.chelimo.sharecost.receiptUpload`). Likewise `expense_sync_state` (the
   per-expense `base_version` tracker for the `commit_expense` CAS) is device-local — not `@Serializable`,
   not in `SyncEngine`'s table list, and never triggers a push.
+- **A runtime permission is EARNED, never sprung: explain first, ask on an explicit tap, at the place of
+  use.** Both OSes give exactly **one** prompt per install and never re-ask, so a prompt fired without
+  context doesn't just annoy — a refusal permanently burns the capability (only a trip to system settings
+  undoes it). Never call a `request()` from `onCreate`/`didFinishLaunching`/a screen's first composition,
+  and never on a hunch that the user might want it later. The surface must state what the permission buys
+  *before* the OS dialog, and only a deliberate tap ("Turn on notifications") may reach it, with a
+  free "Not now" that leaves the prompt unspent. **Notifications** are the only runtime permission we ask
+  for: `platform/NotificationPermission` (expect/actual — Android `POST_NOTIFICATIONS` on 13+ via a
+  one-shot `activityResultRegistry` launcher off `CurrentActivity`, mirroring `FilePicker`; iOS
+  `UNUserNotificationCenter`), asked *only* from the onboarding "Stay in the loop" step. It was previously
+  requested from `MainActivity.onCreate` — over the welcome carousel, pre-sign-in, result discarded — while
+  that onboarding step was decorative and asked for nothing; don't reintroduce either half. Everything else
+  is deliberately permission-free and should stay that way: **Android camera/photos** need NO runtime grant
+  (system Photo Picker `PickMultipleVisualMedia`, SAF `OpenMultipleDocuments`, and `TakePicture`, which
+  delegates to the system camera app — do not add `CAMERA` to the manifest, it would *create* a grant we
+  don't need), and **iOS camera/photos** use the OS prompt whose `NS*UsageDescription` string in
+  `Info.plist` *is* the explain-why step. Note push delivery is still inert (no `FCM_SERVICE_ACCOUNT`, and
+  nothing invokes `push-notify`), so the ask is currently a promise the backend can't yet keep.
 - **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
   full-screen `ReceiptViewerScreen` (`ui/screen/expense/`) — a `HorizontalPager` over all of the expense's
   receipts with a bottom thumbnail filmstrip; images pinch-to-zoom, PDFs render natively. PDF rasterization

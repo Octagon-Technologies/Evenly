@@ -20,6 +20,12 @@ interface SettlementRepository {
     /** Non-voided settlements in a group, newest first (05 §8). */
     fun observeSettlements(groupId: GroupId): Flow<List<SettlementRecord>>
 
+    /**
+     * The expense titles each non-voided settlement paid toward, keyed by settlement id. Powers the
+     * "what did this payment cover" line in the double-payment review (P1 #9).
+     */
+    fun observeCoveredExpenseTitles(groupId: GroupId): Flow<Map<SettlementId, List<String>>>
+
     /** Record a payment and apply it to the debtor→creditor outstanding shares. */
     suspend fun applySettlement(input: NewSettlement): AppResult<SettlementRecord>
 

@@ -3,6 +3,7 @@ package da.chelimo.sharecost.data.repository
 import da.chelimo.sharecost.core.error.AppError
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.data.db.ShareCostDatabase
+import da.chelimo.sharecost.data.db.dao.FxCurrencyDao
 import da.chelimo.sharecost.data.db.dao.FxRateDao
 import da.chelimo.sharecost.data.db.entity.FxBakedEntity
 import da.chelimo.sharecost.data.db.entity.FxRateEntity
@@ -25,18 +26,20 @@ class FxRepositoryTest {
 
     private lateinit var db: ShareCostDatabase
     private lateinit var dao: FxRateDao
+    private lateinit var currencyDao: FxCurrencyDao
 
     @BeforeTest
     fun setUp() {
         db = inMemoryTestDatabase()
         dao = db.fxRateDao()
+        currencyDao = db.fxCurrencyDao()
     }
 
     @AfterTest
     fun tearDown() = db.close()
 
     private fun repo(today: String, fetch: AppResult<FxSnapshot> = AppResult.Ok(FxSnapshot(today, emptyMap()))) =
-        FxRepositoryImpl(dao, FakeFxFetcher(fetch), clockAt(today))
+        FxRepositoryImpl(dao, currencyDao, FakeFxFetcher(fetch), clockAt(today))
 
     private fun rate(date: String, ccy: String, perUsd: Double) =
         FxRateEntity(rateDate = date, quoteCurrency = ccy, ratePerUsd = perUsd, fetchedAt = 1L)
@@ -94,7 +97,7 @@ class FxRepositoryTest {
     @Test
     fun refresh_fetchesAndUpserts_whenStale_includingUsdAnchor() = runTest {
         val fetcher = FakeFxFetcher(AppResult.Ok(FxSnapshot("2026-06-12", mapOf("EUR" to 0.90, "GBP" to 0.80))))
-        val repo = FxRepositoryImpl(dao, fetcher, clockAt("2026-06-12"))
+        val repo = FxRepositoryImpl(dao, currencyDao, fetcher, clockAt("2026-06-12"))
 
         assertTrue(repo.refreshIfStale() is AppResult.Ok)
         assertEquals(1, fetcher.calls)
@@ -107,7 +110,7 @@ class FxRepositoryTest {
     fun refresh_noOp_whenAlreadyHaveTodaysRates() = runTest {
         dao.upsertRates(listOf(rate("2026-06-12", "EUR", 0.90)))
         val fetcher = FakeFxFetcher(AppResult.Ok(FxSnapshot("2026-06-12", mapOf("EUR" to 0.99))))
-        val repo = FxRepositoryImpl(dao, fetcher, clockAt("2026-06-12"))
+        val repo = FxRepositoryImpl(dao, currencyDao, fetcher, clockAt("2026-06-12"))
 
         assertTrue(repo.refreshIfStale() is AppResult.Ok)
         assertEquals(0, fetcher.calls)
@@ -117,7 +120,7 @@ class FxRepositoryTest {
     @Test
     fun refresh_swallowsFetchError() = runTest {
         val fetcher = FakeFxFetcher(AppResult.Err(AppError.Network(AppError.Network.Kind.Timeout)))
-        val repo = FxRepositoryImpl(dao, fetcher, clockAt("2026-06-12"))
+        val repo = FxRepositoryImpl(dao, currencyDao, fetcher, clockAt("2026-06-12"))
 
         assertTrue(repo.refreshIfStale() is AppResult.Ok) // failure not surfaced (03 §6.4)
         assertEquals(1, fetcher.calls)

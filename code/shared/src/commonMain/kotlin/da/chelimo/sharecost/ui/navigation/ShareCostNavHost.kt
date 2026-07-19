@@ -31,11 +31,17 @@ import da.chelimo.sharecost.ui.screen.settle.SettlePersonScreen
 @Composable
 fun ShareCostNavHost(
     navController: NavHostController = rememberNavController(),
+    startDestination: Route = Route.SignIn,
     modifier: Modifier = Modifier,
 ) {
-    NavHost(navController = navController, startDestination = Route.SignIn, modifier = modifier) {
+    NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
 
         // ── Auth ────────────────────────────────────────────────────────
+        composable<Route.Welcome> {
+            WelcomeRoute(onFinished = {
+                navController.navigate(Route.SignIn) { popUpTo(Route.Welcome) { inclusive = true } }
+            })
+        }
         composable<Route.SignIn> {
             SignInRoute(
                 onEmail = { navController.navigate(Route.MagicLink) },
@@ -64,6 +70,7 @@ fun ShareCostNavHost(
                 onJoin = { navController.navigate(Route.JoinByLink) },
                 onOpenArchived = { navController.navigate(Route.Archived) },
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
+                onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
             )
         }
@@ -102,7 +109,6 @@ fun ShareCostNavHost(
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
                 onOpenBill = { navController.navigate(Route.ClaimBill(r.groupId, it)) },
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
-                onFilter = { navController.navigate(Route.Filter(r.groupId)) },
                 onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
                 onSettlePeer = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
                 onIncludeNav = { conflictId, expenseId, memberUserId ->
@@ -110,9 +116,6 @@ fun ShareCostNavHost(
                 },
                 onExport = {},
             )
-        }
-        composable<Route.Filter> { entry ->
-            FilterRoute(groupId = entry.toRoute<Route.Filter>().groupId, onDismiss = { navController.popBackStack() })
         }
         composable<Route.Search> { entry ->
             val r = entry.toRoute<Route.Search>()

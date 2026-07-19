@@ -41,18 +41,18 @@ fun DeepLinkConfirmSheet(
     onCopy: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
-    Box(Modifier.fillMaxSize().background(c.surface)) {
+    Box(Modifier.fillMaxSize().background(c.page)) {
         ScSheetScaffold(onDismiss) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Box(Modifier.size(64.dp).clip(RoundedCornerShape(20.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                    ScIcon(ScIcons.Link, size = 28.dp, tint = c.blue)
+                    ScIcon(ScIcons.Link, size = 28.dp, tint = c.blueText)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Settled ${money(amount)} with $handle?", color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Text("We opened $app. Did the payment go through?", color = c.ink2, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
                 }
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScButton("Yes — mark paid", onYes, leadingIcon = ScIcons.Check)
+                    ScButton("Yes, mark paid", onYes, leadingIcon = ScIcons.Check)
                     Row(
                         Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(c.surface).clickable(onClick = onCopy),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),

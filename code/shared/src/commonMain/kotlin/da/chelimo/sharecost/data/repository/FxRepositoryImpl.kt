@@ -4,9 +4,13 @@ import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.log.Log
 import da.chelimo.sharecost.core.time.nowEpochMillis
 import da.chelimo.sharecost.core.time.todayUtc
+import da.chelimo.sharecost.data.db.dao.FxCurrencyDao
 import da.chelimo.sharecost.data.db.dao.FxRateDao
+import da.chelimo.sharecost.data.db.entity.FxCurrencyEntity
 import da.chelimo.sharecost.data.db.entity.FxRateEntity
 import da.chelimo.sharecost.data.remote.fx.FxRateFetcher
+import da.chelimo.sharecost.domain.fx.CurrencyInfo
+import da.chelimo.sharecost.domain.fx.FxCurrencyDefaults
 import da.chelimo.sharecost.domain.fx.FxResult
 import da.chelimo.sharecost.domain.repository.FxRepository
 import kotlinx.datetime.LocalDate
@@ -22,6 +26,7 @@ import kotlin.time.ExperimentalTime
 @OptIn(ExperimentalTime::class)
 class FxRepositoryImpl(
     private val fxRateDao: FxRateDao,
+    private val fxCurrencyDao: FxCurrencyDao,
     private val fetcher: FxRateFetcher,
     private val clock: Clock = Clock.System,
 ) : FxRepository {
@@ -79,6 +84,24 @@ class FxRepositoryImpl(
         }
         fxRateDao.upsertRates(rows)
         return AppResult.Ok(Unit)
+    }
+
+    override suspend fun currencies(): List<CurrencyInfo> {
+        val cached = fxCurrencyDao.all()
+        if (cached.isNotEmpty()) return cached.map { CurrencyInfo(it.code, it.name) }
+
+        return when (val result = fetcher.fetchCurrencies()) {
+            is AppResult.Ok -> {
+                val rows = result.value.map { (code, name) -> FxCurrencyEntity(code, name) }
+                if (rows.isEmpty()) return FxCurrencyDefaults.fallback
+                fxCurrencyDao.upsertAll(rows)
+                rows.map { CurrencyInfo(it.code, it.name) }.sortedBy { it.code }
+            }
+            is AppResult.Err -> {
+                Log.w("Currency list fetch failed; using the built-in fallback")
+                FxCurrencyDefaults.fallback
+            }
+        }
     }
 
     private class Leg(val perUsd: Double, val date: String?)

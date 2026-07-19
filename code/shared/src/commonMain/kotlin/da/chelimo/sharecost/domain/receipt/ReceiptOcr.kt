@@ -14,7 +14,7 @@ data class ReceiptDraft(
 data class ReceiptDraftItem(
     val label: String,
     val quantity: Int,
-    val unitPriceSubunits: Long,
+    val lineTotalSubunits: Long,
 )
 
 /** One page of a receipt to OCR — a photo or a PDF. Several ride together as one multi-page bill. */

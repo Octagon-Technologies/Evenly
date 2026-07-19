@@ -23,12 +23,19 @@ import da.chelimo.sharecost.data.db.entity.SettlementEntity
 import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.data.db.entity.SupersededNoticeEntity
 import da.chelimo.sharecost.data.db.entity.UserEntity
+import da.chelimo.sharecost.data.repository.BillMaterializer
+import da.chelimo.sharecost.domain.expense.SPLIT_MODE_ITEMIZED
+import da.chelimo.sharecost.core.time.nowEpochMillis
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.rpc
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -70,13 +77,28 @@ private data class MergeResult(
     val shares: List<ShareEntity> = emptyList(),
 )
 
+@OptIn(ExperimentalTime::class)
 class SyncEngine(
     private val client: SupabaseClient,
     private val db: ShareCostDatabase,
 ) {
 
+    // An itemized bill's shares are a LOCAL derived materialization of its synced items/claims, never
+    // trusted from the server (its shares freeze at the last split edit). Re-derive on pull + push-adopt.
+    private val billMaterializer = BillMaterializer(
+        db.expenseDao(), db.expenseItemDao(), db.itemClaimDao(), db.itemShareDao(), db.shareDao(),
+    )
+
+    // Serialize sync ops (#6): three independent triggers (debounced push, realtime pull, the 60s
+    // syncNow) plus mirrorCurrentUser's syncNow can otherwise overlap. Two concurrent pushes send the
+    // same split edit twice → the second sees a stale base and the device SUPERSEDES ITSELF (a junk audit
+    // row + a false "your change was superseded" notice). A single mutex means at most one push/pull runs
+    // at a time; it also gives #8's in-flight-edit guard a stable window (no second sync op racing).
+    private val syncMutex = Mutex()
+
     /** Pull the signed-in user's data into Room (server → local). Best-effort: errors are returned. */
-    suspend fun pull(userId: String): AppResult<Unit> = runCatchingSync {
+    suspend fun pull(userId: String): AppResult<Unit> = syncMutex.withLock {
+      runCatchingSync {
         // 1. The user's memberships give the set of groups to hydrate.
         val myMemberships = client.from("members").select(Columns.ALL) {
             filter { eq("user_id", userId) }
@@ -84,6 +106,15 @@ class SyncEngine(
         val groupIds = myMemberships.map { it.groupId }.distinct()
         if (groupIds.isEmpty()) {
             db.memberDao().upsertAll(myMemberships)
+            // Still hydrate the caller's OWN users row — a membership-less account (fresh sign-in on a new
+            // device) otherwise never pulls its real profile, so the "You" default mirrorCurrentUser seeded
+            // would stand and then push over the server's real name/handles/prefs (P0 #4).
+            val me = selectIn<UserEntity>("users", "id", listOf(userId))
+            val freshMe = keepNewer(me, db.userDao().allForSync(), { it.id }, { it.updatedAt })
+            if (freshMe.isNotEmpty()) {
+                db.userDao().upsertAll(freshMe)
+                stampSynced("users", freshMe) { it.id }
+            }
             return@runCatchingSync
         }
 
@@ -155,7 +186,13 @@ class SyncEngine(
         val seedStates = expenses.filter { it.id !in dirtyExpenseIds }
             .map { ExpenseSyncStateEntity(it.id, it.rowVersion, it.splitVersion) }
         if (seedStates.isNotEmpty()) db.expenseSyncStateDao().upsertAll(seedStates)
+        // A bill's shares are a local derived materialization (rematerialized below), NOT server truth —
+        // the server's copy freezes at the last split edit. Never adopt them on pull, or a stale/empty
+        // server set would clobber the correct derived rows (P0 #3). Normal-expense shares still ride here.
+        val itemizedExpenseIds = (expenses.asSequence() + localExpenses.asSequence())
+            .filter { it.splitMode == SPLIT_MODE_ITEMIZED }.mapTo(HashSet()) { it.id }
         val freshShares = keepNewer(shares, db.shareDao().allForSync(), { it.id }, { it.updatedAt })
+            .filterNot { it.expenseId in itemizedExpenseIds }
         if (freshShares.isNotEmpty()) db.shareDao().upsertAll(freshShares) // shares ride with expenses; no independent push to track
         val freshSettlements = keepNewer(settlements, db.settlementDao().allForSync(), { it.id }, { it.updatedAt })
         if (freshSettlements.isNotEmpty()) {
@@ -204,19 +241,40 @@ class SyncEngine(
             db.settlementDao().upsertAllocations(allocations)
             stampSynced("settlement_allocations", allocations) { it.id }
         }
-        // conflicts / edit-conflicts / expense_history carry no updated_at (see note above) — blind upsert.
-        if (conflicts.isNotEmpty()) {
-            db.conflictDao().upsertAll(conflicts)
-            stampSynced("conflicts", conflicts) { it.id }
+        // conflicts / edit-conflicts have no updated_at, but a blind upsert on pull can REVERT a just-made
+        // local resolution (#10): a racing pull (600ms debounce, ahead of the 1.2s push) overwrites our
+        // resolved row with the server's still-unresolved copy, then stampSynced marks it clean — so the
+        // resolution never pushes and the card resurrects. Resolution is monotonic (resolved_at, once set,
+        // never clears), so drop any incoming row still unresolved that we've already resolved locally.
+        val localResolvedConflicts = db.conflictDao().allForSync()
+            .filter { it.resolvedAt != null }.mapTo(HashSet()) { it.id }
+        val freshConflicts = conflicts.filterNot { it.resolvedAt == null && it.id in localResolvedConflicts }
+        if (freshConflicts.isNotEmpty()) {
+            db.conflictDao().upsertAll(freshConflicts)
+            stampSynced("conflicts", freshConflicts) { it.id }
         }
-        if (editConflicts.isNotEmpty()) {
-            db.expenseEditConflictDao().upsertAll(editConflicts)
-            stampSynced("expense_edit_conflicts", editConflicts) { it.id }
+        val localResolvedEditConflicts = db.expenseEditConflictDao().allForSync()
+            .filter { it.resolvedAt != null }.mapTo(HashSet()) { it.id }
+        val freshEditConflicts = editConflicts.filterNot { it.resolvedAt == null && it.id in localResolvedEditConflicts }
+        if (freshEditConflicts.isNotEmpty()) {
+            db.expenseEditConflictDao().upsertAll(freshEditConflicts)
+            stampSynced("expense_edit_conflicts", freshEditConflicts) { it.id }
         }
+        // expense_history has no updated_at and is an append-only event feed — blind upsert is correct.
         if (history.isNotEmpty()) {
             db.historyEventDao().upsertAll(history)
             stampSynced("expense_history", history) { it.id }
         }
+
+        // Re-derive every itemized bill's shares from the freshly-pulled items/claims so a non-writing
+        // participant / fresh device converges on the correct shares (P0 #3). Runs LAST — it's the sole
+        // writer of bill shares (they're excluded from the shares upsert above). Gated on bill-source
+        // changes so an unrelated pull doesn't sweep every bill; the materialize itself is a no-op when a
+        // share's owed is unchanged, so the sweep is cheap.
+        val billSourcesChanged = freshExpenses.isNotEmpty() || freshItems.isNotEmpty() ||
+            freshClaims.isNotEmpty() || freshItemShares.isNotEmpty() || freshParticipants.isNotEmpty()
+        if (billSourcesChanged) billMaterializer.rematerializeGroups(groupIds, Clock.System.nowEpochMillis())
+      }
     }
 
     /** Record each row's current fingerprint as synced, so [push] won't re-upload it unchanged. */
@@ -234,23 +292,39 @@ class SyncEngine(
      * optimistic-concurrency RPC instead, so a stale edit is parked rather than silently clobbering.
      * [actorUserId] is the conflict's actor.
      */
-    suspend fun push(actorUserId: String): AppResult<Unit> = runCatchingSync {
-        pushDirty("users", db.userDao().allForSync()) { it.id }
-        pushDirty("groups", db.groupDao().allForSync()) { it.id }
-        pushDirty("members", db.memberDao().allForSync()) { it.id }
-        pushExpenses(actorUserId) // expenses + shares move as one atomic, version-guarded unit
-        pushDirty("settlements", db.settlementDao().allForSync()) { it.id }
-        pushDirty("settlement_allocations", db.settlementDao().allAllocationsForSync()) { it.id }
-        pushDirty("conflicts", db.conflictDao().allForSync()) { it.id }
-        pushDirty("expense_edit_conflicts", db.expenseEditConflictDao().allForSync()) { it.id }
-        pushDirty("comments", db.commentDao().allForSync()) { it.id }
-        pushDirty("receipts", db.receiptDao().allForSync()) { it.id }
-        pushDirty("categories", db.categoryDao().allForSync()) { it.id }
-        pushDirty("expense_history", db.historyEventDao().allForSync()) { it.id }
-        pushDirty("expense_items", db.expenseItemDao().allForSync()) { it.id }
-        pushDirty("item_claims", db.itemClaimDao().allForSync()) { it.id }
-        pushDirty("item_shares", db.itemShareDao().allForSync()) { it.id }
-        pushDirty("bill_participants", db.billParticipantDao().allForSync()) { it.id }
+    suspend fun push(actorUserId: String): AppResult<Unit> = syncMutex.withLock {
+        // Per-table isolation (#5): one table's push failing must NOT stop the tables sequenced after it.
+        // A single wedged table (e.g. a unique-index 23505 from concurrent same-slot writes — now also
+        // prevented by deterministic ids) otherwise blocks every later table forever, surfacing only as a
+        // generic "unreachable". Each step is caught independently; a failed row stays dirty and retries
+        // next cycle. We still report the FIRST failure so the round-trip isn't reported as fully clean.
+        var firstError: Throwable? = null
+        suspend fun step(block: suspend () -> Unit) {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (firstError == null) firstError = e
+            }
+        }
+        step { pushDirty("users", db.userDao().allForSync()) { it.id } }
+        step { pushDirty("groups", db.groupDao().allForSync()) { it.id } }
+        step { pushDirty("members", db.memberDao().allForSync()) { it.id } }
+        step { pushExpenses(actorUserId) } // expenses + shares move as one atomic, version-guarded unit
+        step { pushDirty("settlements", db.settlementDao().allForSync()) { it.id } }
+        step { pushDirty("settlement_allocations", db.settlementDao().allAllocationsForSync()) { it.id } }
+        step { pushDirty("conflicts", db.conflictDao().allForSync()) { it.id } }
+        step { pushDirty("expense_edit_conflicts", db.expenseEditConflictDao().allForSync()) { it.id } }
+        step { pushDirty("comments", db.commentDao().allForSync()) { it.id } }
+        step { pushDirty("receipts", db.receiptDao().allForSync()) { it.id } }
+        step { pushDirty("categories", db.categoryDao().allForSync()) { it.id } }
+        step { pushDirty("expense_history", db.historyEventDao().allForSync()) { it.id } }
+        step { pushDirty("expense_items", db.expenseItemDao().allForSync()) { it.id } }
+        step { pushDirty("item_claims", db.itemClaimDao().allForSync()) { it.id } }
+        step { pushDirty("item_shares", db.itemShareDao().allForSync()) { it.id } }
+        step { pushDirty("bill_participants", db.billParticipantDao().allForSync()) { it.id } }
+        firstError.let { if (it == null) AppResult.Ok(Unit) else AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, it)) }
     }
 
     /** Upsert + fingerprint only the rows in [rows] whose content differs from their last sync. */
@@ -278,21 +352,56 @@ class SyncEngine(
         for (e in db.expenseDao().allForSync()) {
             val st = states[e.id]
             if (st?.syncedVersion == e.rowVersion) continue // not dirty — already confirmed at this version
-            // The causal base is our last-confirmed split version; a first push (no state) treats the
-            // local split_version as the base so a brand-new expense is a clean create.
-            val baseSplit = st?.syncedSplitVersion ?: e.splitVersion
+            // The causal base is our last server-confirmed split version. With a sync-state row that's just
+            // its syncedSplitVersion. WITHOUT one (st == null) it's usually a clean create, so the local
+            // split_version is the base. But st == null WITH a local split edit already applied
+            // (split_version > 1) can also be a lost create-response: the server DID insert on an earlier
+            // push whose confirmation never landed, then a later split edit advanced our split_version.
+            // Using the local split_version as base would then compute client_changed=false and silently
+            // DROP that split edit (#7). Pre-flight the server row: if it exists, seed sync state from it and
+            // use ITS split_version as the base; only a genuinely absent row is a clean create.
+            val baseSplit: Long = when {
+                st != null -> st.syncedSplitVersion
+                e.splitVersion > 1 -> {
+                    val serverRow = client.from("expenses").select(Columns.ALL) { filter { eq("id", e.id) } }
+                        .decodeList<ExpenseEntity>().firstOrNull()
+                    if (serverRow != null) {
+                        db.expenseSyncStateDao().upsert(ExpenseSyncStateEntity(e.id, serverRow.rowVersion, serverRow.splitVersion))
+                        serverRow.splitVersion
+                    } else {
+                        e.splitVersion // genuinely absent → clean create with a pre-push split edit
+                    }
+                }
+                else -> e.splitVersion
+            }
+            val sentRowVersion = e.rowVersion // snapshot for the in-flight-edit guard (#8)
             val shares = if (e.deletedAt != null) emptyList() else db.shareDao().getByExpense(e.id)
             val result = client.postgrest
                 .rpc("merge_expense", MergeExpenseParams(e, shares, baseSplit, actorUserId))
                 .decodeAs<MergeResult>()
             val canonical = result.expense
             if (canonical != null) {
-                db.expenseDao().overwriteFromServer(canonical, result.shares, now = canonical.updatedAt)
-                db.expenseSyncStateDao().upsert(ExpenseSyncStateEntity(e.id, canonical.rowVersion, canonical.splitVersion))
-                if (result.status == "superseded") {
-                    db.supersededNoticeDao().upsert(
-                        SupersededNoticeEntity(e.id, e.groupId, createdAt = canonical.updatedAt),
-                    )
+                // Adopt the canonical ONLY if the local expense didn't change while the RPC was in flight
+                // (#8): a user edit during the round-trip bumped row_version, and blindly adopting would
+                // silently clobber it (and never re-dirty). When skipped, we leave the expense dirty (no
+                // sync-state stamp, no notice) so the next push carries that newer edit.
+                val adopted = if (canonical.splitMode == SPLIT_MODE_ITEMIZED) {
+                    // A bill's shares are a LOCAL derived materialization, not server truth. A Zone-1-only
+                    // (title fix) or superseded merge returns the server's frozen/stale shares, so adopt
+                    // ONLY the canonical expense row and re-derive shares from the local items/claims —
+                    // never the server share set, which would tombstone the correct derived rows (P0 #3).
+                    db.expenseDao().upsertFromServerIfUnchanged(sentRowVersion, canonical)
+                        .also { if (it) billMaterializer.materialize(canonical, now = canonical.updatedAt) }
+                } else {
+                    db.expenseDao().overwriteFromServerIfUnchanged(sentRowVersion, canonical, result.shares, now = canonical.updatedAt)
+                }
+                if (adopted) {
+                    db.expenseSyncStateDao().upsert(ExpenseSyncStateEntity(e.id, canonical.rowVersion, canonical.splitVersion))
+                    if (result.status == "superseded") {
+                        db.supersededNoticeDao().upsert(
+                            SupersededNoticeEntity(e.id, e.groupId, createdAt = canonical.updatedAt),
+                        )
+                    }
                 }
             } else {
                 // Defensive: the RPC returned no canonical row. Mark synced at the base we sent so this

@@ -2,13 +2,20 @@ package da.chelimo.sharecost
 
 import androidx.compose.ui.window.ComposeUIViewController
 import da.chelimo.sharecost.di.initKoin
+import da.chelimo.sharecost.platform.setupAnalytics
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.handleDeeplinks
+import io.github.samuolis.posthog.PostHogContext
+import kotlin.native.Platform
 import org.koin.mp.KoinPlatform
 import platform.Foundation.NSURL
 import platform.UIKit.UIViewController
 
+@OptIn(kotlin.experimental.ExperimentalNativeApi::class)
 fun MainViewController(): UIViewController {
+    // PostHog must be set up before Koin so PostHogAnalytics (bound in platformModule) can call
+    // PostHog.* immediately after Koin finishes starting.
+    setupAnalytics(PostHogContext(), debug = Platform.isDebugBinary)
     initKoin()
     return ComposeUIViewController { App() }
 }

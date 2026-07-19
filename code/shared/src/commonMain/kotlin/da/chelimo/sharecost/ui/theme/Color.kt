@@ -49,19 +49,36 @@ val ScSkeleton1 = Color(0xFFEDF0F5)       // shimmer trough
 val ScSkeleton2 = Color(0xFFF6F8FB)       // shimmer crest
 
 // ── Dark (derived) ──────────────────────────────────────────────────────────
-val ScBlueDark = Color(0xFF5B8DEF)        // lifted for AA on a dark page
-val ScBluePressedDark = Color(0xFF3D6FD6)
-val ScBlueTintDark = Color(0xFF16243F)
-val ScBlueTint2Dark = Color(0xFF1E3357)
+// "Cobalt, richer" — chosen from a CTA color study (owner-approved letter N): a purer, less
+// violet-shifted cobalt than the original #5B8DEF, which read as washed-out/pastel on a true-black
+// page. Every CTA/major button routes through this one token (ScButton, ScFab, ScChip's blue variant,
+// ScForm's selected radio/checkbox fill), so this single change re-tints all of them in dark mode.
+val ScBlueDark = Color(0xFF3A52D6)
+val ScBluePressedDark = Color(0xFF2C3FA8)
+// Blue used as FOREGROUND (text/icon) on the dark page — NOT the deep CTA cobalt above. The cobalt is
+// tuned as a *fill* (white sits on it); as text on a near-black surface it only reaches ~3:1 and reads
+// as "blends into the background". This brighter sky-blue clears AA for text/icons on the dark page.
+// Light mode has no such problem, so `blueText` == ScBlue there (foreground blue only shifts in dark).
+val ScBlueTextDark = Color(0xFF7AA6FF)
+// The wash source for every dark-mode surface/border/tile below: a brighter sky-blue than the CTA
+// blue above, used ONLY at low alpha over the black page — never painted solid. Kept distinct from
+// ScBlueDark so buttons stay the deliberately deep/rich cobalt while elevated surfaces stay legible
+// (a wash this low-alpha needs a brighter source hue to read as "tinted," not just "black").
+val ScTintBlueDark = Color(0xFF6E9BFF)
+val ScBlueTintDark = ScTintBlueDark.copy(alpha = 0.10f)
+val ScBlueTint2Dark = ScTintBlueDark.copy(alpha = 0.16f)
 // "You owe" accent — a brighter sky-blue so the debt amount reads clearly on the dark page (the plain
 // #5B8DEF sank into the navy tint and blended in). Paired with an outlined chip in dark, mirroring the
 // amber "you're owed". Light mode keeps the brand blue (owe == blue there), so only dark shifts.
 val ScOweDark = Color(0xFF7AA6FF)
 
-val ScPageDark = Color(0xFF0B0F17)        // near-ink, shares the ink hue family
-val ScSurfaceDark = Color(0xFF141A24)
-val ScBorderDark = Color(0xFF232C3A)
-val ScBorderStrongDark = Color(0xFF334052)
+val ScPageDark = Color(0xFF000000)        // genuinely black (was near-black 0xFF0A0A0C)
+val ScSurfaceDark = ScTintBlueDark.copy(alpha = 0.06f)
+val ScBorderDark = ScTintBlueDark.copy(alpha = 0.16f)
+val ScBorderStrongDark = ScTintBlueDark.copy(alpha = 0.26f)
+// Neutral gray for the "selection" tokens (chip-selected fill/stroke, scan card) — deliberately NOT
+// blue/navy in dark mode; see ExtendedColors.selectionTint/selectionStroke.
+val ScSelectionTintDark = Color(0xFF1C1C1E)
 
 val ScInkDark = Color(0xFFE7ECF3)
 val ScInk2Dark = Color(0xFF9BA6B8)

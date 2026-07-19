@@ -3,6 +3,7 @@ package da.chelimo.sharecost.ui.screen.expense
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -40,10 +44,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -138,6 +146,7 @@ fun AddExpenseScreen(
     val c = ShareCostTheme.colors
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    val focusManager = LocalFocusManager.current
     // Flips true the first time Save is tapped while incomplete — the gaps then turn red.
     var showErrors by remember { mutableStateOf(false) }
     var showReceiptSource by remember { mutableStateOf(false) }
@@ -242,6 +251,9 @@ fun AddExpenseScreen(
 
     // ── itemized body derived values ──
     val isItemized = splitApproach == SplitApproach.ByItem
+    // A restaurant bill is always "Food & Drink" — no point asking, so the Category field is hidden
+    // for this path and the category is set for the user.
+    LaunchedEffect(isItemized) { if (isItemized) categoryId = "food" }
     val itemSubtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
     val itemTotal = itemSubtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
         priceToSubunits(tipText) - priceToSubunits(discountText)
@@ -297,16 +309,16 @@ fun AddExpenseScreen(
     // Up-front split-type question: a focused editor beats a toggle you can flip by accident. Until it's
     // answered on a new expense, show the chooser; Back from the editor returns here (see navIcon below).
     if (splitApproach == null) {
-        Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
             ScTopBar(title = "New expense", navIcon = { ScIconButton(ScIcons.Close, onBack) })
             SplitApproachChooser(onChoose = { splitApproach = it })
         }
         return
     }
 
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         ScTopBar(
-            title = if (editing) "Edit expense" else if (isItemized) "By what each had" else "Divide the total",
+            title = if (editing) "Edit expense" else if (isItemized) "Restaurant bill" else "Split one amount",
             navIcon = { ScIconButton(if (editing) ScIcons.Close else ScIcons.Back, { if (editing) onBack() else splitApproach = null }) },
             actions = {
                 // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
@@ -320,7 +332,12 @@ fun AddExpenseScreen(
                 ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
             },
         )
-        Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(
+            Modifier.fillMaxSize()
+                .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
+                .verticalScroll(scrollState).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             // ── shared header: title, category, paid by, participants — entered once, both modes ──
             ScField("Title") {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -343,28 +360,10 @@ fun AddExpenseScreen(
             )
 
             // category (F2, optional) + paid by — side by side to keep the editor compact. Each is still
-            // its own tappable picker row (like before), just half-width now.
+            // its own tappable picker row (like before), just half-width now. A restaurant bill skips
+            // Category entirely (auto-set to Food & Drink above), so Paid by gets the full row to itself.
             val selectedCategory = categories.firstOrNull { it.key == categoryId }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ScField("Category", modifier = Modifier.weight(1f)) {
-                    ScSelectField(
-                        selectedCategory?.label ?: "Add category",
-                        { showCategoryDialog = true },
-                        valueColor = if (selectedCategory != null) c.ink else c.ink3,
-                        leading = {
-                            if (selectedCategory != null) {
-                                val catColor = Color(selectedCategory.colorHex)
-                                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                                    ScIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
-                                }
-                            } else {
-                                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                                    ScIcon(ScIcons.Tag, size = 15.dp, tint = c.blue)
-                                }
-                            }
-                        },
-                    )
-                }
+            val paidByField: @Composable RowScope.() -> Unit = {
                 ScField("Paid by", modifier = Modifier.weight(1f)) {
                     ScSelectField(
                         payerDisplayName,
@@ -372,7 +371,7 @@ fun AddExpenseScreen(
                         leading = {
                             if (isOutsidePayer) {
                                 Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                                    ScIcon(ScIcons.User, size = 15.dp, tint = c.blue)
+                                    ScIcon(ScIcons.User, size = 15.dp, tint = c.blueText)
                                 }
                             } else {
                                 ScAvatar(payerDisplayName, me = payer?.isMe == true, size = AvatarSize.Sm)
@@ -380,6 +379,30 @@ fun AddExpenseScreen(
                         },
                     )
                 }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (!isItemized) {
+                    ScField("Category", modifier = Modifier.weight(1f)) {
+                        ScSelectField(
+                            selectedCategory?.label ?: "Add category",
+                            { showCategoryDialog = true },
+                            valueColor = if (selectedCategory != null) c.ink else c.ink3,
+                            leading = {
+                                if (selectedCategory != null) {
+                                    val catColor = Color(selectedCategory.colorHex)
+                                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                        ScIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
+                                    }
+                                } else {
+                                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                        ScIcon(ScIcons.Tag, size = 15.dp, tint = c.blueText)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+                paidByField()
             }
 
             // receipt — held locally, uploaded in the background right after the expense is created. Only
@@ -396,7 +419,7 @@ fun AddExpenseScreen(
                                 Box(
                                     Modifier.matchParentSize().clip(RoundedCornerShape(8.dp)).background(c.blueTint).border(1.dp, c.border, RoundedCornerShape(8.dp)),
                                     contentAlignment = Alignment.Center,
-                                ) { ScIcon(if (r.isPdf) ScIcons.Receipt else ScIcons.Image, size = 22.dp, tint = c.blue) }
+                                ) { ScIcon(if (r.isPdf) ScIcons.Receipt else ScIcons.Image, size = 22.dp, tint = c.blueText) }
                                 Box(
                                     Modifier.align(Alignment.TopEnd).padding(3.dp).size(18.dp).clip(CircleShape).background(c.surface).border(1.dp, c.borderStrong, CircleShape).clickable { onRemoveReceipt(i) },
                                     contentAlignment = Alignment.Center,
@@ -408,8 +431,8 @@ fun AddExpenseScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blue)
-                            Text("Add", color = c.blue, fontSize = 11.sp)
+                            ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blueText)
+                            Text("Add", color = c.blueText, fontSize = 11.sp)
                         }
                     }
                     if (receipts.isNotEmpty()) {
@@ -422,7 +445,8 @@ fun AddExpenseScreen(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (isItemized) {
                     // ── By what each had: a typed-or-scanned item list, bill extras, derived total ──
-                    // Scan is the marquee action — a prominent hero card at the top, not a quiet link (A5).
+                    // Scan is the marquee action — a hero card at the top, but it recedes: a soft blue-toward-
+                    // black wash (blueTint), distinct from the page yet not the prominent grey slab it was.
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.blueTint)
                             .border(1.dp, c.border, RoundedCornerShape(16.dp)).clickable { showScanSource = true }
@@ -437,7 +461,7 @@ fun AddExpenseScreen(
                             Text("Scan the receipt", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                             Text("Snap a photo or PDF and we'll fill in the items.", color = c.ink2, fontSize = 12.sp)
                         }
-                        ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.blue)
+                        ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.blueText)
                     }
                     if (attachedReceiptCount > 0) {
                         Row(
@@ -445,11 +469,11 @@ fun AddExpenseScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            ScIcon(ScIcons.Receipt, size = 16.dp, tint = c.blue)
+                            ScIcon(ScIcons.Receipt, size = 16.dp, tint = c.blueText)
                             Text(
-                                if (attachedReceiptCount == 1) "Receipt attached — saves with the bill"
-                                else "$attachedReceiptCount receipt pages attached — save with the bill",
-                                color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                if (attachedReceiptCount == 1) "Receipt attached, saves with the bill"
+                                else "$attachedReceiptCount receipt pages attached, save with the bill",
+                                color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                             )
                         }
                     }
@@ -477,8 +501,8 @@ fun AddExpenseScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue)
-                        Text("Add item", color = c.blue, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blueText)
+                        Text("Add item", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                     if (showErrors && !hasItem) {
                         Text("Add at least one item with a name", color = c.danger, fontSize = 12.sp)
@@ -507,7 +531,8 @@ fun AddExpenseScreen(
                                 textStyle = ShareCostTheme.amounts.input.copy(color = c.ink),
                                 singleLine = true,
                                 cursorBrush = SolidColor(c.blue),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                                 decorationBox = { inner ->
                                     Box {
                                         if (amountText.isEmpty()) Text("0.00", style = ShareCostTheme.amounts.input, color = c.ink3)
@@ -584,7 +609,7 @@ fun AddExpenseScreen(
                             )
                         }
                         if (!ok) Text(
-                            "Distribute remainder", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            "Distribute remainder", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable {
                                 percentText = distributeRemainder(ids, percents).mapValues { format2dp(it.value) }
                             }.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -636,7 +661,7 @@ fun AddExpenseScreen(
     if (showReceiptSource) {
         ScModalScaffold(onDismiss = { showReceiptSource = false }) {
             Text("Add a receipt", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-            Text("Attach a photo or PDF — it uploads after you save.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text("Attach a photo or PDF. It uploads after you save.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
             ReceiptSourceRow(ScIcons.Image, "Photos") { showReceiptSource = false; onPickReceipt(PickSource.Photos) }
             ReceiptSourceRow(ScIcons.Archive, "Files (image or PDF)") { showReceiptSource = false; onPickReceipt(PickSource.Files) }
             ReceiptSourceRow(ScIcons.Camera, "Take a photo") { showReceiptSource = false; onPickReceipt(PickSource.Camera) }
@@ -654,7 +679,7 @@ fun AddExpenseScreen(
                 ) {
                     Text(code, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = ShareCostTheme.monoFamily, modifier = Modifier.width(48.dp))
                     Text(currencySymbol(code), color = c.ink2, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    if (code == currency) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
+                    if (code == currency) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blueText)
                 }
             }
         }
@@ -663,26 +688,33 @@ fun AddExpenseScreen(
     if (showCategoryDialog) {
         ScModalScaffold(onDismiss = { showCategoryDialog = false }) {
             Text("Category", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                categories.forEach { cat ->
-                    val on = categoryId == cat.key
-                    val tint = Color(cat.colorHex)
-                    val shape = RoundedCornerShape(12.dp)
-                    Row(
-                        Modifier.width(152.dp).clip(shape)
-                            .background(if (on) tint.copy(alpha = 0.12f) else c.page)
-                            .border(if (on) 2.dp else 1.dp, if (on) tint else c.borderStrong, shape)
-                            .clickable {
-                                categoryId = if (on) null else cat.key
-                                showCategoryDialog = false
+            // A 2-per-row grid of equal-width chips (not a fixed 152dp width) so two always fit
+            // side by side regardless of the sheet's width, instead of collapsing to one long column.
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                categories.chunked(2).forEach { pair ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        pair.forEach { cat ->
+                            val on = categoryId == cat.key
+                            val tint = Color(cat.colorHex)
+                            val shape = RoundedCornerShape(12.dp)
+                            Row(
+                                Modifier.weight(1f).clip(shape)
+                                    .background(if (on) tint.copy(alpha = 0.12f) else c.page)
+                                    .border(if (on) 2.dp else 1.dp, if (on) tint else c.borderStrong, shape)
+                                    .clickable {
+                                        categoryId = if (on) null else cat.key
+                                        showCategoryDialog = false
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                ScIcon(CategoryCatalog.icon(cat.iconToken), size = 18.dp, tint = tint)
+                                Text(cat.label, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (on) ScIcon(ScIcons.Check, size = 15.dp, tint = tint)
                             }
-                            .padding(horizontal = 12.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        ScIcon(CategoryCatalog.icon(cat.iconToken), size = 18.dp, tint = tint)
-                        Text(cat.label, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                        if (on) ScIcon(ScIcons.Check, size = 15.dp, tint = tint)
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -709,7 +741,7 @@ fun AddExpenseScreen(
                 ) {
                     ScAvatar(p.name, me = p.isMe, size = AvatarSize.Sm)
                     Text(p.name, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    if (!isOutsidePayer && p.userId == effectivePayerId) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
+                    if (!isOutsidePayer && p.userId == effectivePayerId) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blueText)
                 }
             }
             // Add a brand-new person right here (creates a placeholder member) — a member who paid must
@@ -721,9 +753,9 @@ fun AddExpenseScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue)
+                        ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blueText)
                     }
-                    Text("Add someone new", color = c.blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("Add someone new", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 }
             }
             // An outside payer (not a group member, not in the split) — clearer than the old "Someone else",
@@ -735,10 +767,10 @@ fun AddExpenseScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                        ScIcon(ScIcons.User, size = 15.dp, tint = c.blue)
+                        ScIcon(ScIcons.User, size = 15.dp, tint = c.blueText)
                     }
                     Text("Someone outside the group", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    if (isOutsidePayer && !someoneElse) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blue)
+                    if (isOutsidePayer && !someoneElse) ScIcon(ScIcons.Check, size = 18.dp, tint = c.blueText)
                 }
             }
             if (someoneElse) {
@@ -746,7 +778,7 @@ fun AddExpenseScreen(
                     ScField("Their name") { ScTextField(outsideDraft, { outsideDraft = it }, placeholder = "e.g. the Airbnb host") }
                 }
                 Text(
-                    "An outside payer isn't part of the split — everyone owes them their share.",
+                    "An outside payer isn't part of the split, everyone owes them their share.",
                     color = c.ink3, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 8.dp),
                 )
                 Box(Modifier.fillMaxWidth().padding(top = 12.dp)) {
@@ -767,7 +799,7 @@ fun AddExpenseScreen(
         ScModalScaffold(onDismiss = { showScanSource = false }) {
             Text("Scan the bill", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
             Text(
-                "A restaurant check or store receipt with line items — we'll pull them out for you. Several pages read as one bill.",
+                "A restaurant check or store receipt with line items. We'll pull them out for you, several pages read as one bill.",
                 color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp),
             )
             ScanSourceRow(ScIcons.Image, "Photos") { showScanSource = false; onScanReceipt(PickSource.Photos) }
@@ -802,18 +834,17 @@ private fun SplitApproachChooser(onChoose: (SplitApproach) -> Unit) {
     ) {
         Column(Modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("How are you splitting this?", color = c.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp)
-            Text("Pick once — you'll get a focused editor.", color = c.ink2, fontSize = 14.sp)
         }
         ApproachChoiceCard(
-            icon = ScIcons.Split,
-            title = "Divide the total",
-            subtitle = "One amount — split evenly, by %, shares, or exact.",
+            icon = ScIcons.Wallet,
+            title = "Split one amount",
+            subtitle = "One total that you can split evenly, by percentages, or by typing everyone's exact share.",
             onClick = { onChoose(SplitApproach.Divide) },
         )
         ApproachChoiceCard(
-            icon = ScIcons.Receipt,
-            title = "By what each had",
-            subtitle = "Scan a receipt or list items — everyone pays for what they got.",
+            icon = ScIcons.Food,
+            title = "Splitting a restaurant bill",
+            subtitle = "Scan the receipt or list items, everyone pays for what they had.",
             onClick = { onChoose(SplitApproach.ByItem) },
         )
     }
@@ -835,7 +866,7 @@ private fun ApproachChoiceCard(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-            ScIcon(icon, size = 24.dp, tint = c.blue)
+            ScIcon(icon, size = 24.dp, tint = c.blueText)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -881,7 +912,7 @@ private fun ParticipantsField(
                         onClick = { onToggle(p.userId) },
                     )
                 }
-                ScParticipantChip("Add", selected = false, leading = { ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blue) }, onClick = onAddClick)
+                ScParticipantChip("Add", selected = false, leading = { ScIcon(ScIcons.Plus, size = 15.dp, tint = c.blueText) }, onClick = onAddClick)
             }
         }
         return
@@ -900,7 +931,7 @@ private fun ParticipantsField(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                ScIcon(ScIcons.Users, size = 15.dp, tint = c.blue)
+                ScIcon(ScIcons.Users, size = 15.dp, tint = c.blueText)
             }
             Text("$count of ${participants.size} selected", color = c.ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
             ScIcon(if (expanded) ScIcons.ChevU else ScIcons.ChevD, size = 16.dp, tint = c.ink3)
@@ -911,14 +942,14 @@ private fun ParticipantsField(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             if (allOn) "Deselect all" else "Select all",
-                            color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp))
                                 .clickable { if (allOn) onDeselectAll() else onSelectAll() }
                                 .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                         Box(Modifier.weight(1f))
                         Text(
-                            "Add", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            "Add", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onAddClick).padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                     }
@@ -952,7 +983,7 @@ private fun ReceiptSourceRow(icon: androidx.compose.ui.graphics.vector.ImageVect
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScIcon(icon, size = 20.dp, tint = c.blue)
+        ScIcon(icon, size = 20.dp, tint = c.blueText)
         Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }

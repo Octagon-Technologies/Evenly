@@ -30,6 +30,7 @@ import da.chelimo.sharecost.domain.group.determineNextAdmin
 import da.chelimo.sharecost.data.remote.supabase.RemoteGroupGateway
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.newId
+import da.chelimo.sharecost.platform.ScAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -54,6 +55,8 @@ class GroupRepositoryImpl(
     private val remoteGroups: RemoteGroupGateway? = null,
     // Receipt sizes for the Storage section; null in tests → reports 0 bytes (optional-ctor-dep pattern).
     private val receiptDao: ReceiptDao? = null,
+    // Analytics: null in unit tests (no PostHog context); production DI passes AndroidAnalytics.
+    private val analytics: ScAnalytics? = null,
 ) : GroupRepository {
 
     override suspend fun addPlaceholder(groupId: GroupId, name: String): AppResult<Member> {
@@ -84,6 +87,7 @@ class GroupRepositoryImpl(
                 updatedAt = now,
             ),
         )
+        analytics?.capture("placeholder_added")
         return Member(UserId(userId), displayName = trimmed, isPlaceholder = true, isAdmin = false, joinedAt = now).asOk()
     }
 
@@ -134,6 +138,7 @@ class GroupRepositoryImpl(
             updatedAt = now,
         )
         groupDao.createGroupWithAdmin(group, admin)
+        analytics?.capture("group_created")
         return group.toDomain().asOk()
     }
 
@@ -171,6 +176,7 @@ class GroupRepositoryImpl(
                 reconcilePlaceholder(GroupId(group.id), claimPlaceholderId, userId)
             }
         }
+        analytics?.capture("group_joined")
         return group.toDomain().asOk()
     }
 
@@ -192,6 +198,7 @@ class GroupRepositoryImpl(
                 newAdminMemberId = null,
                 ts = now,
             )
+            analytics?.capture("group_left")
             return AppResult.Ok(Unit)
         }
 
@@ -210,6 +217,7 @@ class GroupRepositoryImpl(
             newAdminMemberId = nextAdminMember?.id,
             ts = now,
         )
+        analytics?.capture("group_left")
         return AppResult.Ok(Unit)
     }
 
@@ -249,11 +257,13 @@ class GroupRepositoryImpl(
         // markClaimedByUser (not markLeftByUser) stamps placeholder_claim_completed_at so the merged
         // placeholder disappears from the roster *and* every placeholder picker — not just one of them.
         shareDao.reassignUserInGroup(groupId.value, placeholderUserId.value, realUserId.value, now)
-        // The share reassignment alone doesn't bump the parent expenses' versions, so touch the ones
-        // the real user now owes — that marks them dirty for the commit_expense CAS, which carries the
-        // updated shares up. (Paid expenses are already bumped by reassignPayerInGroup below.)
-        expenseDao.touchExpensesWithShareOfUser(groupId.value, realUserId.value, now)
-        expenseDao.reassignPayerInGroup(groupId.value, placeholderUserId.value, realUserId.value, now)
+        // The share reassignment alone doesn't bump the parent expenses' versions, so touch the ones the
+        // real user now owes — that marks them dirty AND advances their causal split_version so the
+        // zone-aware merge_expense applies the reassigned shares instead of reverting them to the
+        // placeholder (P0 #1). (Paid expenses are advanced by reassignPayerInGroup below.) The real user
+        // is the actor of the merge.
+        expenseDao.touchExpensesWithShareOfUser(groupId.value, realUserId.value, actor = realUserId.value, now)
+        expenseDao.reassignPayerInGroup(groupId.value, placeholderUserId.value, realUserId.value, actor = realUserId.value, now)
         memberDao.markClaimedByUser(groupId.value, placeholderUserId.value, now)
         return AppResult.Ok(Unit)
     }
@@ -278,7 +288,15 @@ class GroupRepositoryImpl(
                 val owed = allocate(e.amountSubunits, ids.map { UserId(it) to 1L })
                 val desired = ids.map { uid -> DesiredShare(uid, owed.getValue(UserId(uid))) }
                 val (merged, removed) = mergeShares(shares, desired, e.id, now)
-                expenseDao.replaceWithShares(e.copy(status = ExpenseStatus.ACTIVE, updatedAt = now, rowVersion = e.rowVersion + 1), merged, removed, now)
+                // Re-splitting IS a Zone-2 change: advance the causal split_version so merge_expense
+                // applies the new split instead of reverting it as metadata-only (P0 #1).
+                expenseDao.replaceWithShares(
+                    e.copy(
+                        status = ExpenseStatus.ACTIVE, updatedAt = now, rowVersion = e.rowVersion + 1,
+                        splitVersion = e.splitVersion + 1, splitUpdatedBy = triggeredBy.value,
+                    ),
+                    merged, removed, now,
+                )
             } else if (!conflictDao.exists(e.id, memberUserId.value)) {
                 conflictDao.upsert(
                     ConflictEntity(
@@ -323,7 +341,15 @@ class GroupRepositoryImpl(
         val desired = existing.map { s -> DesiredShare(s.userId, reallocated.getValue(UserId(s.userId))) } +
             DesiredShare(conflict.addedUserId, share)
         val (merged, removed) = mergeShares(existing, desired, conflict.expenseId, now)
-        expenseDao.replaceWithShares(expense.copy(status = ExpenseStatus.ACTIVE, updatedAt = now, rowVersion = expense.rowVersion + 1), merged, removed, now)
+        // Including the member reshapes every share — a Zone-2 change — so advance the causal split_version
+        // (attributed to whoever added them); otherwise merge_expense reverts it as metadata-only (P0 #1).
+        expenseDao.replaceWithShares(
+            expense.copy(
+                status = ExpenseStatus.ACTIVE, updatedAt = now, rowVersion = expense.rowVersion + 1,
+                splitVersion = expense.splitVersion + 1, splitUpdatedBy = conflict.triggeredByUserId,
+            ),
+            merged, removed, now,
+        )
         conflictDao.resolve(conflictId, "INCLUDE", now)
         return AppResult.Ok(Unit)
     }

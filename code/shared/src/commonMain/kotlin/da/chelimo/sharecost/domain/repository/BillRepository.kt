@@ -67,6 +67,19 @@ interface BillRepository {
         addedBy: UserId,
     ): AppResult<Unit>
 
+    /**
+     * Re-slice an item into [servings] in one shot (#15): each entry is one unit assigned to those members
+     * (empty entries are skipped). Replaces the item's whole assignment — its claims and portions are torn
+     * down and rebuilt **atomically** (one DB transaction), so navigating away or a crash mid-flight can't
+     * leave the item wiped half-way. [addedBy] is who assigned. Re-derives the bill's shares afterwards.
+     */
+    suspend fun setServings(
+        expenseId: ExpenseId,
+        itemId: String,
+        servings: List<List<UserId>>,
+        addedBy: UserId,
+    ): AppResult<Unit>
+
     /** Add or remove a participant from a bill (who it's *for*). */
     suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit>
 

@@ -182,7 +182,7 @@ fun ExpenseDetailScreen(
     val focusManager = LocalFocusManager.current
 
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().background(if (state == ExpenseDetailState.Content) c.surface else c.page).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         ScTopBarDetail(
             title = if (state == ExpenseDetailState.Error) "" else title,
             sub = if (state == ExpenseDetailState.Content) category.ifBlank { null } else null,
@@ -328,7 +328,7 @@ fun ExpenseDetailScreen(
                                         Text(
                                             buildAnnotatedString {
                                                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(if (s.me) "You" else s.name) }
-                                                if (s.me) withStyle(SpanStyle(color = c.blue, fontWeight = FontWeight.SemiBold)) { append(" · your share") }
+                                                if (s.me) withStyle(SpanStyle(color = c.blueText, fontWeight = FontWeight.SemiBold)) { append(" · your share") }
                                             },
                                             color = c.ink, fontSize = 15.sp,
                                         )
@@ -371,7 +371,7 @@ fun ExpenseDetailScreen(
                                             Text(
                                                 buildAnnotatedString {
                                                     withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(if (s.me) "You" else s.name) }
-                                                    if (s.me) withStyle(SpanStyle(color = c.blue, fontWeight = FontWeight.SemiBold)) { append(" · your share") }
+                                                    if (s.me) withStyle(SpanStyle(color = c.blueText, fontWeight = FontWeight.SemiBold)) { append(" · your share") }
                                                 },
                                                 color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f),
                                             )
@@ -424,7 +424,7 @@ fun ExpenseDetailScreen(
                     }
                     if (commentsOpen) {
                         if (comments.isEmpty()) {
-                            Text("No comments yet — start the conversation.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(vertical = 2.dp))
+                            Text("No comments yet.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(vertical = 2.dp))
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
                                 comments.forEach { cm -> CommentBubble(cm.authorName, cm.body, cm.timeLabel, me = cm.me) }
@@ -511,11 +511,10 @@ fun ExpenseDetailScreen(
 
     if (showReceiptSource) {
         ScModalScaffold(onDismiss = { showReceiptSource = false }) {
-            Text("Add a receipt", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-            Text("Receipts hide in different places — pick from anywhere.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
-            OverflowRow(ScIcons.Image, "Photos", c.blue, c.ink) { showReceiptSource = false; onPickReceipts(PickSource.Photos) }
-            OverflowRow(ScIcons.Archive, "Files", c.blue, c.ink) { showReceiptSource = false; onPickReceipts(PickSource.Files) }
-            OverflowRow(ScIcons.Camera, "Camera", c.blue, c.ink) { showReceiptSource = false; onPickReceipts(PickSource.Camera) }
+            Text("Add a receipt", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+            OverflowRow(ScIcons.Image, "Photos", c.blueText, c.ink) { showReceiptSource = false; onPickReceipts(PickSource.Photos) }
+            OverflowRow(ScIcons.Archive, "Files", c.blueText, c.ink) { showReceiptSource = false; onPickReceipts(PickSource.Files) }
+            OverflowRow(ScIcons.Camera, "Camera", c.blueText, c.ink) { showReceiptSource = false; onPickReceipts(PickSource.Camera) }
         }
     }
 
@@ -526,7 +525,7 @@ fun ExpenseDetailScreen(
             Text(moneySubunits(p.amountSubunits, currencyCode), color = c.ink, style = MaterialTheme.typography.titleMedium)
             val sub = listOfNotNull(if (p.byMe) "You paid" else "${p.payerName} paid", p.app, p.dateLabel.ifBlank { null }).joinToString(" · ")
             Text(sub, color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
-            OverflowRow(ScIcons.Edit, "Edit amount", c.blue, c.ink) { actionPayment = null; editingPayment = p }
+            OverflowRow(ScIcons.Edit, "Edit amount", c.blueText, c.ink) { actionPayment = null; editingPayment = p }
             OverflowRow(ScIcons.Trash, "Remove payment", c.danger, c.danger) { actionPayment = null; onRemovePayment(p.id) }
         }
     }
@@ -753,7 +752,7 @@ private fun AddReceiptTile(onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        ScIcon(ScIcons.Plus, size = 22.dp, tint = c.blue)
+        ScIcon(ScIcons.Plus, size = 22.dp, tint = c.blueText)
         Text("Add", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
     }
 }

@@ -21,6 +21,8 @@ data class SettlementRecord(
     val notes: String?,
     /** Which payment app was used ("VENMO"…), if any — surfaced on the expense's payments list. */
     val paymentApp: String? = null,
+    /** Who recorded this payment (the actor) — shown when reviewing a possible double payment. */
+    val createdBy: UserId? = null,
 )
 
 /**

@@ -6,6 +6,7 @@ import androidx.room.Upsert
 import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.data.db.projection.OutstandingItemRow
 import da.chelimo.sharecost.data.db.projection.OutstandingShareForPair
+import da.chelimo.sharecost.data.db.projection.OverpaymentRow
 import da.chelimo.sharecost.data.db.projection.OutstandingShareRow
 import da.chelimo.sharecost.data.db.projection.ReconcileExpenseRow
 import da.chelimo.sharecost.data.db.projection.ShareRow
@@ -158,6 +159,31 @@ interface ShareDao {
         fromUserId: String,
         toUserId: String,
     ): List<OutstandingShareForPair>
+
+    /**
+     * Over-paid debtor→creditor pairs (P1 #9): shares whose derived remaining is **negative** (more paid
+     * than owed) summed per pair+currency, then negated to a positive magnitude. A share only goes negative
+     * when the same payment is recorded twice (both parties log it, or one logs it offline twice) — every
+     * outstanding query filters `remaining > 0`, so without this the overpayment is invisible and reads as
+     * "settled". NOT clamped at 0 in SQL — the negative is the whole signal. One row per over-paid pair.
+     */
+    @Query(
+        """
+        SELECT debtor_user_id, creditor_user_id, currency, -SUM(remaining_subunits) AS overpaid_subunits
+        FROM (
+            SELECT s.user_id AS debtor_user_id, e.payer_user_id AS creditor_user_id, e.currency AS currency,
+                   s.share_owed_subunits - COALESCE((
+                       SELECT SUM(sa.applied_amount_subunits) FROM settlement_allocations sa
+                       INNER JOIN settlements st ON st.id = sa.settlement_id
+                       WHERE sa.share_id = s.id AND st.deleted_at IS NULL), 0) AS remaining_subunits
+            FROM shares s INNER JOIN expenses e ON e.id = s.expense_id
+            WHERE e.group_id = :groupId AND e.deleted_at IS NULL AND s.deleted_at IS NULL
+              AND e.payer_user_id IS NOT NULL AND s.user_id <> e.payer_user_id
+        ) WHERE remaining_subunits < 0
+        GROUP BY debtor_user_id, creditor_user_id, currency
+        """
+    )
+    fun observeOverpayments(groupId: String): Flow<List<OverpaymentRow>>
 
     /** Distinct parent expenses of the given shares. */
     @Query("SELECT DISTINCT expense_id FROM shares WHERE id IN (:shareIds)")

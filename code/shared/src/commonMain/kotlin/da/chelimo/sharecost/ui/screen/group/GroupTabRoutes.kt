@@ -12,16 +12,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.error.AppResult
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
+import da.chelimo.sharecost.core.id.SettlementId
 import da.chelimo.sharecost.core.id.UserId
+import da.chelimo.sharecost.core.time.shortDate
 import da.chelimo.sharecost.core.time.todayUtc
 import da.chelimo.sharecost.domain.auth.AuthSession
 import da.chelimo.sharecost.domain.balance.Debt
 import da.chelimo.sharecost.domain.balance.OutstandingItem
+import da.chelimo.sharecost.domain.balance.Overpayment
 import da.chelimo.sharecost.domain.expense.ConflictSide
 import da.chelimo.sharecost.domain.group.Member
 import da.chelimo.sharecost.domain.repository.BillRepository
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
+import da.chelimo.sharecost.domain.repository.SettlementRepository
+import da.chelimo.sharecost.domain.settlement.SettlementRecord
 import da.chelimo.sharecost.platform.PlatformShare
 import da.chelimo.sharecost.ui.components.moneySubunits
 import kotlinx.coroutines.launch
@@ -65,6 +70,70 @@ fun buildBalances(
     }
 }
 
+/**
+ * Maps the viewer's over-paid pairs (P1 #9) to banner UI. For each pair the viewer is in, it attaches the
+ * payments between the two of them (from the group's settlements) so the "Review payments" expansion can
+ * offer to void the duplicate. [youOverpaid] is true when the viewer is the over-paying debtor.
+ */
+fun buildOverpayments(
+    overpayments: List<Overpayment>,
+    settlements: List<SettlementRecord>,
+    members: List<Member>,
+    currentUserId: UserId?,
+    coveredTitles: Map<SettlementId, List<String>> = emptyMap(),
+): List<OverpaymentUi> {
+    val me = currentUserId ?: return emptyList()
+    val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
+    fun name(id: UserId): String = nameByUser[id.value] ?: "Someone"
+    return overpayments.mapNotNull { o ->
+        if (o.debtorUserId != me && o.creditorUserId != me) return@mapNotNull null
+        val youOverpaid = o.debtorUserId == me
+        val peer = if (youOverpaid) o.creditorUserId else o.debtorUserId
+        val payments = settlements
+            .filter {
+                it.paymentCurrency == o.currency &&
+                    ((it.fromUserId == me && it.toUserId == peer) || (it.fromUserId == peer && it.toUserId == me))
+            }
+            .map { s ->
+                val fromMe = s.fromUserId == me
+                // "Who entered this" is what tells two duplicate payments apart, so lead the caption with
+                // it, then when, then which app was used.
+                val loggedBy = when {
+                    s.createdBy == null -> null
+                    s.createdBy == me -> "you"
+                    else -> name(s.createdBy)
+                }
+                val app = s.paymentApp?.lowercase()?.replaceFirstChar { it.uppercase() }?.takeIf { it.isNotBlank() }
+                val sub = listOfNotNull(
+                    loggedBy?.let { "Added by $it" },
+                    shortDate(s.settledAt),
+                    app,
+                ).joinToString(" · ")
+                // What the payment paid toward, so the user can see whether the two look like the same debt.
+                val titles = coveredTitles[s.id].orEmpty()
+                val covers = when {
+                    titles.isEmpty() -> ""
+                    titles.size <= 3 -> "For ${titles.joinToString(", ")}"
+                    else -> "For ${titles.take(2).joinToString(", ")} +${titles.size - 2} more"
+                }
+                PaymentReviewUi(
+                    settlementId = s.id.value,
+                    label = if (fromMe) "You paid ${name(peer)}" else "${name(peer)} paid you",
+                    sub = sub,
+                    amountText = moneySubunits(s.paymentAmountSubunits, s.paymentCurrency),
+                    covers = covers,
+                )
+            }
+        OverpaymentUi(
+            peerUserId = peer.value,
+            peerName = name(peer),
+            overpaidText = moneySubunits(o.overpaidSubunits, o.currency),
+            youOverpaid = youOverpaid,
+            payments = payments,
+        )
+    }
+}
+
 /** Human label for a stored `split_mode` token, for the edit-conflict diff. */
 private fun humanizeSplitMode(mode: String): String = when (mode.uppercase()) {
     "EVEN" -> "Even"
@@ -86,12 +155,12 @@ fun GroupExpensesRoute(
     onOpenExpense: (String) -> Unit,
     onOpenBill: (String) -> Unit,
     onSearch: () -> Unit,
-    onFilter: () -> Unit,
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
     val bills = koinInject<BillRepository>()
     val auth = koinInject<AuthSession>()
+    var showFilter by remember { mutableStateOf(false) }
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val expenseList by remember(gid) { expenses.observeExpenses(gid) }.collectAsStateWithLifecycle(emptyList())
@@ -120,7 +189,7 @@ fun GroupExpensesRoute(
         groupEmoji = ui.groupEmoji, groupName = ui.groupName, state = ui.state, days = ui.days, drafts = 0,
         filterActive = filter.isActive,
         inviteLink = inviteLink,
-        onBack = onBack, onOpenSettings = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = onFilter,
+        onBack = onBack, onOpenSettings = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = { showFilter = true },
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("sharecost.app/j/$it")) } },
         onShareInvite = { inviteToken?.let { share.shareText("Join my group on ShareCost: sharecost.app/j/$it", "Join my ShareCost group") } },
@@ -128,6 +197,12 @@ fun GroupExpensesRoute(
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,
     )
+
+    // Shown as an overlay on top of the tab, not a separate route push — matches the sheet pattern
+    // used elsewhere (e.g. HomeScreen's "Create or join a group" sheet).
+    if (showFilter) {
+        FilterRoute(groupId = groupId, onDismiss = { showFilter = false })
+    }
 }
 
 /** Balances tab content, wired: the current user's pairwise debts (converted to the group base, F2),
@@ -137,15 +212,29 @@ fun GroupExpensesRoute(
 fun GroupBalancesRoute(groupId: String, onBack: () -> Unit, onSettleNav: (String) -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val settlements = koinInject<SettlementRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val debts by remember(gid) { expenses.observeBalances(gid) }.collectAsStateWithLifecycle(emptyList())
     val items by remember(gid) { expenses.observeOutstandingItems(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
+    // Double-payment detection (P1 #9): pairs whose derived remaining went negative, + the payments behind
+    // them (from the group's settlements) so a duplicate can be voided from the banner.
+    val overpaymentsRaw by remember(gid, userId) { expenses.observeOverpayments(gid, userId) }.collectAsStateWithLifecycle(emptyList())
+    val settlementList by remember(gid) { settlements.observeSettlements(gid) }.collectAsStateWithLifecycle(emptyList())
+    val coveredTitles by remember(gid) { settlements.observeCoveredExpenseTitles(gid) }.collectAsStateWithLifecycle(emptyMap())
     val today = remember { Clock.System.todayUtc() }
     val rows = buildBalances(debts, items, members, userId, today)
-    GroupBalancesTab(debts = rows, onBack = onBack, onSettle = { onSettleNav(it.peerUserId) })
+    val overpaymentsUi = buildOverpayments(overpaymentsRaw, settlementList, members, userId, coveredTitles)
+    val scope = rememberCoroutineScope()
+    GroupBalancesTab(
+        debts = rows,
+        overpayments = overpaymentsUi,
+        onBack = onBack,
+        onSettle = { onSettleNav(it.peerUserId) },
+        onVoidPayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
+    )
 }
 
 /** Conflicts tab content, wired: streams unresolved conflicts; Skip dismisses, Include opens the sheet. */

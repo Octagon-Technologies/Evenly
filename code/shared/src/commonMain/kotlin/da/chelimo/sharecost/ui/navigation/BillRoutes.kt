@@ -1,6 +1,7 @@
 package da.chelimo.sharecost.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -8,7 +9,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import da.chelimo.sharecost.core.error.AppResult
-import da.chelimo.sharecost.newId
 import da.chelimo.sharecost.core.id.ExpenseId
 import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
@@ -33,6 +33,7 @@ import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.platform.FilePicker
 import da.chelimo.sharecost.platform.PickKind
 import da.chelimo.sharecost.platform.PickedFile
+import da.chelimo.sharecost.platform.SecureStorage
 import da.chelimo.sharecost.ui.screen.bill.BillClaimScreen
 import da.chelimo.sharecost.ui.screen.bill.BillEditScreen
 import da.chelimo.sharecost.ui.screen.bill.ClaimBillState
@@ -196,12 +197,22 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
+    val storage = koinInject<SecureStorage>()
     val gid = remember(groupId) { GroupId(groupId) }
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val bill by remember(eid) { bills.observeBill(eid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
+    // Device-local (not synced) "how many times has this device opened the assign screen" — the how-to
+    // guide auto-expands only on the first couple of visits, then recedes to a one-liner.
+    var guideAutoOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val seen = storage.getString(CLAIM_GUIDE_OPENS_KEY)?.toIntOrNull() ?: 0
+        guideAutoOpen = seen < 2
+        storage.putString(CLAIM_GUIDE_OPENS_KEY, (seen + 1).toString())
+    }
 
     val view = bill ?: return
     val me = userId
@@ -252,23 +263,17 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
             val who = me ?: return@BillClaimScreen
             scope.launch { bills.setPortion(eid, itemId, "${itemId}__all", memberIds.map { UserId(it) }, qtyOf(itemId), who) }
         },
-        onSetSolo = { itemId, uid, quantity -> scope.launch { bills.setClaim(eid, itemId, UserId(uid), quantity) } },
-        onAddPortion = { itemId, memberIds, quantity ->
-            val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setPortion(eid, itemId, newId(), memberIds.map { UserId(it) }, quantity, who) }
-        },
-        onEditPortion = { itemId, pid, memberIds, quantity ->
-            val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setPortion(eid, itemId, pid, memberIds.map { UserId(it) }, quantity, who) }
-        },
-        onRemovePortion = { itemId, pid ->
-            val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setPortion(eid, itemId, pid, emptyList(), 0, who) }
-        },
-        onRemoveSolo = { itemId, uid -> scope.launch { bills.setClaim(eid, itemId, UserId(uid), 0) } },
         onClearEveryone = { itemId ->
             val who = me ?: return@BillClaimScreen
             scope.launch { bills.setPortion(eid, itemId, "${itemId}__all", emptyList(), 0, who) }
+        },
+        // Full teardown + rebuild of the item's assignment, now a SINGLE atomic repo call (#15): the repo
+        // tears down claims/portions and writes one quantity-1 portion per serving in ONE DB transaction,
+        // so navigating away mid-flight can't leave the item wiped half-way (the old per-slot sequence of
+        // separate calls could cancel between teardown and rebuild).
+        onSetServings = { itemId, servings ->
+            val who = me ?: return@BillClaimScreen
+            scope.launch { bills.setServings(eid, itemId, servings.map { slot -> slot.map { UserId(it) } }, who) }
         },
         onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name) } },
         onEditBill = onEditBill,
@@ -276,13 +281,17 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
             val who = me ?: return@BillClaimScreen
             scope.launch { bills.markDone(eid, who, true); onBack() }
         },
+        guideAutoOpen = guideAutoOpen,
     )
 }
 
+/** Device-local key counting how many times the assign screen has been opened (gates the how-to guide). */
+private const val CLAIM_GUIDE_OPENS_KEY = "claim_guide_opens"
+
 private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
     title = "",
-    // OCR reports a per-unit price; the editor's truth is the line total (unit × quantity).
-    items = items.map { editBillItemUi(null, it.label, it.quantity, it.unitPriceSubunits * it.quantity) }
+    // OCR now reports the line total directly (already inclusive of quantity) — pass it straight through.
+    items = items.map { editBillItemUi(null, it.label, it.quantity, it.lineTotalSubunits) }
         .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
     taxText = subunitsToText(taxSubunits),
     gratuityText = subunitsToText(gratuitySubunits),

@@ -32,7 +32,7 @@ fun ArchivedScreen(
     onUnarchive: (String) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         ScTopBar("Archived", subtitle = "${groups.size} groups", navIcon = { ScIconButton(ScIcons.Back, onBack) })
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),

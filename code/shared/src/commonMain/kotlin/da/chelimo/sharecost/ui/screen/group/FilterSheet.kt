@@ -52,7 +52,7 @@ fun FilterSheet(
     var draft by remember { mutableStateOf(initial) }
     val count = countFor(draft)
 
-    Box(Modifier.fillMaxSize().background(c.surface)) {
+    Box(Modifier.fillMaxSize().background(c.page)) {
         ScSheetScaffold(onDismiss, title = "Filter") {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (members.isNotEmpty()) {

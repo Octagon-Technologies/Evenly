@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -18,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,20 +34,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.shadow
+import da.chelimo.sharecost.ui.components.AvatarSize
 import da.chelimo.sharecost.ui.components.ButtonVariant
 import da.chelimo.sharecost.ui.components.ChipVariant
+import da.chelimo.sharecost.ui.components.ScAvatar
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCard
 import da.chelimo.sharecost.ui.components.ScChip
 import da.chelimo.sharecost.ui.components.ScDot
-import da.chelimo.sharecost.ui.components.ScFab
-import da.chelimo.sharecost.ui.components.ScIconButton
 import da.chelimo.sharecost.ui.components.ScSectionLabel
 import da.chelimo.sharecost.ui.components.ScSheetScaffold
 import da.chelimo.sharecost.ui.components.ScSkeletonRow
-import da.chelimo.sharecost.ui.components.ScTopBar
 import da.chelimo.sharecost.ui.components.money
-import da.chelimo.sharecost.ui.components.topHairline
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
@@ -82,28 +81,30 @@ fun HomeScreen(
     onJoin: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    onEmptyStateChanged: (Boolean) -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
     var showActions by remember { mutableStateOf(false) }
-    val isEmpty = state is HomeUiState.Empty
-    LaunchedEffect(isEmpty) { onEmptyStateChanged(isEmpty) }
+    val isContent = state is HomeUiState.Content || state is HomeUiState.Loading
 
-    // No systemBarsPadding here: the root MainShell paints the status-bar scrim above and hosts the
-    // bottom nav below, so this content fills the space between.
-    Column(Modifier.fillMaxSize().background(c.surface)) {
-        // The empty state hides MainShell's bottom nav (see HomeWelcome's doc), so Settings needs a
-        // stand-in entry point here instead of the usual centered "ShareCost" title bar.
-        if (isEmpty) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("ShareCost", modifier = Modifier.weight(1f), color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                ScIconButton(ScIcons.Gear, onClick = onOpenSettings)
-            }
-        } else {
-            ScTopBar(title = "ShareCost", center = true)
+    // No systemBarsPadding/StatusBarScrim here: the root MainShell paints the status-bar scrim above
+    // (both now the true-black page color, so there's no seam at the status bar). Home has no bottom
+    // nav (MainShell hides it while the Groups tab is active); the avatar is the way into Settings,
+    // and its own bottom nav's "Groups" tab is the way back.
+    Column(Modifier.fillMaxSize().background(c.page)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (isContent) "Your Groups" else "ShareCost",
+                modifier = Modifier.weight(1f),
+                color = c.ink,
+                fontSize = 28.sp,
+                fontWeight = if (isContent) FontWeight.ExtraBold else FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            ScAvatar(userName, me = true, size = AvatarSize.Md, onClick = onOpenSettings)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (state) {
@@ -115,16 +116,15 @@ fun HomeScreen(
                 ) {
                     Column {
                         ScSectionLabel("Active groups")
-                        ScCard {
-                            state.active.forEachIndexed { i, g ->
-                                Box(if (i > 0) Modifier.topHairline(c.border) else Modifier) {
-                                    GroupRow(g, onClick = { onOpenGroup(g.id) })
-                                }
+                        Spacer(Modifier.height(4.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            state.active.forEach { g ->
+                                ScCard(fill = true, bordered = true) { GroupRow(g, onClick = { onOpenGroup(g.id) }) }
                             }
                         }
                     }
                     if (state.archived.isNotEmpty()) {
-                        ScCard(padded = true, modifier = Modifier.clickable { onOpenArchived() }) {
+                        ScCard(fill = true, bordered = true, padded = true, onClick = onOpenArchived) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     ScIcon(ScIcons.Archive, size = 18.dp, tint = c.ink2)
@@ -134,13 +134,14 @@ fun HomeScreen(
                             }
                         }
                     }
-                    Spacer(Modifier.height(80.dp))
+                    Spacer(Modifier.height(88.dp))
                 }
             }
             if (state is HomeUiState.Content) {
                 // A single home-level action — you create or join a *group* here; expenses are only
-                // ever added from inside a group, so "Add an expense" no longer lives at this level.
-                ScFab(onClick = { showActions = true }, label = "Create or join", modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp))
+                // ever added from inside a group, so "Add an expense" no longer lives at this level. A
+                // full-width bottom pill rather than a corner FAB, matching the approved mockup.
+                CreateOrJoinBar(onClick = { showActions = true }, modifier = Modifier.align(Alignment.BottomCenter))
             }
         }
     }
@@ -156,10 +157,9 @@ fun HomeScreen(
 }
 
 /**
- * First-run welcome — no template chips, no numbered primer, no bottom nav (MainShell hides it while
- * this is showing; Settings moves to the gear button in [HomeScreen]'s stand-in top row instead). One
- * hero, one headline, one job: get the first group started. "Join with a link" sits right under the
- * primary action as a full secondary button — same spot as before, just no longer a barely-there link.
+ * First-run welcome — no template chips, no numbered primer. One hero, one headline, one job: get
+ * the first group started. "Join with a link" sits right under the primary action as a full
+ * secondary button — same spot as before, just no longer a barely-there link.
  */
 @Composable
 private fun HomeWelcome(
@@ -183,14 +183,25 @@ private fun HomeWelcome(
         Text("Start your first group", color = c.ink, fontSize = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Split costs and settle up with friends — no spreadsheets.",
+            "Split costs and settle up with friends, no spreadsheets.",
             color = c.ink2, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center,
             modifier = Modifier.widthIn(max = 260.dp),
         )
         Spacer(Modifier.height(28.dp))
         Column(Modifier.widthIn(max = 280.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            ScButton("Start a group", onNewGroup, leadingIcon = ScIcons.Plus)
-            ScButton("Join with a link", onJoin, variant = ButtonVariant.Secondary, leadingIcon = ScIcons.Link)
+            // In dark mode the white-chip Primary reads as barely-there against the near-black page, so
+            // this hero action swaps to the solid-blue variant there; Secondary now handles its own
+            // light/dark treatment internally.
+            ScButton(
+                "Start a group", onNewGroup,
+                variant = if (c.isDark) ButtonVariant.PrimarySolid else ButtonVariant.Primary,
+                leadingIcon = ScIcons.Plus,
+            )
+            ScButton(
+                "Join with a link", onJoin,
+                variant = ButtonVariant.Secondary,
+                leadingIcon = ScIcons.Link,
+            )
         }
     }
 }
@@ -205,13 +216,40 @@ private fun ActionRow(icon: ImageVector, title: String, sub: String, onClick: ()
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-            ScIcon(icon, size = 22.dp, tint = c.blue)
+            ScIcon(icon, size = 22.dp, tint = c.blueText)
         }
         Column(Modifier.weight(1f)) {
             Text(title, color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(sub, color = c.ink2, fontSize = 13.sp)
         }
         ScIcon(ScIcons.ChevR, size = 18.dp, tint = c.ink3)
+    }
+}
+
+/**
+ * A full-width "Create or Join Group" pill anchored to the bottom of Home — the one primary action,
+ * a solid blue fill (not the white-chip `ButtonVariant.Primary`) so it reads as a floating CTA over
+ * the group list, matching the approved mockup.
+ */
+@Composable
+private fun CreateOrJoinBar(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val c = ShareCostTheme.colors
+    val shape = RoundedCornerShape(26.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(16.dp)
+            .shadow(elevation = 10.dp, shape = shape, ambientColor = c.blue.copy(alpha = 0.5f), spotColor = c.blue.copy(alpha = 0.5f))
+            .clip(shape)
+            .background(c.blue)
+            .clickable(onClick = onClick)
+            .height(52.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ScIcon(ScIcons.Plus, size = 20.dp, tint = c.onAccent)
+        Text("Create or Join Group", color = c.onAccent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -224,7 +262,7 @@ fun GroupRow(g: GroupCardUi, modifier: Modifier = Modifier, onClick: () -> Unit 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(c.surface), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
             Text(g.emoji, fontSize = 24.sp)
         }
         Column(Modifier.weight(1f)) {

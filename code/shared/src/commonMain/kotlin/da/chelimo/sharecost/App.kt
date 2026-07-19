@@ -1,9 +1,17 @@
 package da.chelimo.sharecost
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
@@ -12,9 +20,13 @@ import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import da.chelimo.sharecost.domain.auth.ThemeMode
+import da.chelimo.sharecost.platform.AppForeground
+import da.chelimo.sharecost.platform.SecureStorage
 import da.chelimo.sharecost.platform.imageCacheDir
 import da.chelimo.sharecost.domain.repository.ProfileRepository
+import da.chelimo.sharecost.ui.navigation.Route
 import da.chelimo.sharecost.ui.navigation.ShareCostNavHost
+import da.chelimo.sharecost.ui.navigation.WELCOME_SEEN_KEY
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 import org.koin.compose.koinInject
 
@@ -40,6 +52,15 @@ fun App() {
             .crossfade(true)
             .build()
     }
+    // Tell the sync driver whether we're on screen. Backgrounding drops the Realtime socket and stops
+    // the sync loops (after a short grace); returning restarts them with a catch-up sync. STARTED is
+    // the right threshold: a system alert or the app switcher leaves us STARTED, so those don't churn
+    // the socket, while an actually-backgrounded app falls below it on both platforms.
+    val appForeground = koinInject<AppForeground>()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle, appForeground) {
+        lifecycle.currentStateFlow.collect { appForeground.set(it.isAtLeast(Lifecycle.State.STARTED)) }
+    }
     // Appearance follows the signed-in user's saved preference (Profile → Appearance); System honours the OS.
     val profile by koinInject<ProfileRepository>().observeProfile().collectAsStateWithLifecycle(null)
     val darkTheme = when (profile?.themeMode ?: ThemeMode.System) {
@@ -47,7 +68,16 @@ fun App() {
         ThemeMode.Light -> false
         ThemeMode.Dark -> true
     }
+    // First launch (no "welcome_seen" flag) opens on the intro carousel; every launch after goes
+    // straight to sign-in. Resolved off the device-local store before the NavHost composes, since
+    // startDestination is locked in on first composition — null means "still reading" (blank page,
+    // a blink at most), so we never flash sign-in and then jump back to Welcome.
+    val storage = koinInject<SecureStorage>()
+    val startDestination by produceState<Route?>(initialValue = null) {
+        value = if (storage.contains(WELCOME_SEEN_KEY)) Route.SignIn else Route.Welcome
+    }
     ShareCostTheme(darkTheme = darkTheme) {
-        ShareCostNavHost()
+        startDestination?.let { ShareCostNavHost(startDestination = it) }
+            ?: Box(Modifier.fillMaxSize().background(ShareCostTheme.colors.page))
     }
 }

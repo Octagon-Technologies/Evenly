@@ -256,7 +256,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
 /** OCR draft → the itemized editor's initial items + extras (never a name — the shared header owns that). */
 private fun ReceiptDraft.toAddEditState(): EditBillState = EditBillState(
     title = "",
-    items = items.map { editBillItemUi(null, it.label, it.quantity, it.unitPriceSubunits * it.quantity) }
+    items = items.map { editBillItemUi(null, it.label, it.quantity, it.lineTotalSubunits) }
         .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
     taxText = if (taxSubunits == 0L) "" else format2dp(taxSubunits / 100.0),
     gratuityText = if (gratuitySubunits == 0L) "" else format2dp(gratuitySubunits / 100.0),

@@ -24,6 +24,7 @@ import da.chelimo.sharecost.domain.repository.FxRepository
 import da.chelimo.sharecost.domain.repository.GroupRepository
 import da.chelimo.sharecost.domain.repository.ProfileRepository
 import da.chelimo.sharecost.domain.repository.SettlementRepository
+import da.chelimo.sharecost.platform.ScAnalytics
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -42,6 +43,7 @@ val dataModule: Module = module {
     single { get<ShareCostDatabase>().shareDao() }
     single { get<ShareCostDatabase>().settlementDao() }
     single { get<ShareCostDatabase>().fxRateDao() }
+    single { get<ShareCostDatabase>().fxCurrencyDao() }
     single { get<ShareCostDatabase>().conflictDao() }
     single { get<ShareCostDatabase>().expenseEditConflictDao() }
     single { get<ShareCostDatabase>().commentDao() }
@@ -59,19 +61,21 @@ val dataModule: Module = module {
     single<FxRateFetcher> { FrankfurterFxFetcher(get()) }
     // Ktor-based Storage uploader with byte progress (the Android WorkManager path; iOS uses native sessions).
     single { ReceiptUploadHttp(get()) }
-    // Receipt OCR for "Split the bill" — calls the extract-receipt edge function (Claude vision).
-    single<ReceiptOcr> { ReceiptOcrHttp(get(), get(), get()) }
+    // Receipt OCR for "Split the bill" — calls the extract-receipt edge function (Claude vision). The
+    // access-token provider (bound only when Supabase is configured) lets it authenticate as the user so
+    // the server-side per-user rate limit engages (P1 #11); getOrNull keeps the offline/stub build working.
+    single<ReceiptOcr> { ReceiptOcrHttp(get(), get(), get(), accessTokenProvider = getOrNull()) }
 
     // Repositories
     // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).
-    single<GroupRepository> { GroupRepositoryImpl(get(), get(), get(), get(), get(), get(), remoteGroups = getOrNull<RemoteGroupGateway>(), receiptDao = get()) }
+    single<GroupRepository> { GroupRepositoryImpl(get(), get(), get(), get(), get(), get(), remoteGroups = getOrNull<RemoteGroupGateway>(), receiptDao = get(), analytics = getOrNull<ScAnalytics>()) }
     // ExpenseRepository takes the FX repo + group DAO so balances convert to the group base currency (F2),
     // and the history DAO so create/edit/delete append to the activity log (F5).
-    single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get(), editConflictDao = get(), supersededNoticeDao = get()) }
+    single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get(), editConflictDao = get(), supersededNoticeDao = get(), analytics = getOrNull<ScAnalytics>()) }
     // "Split the bill" (itemized): items + claims + extras → derived shares (deterministic ids).
-    single<BillRepository> { BillRepositoryImpl(get(), get(), get(), get(), get(), get(), historyEventDao = get()) }
-    single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get()) }
-    single<FxRepository> { FxRepositoryImpl(get(), get()) }
+    single<BillRepository> { BillRepositoryImpl(get(), get(), get(), get(), get(), get(), historyEventDao = get(), analytics = getOrNull<ScAnalytics>()) }
+    single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get(), analytics = getOrNull<ScAnalytics>()) }
+    single<FxRepository> { FxRepositoryImpl(get(), get(), get()) }
     single<ProfileRepository> { ProfileRepositoryImpl(get(), get()) }
     // Per-group categories with copy-on-write defaults (the Edit-categories screen + the expense picker).
     single<CategoryRepository> { CategoryRepositoryImpl(get()) }

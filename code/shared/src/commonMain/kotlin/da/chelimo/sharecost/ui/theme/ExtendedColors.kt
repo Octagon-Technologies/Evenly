@@ -25,6 +25,7 @@ data class ExtendedColors(
     // primary, expressed by weight
     val blue: Color,
     val bluePressed: Color,
+    val blueText: Color,          // blue as FOREGROUND text/icon — legible on the dark page (blue==this in light)
     val blueTint: Color,
     val blueTint2: Color,
     val owe: Color,               // "you owe" accent — brighter than blue in dark so the debt reads
@@ -54,8 +55,8 @@ data class ExtendedColors(
     val bannerOffline: Color,     // offline banner background
     val bannerOfflineInk: Color,  // offline banner text
     // interaction
-    val selectionTint: Color,     // selected fill (reconcile / participant)
-    val selectionStroke: Color,   // selected outline
+    val selectionTint: Color,     // selected fill (participant chip, scan card) — neutral in dark, blue tint in light
+    val selectionStroke: Color,   // selected outline — neutral in dark, blue in light
     val disabledInk: Color,       // disabled primary-button label
     // skeleton shimmer stops
     val skeleton1: Color,
@@ -66,6 +67,7 @@ internal val ExtendedLight = ExtendedColors(
     isDark = false,
     blue = ScBlue,
     bluePressed = ScBluePressed,
+    blueText = ScBlue,            // light: foreground blue reads fine on white — same as the brand blue
     blueTint = ScBlueTint,
     blueTint2 = ScBlueTint2,
     owe = ScBlue,                 // light: owe == the brand blue (chip stays filled, unchanged)
@@ -101,6 +103,7 @@ internal val ExtendedDark = ExtendedColors(
     isDark = true,
     blue = ScBlueDark,
     bluePressed = ScBluePressedDark,
+    blueText = ScBlueTextDark,    // dark: brighter sky-blue so text/icons read on the black page
     blueTint = ScBlueTintDark,
     blueTint2 = ScBlueTint2Dark,
     owe = ScOweDark,              // dark: brighter sky-blue so the outlined owe chip + label read
@@ -125,8 +128,8 @@ internal val ExtendedDark = ExtendedColors(
     pending = ScAmberDark,
     bannerOffline = ScBannerOffline,
     bannerOfflineInk = ScOnAccent,
-    selectionTint = ScBlueTintDark,
-    selectionStroke = ScBlueDark,
+    selectionTint = ScSelectionTintDark,
+    selectionStroke = ScBorderStrongDark,
     disabledInk = ScInk3Dark,
     skeleton1 = ScSkeleton1Dark,
     skeleton2 = ScSkeleton2Dark,

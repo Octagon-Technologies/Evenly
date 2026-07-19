@@ -1,6 +1,7 @@
 package da.chelimo.sharecost.domain.repository
 
 import da.chelimo.sharecost.core.error.AppResult
+import da.chelimo.sharecost.domain.fx.CurrencyInfo
 import da.chelimo.sharecost.domain.fx.FxResult
 
 /**
@@ -23,4 +24,12 @@ interface FxRepository {
      * success-with-no-op so the caller never surfaces an error (03 §6.1/§6.4).
      */
     suspend fun refreshIfStale(): AppResult<Unit>
+
+    /**
+     * Every currency the FX provider supports (04 §5.x `GET /currencies`), code -> display name. The
+     * set is effectively static, so it's fetched once and cached locally, then served from that cache
+     * on every later call. A cold, offline first launch (nothing cached yet, fetch fails) falls back
+     * to [da.chelimo.sharecost.domain.fx.FxCurrencyDefaults.fallback] so the picker is never empty.
+     */
+    suspend fun currencies(): List<CurrencyInfo>
 }

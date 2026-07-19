@@ -111,20 +111,25 @@ fun ScParticipantChip(
     trailing: @Composable (() -> Unit)? = null,
 ) {
     val c = ShareCostTheme.colors
-    val fg = if (selected) c.bluePressed else c.ink
+    // Selected = solid primary blue + white text/icon (the check reads clearly). The old "neutral gray
+    // fill + colored ink" selected style was near-invisible on the dark page. Content colour is provided
+    // so untinted leading/trailing icons (the check, star, wallet) follow the foreground automatically.
+    val fg = if (selected) c.onAccent else c.ink
     Row(
         modifier = modifier
             .height(38.dp)
             .clip(CircleShape)
-            .background(if (selected) c.blueTint else c.surface)
+            .background(if (selected) c.blue else c.surface)
             .border(1.dp, if (selected) c.blue else c.border, CircleShape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        leading?.invoke()
-        Text(text = text, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        trailing?.invoke()
+        CompositionLocalProvider(LocalContentColor provides fg) {
+            leading?.invoke()
+            Text(text = text, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            trailing?.invoke()
+        }
     }
 }

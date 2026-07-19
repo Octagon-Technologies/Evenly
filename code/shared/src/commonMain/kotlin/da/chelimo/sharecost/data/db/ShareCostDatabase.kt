@@ -14,6 +14,7 @@ import da.chelimo.sharecost.data.db.dao.ExpenseDao
 import da.chelimo.sharecost.data.db.dao.ExpenseEditConflictDao
 import da.chelimo.sharecost.data.db.dao.ExpenseItemDao
 import da.chelimo.sharecost.data.db.dao.ExpenseSyncStateDao
+import da.chelimo.sharecost.data.db.dao.FxCurrencyDao
 import da.chelimo.sharecost.data.db.dao.FxRateDao
 import da.chelimo.sharecost.data.db.dao.GroupDao
 import da.chelimo.sharecost.data.db.dao.HistoryEventDao
@@ -36,6 +37,7 @@ import da.chelimo.sharecost.data.db.entity.ExpenseEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseItemEntity
 import da.chelimo.sharecost.data.db.entity.ExpenseSyncStateEntity
 import da.chelimo.sharecost.data.db.entity.FxBakedEntity
+import da.chelimo.sharecost.data.db.entity.FxCurrencyEntity
 import da.chelimo.sharecost.data.db.entity.FxRateEntity
 import da.chelimo.sharecost.data.db.entity.GroupEntity
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
@@ -76,6 +78,7 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         SettlementAllocationEntity::class,
         FxRateEntity::class,
         FxBakedEntity::class,
+        FxCurrencyEntity::class,
         ConflictEntity::class,
         ExpenseEditConflictEntity::class,
         ExpenseSyncStateEntity::class,
@@ -91,7 +94,7 @@ import da.chelimo.sharecost.data.db.entity.UserEntity
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 @ConstructedBy(ShareCostDatabaseConstructor::class)
@@ -103,6 +106,7 @@ abstract class ShareCostDatabase : RoomDatabase() {
     abstract fun shareDao(): ShareDao
     abstract fun settlementDao(): SettlementDao
     abstract fun fxRateDao(): FxRateDao
+    abstract fun fxCurrencyDao(): FxCurrencyDao
     abstract fun conflictDao(): ConflictDao
     abstract fun expenseEditConflictDao(): ExpenseEditConflictDao
     abstract fun expenseSyncStateDao(): ExpenseSyncStateDao

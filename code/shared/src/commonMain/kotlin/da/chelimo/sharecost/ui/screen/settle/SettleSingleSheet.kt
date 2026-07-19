@@ -73,7 +73,7 @@ fun SettleSingleSheet(
     var amountText by remember(shareAmountSubunits) { mutableStateOf(format2dp(shareAmountSubunits / 100.0)) }
     val enteredSubunits = amountTextToSubunits(amountText)
     val amountValid = enteredSubunits in 1..shareAmountSubunits
-    Box(Modifier.fillMaxSize().background(c.surface)) {
+    Box(Modifier.fillMaxSize().background(c.page)) {
         ScSheetScaffold(onDismiss, title = "Settle up") {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // Identity hero: who you're paying, then a single fused line — how much you owe, for
@@ -129,7 +129,7 @@ fun SettleSingleSheet(
                     val sel = selected
                     if (awaitingConfirm && sel != null) {
                         Text("We opened ${sel.label}. Did the payment go through?", color = c.ink2, fontSize = 13.sp)
-                        ScButton("Yes — mark paid", { onConfirmPaid(enteredSubunits, sel.app) }, leadingIcon = ScIcons.Check, enabled = amountValid)
+                        ScButton("Yes, mark paid", { onConfirmPaid(enteredSubunits, sel.app) }, leadingIcon = ScIcons.Check, enabled = amountValid)
                         ScButton("Not yet", { awaitingConfirm = false }, variant = ButtonVariant.Tonal)
                     } else {
                         if (sel != null) {

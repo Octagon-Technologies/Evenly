@@ -26,6 +26,9 @@ sqlite = "2.6.2"                       # co-released with Room 2.8.4
 kermit = "2.1.0"
 datastore = "1.2.1"
 
+# --- Analytics ---
+posthogKmp = "0.1.4"                   # unofficial KMP wrapper; Android+iOS delegate to the official native SDKs
+
 # --- Android-only support libs ---
 firebaseBom = "34.14.0"
 work = "2.11.2"
@@ -108,6 +111,9 @@ androidx-browser = { module = "androidx.browser:browser", version.ref = "browser
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
 androidx-credentials-playServicesAuth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
+
+# Analytics — PostHog via the unofficial posthog-kmp wrapper (delegates to official Android/iOS SDKs)
+posthog-kmp = { module = "io.github.samuolis:posthog-kmp", version.ref = "posthogKmp" }
 
 # Firebase (Android) — deps added + plugins applied in the Firebase stage; needs google-services.json
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }

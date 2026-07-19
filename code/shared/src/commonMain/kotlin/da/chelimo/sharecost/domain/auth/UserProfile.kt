@@ -29,9 +29,13 @@ enum class ThemeMode {
     }
 }
 
-/** The user's per-event push preferences (06 §5.4). Persisted on the user row + synced across devices. */
+/**
+ * The user's per-event push preferences (06 §5.4). Persisted on the user row + synced across devices.
+ * Both default OFF: they only flip on once the user explicitly opts in *and* the OS grants notification
+ * permission (see `ProfileRoute.onNotificationsChange`) — never pre-checked ahead of a real grant.
+ */
 data class NotificationPrefs(
-    val newExpenses: Boolean = true,
-    val payments: Boolean = true,
+    val newExpenses: Boolean = false,
+    val payments: Boolean = false,
     val conflictReminders: Boolean = false,
 )

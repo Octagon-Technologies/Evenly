@@ -15,4 +15,7 @@ data class FxSnapshot(
 interface FxRateFetcher {
     /** Latest rates with [base] as the base currency. Errors are returned, never thrown. */
     suspend fun fetchLatest(base: String = "USD"): AppResult<FxSnapshot>
+
+    /** Every currency code the provider supports, code -> display name. Errors are returned, never thrown. */
+    suspend fun fetchCurrencies(): AppResult<Map<String, String>>
 }

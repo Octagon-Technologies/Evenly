@@ -7,6 +7,9 @@ import da.chelimo.sharecost.core.id.GroupId
 import da.chelimo.sharecost.core.id.UserId
 import da.chelimo.sharecost.data.db.ExpenseStatus
 import da.chelimo.sharecost.data.db.ShareCostDatabase
+import da.chelimo.sharecost.core.id.SettlementId
+import da.chelimo.sharecost.data.db.entity.SettlementAllocationEntity
+import da.chelimo.sharecost.data.db.entity.SettlementEntity
 import da.chelimo.sharecost.data.db.inMemoryTestDatabase
 import da.chelimo.sharecost.domain.expense.Expense
 import da.chelimo.sharecost.domain.expense.NewExpense
@@ -182,5 +185,54 @@ class SettlementRepositoryTest {
         assertEquals(1000, remaining(e2.id))
         assertEquals(ExpenseStatus.ACTIVE, status(e2.id))
         assertTrue(settlements.observeSettlements(GroupId("g1")).first().isEmpty())
+    }
+
+    /**
+     * P1 #9: the SAME payment recorded twice (two devices both log it, then sync) drives the share's
+     * derived remaining NEGATIVE. Every outstanding query filters `> 0`, so without a dedicated signal the
+     * debt just reads "settled" and the extra money vanishes. `observeOverpayments` must surface it, and
+     * voiding one payment must clear it (remaining derives back to 0). We insert the two settlements +
+     * allocations via the low-level DAO to model the post-sync state — on a single device the guarded
+     * `applySettlement` rejects the second; the banner is the cross-device safety net.
+     */
+    @Test
+    fun overpayment_isSurfacedByObserveOverpayments_andClearsOnVoid() = runTest {
+        val e = owedExpense("2026-06-01", 3000, payer = "u1", debtor = "u2") // u2 owes u1 $30
+        val shareId = db.shareDao().getByExpense(e.id.value).first { it.userId == "u2" }.id
+        fun settle(id: String) = SettlementEntity(
+            id = id, groupId = "g1", fromUserId = "u2", toUserId = "u1",
+            paymentCurrency = "USD", paymentAmountSubunits = 3000, settledAt = 1,
+            createdBy = "u2", createdAt = 1, updatedAt = 1,
+        )
+        fun alloc(id: String, sid: String) = SettlementAllocationEntity(
+            id = id, settlementId = sid, groupId = "g1", shareId = shareId,
+            appliedAmountSubunits = 3000, appliedCurrency = "USD", createdAt = 1,
+        )
+        db.settlementDao().upsert(settle("s1")); db.settlementDao().upsertAllocations(listOf(alloc("a1", "s1")))
+        db.settlementDao().upsert(settle("s2")); db.settlementDao().upsertAllocations(listOf(alloc("a2", "s2")))
+
+        val over = expenses.observeOverpayments(GroupId("g1"), UserId("u1")).first()
+        assertEquals(1, over.size, "the double payment must surface as one over-paid pair")
+        assertEquals(UserId("u2"), over.single().debtorUserId)
+        assertEquals(UserId("u1"), over.single().creditorUserId)
+        assertEquals(3000, over.single().overpaidSubunits, "$30 paid past a $30 debt = $30 over")
+
+        // Void one of the duplicates → the overpayment derives away.
+        assertTrue(settlements.voidSettlement(SettlementId("s2")) is AppResult.Ok)
+        assertTrue(
+            expenses.observeOverpayments(GroupId("g1"), UserId("u1")).first().isEmpty(),
+            "removing the duplicate clears the signal (remaining back to 0)",
+        )
+        assertEquals(0, remaining(e.id))
+    }
+
+    /** P1 #9b: once a debt is fully paid, a second same-device payment is refused (not silently over-applied). */
+    @Test
+    fun applySettlement_afterFullPayment_refusesSecondPayment() = runTest {
+        val e = owedExpense("2026-06-01", 3000, payer = "u1", debtor = "u2")
+        assertTrue(settlements.applySettlement(newSettlement(3000).copy(expenseId = e.id)) is AppResult.Ok)
+        val second = settlements.applySettlement(newSettlement(3000).copy(expenseId = e.id))
+        assertTrue(second is AppResult.Err, "nothing outstanding ⇒ the second payment is rejected")
+        assertEquals(0, remaining(e.id), "still exactly one payment's worth applied — no over-apply")
     }
 }

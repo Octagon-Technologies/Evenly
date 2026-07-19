@@ -90,7 +90,7 @@ fun GroupSettingsScreen(
     var showRename by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<MemberRowUi?>(null) }
 
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         ScTopBar(
             title = "Group settings",
             navIcon = { ScIconButton(ScIcons.Back, onBack) },
@@ -199,8 +199,8 @@ fun GroupSettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blue)
-                    Text("Add member", color = c.blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blueText)
+                    Text("Add member", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 

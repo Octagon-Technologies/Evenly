@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +37,8 @@ import da.chelimo.sharecost.ui.components.ScAvatarStack
 import da.chelimo.sharecost.ui.components.ScButton
 import da.chelimo.sharecost.ui.components.ScCheck
 import da.chelimo.sharecost.ui.components.ScChip
-import da.chelimo.sharecost.ui.components.ScSheetScaffold
+import da.chelimo.sharecost.ui.components.ScIconButton
+import da.chelimo.sharecost.ui.components.ScTopBar
 import da.chelimo.sharecost.ui.components.icon.ScIcon
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
@@ -60,8 +64,15 @@ fun JoinGroupSheet(
     val c = ShareCostTheme.colors
     // null = "I'm new here" (the default, matching the legacy join-as-a-fresh-member behaviour).
     var claimId by remember(placeholders) { mutableStateOf<String?>(null) }
-    Box(Modifier.fillMaxSize().background(c.surface)) {
-        ScSheetScaffold(onDismiss) {
+    // A real full-screen destination (deep-link + "Join with a link" both land here), not a sheet on a
+    // blank page: back arrow up top, the group preview centered as a hero, matching [NewGroupSheet].
+    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
+        ScTopBar(title = "", navIcon = { ScIconButton(ScIcons.Back, onClick = onDismiss) }, showDivider = false)
+        Column(
+            Modifier.fillMaxSize().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Box(Modifier.size(80.dp).clip(RoundedCornerShape(24.dp)).background(c.surface).border(1.dp, c.border, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
                     Text(if (found) emoji else "🔗", fontSize = 42.sp)
@@ -146,7 +157,7 @@ private fun IdentityPicker(
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("Are you one of these?", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                "Pick the name you've been tracked under — we'll merge its expenses onto you.",
+                "Pick the name you've been tracked under. We'll merge its expenses onto you.",
                 color = c.ink2, fontSize = 12.sp,
             )
         }

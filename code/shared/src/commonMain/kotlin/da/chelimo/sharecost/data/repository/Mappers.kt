@@ -107,4 +107,5 @@ internal fun SettlementEntity.toDomain(): SettlementRecord = SettlementRecord(
     settledAt = settledAt,
     notes = notes,
     paymentApp = paymentApp,
+    createdBy = UserId(createdBy),
 )

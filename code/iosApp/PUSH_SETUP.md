@@ -44,7 +44,15 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
         FirebaseApp.configure()
         Messaging.messaging().delegate = self
         UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+        // Do NOT call requestAuthorization here. iOS gives one prompt per install and never re-asks, so
+        // asking at launch spends it on a user who has not signed in, has no group, and has been told
+        // nothing. The ask belongs to the shared onboarding "Stay in the loop" step, which explains it
+        // first and then goes through `platform/NotificationPermission` (iOS actual =
+        // UNUserNotificationCenter). Android made exactly this mistake in MainActivity.onCreate; don't
+        // reintroduce it here.
+        //
+        // registerForRemoteNotifications() is safe and belongs here: it mints the APNs token and shows no
+        // UI. Without authorization iOS simply won't display what arrives.
         application.registerForRemoteNotifications()
         return true
     }

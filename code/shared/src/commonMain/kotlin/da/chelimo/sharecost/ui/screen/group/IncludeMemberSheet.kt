@@ -59,7 +59,7 @@ fun IncludeMemberSheet(
     val valid = shareSubunits in 1 until expenseAmountSubunits
     val othersCover = (expenseAmountSubunits - shareSubunits).coerceAtLeast(0)
 
-    Box(Modifier.fillMaxSize().background(c.surface)) {
+    Box(Modifier.fillMaxSize().background(c.page)) {
         ScSheetScaffold(onDismiss, title = "Include $memberName", sub = "$expenseTitle · ${moneySubunits(expenseAmountSubunits, currencyCode)}") {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column {

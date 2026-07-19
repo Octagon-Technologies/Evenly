@@ -26,4 +26,6 @@ class FakeFxFetcher(var result: AppResult<FxSnapshot>) : FxRateFetcher {
         calls++
         return result
     }
+
+    override suspend fun fetchCurrencies(): AppResult<Map<String, String>> = AppResult.Ok(emptyMap())
 }

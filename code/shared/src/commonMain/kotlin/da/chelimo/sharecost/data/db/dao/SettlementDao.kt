@@ -6,6 +6,7 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import da.chelimo.sharecost.data.db.entity.SettlementAllocationEntity
 import da.chelimo.sharecost.data.db.entity.SettlementEntity
+import da.chelimo.sharecost.data.db.projection.SettlementCoveredTitleRow
 import kotlinx.coroutines.flow.Flow
 
 /** DAO for `settlements` + `settlement_allocations` (02 §3.9). Owns the apply/void transactions. */
@@ -61,6 +62,25 @@ interface SettlementDao {
     )
     fun observeByExpense(expenseId: String): Flow<List<SettlementEntity>>
 
+    /**
+     * Which expenses each non-voided settlement in a group paid toward, one row per (settlement, expense),
+     * via `allocations → shares → expenses`. Powers the "what did this payment cover" line in the
+     * double-payment review. Voided settlements (soft-deleted) and deleted expenses are excluded; oldest
+     * expense first so the caption reads in the order money was applied.
+     */
+    @Query(
+        """
+        SELECT DISTINCT sa.settlement_id AS settlement_id, e.title AS title
+        FROM settlement_allocations sa
+        INNER JOIN settlements st ON st.id = sa.settlement_id
+        INNER JOIN shares sh ON sh.id = sa.share_id
+        INNER JOIN expenses e ON e.id = sh.expense_id
+        WHERE sa.group_id = :groupId AND st.deleted_at IS NULL AND e.deleted_at IS NULL
+        ORDER BY e.expense_date ASC
+        """
+    )
+    fun observeCoveredTitlesByGroup(groupId: String): Flow<List<SettlementCoveredTitleRow>>
+
     @Query("SELECT * FROM settlement_allocations WHERE settlement_id = :settlementId")
     suspend fun allocationsForSettlement(settlementId: String): List<SettlementAllocationEntity>
 
@@ -86,18 +106,38 @@ interface SettlementDao {
 
     // --- Transactions ---------------------------------------------------------------------------
 
+    /** A share's derived remaining (owed − Σ applied of non-voided settlements) — the fresh, in-txn read. */
+    @Query(
+        """
+        SELECT s.share_owed_subunits - COALESCE((
+            SELECT SUM(sa.applied_amount_subunits) FROM settlement_allocations sa
+            INNER JOIN settlements st ON st.id = sa.settlement_id
+            WHERE sa.share_id = s.id AND st.deleted_at IS NULL), 0)
+        FROM shares s WHERE s.id = :shareId
+        """
+    )
+    suspend fun derivedRemainingForShare(shareId: String): Long?
+
     /**
-     * Record a settlement and its allocations atomically (03 §4.3.1). That is the whole write: shares
-     * are **not** mutated — `remaining` is derived from these allocations on read, so there is no
-     * denormalized tally to update and no expense status to recompute.
+     * Record a settlement and its allocations atomically (03 §4.3.1), guarding against over-apply (P1 #9b):
+     * re-read each target share's derived remaining INSIDE the transaction and REFUSE if any allocation
+     * exceeds it. The caller validates payment ≤ outstanding beforehand, but a concurrent settlement can
+     * commit between that read and this write (a same-device double-fire) and push a share negative; the
+     * fresh in-txn read closes that race. (Cross-device doubles surface via the Balances overpayment
+     * banner instead.) Shares are **not** mutated — remaining derives from these allocations on read.
+     * Returns false (nothing written) when the guard trips, true when applied.
      */
     @Transaction
     suspend fun applySettlement(
         settlement: SettlementEntity,
         allocations: List<SettlementAllocationEntity>,
-    ) {
+    ): Boolean {
+        for (a in allocations) {
+            if (a.appliedAmountSubunits > (derivedRemainingForShare(a.shareId) ?: 0L)) return false
+        }
         upsert(settlement)
         upsertAllocations(allocations)
+        return true
     }
 
     /**

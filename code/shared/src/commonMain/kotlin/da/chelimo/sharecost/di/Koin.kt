@@ -1,12 +1,16 @@
 package da.chelimo.sharecost.di
 
+import da.chelimo.sharecost.platform.AppForeground
 import org.koin.core.context.startKoin
 import org.koin.dsl.KoinAppDeclaration
 import org.koin.dsl.module
 
 /** App-wide singletons (06 §3). Use-case / view-model wiring lands here as later layers arrive. */
 val appModule = module {
-    // intentionally empty for now — the data layer is wired in [dataModule] + [platformModule].
+    // "Is the app on screen", written by the Compose root, read by SyncManager to gate sync. Lives
+    // here (always loaded) rather than in authModule's `isConfigured` branch — App.kt injects it
+    // unconditionally, so the offline/stub build needs it too.
+    single { AppForeground() }
 }
 
 private var koinStarted = false

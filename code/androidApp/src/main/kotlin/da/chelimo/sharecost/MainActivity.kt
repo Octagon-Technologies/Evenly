@@ -1,23 +1,22 @@
 package da.chelimo.sharecost
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import da.chelimo.sharecost.data.remote.supabase.handleAuthDeeplink
 
+/**
+ * The POST_NOTIFICATIONS grant is deliberately NOT requested here. Android gives one prompt per install
+ * and never re-asks, so firing it from onCreate spent it on a user who hadn't signed in, had no group,
+ * and had been told nothing — and everyone who declined was unreachable for good. The ask now lives on
+ * the onboarding "Stay in the loop" step, which explains what the notifications are for first
+ * (`platform/NotificationPermission`).
+ */
 class MainActivity : ComponentActivity() {
-
-    // Notification permission result is ignored — the FCM token still registers either way (F7).
-    private val requestNotifications =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -25,19 +24,9 @@ class MainActivity : ComponentActivity() {
 
         // Complete an OAuth / magic-link sign-in if we were launched from the redirect.
         handleAuthDeeplink(intent)
-        maybeRequestNotificationPermission()
 
         setContent {
             App()
-        }
-    }
-
-    /** Android 13+ requires a runtime grant for POST_NOTIFICATIONS before notifications display (F7). */
-    private fun maybeRequestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 

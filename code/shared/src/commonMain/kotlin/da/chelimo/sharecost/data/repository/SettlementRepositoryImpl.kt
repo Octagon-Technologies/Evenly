@@ -22,6 +22,7 @@ import da.chelimo.sharecost.domain.settlement.SettlementRecord
 import da.chelimo.sharecost.domain.settlement.ShareBalance
 import da.chelimo.sharecost.domain.settlement.allocateSameCurrency
 import da.chelimo.sharecost.newId
+import da.chelimo.sharecost.platform.ScAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlin.time.Clock
@@ -40,10 +41,17 @@ class SettlementRepositoryImpl(
     private val clock: Clock = Clock.System,
     // Optional activity log (F5). Null in unit tests => no history rows; production DI wires it.
     private val historyEventDao: HistoryEventDao? = null,
+    // Analytics: null in unit tests; production DI passes AndroidAnalytics.
+    private val analytics: ScAnalytics? = null,
 ) : SettlementRepository {
 
     override fun observeSettlements(groupId: GroupId): Flow<List<SettlementRecord>> =
         settlementDao.observeByGroup(groupId.value).map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeCoveredExpenseTitles(groupId: GroupId): Flow<Map<SettlementId, List<String>>> =
+        settlementDao.observeCoveredTitlesByGroup(groupId.value).map { rows ->
+            rows.groupBy({ SettlementId(it.settlementId) }, { it.title })
+        }
 
     override suspend fun applySettlement(input: NewSettlement): AppResult<SettlementRecord> {
         val write = writeSettlement(input)
@@ -68,6 +76,7 @@ class SettlementRepositoryImpl(
                         )
                     }
                 }
+                analytics?.capture("settlement_applied")
                 write.value.record.asOk()
             }
         }
@@ -141,8 +150,12 @@ class SettlementRepositoryImpl(
             .groupBy { expenseIdByShare[it.shareId] }
             .mapNotNull { (expenseId, allocs) -> expenseId?.let { it to allocs.sumOf { a -> a.appliedSubunits } } }
             .toMap()
-        // Just record the settlement + allocations — shares aren't touched; remaining derives from these.
-        settlementDao.applySettlement(settlement, allocationEntities)
+        // Record the settlement + allocations — shares aren't touched; remaining derives from these. The
+        // DAO re-checks against fresh in-txn state and refuses if a concurrent settlement already paid this
+        // down (would over-apply, #9b); surface that as the same over-allocation validation error.
+        if (!settlementDao.applySettlement(settlement, allocationEntities)) {
+            return validationErr("amount", AppError.Validation.Reason.OutOfRange)
+        }
         return WriteResult(settlement.toDomain(), appliedByExpense, now).asOk()
     }
 

@@ -1,5 +1,6 @@
 package da.chelimo.sharecost.ui.screen.group
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -20,8 +23,12 @@ import da.chelimo.sharecost.ui.components.StatusBarScrim
 import da.chelimo.sharecost.ui.components.icon.ScIcons
 import da.chelimo.sharecost.ui.navigation.GroupTab
 import da.chelimo.sharecost.ui.navigation.OverviewRoute
+import da.chelimo.sharecost.ui.theme.ScMotion
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 import org.koin.compose.koinInject
+
+/** Persists the active group tab by name across a pushed-then-popped sub-screen (see the `tab` state). */
+private val GroupTabSaver = Saver<GroupTab, String>(save = { it.name }, restore = { GroupTab.valueOf(it) })
 
 /**
  * Group home host (design §0). The four tabs (Expenses/Balances/Conflicts/Overview) are state inside
@@ -38,14 +45,15 @@ fun GroupHomeScreen(
     onOpenExpense: (String) -> Unit = {},
     onOpenBill: (String) -> Unit = {},
     onSearch: () -> Unit = {},
-    onFilter: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onSettlePeer: (String) -> Unit = {},
     onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit = { _, _, _ -> },
     onExport: () -> Unit = {},
 ) {
     val c = ShareCostTheme.colors
-    var tab by remember { mutableStateOf(initialTab) }
+    // Saved so leaving a tab for a pushed screen (an expense, settle, bill) and coming back returns to
+    // that same tab instead of resetting to initialTab. Stored by name (enum savers are Native-fragile).
+    var tab by rememberSaveable(stateSaver = GroupTabSaver) { mutableStateOf(initialTab) }
     val groups = koinInject<GroupRepository>()
     val expenses = koinInject<ExpenseRepository>()
     val conflicts by remember(groupId) { groups.observeConflicts(GroupId(groupId)) }.collectAsStateWithLifecycle(emptyList())
@@ -55,14 +63,16 @@ fun GroupHomeScreen(
     // If the conflicts clear while the tab is open, fall back to Expenses so we don't show a blank tab.
     if (conflictCount == 0 && tab == GroupTab.Conflicts) tab = GroupTab.Expenses
 
-    Column(Modifier.fillMaxSize().background(c.surface)) {
+    Column(Modifier.fillMaxSize().background(c.page)) {
         StatusBarScrim(c.page)
         Box(Modifier.weight(1f)) {
-            when (tab) {
-                GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onOpenBill, onSearch, onFilter)
-                GroupTab.Balances -> GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
-                GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
-                GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack, onExport = onExport)
+            Crossfade(targetState = tab, animationSpec = ScMotion.standard()) { current ->
+                when (current) {
+                    GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onOpenBill, onSearch)
+                    GroupTab.Balances -> GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
+                    GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
+                    GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack, onExport = onExport)
+                }
             }
         }
         val items = buildList {

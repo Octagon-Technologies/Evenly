@@ -65,7 +65,7 @@ fun ReconcileConfirmModal(
                     Modifier.size(64.dp).clip(RoundedCornerShape(20.dp)).background(c.blueTint),
                     contentAlignment = Alignment.Center,
                 ) {
-                    ScIcon(ScIcons.Swap, size = 26.dp, tint = c.blue)
+                    ScIcon(ScIcons.Swap, size = 26.dp, tint = c.blueText)
                 }
                 Text(
                     "Claim ${claimed.size} expenses?",

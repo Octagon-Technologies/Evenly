@@ -11,13 +11,18 @@ import kotlinx.serialization.Serializable
  *   [GroupHome.tab] arg lets a deep link / notification open a specific tab.
  * - [NewGroup] is a real full-screen destination (back arrow, no scrim) — it used to be a bottom
  *   sheet, but a sheet with no drag affordance and tap-outside-only dismissal read as broken to a
- *   first-time tester. [Join], [Filter], [IncludeMember], [SettleExpense], [SettleConfirm] still
+ *   first-time tester. [Join], [IncludeMember], [SettleExpense], [SettleConfirm] still
  *   render as dialog-style destinations so the screen behind stays visible under a (now lighter)
  *   scrim, but each now carries an explicit close control too — see [ScSheetScaffold]/[ScModalScaffold].
+ *   The expenses-tab Filter sheet is instead shown as a local overlay inside [GroupExpensesRoute]
+ *   (not a route push) so it never leaves the tab's back-stack entry.
  */
 sealed interface Route {
 
     // ── Auth & onboarding ──────────────────────────────────────────────
+    // First-launch product intro carousel — shown once before sign-in (device-local flag), distinct
+    // from [Onboarding] below which is the post-auth profile-capture flow for new accounts.
+    @Serializable data object Welcome : Route
     @Serializable data object SignIn : Route
     @Serializable data object MagicLink : Route
     @Serializable data object Onboarding : Route
@@ -34,7 +39,6 @@ sealed interface Route {
     // can only auto-derive a NavType for an enum via JVM reflection, which Kotlin/Native (iOS) lacks —
     // an enum arg here crashes the whole NavHost on iOS. String is a built-in NavType on every target.
     @Serializable data class GroupHome(val groupId: String, val tab: String = "Expenses") : Route
-    @Serializable data class Filter(val groupId: String) : Route     // sheet
     @Serializable data class Search(val groupId: String) : Route
     @Serializable data class IncludeMember(val groupId: String, val conflictId: String, val expenseId: String, val memberUserId: String) : Route // sheet
 

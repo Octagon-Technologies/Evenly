@@ -69,7 +69,7 @@ fun EditCategoriesScreen(
     var showAdd by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<GroupCategory?>(null) }
 
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         ScTopBar(
             title = "Categories",
             navIcon = { ScIconButton(ScIcons.Back, onBack) },
@@ -118,8 +118,8 @@ fun EditCategoriesScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blue)
-                        Text("Add category", color = c.blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        ScIcon(ScIcons.Plus, size = 18.dp, tint = c.blueText)
+                        Text("Add category", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

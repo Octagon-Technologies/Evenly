@@ -20,6 +20,7 @@ import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.domain.activity.HistoryEventType
 import da.chelimo.sharecost.domain.balance.Debt
 import da.chelimo.sharecost.domain.balance.OutstandingItem
+import da.chelimo.sharecost.domain.balance.Overpayment
 import da.chelimo.sharecost.domain.balance.Share as BalanceShare
 import da.chelimo.sharecost.domain.balance.buildBilateralBalances
 import da.chelimo.sharecost.data.db.entity.ExpenseEntity
@@ -36,6 +37,7 @@ import da.chelimo.sharecost.domain.fx.rateOrNull
 import da.chelimo.sharecost.domain.repository.ExpenseRepository
 import da.chelimo.sharecost.domain.repository.FxRepository
 import da.chelimo.sharecost.newId
+import da.chelimo.sharecost.platform.ScAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -67,6 +69,8 @@ class ExpenseRepositoryImpl(
     private val editConflictDao: ExpenseEditConflictDao? = null,
     // Track F: device-local one-sided "your split edit was superseded" notices. Null in unit tests.
     private val supersededNoticeDao: SupersededNoticeDao? = null,
+    // Analytics: null in unit tests; production DI passes AndroidAnalytics.
+    private val analytics: ScAnalytics? = null,
 ) : ExpenseRepository {
 
     override fun observeSupersededNotice(expenseId: ExpenseId): Flow<Boolean> =
@@ -144,6 +148,22 @@ class ExpenseRepositoryImpl(
             }
         }
 
+    override fun observeOverpayments(groupId: GroupId, viewer: UserId?): Flow<List<Overpayment>> =
+        shareDao.observeOverpayments(groupId.value).map { rows ->
+            rows
+                // The banner is about payments the viewer can act on — pairs they're a party to (they
+                // overpaid someone, or someone overpaid them). A null viewer surfaces every over-paid pair.
+                .filter { viewer == null || it.debtorUserId == viewer.value || it.creditorUserId == viewer.value }
+                .map {
+                    Overpayment(
+                        debtorUserId = UserId(it.debtorUserId),
+                        creditorUserId = UserId(it.creditorUserId),
+                        currency = it.currency,
+                        overpaidSubunits = it.overpaidSubunits,
+                    )
+                }
+        }
+
     private fun OutstandingShareRow.toBalanceShare(currency: String, remaining: Long): BalanceShare? {
         val payer = payerUserId ?: return null
         return BalanceShare(
@@ -197,6 +217,7 @@ class ExpenseRepositoryImpl(
         )
         expenseDao.insertWithShares(expense, shares)
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
+        analytics?.capture("expense_added", mapOf("split_mode" to input.splitMode))
         return expense.toDomain().asOk()
     }
 
@@ -222,6 +243,7 @@ class ExpenseRepositoryImpl(
         val oldSplit = existingShares.filter { it.deletedAt == null }.associate { it.userId to it.shareOwedSubunits }
         val newSplit = shares.filter { it.deletedAt == null }.associate { it.userId to it.shareOwedSubunits }
         val splitChanged = input.amountSubunits != existing.amountSubunits ||
+            input.currency != existing.currency ||
             input.splitMode != existing.splitMode ||
             input.payerUserId?.value != existing.payerUserId ||
             input.payerOutsideName != existing.payerOutsideName ||
@@ -248,6 +270,7 @@ class ExpenseRepositoryImpl(
         )
         expenseDao.replaceWithShares(updated, shares, removedShareIds, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
+        analytics?.capture("expense_edited")
         return updated.toDomain().asOk()
     }
 
@@ -257,6 +280,7 @@ class ExpenseRepositoryImpl(
         val now = clock.nowEpochMillis()
         expenseDao.softDelete(expenseId.value, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.DELETED, actorUserId = null, now)
+        analytics?.capture("expense_deleted")
         return AppResult.Ok(Unit)
     }
 

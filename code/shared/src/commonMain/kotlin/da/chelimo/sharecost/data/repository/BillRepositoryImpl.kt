@@ -22,14 +22,12 @@ import da.chelimo.sharecost.data.db.entity.ExpenseItemEntity
 import da.chelimo.sharecost.data.db.entity.HistoryEventEntity
 import da.chelimo.sharecost.data.db.entity.ItemClaimEntity
 import da.chelimo.sharecost.data.db.entity.ItemShareEntity
-import da.chelimo.sharecost.data.db.entity.ShareEntity
 import da.chelimo.sharecost.domain.activity.HistoryEventType
 import da.chelimo.sharecost.domain.expense.BillClaimView
 import da.chelimo.sharecost.domain.expense.BillExtrasInput
 import da.chelimo.sharecost.domain.expense.BillItem
 import da.chelimo.sharecost.domain.expense.BillItemView
 import da.chelimo.sharecost.domain.expense.IndividualClaim
-import da.chelimo.sharecost.domain.expense.BillExtras
 import da.chelimo.sharecost.domain.expense.BillView
 import da.chelimo.sharecost.domain.expense.EditBill
 import da.chelimo.sharecost.domain.expense.BillParticipantView
@@ -40,11 +38,11 @@ import da.chelimo.sharecost.domain.expense.SharedMember
 import da.chelimo.sharecost.domain.expense.SharedPortion
 import da.chelimo.sharecost.domain.expense.SPLIT_MODE_ITEMIZED
 import da.chelimo.sharecost.domain.expense.UnresolvedBill
-import da.chelimo.sharecost.domain.expense.TipSplitMode
 import da.chelimo.sharecost.domain.expense.perUnitSubunits
 import da.chelimo.sharecost.domain.expense.splitBill
 import da.chelimo.sharecost.domain.repository.BillRepository
 import da.chelimo.sharecost.newId
+import da.chelimo.sharecost.platform.ScAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -76,7 +74,24 @@ class BillRepositoryImpl(
     private val clock: Clock = Clock.System,
     // Optional activity log (F5). Null in unit tests => no history rows; production DI wires it.
     private val historyEventDao: HistoryEventDao? = null,
+    // Analytics: null in unit tests; production DI passes AndroidAnalytics.
+    private val analytics: ScAnalytics? = null,
 ) : BillRepository {
+
+    // The bill's shares are a derived materialization of its items + claims + extras. The same derivation
+    // runs from SyncEngine on pull (P0 #3), so it lives in a shared collaborator, not inline here.
+    private val materializer = BillMaterializer(expenseDao, expenseItemDao, itemClaimDao, itemShareDao, shareDao)
+
+    // Deterministic ids for USER-PARTITIONED rows (#5). Two devices assigning the same person to the same
+    // slot used to mint two random PKs; the loser's upsert then violated the active unique index (23505)
+    // and aborted the ENTIRE push (every table after it too), wedging sync permanently. Keying the id on
+    // the slot means concurrent writers converge on one PK and upsert instead of colliding. A re-add also
+    // lands back on its own tombstone (resurrects it) instead of leaving a duplicate. Mirrors the `shares`
+    // "<expenseId>__<userId>" convention. NOTE: existing random-id rows are found by (item,user[,portion])
+    // and updated in place, so only the CREATE path adopts these ids — old rows keep working.
+    private fun claimId(itemId: String, userId: String) = "${itemId}__$userId"
+    private fun participantId(expenseId: String, userId: String) = "${expenseId}__$userId"
+    private fun shareId(itemId: String, userId: String, portionId: String?) = "${itemId}__${userId}__${portionId ?: "leftover"}"
 
     override fun observeBill(expenseId: ExpenseId): Flow<BillView?> =
         combine(
@@ -166,7 +181,7 @@ class BillRepositoryImpl(
             input.createdBy.value + listOfNotNull(input.payerUserId?.value)).distinct()
         val participants = participantIds.map { uid ->
             BillParticipantEntity(
-                id = newId(),
+                id = participantId(expenseId, uid),
                 expenseId = expenseId,
                 groupId = input.groupId.value,
                 userId = uid,
@@ -179,6 +194,7 @@ class BillRepositoryImpl(
         if (participants.isNotEmpty()) billParticipantDao.upsertAll(participants)
         materializeShares(expense, now) // no claims yet → no shares; tab fills in as people claim
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
+        analytics?.capture("bill_created", mapOf("item_count" to items.size))
         return ExpenseId(expenseId).asOk()
     }
 
@@ -230,14 +246,29 @@ class BillRepositoryImpl(
         val amountChanged = amount != existing.amountSubunits
         val payerChanged = input.payerUserId?.value != existing.payerUserId ||
             input.payerOutsideName != existing.payerOutsideName
-        val itemsChanged = removedItemIds.isNotEmpty() || input.items.any { it.id == null } ||
-            input.items.size != existingItems.count { it.deletedAt == null }
+        // Content diff, not just a count/add/remove heuristic: two offsetting line edits (line A +$5,
+        // line B −$5) keep the count AND the bill total unchanged, so a size/amount check misses them and
+        // the merge silently reverts the split (P0 #2). Compare each surviving line's (quantity, lineTotal).
+        val existingActiveItems = existingItems.filter { it.deletedAt == null }
+        val existingContent = existingActiveItems.associate { it.id to (it.quantity to it.lineTotalSubunits) }
+        val itemsChanged = removedItemIds.isNotEmpty() ||
+            input.items.any { it.id == null } ||
+            input.items.size != existingActiveItems.size ||
+            input.items.any { it.id != null && existingContent[it.id] != (it.quantity to it.lineTotalSubunits) }
+        // Extras reshape the split even when they net to the same total (tax↔tip swap; tax +$5 / discount
+        // +$5). Tax/gratuity split proportionally, tip evenly, discount negative-proportionally, so any
+        // extras change is a split change regardless of the bill total.
+        val extrasChanged = input.extras.taxSubunits != existing.taxSubunits ||
+            input.extras.gratuitySubunits != existing.gratuitySubunits ||
+            input.extras.tipSubunits != existing.tipSubunits ||
+            input.extras.tipSplitMode.name != existing.tipSplitMode ||
+            input.extras.discountSubunits != existing.discountSubunits
         val participantsChanged = input.participantUserIds.isNotEmpty() && run {
             val desired = input.participantUserIds.mapTo(HashSet()) { it.value }
             desired != billParticipantDao.getByExpense(expenseId.value)
                 .filter { it.deletedAt == null }.mapTo(HashSet()) { it.userId }
         }
-        val splitChanged = amountChanged || payerChanged || itemsChanged || participantsChanged
+        val splitChanged = amountChanged || payerChanged || itemsChanged || extrasChanged || participantsChanged
         val updated = existing.copy(
             title = newTitle,
             amountSubunits = amount,
@@ -272,7 +303,7 @@ class BillRepositoryImpl(
             val existingUsers = existingParts.mapTo(HashSet()) { it.userId }
             val added = desired.filter { it !in existingUsers }.map { uid ->
                 BillParticipantEntity(
-                    id = newId(),
+                    id = participantId(expenseId.value, uid),
                     expenseId = expenseId.value,
                     groupId = existing.groupId,
                     userId = uid,
@@ -303,7 +334,7 @@ class BillRepositoryImpl(
             )
             else -> itemClaimDao.upsert(
                 ItemClaimEntity(
-                    id = newId(),
+                    id = claimId(itemId, userId.value),
                     itemId = itemId,
                     expenseId = expenseId.value,
                     groupId = expense.groupId,
@@ -339,7 +370,7 @@ class BillRepositoryImpl(
             !inShare -> existing?.let { itemShareDao.softDeleteByIds(listOf(it.id), now) }
             existing == null -> itemShareDao.upsert(
                 ItemShareEntity(
-                    id = newId(),
+                    id = shareId(itemId, memberUserId.value, portionId = null),
                     itemId = itemId,
                     expenseId = expenseId.value,
                     groupId = expense.groupId,
@@ -388,12 +419,10 @@ class BillRepositoryImpl(
         val dropped = activeForItem.filter { it.portionId == portionId && it.userId !in targets }.map { it.id }
         if (dropped.isNotEmpty()) itemShareDao.softDeleteByIds(dropped, now)
         for (uid in targets) {
-            val theirRows = activeForItem.filter { it.userId == uid }
-            // Move them out of any OTHER slice of this line — a person is in at most one shared slice per
-            // line (the active (item_id, user_id) unique index would otherwise reject the second row).
-            val elsewhere = theirRows.filter { it.portionId != portionId }.map { it.id }
-            if (elsewhere.isNotEmpty()) itemShareDao.softDeleteByIds(elsewhere, now)
-            val here = theirRows.firstOrNull { it.portionId == portionId }
+            // A person CAN be in more than one portion of the same line now (per-serving assignment: the
+            // same person may be solo on one serving and shared with someone else on another) — so unlike
+            // the old single-portion-builder invariant, we only touch this portionId's row, never siblings.
+            val here = activeForItem.firstOrNull { it.userId == uid && it.portionId == portionId }
             if (here != null) {
                 if (here.quantity != quantity) {
                     itemShareDao.upsert(here.copy(quantity = quantity, updatedAt = now, rowVersion = here.rowVersion + 1))
@@ -401,7 +430,7 @@ class BillRepositoryImpl(
             } else {
                 itemShareDao.upsert(
                     ItemShareEntity(
-                        id = newId(),
+                        id = shareId(itemId, uid, portionId),
                         itemId = itemId,
                         expenseId = expenseId.value,
                         groupId = expense.groupId,
@@ -419,6 +448,44 @@ class BillRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
+    override suspend fun setServings(
+        expenseId: ExpenseId,
+        itemId: String,
+        servings: List<List<UserId>>,
+        addedBy: UserId,
+    ): AppResult<Unit> {
+        val expense = expenseDao.getById(expenseId.value)
+        if (expense == null || expense.deletedAt != null) {
+            return validationErr("expense", AppError.Validation.Reason.Required)
+        }
+        val now = clock.nowEpochMillis()
+        // One quantity-1 portion per assigned serving slot; deterministic ids (#5) so re-slicing lands back
+        // on the same rows and concurrent identical assignments converge instead of duplicating.
+        val newPortions = servings.flatMapIndexed { index, memberIds ->
+            if (memberIds.isEmpty()) return@flatMapIndexed emptyList()
+            val portionId = "${itemId}__slot$index"
+            memberIds.map { uid ->
+                ItemShareEntity(
+                    id = shareId(itemId, uid.value, portionId),
+                    itemId = itemId,
+                    expenseId = expenseId.value,
+                    groupId = expense.groupId,
+                    userId = uid.value,
+                    portionId = portionId,
+                    quantity = 1,
+                    addedBy = addedBy.value,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            }
+        }
+        // Atomic teardown + rebuild of the item's claims + portions (#15). Shares re-derive after (they're a
+        // self-healing materialization, not part of the atomic unit).
+        itemShareDao.setServings(itemId, newPortions, now)
+        materializeShares(expense, now)
+        return AppResult.Ok(Unit)
+    }
+
     /** True when the item is a single-unit line (where individual claim and share are mutually exclusive). */
     private suspend fun isSingleUnit(expenseId: ExpenseId, itemId: String): Boolean =
         expenseItemDao.getByExpense(expenseId.value).firstOrNull { it.id == itemId }?.quantity == 1
@@ -432,7 +499,7 @@ class BillRepositoryImpl(
             !included -> existing?.let { billParticipantDao.softDeleteByIds(listOf(it.id), now) }
             existing == null -> billParticipantDao.upsert(
                 BillParticipantEntity(
-                    id = newId(),
+                    id = participantId(expenseId.value, userId.value),
                     expenseId = expenseId.value,
                     groupId = expense.groupId,
                     userId = userId.value,
@@ -455,7 +522,7 @@ class BillRepositoryImpl(
                 ?: return validationErr("expense", AppError.Validation.Reason.Required)
             billParticipantDao.upsert(
                 BillParticipantEntity(
-                    id = newId(),
+                    id = participantId(expenseId.value, userId.value),
                     expenseId = expenseId.value,
                     groupId = expense.groupId,
                     userId = userId.value,
@@ -511,41 +578,8 @@ class BillRepositoryImpl(
                 .toList()
         }
 
-    /**
-     * Re-derive the bill's shares from its current items + claims + extras and write them with
-     * deterministic ids. A participant who drops out of every claim is tombstoned. Never touches the
-     * expense row, so a claim change doesn't mark the expense dirty (claims sync on their own).
-     */
-    private suspend fun materializeShares(expense: ExpenseEntity, now: Long) {
-        val items = expenseItemDao.getByExpense(expense.id)
-        val claims = itemClaimDao.getByExpense(expense.id)
-        val sharedRows = itemShareDao.getByExpense(expense.id)
-        val owed = splitBill(
-            items.map { BillItem(it.id, it.lineTotalSubunits, it.quantity) },
-            claims.map { IndividualClaim(it.itemId, UserId(it.userId), it.quantity) },
-            sharedRows.toLegacyMembers(),
-            expense.toExtras().toEngine(),
-            sharedPortions = sharedRows.toEnginePortions(),
-        ).owedByUser
-        val owedUsers = owed.keys.mapTo(HashSet()) { it.value }
-        val existing = shareDao.getByExpense(expense.id).associateBy { it.userId }
-
-        val shares = owed.map { (user, amount) ->
-            val current = existing[user.value]
-            current?.copy(shareOwedSubunits = amount, updatedAt = now, rowVersion = current.rowVersion + 1)
-                ?: ShareEntity(
-                    id = "${expense.id}__${user.value}",
-                    expenseId = expense.id,
-                    userId = user.value,
-                    shareOwedSubunits = amount,
-                    createdAt = now,
-                    updatedAt = now,
-                )
-        }
-        val removed = existing.values.filter { it.userId !in owedUsers }.map { it.id }
-        if (removed.isNotEmpty()) shareDao.softDeleteByIds(removed, now)
-        if (shares.isNotEmpty()) shareDao.upsertAll(shares)
-    }
+    /** Re-derive the bill's shares from its current items + claims + extras (see [BillMaterializer]). */
+    private suspend fun materializeShares(expense: ExpenseEntity, now: Long) = materializer.materialize(expense, now)
 
     private suspend fun recordHistory(expenseId: String, groupId: String, type: HistoryEventType, actorUserId: String?, now: Long) {
         val dao = historyEventDao ?: return
@@ -587,21 +621,8 @@ private fun ExpenseItemEntity.toView() = BillItemView(id, label, quantity, lineT
 private fun ItemClaimEntity.toView() = BillClaimView(id, itemId, UserId(userId), quantity)
 private fun ItemShareEntity.toView() = BillShareView(id, itemId, UserId(userId), UserId(addedBy), portionId, quantity)
 
-private fun ExpenseEntity.toExtras() = BillExtrasInput(
-    taxSubunits = taxSubunits,
-    gratuitySubunits = gratuitySubunits,
-    tipSubunits = tipSubunits,
-    tipSplitMode = TipSplitMode.entries.firstOrNull { it.name == tipSplitMode } ?: TipSplitMode.EVEN,
-    discountSubunits = discountSubunits,
-)
-
-private fun BillExtrasInput.toEngine() = BillExtras(
-    taxSubunits = taxSubunits,
-    gratuitySubunits = gratuitySubunits,
-    tipSubunits = tipSubunits,
-    tipSplitMode = tipSplitMode,
-    discountSubunits = discountSubunits,
-)
+// toExtras / toEngine / toLegacyMembers (List<ItemShareEntity>) / toEnginePortions (List<ItemShareEntity>)
+// are shared with SyncEngine's pull-side re-derivation, so they live in BillMaterializer.kt (internal).
 
 private fun List<BillItemView>.toBillItems() = map { BillItem(it.id, it.lineTotalSubunits, it.quantity) }
 private fun List<BillClaimView>.toIndividualClaims() = map { IndividualClaim(it.itemId, it.userId, it.quantity) }
@@ -613,8 +634,3 @@ private fun List<BillShareView>.toSharedPortions(): List<SharedPortion> =
     filter { it.portionId != null }
         .groupBy { it.itemId to it.portionId!! }
         .map { (key, rows) -> SharedPortion(key.first, key.second, rows.first().quantity, rows.map { it.userId }) }
-private fun List<ItemShareEntity>.toLegacyMembers() = filter { it.portionId == null }.map { SharedMember(it.itemId, UserId(it.userId)) }
-private fun List<ItemShareEntity>.toEnginePortions(): List<SharedPortion> =
-    filter { it.portionId != null }
-        .groupBy { it.itemId to it.portionId!! }
-        .map { (key, rows) -> SharedPortion(key.first, key.second, rows.first().quantity, rows.map { UserId(it.userId) }) }

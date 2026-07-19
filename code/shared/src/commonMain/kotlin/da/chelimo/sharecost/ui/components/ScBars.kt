@@ -1,5 +1,6 @@
 package da.chelimo.sharecost.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import da.chelimo.sharecost.platform.isIOS
 import da.chelimo.sharecost.ui.components.icon.ScIcon
+import da.chelimo.sharecost.ui.theme.ScMotion
 import da.chelimo.sharecost.ui.theme.ShareCostTheme
 
 /** `.sc-topbar` — 56dp min, page bg, optional bottom hairline. Leading/title/actions slots. */
@@ -156,7 +159,7 @@ private fun MaterialBottomNav(
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
             items.forEach { item ->
                 val on = item.id == selectedId
-                val tint = if (on) c.blue else c.ink3
+                val tint by animateColorAsState(if (on) c.blue else c.ink3, ScMotion.quick())
                 Column(
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).selectable(selected = on) { onSelect(item.id) }.padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -205,10 +208,11 @@ private fun IosFloatingNav(
         ) {
             items.forEach { item ->
                 val on = item.id == selectedId
-                val tint = if (on) c.blue else c.ink3
+                val tint by animateColorAsState(if (on) c.blue else c.ink3, ScMotion.quick())
+                val pillColor by animateColorAsState(if (on) c.blueTint else Color.Transparent, ScMotion.quick())
                 Box(
                     modifier = Modifier.weight(1f).clip(pill)
-                        .background(if (on) c.blueTint else Color.Transparent)
+                        .background(pillColor)
                         .selectable(selected = on) { onSelect(item.id) }
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
@@ -256,6 +260,7 @@ fun ScSubTabs(
         Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp)) {
             tabs.forEach { tab ->
                 val on = tab == selected
+                val tint by animateColorAsState(if (on) c.blue else c.ink2, ScMotion.quick())
                 Text(
                     text = tab,
                     modifier = Modifier
@@ -270,7 +275,7 @@ fun ScSubTabs(
                             } else Modifier,
                         )
                         .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),
-                    color = if (on) c.blue else c.ink2,
+                    color = tint,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                 )

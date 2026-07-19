@@ -66,7 +66,7 @@ fun PaymentHandlesScreen(
     val filled = HandleFields.filter { values[it.app]?.isNotBlank() == true }
     val effectivePreferred = preferred?.takeIf { p -> filled.any { it.app == p } }
 
-    Column(Modifier.fillMaxSize().background(c.surface).systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         ScTopBar(
             title = "Payment apps",
             navIcon = { ScIconButton(ScIcons.Back, onBack) },

@@ -31,6 +31,10 @@ android {
     namespace = "da.chelimo.sharecost"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "da.chelimo.sharecost"
         minSdk = libs.versions.android.minSdk.get().toInt()

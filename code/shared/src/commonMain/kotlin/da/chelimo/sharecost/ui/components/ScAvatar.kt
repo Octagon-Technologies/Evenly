@@ -2,6 +2,7 @@ package da.chelimo.sharecost.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -41,12 +42,15 @@ fun ScAvatar(
     modifier: Modifier = Modifier,
     me: Boolean = false,
     size: AvatarSize = AvatarSize.Md,
+    onClick: (() -> Unit)? = null,
 ) {
     val colors = ShareCostTheme.colors
     Box(
+        // clip BEFORE clickable so the press ripple is bounded to the circle, not a square.
         modifier = modifier
             .size(size.dp)
             .clip(CircleShape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(if (me) colors.blue else colors.surface)
             .then(if (me) Modifier else Modifier.border(1.dp, colors.border, CircleShape)),
         contentAlignment = Alignment.Center,

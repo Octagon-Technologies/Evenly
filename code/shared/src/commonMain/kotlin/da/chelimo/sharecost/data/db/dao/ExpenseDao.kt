@@ -50,18 +50,26 @@ interface ExpenseDao {
     @Query("UPDATE expenses SET status = :status, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, updatedAt: Long)
 
-    /** Reassign every expense a user paid in a group to another payer — reconcile placeholder → real (03 §8). */
-    @Query("UPDATE expenses SET payer_user_id = :toUserId, updated_at = :now, row_version = row_version + 1 WHERE group_id = :groupId AND payer_user_id = :fromUserId")
-    suspend fun reassignPayerInGroup(groupId: String, fromUserId: String, toUserId: String, now: Long)
+    /**
+     * Reassign every expense a user paid in a group to another payer — reconcile placeholder → real (03 §8).
+     * Payer is a Zone-2 (split) field, so this also advances the causal `split_version` (+ stamps [actor]):
+     * otherwise `merge_expense` reads the push as metadata-only, keeps the placeholder payer, and reverts
+     * the reassignment on the next sync (P0 #1).
+     */
+    @Query("UPDATE expenses SET payer_user_id = :toUserId, updated_at = :now, row_version = row_version + 1, split_version = split_version + 1, split_updated_by = :actor WHERE group_id = :groupId AND payer_user_id = :fromUserId")
+    suspend fun reassignPayerInGroup(groupId: String, fromUserId: String, toUserId: String, actor: String, now: Long)
 
     /**
-     * Touch (mark dirty) the non-deleted expenses that have an active share for [userId] in [groupId].
-     * Used after a placeholder→real *share* reassignment so those owed expenses re-push through the
-     * commit_expense CAS — otherwise a share-only change wouldn't bump its parent expense's version.
+     * Touch the non-deleted expenses that have an active share for [userId] in [groupId] after a
+     * placeholder→real *share* reassignment. A reassigned share IS a split change, so this advances the
+     * causal `split_version` (+ stamps [actor]) — not just `row_version`. Bumping only `row_version`
+     * marks the row dirty but leaves `split_version == base`, so `merge_expense` treats the push as
+     * metadata-only, never applies the reassigned shares, and reverts the merge to the placeholder (P0 #1).
      */
     @Query(
         """
-        UPDATE expenses SET updated_at = :now, row_version = row_version + 1
+        UPDATE expenses SET updated_at = :now, row_version = row_version + 1,
+            split_version = split_version + 1, split_updated_by = :actor
         WHERE deleted_at IS NULL AND id IN (
             SELECT DISTINCT s.expense_id FROM shares s
             WHERE s.user_id = :userId AND s.deleted_at IS NULL
@@ -69,7 +77,7 @@ interface ExpenseDao {
         )
         """
     )
-    suspend fun touchExpensesWithShareOfUser(groupId: String, userId: String, now: Long)
+    suspend fun touchExpensesWithShareOfUser(groupId: String, userId: String, actor: String, now: Long)
 
     // --- Shares (declared here so the expense + its shares write in one transaction) ------------
 
@@ -127,4 +135,39 @@ interface ExpenseDao {
 
     @Query("UPDATE shares SET deleted_at = :now, updated_at = :now WHERE expense_id = :expenseId AND deleted_at IS NULL AND id NOT IN (:keepIds)")
     suspend fun softDeleteLocalSharesNotIn(expenseId: String, keepIds: List<String>, now: Long)
+
+    /**
+     * Conditional adoption (versioning #8): overwrite from the server's canonical ONLY if the local
+     * expense still matches the [expectedRowVersion] we snapshotted before the merge RPC. A user edit
+     * landing while the RPC was in flight bumps `row_version`, so we detect it and SKIP adoption —
+     * otherwise the round-trip's canonical would silently clobber that just-made edit (which then never
+     * re-dirties). Returns true iff it adopted; false leaves the local (newer) edit intact to re-push.
+     */
+    @Transaction
+    suspend fun overwriteFromServerIfUnchanged(
+        expectedRowVersion: Long,
+        expense: ExpenseEntity,
+        serverShares: List<ShareEntity>,
+        now: Long,
+    ): Boolean {
+        val current = getById(expense.id)
+        if (current == null || current.rowVersion != expectedRowVersion) return false
+        upsert(expense)
+        softDeleteLocalSharesNotIn(expense.id, serverShares.map { it.id }, now)
+        upsertShares(serverShares)
+        return true
+    }
+
+    /**
+     * Conditional adoption of just the expense row (versioning #8), for an ITEMIZED bill whose shares are
+     * a local derived materialization (adopted by re-running the materializer, not the server set). Skips
+     * if a user edit bumped `row_version` during the merge round-trip. Returns true iff it adopted.
+     */
+    @Transaction
+    suspend fun upsertFromServerIfUnchanged(expectedRowVersion: Long, expense: ExpenseEntity): Boolean {
+        val current = getById(expense.id)
+        if (current == null || current.rowVersion != expectedRowVersion) return false
+        upsert(expense)
+        return true
+    }
 }

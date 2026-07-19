@@ -120,7 +120,7 @@ fun SettlePersonScreen(
                     Modifier.weight(1f).background(c.surface).verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Text("Tick what you're paying off — pay one, some, or all.", color = c.ink2, fontSize = 12.sp)
+                    Text("Tick what you're paying off.", color = c.ink2, fontSize = 12.sp)
 
                     // 1 · Checkable expenses
                     ScCard {
@@ -158,7 +158,7 @@ fun SettlePersonScreen(
                             amountFontSize = 28.sp,
                             helper = if (payAmount > checkedSum)
                                 "Can't exceed the ${moneySubunits(checkedSum, currencyCode)} you're settling"
-                            else "Editable — applied to the ticked expenses, oldest first",
+                            else "Applied to the ticked expenses, oldest first",
                             helperColor = if (payAmount > checkedSum) c.danger else c.ink2,
                         )
                     }
@@ -252,15 +252,15 @@ private fun MethodPicker(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (chosen.app == preferredApp) ScIcon(ScIcons.Star, size = 16.dp, tint = c.credit)
-                else ScIcon(ScIcons.Wallet, size = 16.dp, tint = c.blue)
+                else ScIcon(ScIcons.Wallet, size = 16.dp, tint = c.blueText)
                 Column(Modifier.weight(1f)) {
                     Text(
                         if (chosen.app == preferredApp) "${peerName}'s preferred · ${chosen.label}" else "Pay with ${chosen.label}",
-                        color = c.bluePressed, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                     )
                     Text(chosen.handle, color = c.ink2, fontSize = 12.sp, fontFamily = ShareCostTheme.monoFamily)
                 }
-                if (ordered.size > 1) Text("Change", color = c.blue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                if (ordered.size > 1) Text("Change", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         } else {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
