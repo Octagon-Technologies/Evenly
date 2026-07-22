@@ -262,6 +262,7 @@ private fun ReceiptDraft.toAddEditState(): EditBillState = EditBillState(
     gratuityText = if (gratuitySubunits == 0L) "" else format2dp(gratuitySubunits / 100.0),
     tipText = if (tipSubunits == 0L) "" else format2dp(tipSubunits / 100.0),
     discountText = if (discountSubunits == 0L) "" else format2dp(discountSubunits / 100.0),
+    verified = verified,
 )
 
 /** Edit expense, wired: prefills the split editor from the saved expense; Save replaces its shares. */

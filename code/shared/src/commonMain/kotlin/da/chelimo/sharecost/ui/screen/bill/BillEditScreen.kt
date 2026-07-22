@@ -115,6 +115,10 @@ data class EditBillState(
     val gratuityText: String,
     val tipText: String,
     val discountText: String,
+    // False when the OCR scan that produced this state exhausted the server's Haiku->Sonnet->Opus
+    // cascade without a draft that reconciled against the receipt's printed total — see
+    // ReceiptDraft.verified. Irrelevant (defaults true) for a manually-entered or already-saved bill.
+    val verified: Boolean = true,
 )
 
 /** A group member shown as a selectable participant chip on the bill. */
@@ -180,6 +184,9 @@ fun BillEditScreen(
     var gratuityText by remember { mutableStateOf(initial?.gratuityText ?: "") }
     var tipText by remember { mutableStateOf(initial?.tipText ?: "") }
     var discountText by remember { mutableStateOf(initial?.discountText ?: "") }
+    // Shows the "couldn't verify" banner after a scan that didn't reconcile; dismissible for this
+    // editing session only (a fresh re-scan re-arms it via the LaunchedEffect below).
+    var showUnverifiedNotice by remember { mutableStateOf(false) }
     // Null = "everyone" (the default, resilient to members loading async); an explicit set once the user
     // deselects. So a fresh bill defaults to the whole group and the creator pares it down.
     var selected by remember { mutableStateOf(initialSelectedIds.takeIf { it.isNotEmpty() }) }
@@ -215,6 +222,7 @@ fun BillEditScreen(
             gratuityText = s.gratuityText
             tipText = s.tipText
             discountText = s.discountText
+            showUnverifiedNotice = !s.verified
         }
     }
 
@@ -247,6 +255,31 @@ fun BillEditScreen(
             Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // The scan ran the full Haiku->Sonnet->Opus cascade and still couldn't reconcile the draft
+            // against the receipt's printed total. Never blocks — the items below are already filled in
+            // and fully editable either way — this just asks for a closer look before saving. Same style
+            // as the "your change was superseded" notice on expense detail, for one consistent
+            // "something needs your attention" visual language across the app.
+            if (showUnverifiedNotice) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.warningTint)
+                        .border(1.dp, c.warning.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    ScIcon(ScIcons.Info, size = 16.dp, tint = c.warning, modifier = Modifier.padding(top = 2.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Couldn't verify this receipt", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "The amounts didn't quite add up to the printed total. Double-check the items and total below before saving.",
+                            color = c.ink2, fontSize = 12.5.sp,
+                        )
+                    }
+                    ScIconButton(ScIcons.Close, { showUnverifiedNotice = false }, tint = c.ink3, size = 16.dp)
+                }
+            }
+
             // A scanned receipt rides along as the expense's attachment — tell the user it'll be saved.
             if (attachedReceiptCount > 0) {
                 Row(

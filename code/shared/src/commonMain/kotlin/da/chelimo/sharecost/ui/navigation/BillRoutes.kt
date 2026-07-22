@@ -297,6 +297,7 @@ private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
     gratuityText = subunitsToText(gratuitySubunits),
     tipText = subunitsToText(tipSubunits),
     discountText = subunitsToText(discountSubunits),
+    verified = verified,
 )
 
 private fun BillView.toEditState(): EditBillState = EditBillState(
