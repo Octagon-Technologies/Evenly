@@ -77,8 +77,12 @@ class ReceiptOcrHttp(
             val resp = json.decodeFromString<ExtractResp>(raw)
             when {
                 !resp.configured -> ScanOutcome.Unavailable
+                // The server's own is_receipt classifier decided this photo isn't a receipt at all (a
+                // selfie, a ride-share summary, an unrelated screenshot) — short-circuited before any
+                // Sonnet/Opus escalation, so this is always a single cheap call regardless of retries.
+                resp.noReceipt -> ScanOutcome.NoReceiptFound
                 resp.receipt == null || resp.receipt.items.isEmpty() -> ScanOutcome.NoReceiptFound
-                else -> ScanOutcome.Success(resp.receipt.toDraft())
+                else -> ScanOutcome.Success(resp.receipt.toDraft(resp.verified))
             }
         } catch (t: Throwable) {
             ScanOutcome.Failed(t.message)
@@ -95,7 +99,16 @@ private class ExtractPart(val data: String, val mediaType: String)
 private class ExtractReq(val files: List<ExtractPart>)
 
 @Serializable
-private class ExtractResp(val configured: Boolean = true, val receipt: RcptDto? = null)
+private class ExtractResp(
+    val configured: Boolean = true,
+    val receipt: RcptDto? = null,
+    // True unless every tier of the server's Haiku->Sonnet->Opus cascade failed to reconcile the draft
+    // against the printed total — absent (defaults true) on a normal single-tier success response.
+    val verified: Boolean = true,
+    // The server's is_receipt classifier decided this isn't a receipt photo at all — short-circuited
+    // before any escalation, so `receipt` is absent on this response.
+    val noReceipt: Boolean = false,
+)
 
 @Serializable
 private class RcptDto(
@@ -107,7 +120,7 @@ private class RcptDto(
     @SerialName("discount_subunits") val discount: Long = 0,
     @SerialName("detected_total_subunits") val detectedTotal: Long = 0,
 ) {
-    fun toDraft() = ReceiptDraft(
+    fun toDraft(verified: Boolean) = ReceiptDraft(
         currency = currency,
         items = items.map { ReceiptDraftItem(it.label, it.quantity.coerceAtLeast(1), it.lineTotal) },
         taxSubunits = tax,
@@ -115,6 +128,7 @@ private class RcptDto(
         tipSubunits = tip,
         discountSubunits = discount,
         detectedTotalSubunits = detectedTotal,
+        verified = verified,
     )
 }
 

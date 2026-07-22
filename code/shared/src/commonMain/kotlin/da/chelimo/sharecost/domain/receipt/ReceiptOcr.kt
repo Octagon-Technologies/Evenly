@@ -9,6 +9,11 @@ data class ReceiptDraft(
     val tipSubunits: Long,
     val discountSubunits: Long,
     val detectedTotalSubunits: Long,
+    // False when every tier of the server's Haiku->Sonnet->Opus cascade still couldn't reconcile this
+    // draft against the receipt's printed total — the draft shown is still the best available guess
+    // (never a dead end), but the caller should flag it rather than treat it as a quiet success.
+    // Defaults true for manual-entry / non-OCR construction paths, where "verification" doesn't apply.
+    val verified: Boolean = true,
 )
 
 data class ReceiptDraftItem(

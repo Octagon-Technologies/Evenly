@@ -423,6 +423,23 @@ create policy "own scan log" on public.receipt_scan_log
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
+-- Org-wide circuit breaker for the Opus tier of the extract-receipt cascade (Haiku -> Sonnet -> Opus).
+-- Opus is the priciest model in the cascade; this table lets the edge function cap total Opus spend
+-- across ALL users in a rolling window, independent of the per-user receipt_scan_log limit above. Only
+-- the edge function (service role) reads/writes this table -- RLS is enabled with NO policies, so no
+-- client role can read or write it at all (service role bypasses RLS regardless).
+create table if not exists public.receipt_opus_escalations (
+  id uuid primary key default gen_random_uuid(),
+  -- Audit trail only (who triggered the priciest tier) -- the circuit-breaker check itself just counts
+  -- rows, it doesn't filter by user. ON DELETE SET NULL so account deletion doesn't need to touch this
+  -- operational log.
+  user_id uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.receipt_opus_escalations enable row level security;
+-- Deliberately no policies: no authenticated/anon client should ever read or write this table.
+
 -- ── Row-Level Security ──────────────────────────────────────────────────────────────────────────
 -- PERMISSIVE policies so sync works immediately for testing: any authenticated (incl. anonymous)
 -- user can read/write every row. NOT safe for real multi-user data — see the membership-scoped sketch
