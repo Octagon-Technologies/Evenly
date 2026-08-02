@@ -23,11 +23,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +56,11 @@ import kotlinx.coroutines.launch
  *  "this has focus," not so much it reads as "the app is blocked." Paired with an explicit close
  *  control on the card itself, since tap-outside-to-dismiss alone isn't discoverable. */
 private const val EvScrimAlpha = 0.22f
+
+/** Ceiling on a centered modal card's height, as a fraction of the space the scrim gets. Keeps a
+ *  long card off the status bar and the home indicator, and keeps the scrim visible top and bottom
+ *  so the card still reads as a card rather than a full-screen page. */
+private const val EvModalMaxHeightFraction = 0.8f
 
 private val CardShape = RoundedCornerShape(16.dp)
 
@@ -211,21 +219,26 @@ fun EvModalScaffold(
         enter = fadeIn(EvMotion.standard()),
         exit = fadeOut(EvMotion.standard()),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier.fillMaxSize().background(c.ink.copy(alpha = EvScrimAlpha)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = dismiss).padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
+            // A tall card (a long member list, say) must never grow past the screen and run under the
+            // status bar / home indicator. Cap it at 80% of the available height, stay centered, and
+            // let the content scroll inside the card instead of overflowing it.
+            val maxCardHeight = maxHeight * EvModalMaxHeightFraction
             AnimatedVisibility(
                 visibleState = visibleState,
                 enter = fadeIn(EvMotion.standard()) + scaleIn(EvMotion.standard(), initialScale = 0.92f),
                 exit = fadeOut(EvMotion.quick()) + scaleOut(EvMotion.quick(), targetScale = 0.92f),
             ) {
                 Column(
-                    modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.page)
+                    modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().heightIn(max = maxCardHeight).clip(RoundedCornerShape(22.dp)).background(c.page)
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}).padding(24.dp),
                 ) {
+                    // The close button stays pinned outside the scroll region so it is always reachable.
                     Box(Modifier.padding(bottom = 12.dp)) { EvSheetCloseButton(dismiss) }
-                    content()
+                    Column(Modifier.verticalScroll(rememberScrollState())) { content() }
                 }
             }
         }

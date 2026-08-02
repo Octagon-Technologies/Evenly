@@ -58,7 +58,7 @@ fun EvButton(
         // Secondary goes solid there (same treatment as PrimarySolid) instead of staying an outline.
         ButtonVariant.Secondary ->
             if (c.isDark) BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
-            else BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.5f)
+            else BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.2f)
         // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button
         // (distinct from the solid-blue Primary hero above it).
         ButtonVariant.Tonal ->
@@ -74,7 +74,7 @@ fun EvButton(
             else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
     }
     val height = when { small -> 40.dp; variant == ButtonVariant.Text -> 44.dp; else -> 52.dp }
-    val shape = RoundedCornerShape(if (small) 11.dp else 14.dp)
+    val shape = RoundedCornerShape(if (small) 6.dp else 8.dp)
     val autoWidth = small || variant == ButtonVariant.Text
     Row(
         modifier = modifier

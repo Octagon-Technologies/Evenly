@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -83,7 +84,7 @@ fun IdentityClaimCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(shape)
-            .background(c.blueTint)
+            .background(c.page)
             .border(1.dp, c.border, shape)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -129,10 +130,11 @@ private fun NamedShape(
             person.recentExpenses.forEach { (title, amount) -> ExpenseEvidenceChip(title, amount) }
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        EvButton("That's me", { onThatsMe(person.id) }, modifier = Modifier.weight(1f))
-        EvButton("Not me", { onNotMe(person.id) }, variant = ButtonVariant.Secondary, modifier = Modifier.weight(1f))
-        EvButton("Later", onLater, variant = ButtonVariant.Text)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.height(32.dp)) {
+        EvButton("That's me", { onThatsMe(person.id) }, modifier = Modifier.weight(1f), variant = ButtonVariant.Tonal, small = true)
+        EvButton("Not me", { onNotMe(person.id) }, variant = ButtonVariant.Secondary, modifier = Modifier.weight(1f), small = true)
+        EvButton("Later", onLater, variant = ButtonVariant.Text, small = true)
     }
 }
 
@@ -187,7 +189,7 @@ private fun ListShape(
             EvIcon(EvIcons.ChevR, size = 16.dp, tint = c.blueText)
         }
     }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(40.dp)) {
         EvButton(
             "None of these are me",
             onNoneOfThese,
@@ -199,7 +201,7 @@ private fun ListShape(
 }
 
 @Composable
-private fun NameRow(person: UnclaimedNameUi, onThatsMe: (String) -> Unit, onNotMe: (String) -> Unit) {
+    private fun NameRow(person: UnclaimedNameUi, onThatsMe: (String) -> Unit, onNotMe: (String) -> Unit) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(12.dp)
     Column(
@@ -207,16 +209,28 @@ private fun NameRow(person: UnclaimedNameUi, onThatsMe: (String) -> Unit, onNotM
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             EvAvatar(name = person.name, size = AvatarSize.Sm)
             Column(Modifier.weight(1f)) {
                 Text(person.name, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text(evidenceLine(person), color = c.ink2, style = MaterialTheme.typography.bodySmall)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EvButton("That's me", { onThatsMe(person.id) }, modifier = Modifier.weight(1f))
-            EvButton("No", { onNotMe(person.id) }, variant = ButtonVariant.Secondary, modifier = Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(40.dp)) {
+            EvButton(
+                "That's me",
+                { onThatsMe(person.id) },
+                variant = ButtonVariant.Tonal,
+                small = true,
+                modifier = Modifier.weight(1f),
+            )
+            EvButton(
+                "No",
+                { onNotMe(person.id) },
+                variant = ButtonVariant.Secondary,
+                small = true,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

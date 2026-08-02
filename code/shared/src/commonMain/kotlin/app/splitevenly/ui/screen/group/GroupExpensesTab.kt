@@ -211,6 +211,7 @@ fun GroupExpensesTab(
                 ctaText = "Clear filters",
                 onCta = onClearFilter,
             )
+
             state == ExpensesState.Empty -> EvEmptyState(
                 icon = EvIcons.Receipt,
                 title = "No expenses yet",
@@ -218,6 +219,7 @@ fun GroupExpensesTab(
                 ctaText = "Add expense",
                 onCta = onAdd,
             )
+
             visibleDays.isEmpty() -> EvEmptyState(
                 icon = EvIcons.Receipt,
                 title = "Nothing here",
@@ -225,6 +227,7 @@ fun GroupExpensesTab(
                 ctaText = "Add expense",
                 onCta = onAdd,
             )
+
             else -> Box(Modifier.weight(1f)) {
                 LazyColumn(Modifier.fillMaxSize()) {
                     // One prompt at a time, identity first: this strip already stacks the offline
