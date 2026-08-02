@@ -58,6 +58,12 @@ row in the database.** It is deliberate for testing and it is a one-account mass
 Tighten to membership-scoped before any non-test user exists; the policy sketch is already in `schema.sql`
 (see the commented `expenses_member_read` example around line 610).
 
+**Any view over an RLS-protected table needs `with (security_invoker = true)`.** A plain `create view`
+defaults to `SECURITY DEFINER`, which runs as the view owner and bypasses the underlying table's RLS
+entirely — every authenticated user sees every other user's rows through the view even though the table
+itself is locked down. `get_advisors` catches this (`security_definer_view`, ERROR level); run it after
+adding any view.
+
 **Two tables are already exempt from the loop and must stay out of it:** `superseded_split_edits`
 (insert-only; it holds full rejected money payloads no client may read) and
 `placeholder_claim_answers` (membership-scoped read, insert/update as yourself only, delete revoked).

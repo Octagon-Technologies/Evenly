@@ -479,6 +479,46 @@ create policy "own scan log" on public.receipt_scan_log
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
+-- ── Cost ledger columns (Plan A) ────────────────────────────────────────────────────────────────
+-- Widens the rate-limit row into the authoritative record of what each scan COST, so the freemium
+-- free-scan allowance can be set from measured data. All nullable: the row is inserted BEFORE the
+-- paid call (see the insert below) and only completed afterwards, so a crash mid-scan leaves these
+-- null rather than absent -- completed_at null is itself a finding.
+alter table public.receipt_scan_log add column if not exists group_id text references public.groups(id) on delete set null;
+alter table public.receipt_scan_log add column if not exists page_count int;
+alter table public.receipt_scan_log add column if not exists outcome text;
+alter table public.receipt_scan_log add column if not exists tiers_used text[];
+alter table public.receipt_scan_log add column if not exists input_tokens int;
+alter table public.receipt_scan_log add column if not exists output_tokens int;
+alter table public.receipt_scan_log add column if not exists cost_micros bigint;
+alter table public.receipt_scan_log add column if not exists duration_ms int;
+alter table public.receipt_scan_log add column if not exists completed_at timestamptz;
+
+do $$
+begin
+  alter table public.receipt_scan_log drop constraint if exists receipt_scan_log_outcome_check;
+  alter table public.receipt_scan_log add constraint receipt_scan_log_outcome_check
+    check (outcome is null or outcome in ('ok', 'not_receipt', 'invalid_draft', 'failed', 'rate_limited', 'breaker_open'));
+end $$;
+
+-- Weekly-query view: cost and volume per user per day. Cheap to keep around, expensive to redo by hand.
+-- security_invoker: a plain `create view` defaults to SECURITY DEFINER, which runs as the view owner and
+-- BYPASSES the "own scan log" RLS policy above -- every authenticated user would see every other user's
+-- cost data. security_invoker makes the view run as the querying user instead, so RLS still applies.
+create or replace view public.receipt_scan_cost_daily
+  with (security_invoker = true) as
+select
+  user_id,
+  date_trunc('day', created_at) as day,
+  count(*) as scans,
+  count(*) filter (where outcome = 'ok') as scans_ok,
+  count(*) filter (where array_length(tiers_used, 1) > 1) as scans_escalated,
+  sum(coalesce(input_tokens, 0)) as input_tokens,
+  sum(coalesce(output_tokens, 0)) as output_tokens,
+  sum(coalesce(cost_micros, 0)) as cost_micros
+from public.receipt_scan_log
+group by user_id, date_trunc('day', created_at);
+
 -- Org-wide circuit breaker for the Opus tier of the extract-receipt cascade (Haiku -> Sonnet -> Opus).
 -- Opus is the priciest model in the cascade; this table lets the edge function cap total Opus spend
 -- across ALL users in a rolling window, independent of the per-user receipt_scan_log limit above. Only
