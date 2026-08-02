@@ -15,7 +15,9 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -44,7 +46,7 @@ class ReceiptOcrHttp(
     private val json = Json { ignoreUnknownKeys = true }
 
     @OptIn(ExperimentalEncodingApi::class)
-    override suspend fun extract(files: List<ReceiptOcrFile>): ScanOutcome {
+    override suspend fun extract(files: List<ReceiptOcrFile>, groupId: String?): ScanOutcome {
         if (files.isEmpty()) return ScanOutcome.NoReceiptFound
         if (!SupabaseConfig.isConfigured) return ScanOutcome.Unavailable
         // Don't burn a doomed round-trip (or leave the user staring at a spinner) when there's no network.
@@ -65,15 +67,26 @@ class ReceiptOcrHttp(
                 if (processed != null) ExtractPart(Base64.encode(processed.bytes), processed.mimeType)
                 else ExtractPart(Base64.encode(file.bytes), file.mimeType)
             }
-            val body = json.encodeToString(ExtractReq(files = parts))
-            val raw = http.post("${SupabaseConfig.URL}/functions/v1/extract-receipt") {
+            val body = json.encodeToString(ExtractReq(files = parts, groupId = groupId))
+            val response = http.post("${SupabaseConfig.URL}/functions/v1/extract-receipt") {
                 // Bearer = the USER's token (so auth.getUser() resolves them); apikey stays the anon key,
                 // which is what the Supabase gateway checks to admit the request at all.
                 header("Authorization", "Bearer $userToken")
                 header("apikey", SupabaseConfig.ANON_KEY)
                 contentType(ContentType.Application.Json)
                 setBody(body)
-            }.bodyAsText()
+            }
+            val raw = response.bodyAsText()
+            // The rate limit (P1 #11) turns the request away with a 429 BEFORE any vision call — a
+            // distinct "you're not allowed right now" outcome, not a generic failure. Any other non-2xx
+            // (400/502/503) is a real failure: the body is `{error: "..."}`, which doesn't match
+            // ExtractResp's shape, so decode it separately rather than let ExtractResp's all-optional
+            // fields silently default to a fake "no receipt found" success shape.
+            if (!response.status.isSuccess()) {
+                if (response.status == HttpStatusCode.TooManyRequests) return ScanOutcome.Blocked(reason = "rate_limited")
+                val message = runCatching { json.decodeFromString<ErrorResp>(raw).error }.getOrNull()
+                return ScanOutcome.Failed(message)
+            }
             val resp = json.decodeFromString<ExtractResp>(raw)
             when {
                 !resp.configured -> ScanOutcome.Unavailable
@@ -82,7 +95,7 @@ class ReceiptOcrHttp(
                 // Sonnet/Opus escalation, so this is always a single cheap call regardless of retries.
                 resp.noReceipt -> ScanOutcome.NoReceiptFound
                 resp.receipt == null || resp.receipt.items.isEmpty() -> ScanOutcome.NoReceiptFound
-                else -> ScanOutcome.Success(resp.receipt.toDraft(resp.verified))
+                else -> ScanOutcome.Success(resp.receipt.toDraft(resp.verified), scanId = resp.scanId)
             }
         } catch (t: Throwable) {
             ScanOutcome.Failed(t.message)
@@ -94,9 +107,10 @@ class ReceiptOcrHttp(
 @Serializable
 private class ExtractPart(val data: String, val mediaType: String)
 
-/** The multi-page request; the edge function reads every part together as one bill. */
+/** The multi-page request; the edge function reads every part together as one bill. [groupId] is
+ *  analytics-only (Plan A attributes the scan to a group) — the OCR itself doesn't need it. */
 @Serializable
-private class ExtractReq(val files: List<ExtractPart>)
+private class ExtractReq(val files: List<ExtractPart>, val groupId: String? = null)
 
 @Serializable
 private class ExtractResp(
@@ -108,7 +122,14 @@ private class ExtractResp(
     // The server's is_receipt classifier decided this isn't a receipt photo at all — short-circuited
     // before any escalation, so `receipt` is absent on this response.
     val noReceipt: Boolean = false,
+    // The server's id for this scan (Plan A). Nullable/absent until that side deploys; attached to
+    // scan_completed as an analytics property only when present.
+    val scanId: String? = null,
 )
+
+/** The shape of a non-2xx response body — `{"error": "..."}` per the edge function's `json()` helper. */
+@Serializable
+private class ErrorResp(val error: String? = null)
 
 @Serializable
 private class RcptDto(

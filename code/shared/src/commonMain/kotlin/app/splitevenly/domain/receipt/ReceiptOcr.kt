@@ -34,8 +34,10 @@ data class ReceiptOcrFile(
  * The manual-entry path is always reachable from every non-[Success] state.
  */
 sealed interface ScanOutcome {
-    /** OCR produced an editable draft. */
-    data class Success(val draft: ReceiptDraft) : ScanOutcome
+    /** OCR produced an editable draft. [scanId] is the server's id for this scan, when it returns one
+     *  (Plan A) — nullable so a client ahead of that deploy still works; attach as an analytics property
+     *  only when present. */
+    data class Success(val draft: ReceiptDraft, val scanId: String? = null) : ScanOutcome
 
     /** The extract ran but nothing usable came back (blurry, not a receipt, empty item list). */
     data object NoReceiptFound : ScanOutcome
@@ -48,6 +50,11 @@ sealed interface ScanOutcome {
 
     /** A network or server error while extracting — a retry may succeed. */
     data class Failed(val message: String? = null) : ScanOutcome
+
+    /** The server turned the request away without attempting the vision call — the per-user rate limit
+     *  (429) today, any other explicit refusal later. Distinct from [Failed]: nothing went wrong, the
+     *  caller just isn't allowed to spend another call right now. */
+    data class Blocked(val reason: String) : ScanOutcome
 }
 
 /**
@@ -58,5 +65,7 @@ sealed interface ScanOutcome {
  * the caller can guide the user (offline, couldn't-read, retryable error) instead of failing silently.
  */
 interface ReceiptOcr {
-    suspend fun extract(files: List<ReceiptOcrFile>): ScanOutcome
+    /** [groupId] rides along in the request so server-side analytics can attribute the scan to a group
+     *  (Plan A); harmless if the server ignores it, and omitted from the body when null. */
+    suspend fun extract(files: List<ReceiptOcrFile>, groupId: String? = null): ScanOutcome
 }

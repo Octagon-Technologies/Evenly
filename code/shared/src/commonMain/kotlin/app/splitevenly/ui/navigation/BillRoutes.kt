@@ -12,6 +12,7 @@ import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.domain.auth.AuthSession
@@ -30,8 +31,11 @@ import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.platform.AnalyticsEvents
+import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
 import app.splitevenly.platform.PickKind
+import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.bill.BillClaimScreen
@@ -44,8 +48,10 @@ import app.splitevenly.ui.screen.bill.ParticipantChipUi
 import app.splitevenly.ui.screen.bill.ScanErrorKind
 import app.splitevenly.ui.screen.bill.ScanPageUi
 import app.splitevenly.ui.screen.bill.ScanUiState
+import app.splitevenly.ui.screen.bill.analyticsKind
 import app.splitevenly.ui.screen.bill.editBillItemUi
 import app.splitevenly.ui.screen.bill.priceToSubunits
+import app.splitevenly.ui.screen.bill.scanEditStats
 import app.splitevenly.ui.screen.expense.format2dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -55,6 +61,22 @@ import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
 private fun subunitsToText(subunits: Long): String = if (subunits == 0L) "" else format2dp(subunits / 100.0)
+
+/** The trust metric: how much of a scan's OCR draft survived to what actually got saved. No-op when this
+ *  save wasn't preceded by a successful scan. */
+private fun reportScanResultEdited(
+    analytics: EvAnalytics?,
+    scanned: EditBillState?,
+    savedItems: List<app.splitevenly.ui.screen.bill.EditBillItemUi>,
+    groupId: String,
+) {
+    val s = scanned ?: return
+    val (changed, total) = scanEditStats(s.items, savedItems)
+    analytics?.capture(
+        AnalyticsEvents.SCAN_RESULT_EDITED,
+        mapOf("items_changed" to changed, "items_total" to total, "group_id" to groupId),
+    )
+}
 
 /** Create or edit a bill (the menu + extras). On create, lands on the live claim screen. */
 @OptIn(ExperimentalTime::class)
@@ -73,6 +95,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
+    val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
     var scanState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
@@ -82,6 +105,9 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var attachedReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
+    // Scan-funnel analytics bookkeeping — see AddExpenseRoute's twin of this pipeline.
+    var scanSource by remember { mutableStateOf<PickSource?>(null) }
+    var scanStartedAt by remember { mutableStateOf(0L) }
 
     val existing = if (expenseId != null) {
         remember(expenseId) { bills.observeBill(ExpenseId(expenseId)) }.collectAsStateWithLifecycle(null).value
@@ -91,22 +117,62 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     if (expenseId != null && existing == null) return
 
     // Run the pick → OCR round-trip as a cancellable job, mapping the typed ScanOutcome to sheet state.
-    fun runScan(files: List<PickedFile>) {
+    fun runScan(files: List<PickedFile>, source: PickSource) {
         if (files.isEmpty()) return
         scanFiles = files
+        scanSource = source
+        scanStartedAt = Clock.System.nowEpochMillis()
         scanState = ScanUiState.Working(files.map { ScanPageUi(it.mimeType.contains("pdf", ignoreCase = true)) })
+        analytics?.capture(
+            AnalyticsEvents.SCAN_STARTED,
+            mapOf("page_count" to files.size, "source" to source.name.lowercase(), "group_id" to gid.value),
+        )
         scanJob = scope.launch {
             val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
-            scanState = when (val outcome = ocr.extract(ocrFiles)) {
+            val outcome = ocr.extract(ocrFiles, groupId = gid.value)
+            val durationMs = Clock.System.nowEpochMillis() - scanStartedAt
+            scanState = when (outcome) {
                 is ScanOutcome.Success -> {
                     scanned = outcome.draft.toEditState()
                     attachedReceipts = files
+                    analytics?.capture(
+                        AnalyticsEvents.SCAN_COMPLETED,
+                        buildMap {
+                            put("page_count", files.size)
+                            put("item_count", outcome.draft.items.size)
+                            put("duration_ms", durationMs)
+                            put("group_id", gid.value)
+                            outcome.scanId?.let { put("scan_id", it) }
+                        },
+                    )
                     ScanUiState.Idle
                 }
-                ScanOutcome.NoReceiptFound -> ScanUiState.Failed(ScanErrorKind.NoReceiptFound)
-                ScanOutcome.Offline -> ScanUiState.Failed(ScanErrorKind.Offline)
-                ScanOutcome.Unavailable -> ScanUiState.Failed(ScanErrorKind.Unavailable)
-                is ScanOutcome.Failed -> ScanUiState.Failed(ScanErrorKind.Error)
+                is ScanOutcome.Blocked -> {
+                    analytics?.capture(
+                        AnalyticsEvents.SCAN_BLOCKED,
+                        mapOf("reason" to outcome.reason, "group_id" to gid.value),
+                    )
+                    ScanUiState.Failed(ScanErrorKind.Blocked)
+                }
+                else -> {
+                    val kind = when (outcome) {
+                        ScanOutcome.NoReceiptFound -> ScanErrorKind.NoReceiptFound
+                        ScanOutcome.Offline -> ScanErrorKind.Offline
+                        ScanOutcome.Unavailable -> ScanErrorKind.Unavailable
+                        is ScanOutcome.Failed -> ScanErrorKind.Error
+                        is ScanOutcome.Success, is ScanOutcome.Blocked -> ScanErrorKind.Error
+                    }
+                    analytics?.capture(
+                        AnalyticsEvents.SCAN_FAILED,
+                        mapOf(
+                            "kind" to kind.analyticsKind(),
+                            "page_count" to files.size,
+                            "duration_ms" to durationMs,
+                            "group_id" to gid.value,
+                        ),
+                    )
+                    ScanUiState.Failed(kind)
+                }
             }
         }
     }
@@ -123,16 +189,31 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
         onBack = onBack,
         onScanReceipt = { source ->
+            // Fires before any cost is incurred — even if the user backs out of the file picker next.
+            analytics?.capture(
+                AnalyticsEvents.SCAN_SOURCE_CHOSEN,
+                mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
+            )
             scope.launch {
                 val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                runScan((picked as? AppResult.Ok)?.value.orEmpty())
+                runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
             }
         },
         onCancelScan = {
+            if (scanState is ScanUiState.Working) {
+                analytics?.capture(
+                    AnalyticsEvents.SCAN_CANCELLED,
+                    mapOf(
+                        "page_count" to scanFiles.size,
+                        "duration_ms" to (Clock.System.nowEpochMillis() - scanStartedAt),
+                        "group_id" to gid.value,
+                    ),
+                )
+            }
             scanJob?.cancel()
             scanState = ScanUiState.Idle
         },
-        onRetryScan = { runScan(scanFiles) },
+        onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
         onDismissScan = { scanState = ScanUiState.Idle },
         onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
         onSave = { submit ->
@@ -164,6 +245,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                         is AppResult.Ok -> {
                             // The scanned pages ride along as the expense's receipt (background upload).
                             if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(result.value, gid, attachedReceipts)
+                            reportScanResultEdited(analytics, scanned, submit.items, gid.value)
                             onCreated(result.value.value)
                         }
                         is AppResult.Err -> saving = false
@@ -182,6 +264,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                         ),
                     )
                     if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(ExpenseId(expenseId), gid, attachedReceipts)
+                    reportScanResultEdited(analytics, scanned, submit.items, gid.value)
                     onBack()
                 }
             }

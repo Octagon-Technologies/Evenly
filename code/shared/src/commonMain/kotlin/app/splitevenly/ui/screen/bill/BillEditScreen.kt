@@ -255,29 +255,11 @@ fun BillEditScreen(
             Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // The scan ran the full Haiku->Sonnet->Opus cascade and still couldn't reconcile the draft
-            // against the receipt's printed total. Never blocks — the items below are already filled in
-            // and fully editable either way — this just asks for a closer look before saving. Same style
-            // as the "your change was superseded" notice on expense detail, for one consistent
-            // "something needs your attention" visual language across the app.
+            // The scan exhausted its passes and still couldn't reconcile the draft against the receipt's
+            // printed total. Markup lives in UnverifiedReceiptNotice so AddExpenseScreen shows the same
+            // banner from the same state instead of quietly showing none.
             if (showUnverifiedNotice) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.warningTint)
-                        .border(1.dp, c.warning.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    EvIcon(EvIcons.Info, size = 16.dp, tint = c.warning, modifier = Modifier.padding(top = 2.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Couldn't verify this receipt", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "The amounts didn't quite add up to the printed total. Double-check the items and total below before saving.",
-                            color = c.ink2, fontSize = 12.5.sp,
-                        )
-                    }
-                    EvIconButton(EvIcons.Close, { showUnverifiedNotice = false }, tint = c.ink3, size = 16.dp)
-                }
+                UnverifiedReceiptNotice(onDismiss = { showUnverifiedNotice = false })
             }
 
             // A scanned receipt rides along as the expense's attachment — tell the user it'll be saved.
@@ -538,6 +520,7 @@ internal fun ScanErrorSheet(
         ScanErrorKind.NoReceiptFound -> EvIcons.Receipt
         ScanErrorKind.Unavailable -> EvIcons.Info
         ScanErrorKind.Error -> EvIcons.Alert
+        ScanErrorKind.Blocked -> EvIcons.Info
     }
     val tint = when (kind) {
         ScanErrorKind.Offline -> c.warning
@@ -549,12 +532,14 @@ internal fun ScanErrorSheet(
         ScanErrorKind.NoReceiptFound -> "Couldn't read it"
         ScanErrorKind.Unavailable -> "Scanning isn't available"
         ScanErrorKind.Error -> "Something went wrong"
+        ScanErrorKind.Blocked -> "Too many scans"
     }
     val body = when (kind) {
         ScanErrorKind.Offline -> "Scanning needs a connection. You can still type the bill in now."
         ScanErrorKind.NoReceiptFound -> "No items found. The photo may be blurry or not a receipt."
         ScanErrorKind.Unavailable -> "Receipt scanning isn't set up here. Add the bill by hand."
         ScanErrorKind.Error -> "The scan failed. Give it another try, or type it in."
+        ScanErrorKind.Blocked -> "You've hit the scan limit for now. Try again in a bit, or type it in."
     }
     EvSheetScaffold(onDismiss = onManual) {
         Box(

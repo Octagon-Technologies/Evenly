@@ -14,6 +14,8 @@ import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
+import app.splitevenly.platform.AnalyticsEvents
+import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.domain.activity.HistoryEvent
 import app.splitevenly.domain.activity.HistoryEventType
@@ -62,14 +64,17 @@ import app.splitevenly.ui.screen.expense.PickedReceiptUi
 import app.splitevenly.ui.screen.expense.ReceiptUi
 import app.splitevenly.ui.screen.expense.ReceiptUploadUi
 import app.splitevenly.ui.components.moneySubunits
+import app.splitevenly.ui.screen.expense.SplitApproach
 import app.splitevenly.ui.screen.expense.SplitMode
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.ScanErrorKind
 import app.splitevenly.ui.screen.bill.ScanPageUi
 import app.splitevenly.ui.screen.bill.ScanUiState
+import app.splitevenly.ui.screen.bill.analyticsKind
 import app.splitevenly.ui.screen.bill.editBillItemUi
 import app.splitevenly.ui.screen.bill.priceToSubunits
+import app.splitevenly.ui.screen.bill.scanEditStats
 import app.splitevenly.ui.screen.group.GroupHomeScreen
 import app.splitevenly.ui.screen.group.buildGroupExpenses
 import app.splitevenly.ui.screen.settle.appLabel
@@ -100,6 +105,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     // and when it's null we hide the receipt strip entirely rather than offer an attach that goes nowhere.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
+    val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
@@ -115,6 +121,10 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var billReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
+    // Scan-funnel analytics bookkeeping: the source of the in-flight scan (for scan_started/scan_cancelled)
+    // and its start time (for duration_ms). Neither is user-facing state, just event properties.
+    var scanSource by remember { mutableStateOf<PickSource?>(null) }
+    var scanStartedAt by remember { mutableStateOf(0L) }
     // The group's most recent expense — its participant set seeds a *new* expense's default selection
     // (whoever was actually there last time, not the whole group). null = the flow hasn't emitted yet.
     val recentExpenses by remember(gid) { expenses.observeExpensesWithShares(gid) }.collectAsStateWithLifecycle(null)
@@ -127,22 +137,62 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     val currency = group?.baseCurrency ?: "USD"
     val lastExpenseParticipantIds: Set<String> = recentExpenses?.firstOrNull()?.shares?.mapTo(HashSet()) { it.userId.value } ?: emptySet()
 
-    fun runScan(files: List<PickedFile>) {
+    fun runScan(files: List<PickedFile>, source: PickSource) {
         if (files.isEmpty()) return
         scanFiles = files
+        scanSource = source
+        scanStartedAt = Clock.System.nowEpochMillis()
         scanState = ScanUiState.Working(files.map { ScanPageUi(it.mimeType.contains("pdf", ignoreCase = true)) })
+        analytics?.capture(
+            AnalyticsEvents.SCAN_STARTED,
+            mapOf("page_count" to files.size, "source" to source.name.lowercase(), "group_id" to gid.value),
+        )
         scanJob = scope.launch {
             val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
-            scanState = when (val outcome = ocr.extract(ocrFiles)) {
+            val outcome = ocr.extract(ocrFiles, groupId = gid.value)
+            val durationMs = Clock.System.nowEpochMillis() - scanStartedAt
+            scanState = when (outcome) {
                 is ScanOutcome.Success -> {
                     scanned = outcome.draft.toAddEditState()
                     billReceipts = files
+                    analytics?.capture(
+                        AnalyticsEvents.SCAN_COMPLETED,
+                        buildMap {
+                            put("page_count", files.size)
+                            put("item_count", outcome.draft.items.size)
+                            put("duration_ms", durationMs)
+                            put("group_id", gid.value)
+                            outcome.scanId?.let { put("scan_id", it) }
+                        },
+                    )
                     ScanUiState.Idle
                 }
-                ScanOutcome.NoReceiptFound -> ScanUiState.Failed(ScanErrorKind.NoReceiptFound)
-                ScanOutcome.Offline -> ScanUiState.Failed(ScanErrorKind.Offline)
-                ScanOutcome.Unavailable -> ScanUiState.Failed(ScanErrorKind.Unavailable)
-                is ScanOutcome.Failed -> ScanUiState.Failed(ScanErrorKind.Error)
+                is ScanOutcome.Blocked -> {
+                    analytics?.capture(
+                        AnalyticsEvents.SCAN_BLOCKED,
+                        mapOf("reason" to outcome.reason, "group_id" to gid.value),
+                    )
+                    ScanUiState.Failed(ScanErrorKind.Blocked)
+                }
+                else -> {
+                    val kind = when (outcome) {
+                        ScanOutcome.NoReceiptFound -> ScanErrorKind.NoReceiptFound
+                        ScanOutcome.Offline -> ScanErrorKind.Offline
+                        ScanOutcome.Unavailable -> ScanErrorKind.Unavailable
+                        is ScanOutcome.Failed -> ScanErrorKind.Error
+                        is ScanOutcome.Success, is ScanOutcome.Blocked -> ScanErrorKind.Error
+                    }
+                    analytics?.capture(
+                        AnalyticsEvents.SCAN_FAILED,
+                        mapOf(
+                            "kind" to kind.analyticsKind(),
+                            "page_count" to files.size,
+                            "duration_ms" to durationMs,
+                            "group_id" to gid.value,
+                        ),
+                    )
+                    ScanUiState.Failed(kind)
+                }
             }
         }
     }
@@ -160,14 +210,38 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
         attachedReceiptCount = billReceipts.size,
         onBack = onBack,
         onScanReceipt = { source ->
+            // Fires before any cost is incurred — even if the user backs out of the file picker next.
+            analytics?.capture(
+                AnalyticsEvents.SCAN_SOURCE_CHOSEN,
+                mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
+            )
             scope.launch {
                 val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                runScan((picked as? AppResult.Ok)?.value.orEmpty())
+                runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
             }
         },
-        onCancelScan = { scanJob?.cancel(); scanState = ScanUiState.Idle },
-        onRetryScan = { runScan(scanFiles) },
+        onCancelScan = {
+            if (scanState is ScanUiState.Working) {
+                analytics?.capture(
+                    AnalyticsEvents.SCAN_CANCELLED,
+                    mapOf(
+                        "page_count" to scanFiles.size,
+                        "duration_ms" to (Clock.System.nowEpochMillis() - scanStartedAt),
+                        "group_id" to gid.value,
+                    ),
+                )
+            }
+            scanJob?.cancel()
+            scanState = ScanUiState.Idle
+        },
+        onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
         onDismissScan = { scanState = ScanUiState.Idle },
+        onSplitApproachChosen = { approach ->
+            analytics?.capture(
+                AnalyticsEvents.SPLIT_APPROACH_CHOSEN,
+                mapOf("approach" to if (approach == SplitApproach.ByItem) "by_item" else "divide"),
+            )
+        },
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
         onPickReceipt = { source ->
             scope.launch {
@@ -244,6 +318,14 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
                     is AppResult.Ok -> {
                         // The scanned pages ride along as the bill's receipt (background upload).
                         if (billReceipts.isNotEmpty()) uploadManager?.enqueue(result.value, gid, billReceipts)
+                        // The trust metric: how much of the OCR draft survived to what actually got saved.
+                        scanned?.let { s ->
+                            val (changed, total) = scanEditStats(s.items, submit.items)
+                            analytics?.capture(
+                                AnalyticsEvents.SCAN_RESULT_EDITED,
+                                mapOf("items_changed" to changed, "items_total" to total, "group_id" to gid.value),
+                            )
+                        }
                         onCreatedBill(result.value.value)
                     }
                     is AppResult.Err -> saving = false
