@@ -163,7 +163,7 @@ class SyncManager(
             "users", "groups", "members", "expenses", "shares",
             "settlements", "settlement_allocations", "conflicts", "expense_edit_conflicts",
             "comments", "receipts", "categories", "expense_history", "expense_items", "item_claims",
-            "item_shares", "bill_participants",
+            "item_shares", "bill_participants", "placeholder_claim_answers",
         )
     }
 }

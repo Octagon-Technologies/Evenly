@@ -8,6 +8,8 @@ import app.splitevenly.data.remote.supabase.ReceiptStorage
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
 import app.splitevenly.data.remote.supabase.SupabaseConfig
 import app.splitevenly.data.remote.supabase.SupabaseReceiptStorage
+import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
+import app.splitevenly.data.remote.supabase.SupabasePlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.SupabaseRemoteGroupGateway
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
@@ -60,6 +62,9 @@ val authModule = module {
         }
         // Server-side invite-token resolution for cross-device join (F7).
         single<RemoteGroupGateway> { SupabaseRemoteGroupGateway(get<SupabaseClient>(), get<EvenlyDatabase>()) }
+        // First-claim-wins guard for "Is this you?". Unbound in the offline build, where there is no
+        // server to contend with and a claim simply applies.
+        single<PlaceholderClaimGateway> { SupabasePlaceholderClaimGateway(get<SupabaseClient>()) }
     } else {
         single<AuthSession> { StubAuthSession(get()) }
     }

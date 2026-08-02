@@ -19,6 +19,9 @@ import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.repository.BillRepository
+import app.splitevenly.data.claim.PlaceholderClaimCoordinator
+import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
+import app.splitevenly.platform.AppForeground
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
@@ -78,6 +81,16 @@ val dataModule: Module = module {
     single<BillRepository> { BillRepositoryImpl(get(), get(), get(), get(), get(), get(), historyEventDao = get(), analytics = getOrNull<EvAnalytics>()) }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get(), analytics = getOrNull<EvAnalytics>()) }
     single<FxRepository> { FxRepositoryImpl(get(), get(), get()) }
+    // "Is this you?" claims: schedules the merge behind a 5-second undo window and runs the
+    // first-claim-wins guard before writing anything. A single, because it has to outlive the screen
+    // that started it (backgrounding flushes a pending claim).
+    single {
+        PlaceholderClaimCoordinator(
+            groups = get(),
+            gateway = getOrNull<PlaceholderClaimGateway>(),
+            appForeground = get<AppForeground>(),
+        )
+    }
     single<ProfileRepository> { ProfileRepositoryImpl(get(), get()) }
     // Per-group categories with copy-on-write defaults (the Edit-categories screen + the expense picker).
     single<CategoryRepository> { CategoryRepositoryImpl(get()) }
