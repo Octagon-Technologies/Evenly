@@ -148,15 +148,18 @@ private fun ListShape(
 ) {
     val c = EvenlyTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // A statement, not a question: it can be understood without being answered, which is what a
+        // first-timer needs before they know what any of this is. The title says what happened, the
+        // description says what to do about it.
         Text(
-            "Were you here before you joined?",
+            "Someone may have added you already",
             color = c.ink,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = (-0.3).sp,
         )
         Text(
-            "These names have expenses but no account. If one is you, claim it so the history lands on your balance.",
+            "Before you joined, the group tracked expenses under these names. If one is you, claim it so that history counts as yours.",
             color = c.ink2,
             style = MaterialTheme.typography.bodyMedium,
             lineHeight = 20.sp,
