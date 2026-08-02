@@ -37,6 +37,7 @@ import app.splitevenly.domain.fx.rateOrNull
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.newId
+import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -217,7 +218,10 @@ class ExpenseRepositoryImpl(
         )
         expenseDao.insertWithShares(expense, shares)
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
-        analytics?.capture("expense_added", mapOf("split_mode" to input.splitMode))
+        analytics?.capture(
+            AnalyticsEvents.EXPENSE_ADDED,
+            mapOf("split_mode" to input.splitMode, "group_id" to input.groupId.value),
+        )
         return expense.toDomain().asOk()
     }
 
@@ -270,7 +274,7 @@ class ExpenseRepositoryImpl(
         )
         expenseDao.replaceWithShares(updated, shares, removedShareIds, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
-        analytics?.capture("expense_edited")
+        analytics?.capture(AnalyticsEvents.EXPENSE_EDITED, mapOf("group_id" to existing.groupId))
         return updated.toDomain().asOk()
     }
 
@@ -280,7 +284,7 @@ class ExpenseRepositoryImpl(
         val now = clock.nowEpochMillis()
         expenseDao.softDelete(expenseId.value, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.DELETED, actorUserId = null, now)
-        analytics?.capture("expense_deleted")
+        analytics?.capture(AnalyticsEvents.EXPENSE_DELETED, mapOf("group_id" to existing.groupId))
         return AppResult.Ok(Unit)
     }
 

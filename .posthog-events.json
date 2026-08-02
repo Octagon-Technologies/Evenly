@@ -16,47 +16,97 @@
   },
   {
     "event_name": "group_created",
-    "event_description": "Fires when a user creates a new expense-splitting group.",
+    "event_description": "Fires when a user creates a new expense-splitting group. Properties: group_id, member_count (always 1 at creation).",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "group_joined",
-    "event_description": "Fires when a user joins an existing group via invite link or token.",
+    "event_description": "Fires when a user joins an existing group via invite link or token. Properties: group_id.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "group_left",
-    "event_description": "Fires when a user leaves a group they belong to.",
+    "event_description": "Fires when a user leaves a group they belong to. Properties: group_id.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "placeholder_added",
-    "event_description": "Fires when a user adds a non-app member (placeholder) to a group, indicating proxy assignment.",
+    "event_description": "Fires when a user adds a non-app member (placeholder) to a group, indicating proxy assignment. Properties: group_id.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
+  },
+  {
+    "event_name": "placeholder_not_me",
+    "event_description": "Fires when a user answers 'not me' on the unclaimed-name identity prompt. Properties: group_id.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
+  },
+  {
+    "event_name": "group_snapshot",
+    "event_description": "Occasional (once per group per app session) snapshot of a group's shape, since the PostHog wrapper's group() associates only one current group per user and doesn't fit a member belonging to many groups. Properties: group_id, member_count, expense_count, age_days.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "expense_added",
-    "event_description": "Fires when a user adds a new expense to a group, with split_mode as a property.",
+    "event_description": "Fires when a user adds a new expense to a group. Properties: split_mode, group_id.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/ExpenseRepositoryImpl.kt"
   },
   {
     "event_name": "expense_edited",
-    "event_description": "Fires when a user edits an existing expense, indicating engagement depth.",
+    "event_description": "Fires when a user edits an existing expense, indicating engagement depth. Properties: group_id.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/ExpenseRepositoryImpl.kt"
   },
   {
     "event_name": "expense_deleted",
-    "event_description": "Fires when a user deletes an expense, a potential churn or correction signal.",
+    "event_description": "Fires when a user deletes an expense, a potential churn or correction signal. Properties: group_id.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/ExpenseRepositoryImpl.kt"
   },
   {
     "event_name": "settlement_applied",
-    "event_description": "Fires when a user records a payment to settle outstanding balances, the core value-delivery moment.",
+    "event_description": "Fires when a user records a payment to settle outstanding balances, the core value-delivery moment. Properties: group_id.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/SettlementRepositoryImpl.kt"
   },
   {
     "event_name": "bill_created",
-    "event_description": "Fires when a user creates an itemized bill (split-the-bill feature), measuring AI/itemized feature adoption.",
+    "event_description": "Fires when a user creates an itemized bill (split-the-bill feature), measuring AI/itemized feature adoption. Properties: item_count, group_id.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/BillRepositoryImpl.kt"
+  },
+  {
+    "event_name": "split_approach_chosen",
+    "event_description": "Fires when the user answers the up-front 'how are you splitting this?' question. Properties: approach (divide | by_item). The cheapest signal for how much anyone wants the itemized/scan feature.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/screen/expense/AddExpenseScreen.kt"
+  },
+  {
+    "event_name": "scan_source_chosen",
+    "event_description": "Fires at the receipt-source picker, before any cost is incurred. Properties: source (photos | files | camera), group_id. The gap between this and scan_started is the 'changed my mind at the picker' rate.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
+  },
+  {
+    "event_name": "scan_started",
+    "event_description": "Fires when the picked file(s) are handed to the OCR call. Properties: page_count, source, group_id.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
+  },
+  {
+    "event_name": "scan_completed",
+    "event_description": "Fires when OCR returns a usable draft. Properties: page_count, item_count, duration_ms, group_id, scan_id (when the server provides one).",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
+  },
+  {
+    "event_name": "scan_failed",
+    "event_description": "Fires when OCR ends without a usable draft (offline, no receipt found, not configured, or a network/server error). Properties: kind, page_count, duration_ms, group_id, scan_id (when present).",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
+  },
+  {
+    "event_name": "scan_cancelled",
+    "event_description": "Fires when the user cancels a scan mid-flight. Money spent (the round-trip may already be in progress), value zero. Properties: page_count, duration_ms, group_id.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
+  },
+  {
+    "event_name": "scan_blocked",
+    "event_description": "Fires when the server turns a scan away before attempting it (429 per-user rate limit today). Properties: reason, group_id.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
+  },
+  {
+    "event_name": "scan_result_edited",
+    "event_description": "Fires when a scanned bill is saved. Properties: items_changed, items_total, group_id. The trust metric: a scan where every line was corrected is a scan that did not work, regardless of the success rate.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
   }
 ]

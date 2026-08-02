@@ -12,6 +12,7 @@ import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.OAuthProvider
+import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.EvAnalytics
 import io.github.jan.supabase.SupabaseClient
@@ -154,7 +155,7 @@ class SupabaseAuthSession(
     }
 
     override fun signOut() {
-        analytics?.capture("user_signed_out")
+        analytics?.capture(AnalyticsEvents.USER_SIGNED_OUT)
         analytics?.reset()
         scope.launch { client.auth.signOut() }
         _currentUserId.value = null
@@ -171,7 +172,7 @@ class SupabaseAuthSession(
         _currentUserId.value = null
         return server.fold(
             onSuccess = {
-                analytics?.capture("account_deleted")
+                analytics?.capture(AnalyticsEvents.ACCOUNT_DELETED)
                 analytics?.reset()
                 AppResult.Ok(Unit)
             },
@@ -224,7 +225,7 @@ class SupabaseAuthSession(
         }
         _currentUserId.value = UserId(user.id)
         analytics?.identify(user.id)
-        if (wasSignedOut) analytics?.capture("user_signed_in")
+        if (wasSignedOut) analytics?.capture(AnalyticsEvents.USER_SIGNED_IN)
         scope.launch { syncEngine?.syncNow(user.id) }
     }
 

@@ -22,6 +22,7 @@ import app.splitevenly.domain.settlement.SettlementRecord
 import app.splitevenly.domain.settlement.ShareBalance
 import app.splitevenly.domain.settlement.allocateSameCurrency
 import app.splitevenly.newId
+import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -76,7 +77,7 @@ class SettlementRepositoryImpl(
                         )
                     }
                 }
-                analytics?.capture("settlement_applied")
+                analytics?.capture(AnalyticsEvents.SETTLEMENT_APPLIED, mapOf("group_id" to input.groupId.value))
                 write.value.record.asOk()
             }
         }

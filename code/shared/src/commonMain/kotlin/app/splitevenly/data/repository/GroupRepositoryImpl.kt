@@ -36,10 +36,12 @@ import app.splitevenly.domain.group.determineNextAdmin
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.newId
+import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
@@ -101,7 +103,7 @@ class GroupRepositoryImpl(
                 updatedAt = now,
             ),
         )
-        analytics?.capture("placeholder_added")
+        analytics?.capture(AnalyticsEvents.PLACEHOLDER_ADDED, mapOf("group_id" to groupId.value))
         return Member(UserId(userId), displayName = trimmed, isPlaceholder = true, isAdmin = false, joinedAt = now).asOk()
     }
 
@@ -114,8 +116,31 @@ class GroupRepositoryImpl(
     override suspend fun findGroupByToken(token: String): Group? =
         (groupDao.findByInviteToken(token.trim()) ?: remoteGroups?.resolveByToken(token.trim()))?.toDomain()
 
+    // Device-local per-process dedup so a group visited across many screens in one session only snapshots
+    // once. Fallback for group-level analysis (F-1 §3): the PostHog wrapper's group() associates only ONE
+    // "current group" globally on the singleton, which doesn't fit a user belonging to several groups at
+    // once — a plain group_id property per event plus this occasional snapshot avoids that mismatch.
+    private val snapshotSentForGroup = mutableSetOf<String>()
+
     override fun observeGroup(groupId: GroupId): Flow<Group?> =
-        groupDao.observeById(groupId.value).map { it?.toDomain() }
+        groupDao.observeById(groupId.value).map { it?.toDomain() }.onStart { maybeSnapshotGroup(groupId) }
+
+    private suspend fun maybeSnapshotGroup(groupId: GroupId) {
+        if (!snapshotSentForGroup.add(groupId.value)) return
+        val group = groupDao.getById(groupId.value) ?: return
+        val memberCount = memberDao.countActiveMembers(groupId.value)
+        val expenseCount = expenseDao.getActiveByGroup(groupId.value).size
+        val ageDays = ((clock.nowEpochMillis() - group.createdAt) / 86_400_000L).toInt()
+        analytics?.capture(
+            AnalyticsEvents.GROUP_SNAPSHOT,
+            mapOf(
+                "group_id" to groupId.value,
+                "member_count" to memberCount,
+                "expense_count" to expenseCount,
+                "age_days" to ageDays,
+            ),
+        )
+    }
 
     override fun observeMembers(groupId: GroupId): Flow<List<Member>> =
         memberDao.observeActiveMembersWithUser(groupId.value).map { rows -> rows.map { it.toDomain() } }
@@ -152,7 +177,8 @@ class GroupRepositoryImpl(
             updatedAt = now,
         )
         groupDao.createGroupWithAdmin(group, admin)
-        analytics?.capture("group_created")
+        // A freshly created group always has exactly one member: the creator/admin row above.
+        analytics?.capture(AnalyticsEvents.GROUP_CREATED, mapOf("group_id" to groupId, "member_count" to 1))
         return group.toDomain().asOk()
     }
 
@@ -190,7 +216,7 @@ class GroupRepositoryImpl(
                 reconcilePlaceholder(GroupId(group.id), claimPlaceholderId, userId)
             }
         }
-        analytics?.capture("group_joined")
+        analytics?.capture(AnalyticsEvents.GROUP_JOINED, mapOf("group_id" to group.id))
         return group.toDomain().asOk()
     }
 
@@ -212,7 +238,7 @@ class GroupRepositoryImpl(
                 newAdminMemberId = null,
                 ts = now,
             )
-            analytics?.capture("group_left")
+            analytics?.capture(AnalyticsEvents.GROUP_LEFT, mapOf("group_id" to groupId.value))
             return AppResult.Ok(Unit)
         }
 
@@ -231,7 +257,7 @@ class GroupRepositoryImpl(
             newAdminMemberId = nextAdminMember?.id,
             ts = now,
         )
-        analytics?.capture("group_left")
+        analytics?.capture(AnalyticsEvents.GROUP_LEFT, mapOf("group_id" to groupId.value))
         return AppResult.Ok(Unit)
     }
 
@@ -316,7 +342,7 @@ class GroupRepositoryImpl(
                 )
             },
         )
-        analytics?.capture("placeholder_not_me")
+        analytics?.capture(AnalyticsEvents.PLACEHOLDER_NOT_ME, mapOf("group_id" to groupId.value))
         return AppResult.Ok(Unit)
     }
 

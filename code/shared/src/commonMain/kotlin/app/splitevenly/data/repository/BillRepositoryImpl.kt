@@ -42,6 +42,7 @@ import app.splitevenly.domain.expense.perUnitSubunits
 import app.splitevenly.domain.expense.splitBill
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.newId
+import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -194,7 +195,10 @@ class BillRepositoryImpl(
         if (participants.isNotEmpty()) billParticipantDao.upsertAll(participants)
         materializeShares(expense, now) // no claims yet → no shares; tab fills in as people claim
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
-        analytics?.capture("bill_created", mapOf("item_count" to items.size))
+        analytics?.capture(
+            AnalyticsEvents.BILL_CREATED,
+            mapOf("item_count" to items.size, "group_id" to input.groupId.value),
+        )
         return ExpenseId(expenseId).asOk()
     }
 

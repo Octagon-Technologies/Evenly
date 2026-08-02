@@ -34,13 +34,14 @@ fun setupAnalytics(context: PostHogContext, debug: Boolean) {
             debug = debug,
             captureApplicationLifecycleEvents = true,
             captureScreenViews = true,
-            // Autocapture + session replay: TEMPORARY default masking (maskAllTextInputs=true only —
-            // library default). Static Text showing dollar amounts/names is NOT masked by this. Owner
-            // is reviewing a real replay before deciding on stricter masking (maskAllText/maskAllImages) —
-            // don't treat this config as final, and don't ship a release build with replay on until that
-            // review happens.
             autocapture = true,
-            sessionRecording = SessionRecordingConfig(enabled = true),
+            // Session recording is OFF: this wrapper's SessionRecordingConfig only masks text INPUTS
+            // (maskAllTextInputs) and images (maskAllImages) — there is no "mask all static text" option,
+            // so a replay would show every rendered balance, expense title, and member name in the clear
+            // on an app whose whole purpose is displaying people's money and who they owe. Re-enable only
+            // once there's a way to mask the specific Composables that render money/names (e.g. a
+            // per-element replay-mask modifier), not as a blanket default.
+            sessionRecording = SessionRecordingConfig(enabled = false),
         ),
         context = context,
     )
