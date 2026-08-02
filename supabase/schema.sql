@@ -1207,6 +1207,13 @@ create trigger bump_activity_upd after update on public.pending_item_edits
 -- so it protects the app path without breaking the service-role path; RLS is already fully
 -- permissive for authenticated today (this file's RLS section above), so this isn't loosening
 -- anything that wasn't already open.
+-- Generalized in step 2 (WEB_CLAIM_SPEC.md §11): the app's join gesture names its shared portion
+-- "<item>__all" by convention (BillRepositoryImpl.setPortion), but the original version only let a
+-- caller join a NAMED portion that already existed, forcing every fresh conversion onto an
+-- auto-generated id instead. Now, if p_portion_id names a portion that isn't live yet, the
+-- conversion-or-fresh-portion logic creates it under THAT id rather than inventing one, so the app's
+-- own naming convention survives a join. Also returns 'quantity' so the client doesn't need a second
+-- round trip to mirror the portion locally.
 create or replace function public.join_item_portion(
   p_item_id text,
   p_joiner_user_id text,
@@ -1226,10 +1233,12 @@ declare
   v_assigned int;
   v_portion_id text := p_portion_id;
   v_portion_quantity int;
+  v_portion_exists boolean;
   v_target_claim public.item_claims%rowtype;
   v_target_count int;
   v_share_id text;
   v_members text[];
+  v_added_new_unit boolean := false;
 begin
   if v_uid is not null and v_uid is distinct from p_joiner_user_id then
     raise exception 'join_item_portion: caller may only join as themselves';
@@ -1258,7 +1267,9 @@ begin
   ) then
     select array_agg(user_id) into v_members from public.item_shares
       where item_id = p_item_id and portion_id = v_portion_id and deleted_at is null;
-    return jsonb_build_object('ok', true, 'portion_id', v_portion_id, 'members', to_jsonb(v_members));
+    select quantity into v_portion_quantity from public.item_shares
+      where item_id = p_item_id and portion_id = v_portion_id and deleted_at is null limit 1;
+    return jsonb_build_object('ok', true, 'portion_id', v_portion_id, 'quantity', v_portion_quantity, 'members', to_jsonb(v_members));
   end if;
 
   -- Units currently assigned = solo claims + one count per distinct active portion (never per member).
@@ -1273,23 +1284,26 @@ begin
     ) x
   ), 0);
 
-  if v_portion_id is not null then
-    -- Joining a NAMED existing portion doesn't change the unit count it already holds.
+  v_portion_exists := v_portion_id is not null and exists (
+    select 1 from public.item_shares s
+    where s.item_id = p_item_id and s.portion_id = v_portion_id and s.deleted_at is null
+  );
+
+  if v_portion_exists then
+    -- Joining a portion that's already live doesn't change the unit count it holds.
     select quantity into v_portion_quantity from public.item_shares
       where item_id = p_item_id and portion_id = v_portion_id and deleted_at is null
       order by created_at limit 1;
-    if not found then
-      raise exception 'join_item_portion: portion not found';
-    end if;
   else
-    -- No portion named: convert the line's one solo claim into a shared portion (spec §5.3.2), or
-    -- start a fresh single-member portion if the line has no solo claim to join (spec §5.3.3). A
-    -- line with MORE THAN ONE active solo claim is ambiguous from these three arguments alone — the
-    -- caller must resolve it to a specific portion_id instead of guessing which claimer to merge with.
+    -- No LIVE portion under this id — whether the caller named one that doesn't exist yet (the app's
+    -- fixed "<item>__all" convention) or passed none at all: convert the line's one solo claim into a
+    -- shared portion under [v_portion_id] (naming a fresh one only if the caller didn't), or start a
+    -- fresh single-member portion if there's no solo claim to convert. A line with MORE THAN ONE active
+    -- solo claim is ambiguous from these arguments alone — the caller must resolve it explicitly.
     select count(*) into v_target_count from public.item_claims
       where item_id = p_item_id and deleted_at is null and user_id <> p_joiner_user_id;
     if v_target_count > 1 then
-      raise exception 'join_item_portion: ambiguous target — pass an explicit portion_id';
+      raise exception 'join_item_portion: ambiguous target — pass an explicit, already-live portion_id';
     end if;
 
     select * into v_target_claim from public.item_claims
@@ -1297,7 +1311,9 @@ begin
       limit 1;
 
     if found then
-      v_portion_id := p_item_id || '__joined_' || v_target_claim.user_id;
+      if v_portion_id is null then
+        v_portion_id := p_item_id || '__joined_' || v_target_claim.user_id;
+      end if;
       v_portion_quantity := v_target_claim.quantity;
       update public.item_claims set
         deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
@@ -1309,16 +1325,15 @@ begin
          v_group_id, v_target_claim.user_id, v_portion_id, v_portion_quantity, p_joiner_user_id, p_now, p_now)
       on conflict (id) do update set deleted_at = null, updated_at = p_now, row_version = item_shares.row_version + 1;
     else
-      v_portion_id := p_item_id || '__solo_' || p_joiner_user_id;
+      if v_portion_id is null then
+        v_portion_id := p_item_id || '__solo_' || p_joiner_user_id;
+      end if;
       v_portion_quantity := 1;
+      v_added_new_unit := true;
     end if;
   end if;
 
-  -- Only the fresh "solo portion of one" branch adds a new unit — joining a named portion or
-  -- converting an existing solo claim into a shared one redistributes units that were already
-  -- assigned, so neither can push the line over its quantity.
-  if not p_over_claim_ack and v_target_claim.id is null and v_portion_id = p_item_id || '__solo_' || p_joiner_user_id
-     and v_assigned + 1 > v_line_quantity then
+  if not p_over_claim_ack and v_added_new_unit and v_assigned + 1 > v_line_quantity then
     raise exception using
       errcode = 'P0001',
       message = 'OVERCLAIMED',
@@ -1336,17 +1351,16 @@ begin
   select array_agg(user_id) into v_members from public.item_shares
     where item_id = p_item_id and portion_id = v_portion_id and deleted_at is null;
 
-  return jsonb_build_object('ok', true, 'portion_id', v_portion_id, 'members', to_jsonb(v_members));
+  return jsonb_build_object('ok', true, 'portion_id', v_portion_id, 'quantity', v_portion_quantity, 'members', to_jsonb(v_members));
 end;
 $$;
-revoke all on function public.join_item_portion(text, text, text, bigint, boolean) from public;
+revoke all on function public.join_item_portion(text, text, text, bigint, boolean) from public, anon;
 grant execute on function public.join_item_portion(text, text, text, bigint, boolean) to authenticated;
 -- Supabase grants EXECUTE to anon/authenticated by default at function-creation time, independent of
 -- `revoke ... from public`. join_item_portion must never be callable by the anon role (spec §4.1) —
 -- only the app (authenticated) and the web-claim edge function's service key (which bypasses grants
 -- entirely). Confirmed via get_advisors (`anon_security_definer_function_executable`) that the plain
 -- `revoke ... from public` above does NOT strip this — the explicit revoke below is required.
-revoke all on function public.join_item_portion(text, text, text, bigint, boolean) from anon;
 
 -- First-claim-wins for "That's me" on the web evidence list (spec §5.4, mirroring claim_placeholder).
 -- Called ONLY by the web-claim edge function's service key — never granted to anon/authenticated,

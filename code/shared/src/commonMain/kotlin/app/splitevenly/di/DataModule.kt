@@ -22,6 +22,7 @@ import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
+import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.FxRepository
@@ -79,7 +80,14 @@ val dataModule: Module = module {
     // and the history DAO so create/edit/delete append to the activity log (F5).
     single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get(), editConflictDao = get(), supersededNoticeDao = get(), analytics = getOrNull<EvAnalytics>()) }
     // "Split the bill" (itemized): items + claims + extras → derived shares (deterministic ids).
-    single<BillRepository> { BillRepositoryImpl(get(), get(), get(), get(), get(), get(), historyEventDao = get(), analytics = getOrNull<EvAnalytics>()) }
+    single<BillRepository> {
+        BillRepositoryImpl(
+            get(), get(), get(), get(), get(), get(),
+            historyEventDao = get(),
+            analytics = getOrNull<EvAnalytics>(),
+            joinItemGateway = getOrNull<JoinItemPortionGateway>(),
+        )
+    }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get(), analytics = getOrNull<EvAnalytics>()) }
     single<FxRepository> { FxRepositoryImpl(get(), get(), get()) }
     // "Is this you?" claims: schedules the merge behind a 5-second undo window and runs the

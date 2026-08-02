@@ -142,6 +142,17 @@ claiming ≠ paying.
 
 Don't reintroduce stored itemized share input, a stored per-unit truth, or a blind items/shares push.
 
+**Joining someone else's claim goes through `join_item_portion`, never a local cross-user write.**
+`BillRepository.joinItem` calls the atomic server RPC (`JoinItemPortionGateway`, bound only when
+Supabase is configured — same optional-ctor-dep pattern as `PlaceholderClaimGateway`) and mirrors its
+canonical `{portion_id, quantity, members}` result into Room, including retiring any local solo
+`item_claims` row for a member the server just folded into the portion. `setPortion` calls the same
+gateway internally whenever a newly-added target already holds an active solo claim held by someone
+else — writing that person's `item_claims` tombstone from this device would violate the "claims are
+partitioned by user" invariant above. A fresh assignment with no colliding solo claim still writes
+locally, same as before; there's nothing to race against. No gateway (offline/stub/tests) means that
+specific add is skipped rather than risking a half-converted claim (WEB_CLAIM_SPEC.md §5.3).
+
 ## Placeholders, members, and names
 
 A placeholder is a `users` row (`is_placeholder=1` + `placeholder_group_id`) **plus** a `members` row —

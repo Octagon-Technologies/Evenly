@@ -51,8 +51,8 @@ merged rows — a loser then reverses rows no other client has pulled. Don't mov
 
 ## Web claim (`WEB_CLAIM_SPEC.md`) — step 1 landed
 
-Three new tables and two new RPCs, additive per the spec's §11 build order. Nothing in `code/` reads
-them yet — that's steps 2–6.
+Three new tables and two new RPCs, additive per the spec's §11 build order. Step 2 (`BillRepository
+.joinItem` + a `setPortion` fix) is the only one wired into `code/` so far — the rest lands in steps 3–6.
 
 - **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
   policies: only the (not-yet-built) `web-claim` edge function's service key ever touches it.
@@ -66,7 +66,11 @@ them yet — that's steps 2–6.
   client can never safely make itself: converting someone else's solo `item_claims` row into a shared
   `item_shares` portion. `security definer`; the caller-identity check only fires when `auth.uid()` is
   present, since this is called from both the app (real auth) and the edge function (service key, no
-  JWT). Granted to `authenticated` (also fixes a live invariant gap in `BillClaimScreen` per step 2).
+  JWT). Granted to `authenticated`; wired into the app in step 2 (`BillRepository.joinItem` +
+  `BillRepositoryImpl.setPortion`), closing a live double-counting bug where adding someone to the
+  app's fixed `"<item>__all"` shared portion never retired their pre-existing solo claim. `p_portion_id`
+  may name a portion that isn't live yet (the app's own naming convention) — the RPC creates it under
+  that exact id via the same conversion-or-fresh-portion path used when no name is given at all.
 - **`claim_web_placeholder(group_id, placeholder_user_id, session_id, now)`** — "first wins" for a web
   guest's "That's me", but unlike `claim_placeholder` it's a **5-second race window**, not a permanent
   lock: a guest may legitimately re-claim the same placeholder from a second device long after the

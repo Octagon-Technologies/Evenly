@@ -80,6 +80,23 @@ interface BillRepository {
         addedBy: UserId,
     ): AppResult<Unit>
 
+    /**
+     * Join [joinerUserId] onto a line someone else already claimed — the one write a device cannot make
+     * itself, since it can mean converting ANOTHER person's solo claim into a shared portion, which the
+     * "claims are partitioned by user" invariant forbids doing locally (`join_item_portion`, spec §5.3).
+     * [portionId] names an existing (or about-to-exist) shared slice; omit it to join/convert the item's
+     * one solo claim, or start a fresh single-member portion if it has none. Requires a live server call —
+     * there is no offline path — and rejects with [app.splitevenly.core.error.AppError.Backend] (code
+     * `"OVERCLAIMED"`) if it would push assigned units past the line's quantity, unless [overClaimAck].
+     */
+    suspend fun joinItem(
+        expenseId: ExpenseId,
+        itemId: String,
+        joinerUserId: UserId,
+        portionId: String? = null,
+        overClaimAck: Boolean = false,
+    ): AppResult<Unit>
+
     /** Add or remove a participant from a bill (who it's *for*). */
     suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit>
 

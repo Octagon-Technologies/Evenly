@@ -10,6 +10,8 @@ import app.splitevenly.data.remote.supabase.SupabaseConfig
 import app.splitevenly.data.remote.supabase.SupabaseReceiptStorage
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.SupabasePlaceholderClaimGateway
+import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
+import app.splitevenly.data.remote.supabase.SupabaseJoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.SupabaseRemoteGroupGateway
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
@@ -65,6 +67,9 @@ val authModule = module {
         // First-claim-wins guard for "Is this you?". Unbound in the offline build, where there is no
         // server to contend with and a claim simply applies.
         single<PlaceholderClaimGateway> { SupabasePlaceholderClaimGateway(get<SupabaseClient>()) }
+        // Atomic solo-claim-to-shared-portion conversion (spec §5.3). Unbound offline: joining a line
+        // someone else already claimed is unavailable rather than risking a local cross-user write.
+        single<JoinItemPortionGateway> { SupabaseJoinItemPortionGateway(get<SupabaseClient>()) }
     } else {
         single<AuthSession> { StubAuthSession(get()) }
     }

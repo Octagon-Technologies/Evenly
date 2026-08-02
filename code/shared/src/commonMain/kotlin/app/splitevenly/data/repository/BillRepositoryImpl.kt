@@ -22,6 +22,8 @@ import app.splitevenly.data.db.entity.ExpenseItemEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
+import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
+import app.splitevenly.data.remote.supabase.JoinItemPortionOutcome
 import app.splitevenly.domain.activity.HistoryEventType
 import app.splitevenly.domain.expense.BillClaimView
 import app.splitevenly.domain.expense.BillExtrasInput
@@ -47,6 +49,7 @@ import app.splitevenly.platform.EvAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
@@ -77,6 +80,9 @@ class BillRepositoryImpl(
     private val historyEventDao: HistoryEventDao? = null,
     // Analytics: null in unit tests; production DI passes AndroidAnalytics.
     private val analytics: EvAnalytics? = null,
+    // The atomic server-side join RPC (spec §5.3). Null in unit tests / offline-stub builds => joining
+    // someone else's already-claimed line is unavailable rather than risking a local cross-user write.
+    private val joinItemGateway: JoinItemPortionGateway? = null,
 ) : BillRepository {
 
     // The bill's shares are a derived materialization of its items + claims + extras. The same derivation
@@ -396,6 +402,74 @@ class BillRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
+    /** See [BillRepository.joinItem]. */
+    override suspend fun joinItem(
+        expenseId: ExpenseId,
+        itemId: String,
+        joinerUserId: UserId,
+        portionId: String?,
+        overClaimAck: Boolean,
+    ): AppResult<Unit> {
+        val gateway = joinItemGateway ?: return AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable))
+        val expense = expenseDao.getById(expenseId.value)
+        if (expense == null || expense.deletedAt != null) {
+            return validationErr("expense", AppError.Validation.Reason.Required)
+        }
+        val now = clock.nowEpochMillis()
+        val outcome = try {
+            gateway.join(itemId, joinerUserId.value, portionId, now, overClaimAck)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val message = e.message.orEmpty()
+            return if ("OVERCLAIMED" in message) {
+                AppResult.Err(AppError.Backend(status = null, code = "OVERCLAIMED", detail = message))
+            } else {
+                AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, cause = e))
+            }
+        }
+        applyJoinOutcomeLocally(expense, itemId, outcome, now)
+        materializeShares(expense, now)
+        return AppResult.Ok(Unit)
+    }
+
+    /** Mirror [join_item_portion]'s canonical result into Room: the RPC is the single source of truth for
+     *  WHO ended up in the portion, so adopt its member list wholesale rather than recomputing locally —
+     *  and retire any local solo claim for a member the server just folded into the portion, since the
+     *  RPC already did that conversion server-side. */
+    private suspend fun applyJoinOutcomeLocally(
+        expense: ExpenseEntity,
+        itemId: String,
+        outcome: JoinItemPortionOutcome,
+        now: Long,
+    ) {
+        val existing = itemShareDao.getByExpense(expense.id)
+            .filter { it.itemId == itemId && it.portionId == outcome.portionId && it.deletedAt == null }
+        val toRemove = existing.filter { it.userId !in outcome.members }.map { it.id }
+        if (toRemove.isNotEmpty()) itemShareDao.softDeleteByIds(toRemove, now)
+        for (uid in outcome.members) {
+            if (existing.any { it.userId == uid }) continue
+            itemShareDao.upsert(
+                ItemShareEntity(
+                    id = shareId(itemId, uid, outcome.portionId),
+                    itemId = itemId,
+                    expenseId = expense.id,
+                    groupId = expense.groupId,
+                    userId = uid,
+                    portionId = outcome.portionId,
+                    quantity = outcome.quantity,
+                    addedBy = uid,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+        val staleClaims = itemClaimDao.getByExpense(expense.id)
+            .filter { it.itemId == itemId && it.deletedAt == null && it.userId in outcome.members }
+            .map { it.id }
+        if (staleClaims.isNotEmpty()) itemClaimDao.softDeleteByIds(staleClaims, now)
+    }
+
     override suspend fun setPortion(
         expenseId: ExpenseId,
         itemId: String,
@@ -411,6 +485,7 @@ class BillRepositoryImpl(
         val now = clock.nowEpochMillis()
         val targets = memberIds.mapTo(LinkedHashSet()) { it.value }
         val activeForItem = itemShareDao.getByExpense(expenseId.value).filter { it.itemId == itemId && it.deletedAt == null }
+        val activeClaimsForItem = itemClaimDao.getByExpense(expenseId.value).filter { it.itemId == itemId && it.deletedAt == null }
 
         // Empty set or non-positive quantity removes the whole slice.
         if (targets.isEmpty() || quantity <= 0) {
@@ -431,22 +506,46 @@ class BillRepositoryImpl(
                 if (here.quantity != quantity) {
                     itemShareDao.upsert(here.copy(quantity = quantity, updatedAt = now, rowVersion = here.rowVersion + 1))
                 }
-            } else {
-                itemShareDao.upsert(
-                    ItemShareEntity(
-                        id = shareId(itemId, uid, portionId),
-                        itemId = itemId,
-                        expenseId = expenseId.value,
-                        groupId = expense.groupId,
-                        userId = uid,
-                        portionId = portionId,
-                        quantity = quantity,
-                        addedBy = addedBy.value,
-                        createdAt = now,
-                        updatedAt = now,
-                    ),
-                )
+                continue
             }
+            // uid is newly joining this portion. If someone ELSE already holds a solo claim on this same
+            // item, writing uid's item_shares row locally while leaving that person's item_claims row
+            // untouched would double-count them (their solo claim AND their new portion membership both
+            // counted by assignedQuantityByItem) — and this device retiring their claim itself would
+            // violate "claims are partitioned by user" (spec §5.3: "Jane may not write Mary's row"). Route
+            // that conversion through the atomic server RPC; a fresh assignment with no colliding solo
+            // claim has nothing to race against and stays local, same as before.
+            val collidingClaim = activeClaimsForItem.firstOrNull { it.userId != uid }
+            val gateway = joinItemGateway
+            if (collidingClaim != null && gateway != null) {
+                try {
+                    // The screen already lets an assignment go over quantity (surfaced as OVERCLAIMED, never
+                    // capped) — this is a deliberate, explicit re-assign, not the "+1 join" gesture the RPC's
+                    // overclaim guard exists to protect, so acknowledge it up front.
+                    val outcome = gateway.join(itemId, uid, portionId, now, overClaimAck = true)
+                    applyJoinOutcomeLocally(expense, itemId, outcome, now)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Leave uid unassigned locally rather than risk a half-converted claim; the next retry
+                    // or pull reconciles once the server call can succeed.
+                }
+                continue
+            }
+            itemShareDao.upsert(
+                ItemShareEntity(
+                    id = shareId(itemId, uid, portionId),
+                    itemId = itemId,
+                    expenseId = expenseId.value,
+                    groupId = expense.groupId,
+                    userId = uid,
+                    portionId = portionId,
+                    quantity = quantity,
+                    addedBy = addedBy.value,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
         }
         materializeShares(expense, now)
         return AppResult.Ok(Unit)
