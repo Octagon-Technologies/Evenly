@@ -54,7 +54,10 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.theme.EvenlyTheme
 
-/** A member as shown on the Group settings roster. [role] is "Admin", "Placeholder", or "". */
+/**
+ * A member as shown on the Group settings roster. [role] is "Admin", "No account", "Left", or "".
+ * "No account" replaced "Placeholder": placeholder is our word for it, not the user's.
+ */
 data class MemberRowUi(val userId: String, val name: String, val role: String = "", val isMe: Boolean = false)
 
 /** 17 · Group settings (design/src/screens-settings.jsx). */
@@ -68,7 +71,7 @@ fun GroupSettingsScreen(
         MemberRowUi("u2", "Andrew Park", "Admin"),
         MemberRowUi("u3", "Bob Lin"),
         MemberRowUi("u4", "Maya Kapoor"),
-        MemberRowUi("u5", "Tyler Reed", "Placeholder"),
+        MemberRowUi("u5", "Tyler Reed", "No account"),
     ),
     inviteLink: String = "split-evenly.app/j/8Kk2-Tulum",
     storageUsedBytes: Long = 212L * 1024 * 1024,
@@ -80,6 +83,8 @@ fun GroupSettingsScreen(
     onRotateInvite: () -> Unit = {},
     onRemoveMember: (MemberRowUi) -> Unit = {},
     onReconcile: () -> Unit = {},
+    /** Names in this group with no account that the viewer hasn't answered. 0 hides the claim row. */
+    unclaimedNameCount: Int = 0,
     onEditCategories: () -> Unit = {},
     onArchive: () -> Unit = {},
     onLeave: () -> Unit = {},
@@ -164,10 +169,21 @@ fun GroupSettingsScreen(
 
             // ── Members ────────────────────────────────────────
             SettingsGroup("Members · ${members.size}") {
+                // First child of the card, above the roster, because it reads as an action ON this list
+                // when it sits inside the list. Hidden entirely when there is nothing to claim, so it
+                // never sends anyone to an empty screen.
+                if (unclaimedNameCount > 0) {
+                    SettingsRow(
+                        icon = EvIcons.Users,
+                        label = "Claim a name as me",
+                        value = "$unclaimedNameCount ${if (unclaimedNameCount == 1) "name" else "names"} here have no account",
+                        onClick = onReconcile,
+                    )
+                }
                 members.forEachIndexed { i, m ->
                     Row(
                         modifier = Modifier.fillMaxWidth()
-                            .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
+                            .then(if (i > 0 || unclaimedNameCount > 0) Modifier.topHairline(c.border) else Modifier)
                             .clickable(enabled = !m.isMe) { removeTarget = m }
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -202,11 +218,6 @@ fun GroupSettingsScreen(
                     EvIcon(EvIcons.Plus, size = 18.dp, tint = c.blueText)
                     Text("Add member", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
-            }
-
-            // ── Reconcile ──────────────────────────────────────
-            SettingsGroup("Reconcile") {
-                SettingsRow(icon = EvIcons.Users, label = "Claim a past member as me", last = true, onClick = onReconcile)
             }
 
             // ── Conflict reminders ─────────────────────────────

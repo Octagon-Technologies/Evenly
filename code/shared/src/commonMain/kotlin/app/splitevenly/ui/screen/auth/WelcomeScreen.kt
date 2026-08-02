@@ -540,7 +540,7 @@ private fun ClaimCard() {
                         Modifier.size(36.dp).clip(CircleShape).border(1.5.dp, c.ink3, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) { Text("S", color = c.ink3, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-                    Text("Placeholder", color = c.ink3, fontSize = 9.5.sp)
+                    Text("No account", color = c.ink3, fontSize = 9.5.sp)
                 }
                 EvIcon(EvIcons.ChevD, size = 18.dp, tint = c.blueText)
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {

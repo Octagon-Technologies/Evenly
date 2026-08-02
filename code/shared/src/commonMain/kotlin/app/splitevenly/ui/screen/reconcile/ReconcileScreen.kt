@@ -44,12 +44,15 @@ import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /**
- * 21 · Reconcile past activity — the selection step (design/src/screens-misc.jsx).
+ * Claim a name — the full-screen list.
  *
- * Before a member joined, the group logged expenses under loose display names. This screen lists the
- * candidate names with the expenses booked against each, and lets the user claim the ones that are
- * them so the history merges onto their balance. Blue-led selection: a claimed card gets the blue
- * [selectionStroke] outline **and** a check (never color alone).
+ * The same question the "Is this you?" card asks, for the cases the card deliberately doesn't cover:
+ * more than three open names, and someone who came looking through Group settings. It shows the same
+ * set from the same source (unclaimed names in this group, minus the ones this person has answered),
+ * so the two can never disagree and the list visibly shrinks as it gets answered.
+ *
+ * Multi-select is retained for the genuine multi-name claim (someone tracked under two spellings), and
+ * each row also carries a per-name **No** so ruling one out doesn't require claiming anything.
  */
 @Composable
 fun ReconcileScreen(
@@ -57,14 +60,15 @@ fun ReconcileScreen(
     people: List<ReconcilePerson> = DemoReconcilePeople,
     onBack: () -> Unit = {},
     onConfirm: (List<String>) -> Unit = {},
-    onNotMe: () -> Unit = {},
+    onNotMe: (String) -> Unit = {},
+    onNoneOfThese: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var selected by remember(people) { mutableStateOf(emptySet<String>()) }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         EvTopBar(
-            title = "Reconcile",
+            title = "Claim a name",
             subtitle = groupName,
             navIcon = { EvIconButton(EvIcons.Close, onClick = onBack) },
         )
@@ -94,7 +98,7 @@ fun ReconcileScreen(
 
             if (people.isEmpty()) {
                 Text(
-                    "No unclaimed names to reconcile in this group.",
+                    "Nothing left to claim. You've been through every name in this group.",
                     color = c.ink2,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 8.dp),
@@ -107,32 +111,36 @@ fun ReconcileScreen(
                     onToggle = {
                         selected = if (person.id in selected) selected - person.id else selected + person.id
                     },
+                    onNotMe = { onNotMe(person.id) },
                 )
             }
         }
 
-        // Bottom CTA — pinned below the scroll.
-        Column(
-            modifier = Modifier.fillMaxWidth().topHairline(c.border).background(c.page).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            EvButton(
-                text = "These are me (${selected.size})",
-                onClick = { onConfirm(selected.toList()) },
-                leadingIcon = EvIcons.Check,
-                enabled = selected.isNotEmpty(),
-            )
-            EvButton(
-                text = "These are not me",
-                onClick = onNotMe,
-                variant = ButtonVariant.Text,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
+        // Bottom CTA — pinned below the scroll. Hidden once there is nothing left to answer, so the
+        // empty state doesn't offer two buttons that would do nothing.
+        if (people.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().topHairline(c.border).background(c.page).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                EvButton(
+                    text = "These are me (${selected.size})",
+                    onClick = { onConfirm(selected.toList()) },
+                    leadingIcon = EvIcons.Check,
+                    enabled = selected.isNotEmpty(),
+                )
+                EvButton(
+                    text = "None of these are me",
+                    onClick = onNoneOfThese,
+                    variant = ButtonVariant.Text,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+            }
         }
     }
 }
 
-/** A claimable placeholder identity: its user id, display name, and the expenses logged under it. */
+/** A claimable name: its user id, display name, and the expenses logged under it. */
 data class ReconcilePerson(val id: String, val name: String, val expenses: List<Pair<String, Double>>)
 
 internal val DemoReconcilePeople = listOf(
@@ -142,15 +150,16 @@ internal val DemoReconcilePeople = listOf(
 )
 
 /**
- * One claimable placeholder: the display name + a horizontally-scrolling strip of expense thumbnails
- * (each a small rounded box with the mono amount). Selected → [selectionTint] fill + 2dp
- * [selectionStroke] border + a check (color is never the sole indicator).
+ * One claimable name: the display name + a horizontally-scrolling strip of expense thumbnails (each a
+ * small rounded box with the mono amount). Selected → [selectionTint] fill + 2dp [selectionStroke]
+ * border + a check (color is never the sole indicator).
  */
 @Composable
 private fun ReconcileCard(
     person: ReconcilePerson,
     selected: Boolean,
     onToggle: () -> Unit,
+    onNotMe: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(16.dp)
@@ -179,21 +188,33 @@ private fun ReconcileCard(
                 modifier = Modifier.weight(1f),
             )
             Text(
-                "${person.expenses.size} expense${if (person.expenses.size == 1) "" else "s"}",
+                if (person.expenses.size == 1) "1 expense" else "${person.expenses.size} expenses",
                 color = c.ink2,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
             )
         }
         // Chip strip of expense thumbnails (amount + currency, mono).
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            person.expenses.forEach { (title, amount) ->
-                ExpenseThumb(title = title, amount = amount, selected = selected)
+        if (person.expenses.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                person.expenses.forEach { (title, amount) ->
+                    ExpenseThumb(title = title, amount = amount, selected = selected)
+                }
             }
         }
+        // Ruling one name out must not require claiming another, so "No" lives on the row itself
+        // rather than only in the all-or-nothing footer.
+        Text(
+            "No, that isn't me",
+            color = c.ink2,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onNotMe)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
 }
 
@@ -238,4 +259,10 @@ private fun ExpenseThumb(title: String, amount: Double, selected: Boolean) {
 @Composable
 private fun ReconcilePreview() {
     EvenlyTheme { ReconcileScreen() }
+}
+
+@Preview
+@Composable
+private fun ReconcileEmptyPreview() {
+    EvenlyTheme { ReconcileScreen(people = emptyList()) }
 }

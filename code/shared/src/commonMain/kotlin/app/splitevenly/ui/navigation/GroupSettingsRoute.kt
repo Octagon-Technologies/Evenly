@@ -16,6 +16,7 @@ import app.splitevenly.platform.PlatformShare
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.flowOf
 import org.koin.compose.koinInject
 
 /** Group settings, wired: streams the group + members; renames, copies the invite, and leaves (F4). */
@@ -40,13 +41,19 @@ fun GroupSettingsRoute(
     val inviteToken = group?.inviteToken
     val inviteLink = inviteToken?.let { "split-evenly.app/j/$it" } ?: "Generating link…"
 
+    // Drives the claim row inside the Members card: hidden when there is nothing left to answer, so it
+    // never sends anyone to an empty screen.
+    val unclaimed by remember(gid, userId) {
+        userId?.let { groups.observeUnclaimedNames(gid, it) } ?: flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
+
     val rows = members.map { m ->
         MemberRowUi(
             userId = m.userId.value,
             name = m.displayName ?: "Someone",
             role = when {
                 m.isAdmin -> "Admin"
-                m.isPlaceholder -> "Placeholder"
+                m.isPlaceholder -> "No account"
                 else -> ""
             },
             isMe = m.userId == userId,
@@ -76,6 +83,7 @@ fun GroupSettingsRoute(
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
         onReconcile = onReconcile,
+        unclaimedNameCount = unclaimed.size,
         onEditCategories = onEditCategories,
         onArchive = {
             userId?.let { me -> scope.launch { if (groups.setArchived(gid, me, archived = true) is AppResult.Ok) onLeft() } }
