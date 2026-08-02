@@ -1,0 +1,532 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evenly — Web Claim (mobile) · v2</title>
+<style>
+:root{
+  --blue:#2563EB; --blue-press:#1E40AF; --blue-tint:#EFF4FF; --blue-tint-2:#DBE6FF;
+  --page:#FFFFFF; --surface:#F6F8FB; --border:#E6EAF0; --border-strong:#D6DCE6;
+  --ink:#0B1220; --ink-2:#5B6577; --ink-3:#9AA3B2;
+  --red:#E0686B; --red-tint:#FDEEED; --amber:#687590; --amber-tint:#EEF1F8;
+  --green:#16A34A; --green-tint:#E7F4EC;
+  --r-card:16px; --r-sm:10px; --r-pill:999px;
+  --font:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:#EDF1F7;color:var(--ink);padding:40px 20px 80px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+h1{font-size:26px;letter-spacing:-.02em;margin-bottom:6px}
+.lede{color:var(--ink-2);font-size:15px;line-height:1.55;max-width:780px;margin-bottom:10px}
+.lede b{color:var(--ink);font-weight:600}
+.rail{display:flex;gap:26px;overflow-x:auto;padding-bottom:22px;align-items:flex-start;scroll-snap-type:x proximity}
+.sect{margin:46px 0 8px;font-size:13px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-3)}
+.sectsub{font-size:13.5px;color:var(--ink-2);margin-bottom:18px;max-width:760px;line-height:1.5}
+.cell{flex:0 0 auto;width:330px;scroll-snap-align:start}
+.cap{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin-top:12px}
+.cap b{color:var(--ink);font-weight:650;display:block;margin-bottom:2px;font-size:13px}
+.tag{display:inline-block;background:var(--blue-tint-2);color:var(--blue-press);font-size:10.5px;font-weight:750;
+     letter-spacing:.05em;padding:2px 7px;border-radius:5px;margin-right:6px;vertical-align:2px}
+
+.ph{width:330px;height:700px;background:var(--page);border-radius:38px;overflow:hidden;position:relative;
+    display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(11,18,32,.07),0 24px 48px -18px rgba(11,18,32,.24)}
+.st{height:40px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px 0 26px;font-size:13px;font-weight:600}
+.st .dots{display:flex;gap:5px;align-items:center;color:var(--ink-3)}
+.body{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.scroll{flex:1;overflow:hidden;padding:0 18px}
+.hm{height:20px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.hm i{width:104px;height:4px;border-radius:2px;background:#D3D8E0;display:block}
+.url{height:36px;flex-shrink:0;margin:0 12px 8px;background:var(--surface);border:1px solid var(--border);
+     border-radius:var(--r-pill);display:flex;align-items:center;gap:7px;padding:0 14px;font-size:11.5px;color:var(--ink-2)}
+.url .lock{width:11px;height:11px;border:1.6px solid var(--ink-3);border-radius:2px;border-bottom-width:5px;flex-shrink:0}
+
+.hdr{padding:2px 0 14px}
+.eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--blue)}
+.h1{font-size:23px;font-weight:680;letter-spacing:-.02em;margin-top:7px;line-height:1.2}
+.h2{font-size:17.5px;font-weight:660;letter-spacing:-.015em;line-height:1.25}
+.sub{font-size:13.5px;color:var(--ink-2);margin-top:6px;line-height:1.45}
+
+.prog{margin:12px 0 4px}
+.trk{height:6px;background:var(--blue-tint-2);border-radius:3px;overflow:hidden}
+.trk i{display:block;height:100%;background:var(--blue);border-radius:3px}
+.prlbl{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-top:7px}
+
+.card{background:var(--page);border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;margin-bottom:12px}
+.row{padding:13px 14px;border-bottom:1px solid var(--border);display:flex;gap:11px;align-items:flex-start}
+.row:last-child{border-bottom:none}
+.row--mine{background:var(--blue-tint)}
+.qty{min-width:22px;height:22px;border-radius:6px;background:var(--surface);border:1px solid var(--border);
+     font-size:11.5px;font-weight:700;color:var(--ink-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;padding:0 5px}
+.grow{flex:1;min-width:0}
+.lbl{font-size:14.5px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.meta{font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.45}
+.amt{font-size:14px;font-weight:660;flex-shrink:0;margin-top:1px}
+
+/* evidence strip — the identity jog */
+.ev{display:flex;gap:6px;margin-top:9px;overflow:hidden}
+.evi{flex:0 0 auto;border:1px solid var(--border);border-radius:9px;padding:6px 9px;background:var(--surface);min-width:0}
+.evi .t{font-size:11.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:96px}
+.evi .d{font-size:10.5px;color:var(--ink-3);margin-top:2px;white-space:nowrap}
+
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:25px;padding:0 9px 0 4px;border-radius:var(--r-pill);
+      background:var(--surface);border:1px solid var(--border);font-size:11.5px;font-weight:600;color:var(--ink-2)}
+.chip--me{background:var(--blue);border-color:var(--blue);color:#fff}
+.av{width:18px;height:18px;border-radius:50%;background:var(--blue-tint-2);color:var(--blue);
+    font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.chip--me .av{background:rgba(255,255,255,.26);color:#fff}
+.chip--add{background:none;border:1px dashed var(--border-strong);color:var(--ink-2);padding:0 10px}
+/* the claim affordances, as chips. They live in the people row because that is what they do:
+   put you into the list of people on this line. Keeps the amount column dead-aligned. */
+.chip--claim{background:var(--page);border:1px dashed var(--blue);color:var(--blue);padding:0 11px;font-weight:660}
+.chip--join{background:var(--blue-tint);border:1px solid var(--blue-tint-2);color:var(--blue);padding:0 11px;font-weight:660}
+.chip--ghost{background:none;border:none;color:var(--ink-3);padding:0 2px;font-weight:600}
+.chip--pick{height:34px;padding:0 12px 0 5px;font-size:13px;background:var(--page);border-color:var(--border-strong);color:var(--ink)}
+.chip--pick .av{width:24px;height:24px;font-size:11px}
+.chip--picked{background:var(--blue-tint);border-color:var(--blue);color:var(--blue)}
+.chip--ok{background:var(--green-tint);border-color:#C7E7D2;color:#15803D}
+
+.act{border:1px solid var(--border-strong);background:var(--page);border-radius:var(--r-pill);
+     height:30px;padding:0 13px;font-size:12.5px;font-weight:660;color:var(--ink);flex-shrink:0;
+     display:inline-flex;align-items:center;gap:5px;font-family:inherit;margin-top:1px}
+.act--on{background:var(--blue);border-color:var(--blue);color:#fff}
+.act--no{border-color:#EDD3D3;color:var(--red);background:var(--red-tint)}
+
+.btn{width:100%;height:48px;border-radius:14px;background:var(--blue);color:#fff;font-size:15.5px;font-weight:660;
+     display:flex;align-items:center;justify-content:center;gap:7px;font-family:inherit;border:none;letter-spacing:-.01em}
+.btn--ghost{background:var(--page);border:1px solid var(--border-strong);color:var(--ink)}
+.btn--sm{height:42px;font-size:14.5px}
+.btn--off{opacity:.42}
+
+.inp{width:100%;height:52px;border:1.5px solid var(--border-strong);border-radius:14px;padding:0 15px;
+     font-size:16.5px;font-family:inherit;color:var(--ink);display:flex;align-items:center;background:var(--page)}
+.inp--on{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-tint)}
+.inp--bad{border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
+.inp .cur{width:1.6px;height:21px;background:var(--blue);margin-left:1px;animation:bl 1s steps(1) infinite}
+@keyframes bl{50%{opacity:0}}
+.flbl{font-size:12.5px;font-weight:660;color:var(--ink-2);margin-bottom:8px}
+
+.note{border-radius:var(--r-card);padding:13px 14px;font-size:12.8px;line-height:1.55;color:var(--ink-2);margin-bottom:12px}
+.note b{color:var(--ink);font-weight:660}
+.note--blue{background:var(--blue-tint);border:1px solid var(--blue-tint-2)}
+.note--amber{background:var(--amber-tint);border:1px solid #DDE3EF}
+.note--green{background:var(--green-tint);border:1px solid #C7E7D2}
+.note--red{background:var(--red-tint);border:1px solid #F4DADA}
+
+.dock{flex-shrink:0;padding:12px 18px 6px;border-top:1px solid var(--border);background:var(--page)}
+.dockrow{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:11px}
+.dockrow .k{font-size:13px;color:var(--ink-2);font-weight:600}
+.dockrow .v{font-size:21px;font-weight:700;letter-spacing:-.02em}
+
+.scrim{position:absolute;inset:0;background:rgba(11,18,32,.34);display:flex;align-items:flex-end}
+.sheet{width:100%;background:var(--page);border-radius:24px 24px 0 0;padding:10px 18px 16px;max-height:82%;overflow:hidden}
+.grab{width:38px;height:4px;border-radius:2px;background:var(--border-strong);margin:0 auto 14px}
+
+.tot{display:flex;justify-content:space-between;font-size:13.5px;padding:9px 0;color:var(--ink-2)}
+.tot b{color:var(--ink);font-weight:600}
+.tot--big{font-size:18px;font-weight:700;color:var(--ink);border-top:1px solid var(--border);margin-top:4px;padding-top:13px}
+.hero{background:var(--blue);border-radius:20px;padding:20px;color:#fff;margin-bottom:14px}
+.hero .k{font-size:13px;opacity:.86;font-weight:600}
+.hero .v{font-size:38px;font-weight:720;letter-spacing:-.03em;margin-top:4px}
+.hero .w{font-size:13px;opacity:.86;margin-top:5px}
+.pay{display:flex;align-items:center;gap:11px;border:1px solid var(--border);border-radius:var(--r-card);padding:13px 14px;margin-bottom:12px}
+.pay .ic{width:36px;height:36px;border-radius:9px;background:var(--blue-tint);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0}
+
+/* app-download line — deliberately not a card and not a button. One quiet line at the
+   foot of the page, benefit first, so it reads as a footnote rather than a pitch. */
+.appline{padding:15px 0 2px;margin-top:20px;border-top:1px solid var(--border);
+         font-size:12.5px;color:var(--ink-3);text-align:center;line-height:1.6}
+.appline a{color:var(--blue);font-weight:650;text-decoration:none;white-space:nowrap}
+
+/* QR */
+.qr{width:150px;height:150px;margin:0 auto;border-radius:14px;border:1px solid var(--border);padding:9px;background:#fff}
+.qr svg{display:block;width:100%;height:100%}
+</style>
+
+<h1>Evenly — claim without the app <span class="tag">v2</span></h1>
+<p class="lede">Mobile web. A guest scans the QR <b>on that specific expense</b>, claims what they ate, and leaves as a <b>placeholder in the group</b> that outlives the bill. Built on <code>design.css</code> tokens. Each row scrolls sideways.</p>
+<p class="lede" style="font-size:13.5px">Duplicate names are <b>blocked, not warned</b> · existing placeholders show <b>evidence rows</b> to jog memory · payer approves edits <b>one at a time</b> · per-expense <b>QR/share link</b> replaces nudging · claimed lines are <b>never hidden</b> · the claim list is <b>chips only, no prose</b> · the install prompt is <b>one line at the foot of the page</b>, never a card and never a button.</p>
+
+<div class="sect">1 · Arriving — one person, one name</div>
+<p class="sectsub">The Uber case: Andrew already created Purity as a placeholder weeks ago. When she opens the restaurant link, she must land on <i>that</i> Purity, not a second one. So we show her the names already in the group, each with what they actually spent money on.</p>
+<div class="rail">
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:42</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body"><div class="scroll">
+      <div class="hdr">
+        <div class="eyebrow">Ramen night</div>
+        <div class="h1">Andrew scanned the bill</div>
+        <div class="sub">Tuk Tuk Kitchen · 12 items · <b class="mono">$214.60</b></div>
+      </div>
+      <div class="note note--blue" style="margin-top:2px"><b>Been in this group before?</b> Tap your name so your old expenses stay with you.</div>
+      <div class="card">
+        <div class="row"><div class="grow">
+          <div class="lbl">Purity</div>
+          <div class="ev">
+            <div class="evi"><div class="t">Airport Uber</div><div class="d">28 Jul · $12.40</div></div>
+            <div class="evi"><div class="t">Groceries</div><div class="d">21 Jul · $8.10</div></div>
+          </div></div><button class="act">That's me</button></div>
+        <div class="row"><div class="grow">
+          <div class="lbl">Bob</div>
+          <div class="ev"><div class="evi"><div class="t">Airport Uber</div><div class="d">28 Jul · $12.40</div></div></div>
+          </div><button class="act">That's me</button></div>
+        <div class="row"><div class="grow">
+          <div class="lbl">John</div>
+          <div class="ev"><div class="evi"><div class="t">Airport Uber</div><div class="d">28 Jul · $12.40</div></div></div>
+          </div><button class="act">That's me</button></div>
+      </div>
+      <button class="btn btn--ghost btn--sm">I'm none of these, I'm new</button>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>Names alone are unanswerable; receipts are.</b> "Airport Uber, 28 Jul, $12.40" jogs the memory in a way "Purity" never will. Same evidence rule as the in-app "Is this you?" card. Only unclaimed placeholders are listed, and only names, dates and amounts leak — never the group's balances.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:43</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body"><div class="scroll">
+      <div class="hdr" style="padding-bottom:8px"><div class="h2">What should we call you?</div>
+      <div class="sub">Steve and Alex are new here, so they type a name. Purity should have tapped hers on the last screen.</div></div>
+      <div style="height:8px"></div>
+      <div class="flbl">Your name</div>
+      <div class="inp inp--bad">Purity<i class="cur"></i></div>
+      <div style="height:12px"></div>
+      <div class="note note--red">
+        <b>There's already a Purity in this group.</b><br>
+        Two people with one name makes it impossible to tell who a plate belongs to. Add something to tell you apart.
+        <div class="chips" style="margin-top:10px">
+          <span class="chip chip--pick">Purity L</span>
+          <span class="chip chip--pick">Purity D</span>
+          <span class="chip chip--pick">Purity 2</span>
+        </div>
+      </div>
+      <button class="btn btn--off">Continue</button>
+      <div style="height:14px"></div>
+      <button class="btn btn--ghost btn--sm">Wait, I am that Purity</button>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>Exact duplicates are blocked, not warned.</b> <span class="tag">#1</span> Continue stays dead until the name is unique, with one-tap suffixes so it costs a second. The escape hatch back to "I am that Purity" is always there, because the most likely reason for a collision is that it <i>is</i> her.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">20:10</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/9kd8</div>
+    <div class="body"><div class="scroll">
+      <div class="hdr">
+        <div class="eyebrow">Sunday roast</div>
+        <div class="h1">Welcome back, Purity</div>
+        <div class="sub">This phone remembers you, so there's nothing to set up. Straight to the food.</div>
+      </div>
+      <div class="note note--blue" style="margin-top:14px">Not Purity? <b>Use a different name</b></div>
+      <button class="btn">Claim my items</button>
+      <div class="appline">Skip typing your name on every bill.<br><a>Get Evenly →</a></div>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>The session token does the work.</b> The browser remembers her, so a returning guest goes straight to claiming. <span class="tag">#6</span> The install prompt is one line at the foot of the page, stating a benefit and linking to the right store. Not a card, not a button, nothing to dismiss.</p></div>
+
+</div>
+
+<div class="sect">2 · Claiming — every line stays visible</div>
+<p class="sectsub">Jane's problem, point 7: Mary claims the chicken they shared. If the list filtered down to "what's left", Jane could never find it, could never join, and the split would be wrong forever. So nothing is ever hidden — a claimed line just changes what it offers you.</p>
+<div class="rail">
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:46</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body">
+      <div class="scroll">
+        <div class="hdr" style="padding-bottom:10px">
+          <div class="h2">What did you have, Jane?</div>
+          <div class="prog"><div class="trk"><i style="width:41%"></i></div>
+            <div class="prlbl"><span><b class="mono">$88.20</b> of <span class="mono">$214.60</span></span><span>5 of 12 claimed</span></div></div>
+        </div>
+        <div class="card">
+          <div class="row"><span class="qty">1</span><div class="grow">
+            <div class="lbl">Chicken</div>
+            <div class="chips"><span class="chip"><span class="av">M</span>Mary</span><span class="chip chip--join">＋ Add me</span></div></div>
+            <div class="amt mono">18.00</div></div>
+          <div class="row"><span class="qty">2</span><div class="grow">
+            <div class="lbl">Chicken</div>
+            <div class="chips"><span class="chip"><span class="av">B</span>Bob</span><span class="chip"><span class="av">S</span>Steve</span></div></div>
+            <div class="amt mono">36.00</div></div>
+          <div class="row"><span class="qty">1</span><div class="grow">
+            <div class="lbl">Juice</div>
+            <div class="chips"><span class="chip chip--claim">＋ I had this</span></div></div>
+            <div class="amt mono">4.50</div></div>
+          <div class="row row--mine"><span class="qty">1</span><div class="grow">
+            <div class="lbl">Soda</div>
+            <div class="chips"><span class="chip chip--me"><span class="av">J</span>You</span></div></div>
+            <div class="amt mono">4.00</div></div>
+          <div class="row"><span class="qty">3</span><div class="grow">
+            <div class="lbl">Edamame</div>
+            <div class="chips"><span class="chip"><span class="av">A</span>Andrew</span><span class="chip"><span class="av">M</span>Mo</span><span class="chip chip--claim">＋ I had this</span><span class="chip chip--ghost">1 left</span></div></div>
+            <div class="amt mono">13.50</div></div>
+        </div>
+        <button class="btn btn--ghost btn--sm">＋  Add something that's missing</button>
+      </div>
+      <div class="dock">
+        <div class="dockrow"><span class="k">Your total so far</span><span class="v mono">$4.00</span></div>
+        <button class="btn">I'm done</button>
+      </div>
+      <div class="hm"><i></i></div>
+    </div>
+  </div>
+  <p class="cap"><b>Every affordance is a chip in the people row</b>, so the amount column never moves and the card scans as one clean column of money. <i>＋ I had this</i> on an open line, <i>＋ Add me</i> where someone's already there. Row 2 is point 3 drawn: Bob on one chicken, Steve on the other, two individual claims, $18 each, no sharing. Row 5 is partly claimed and still open.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:47</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body">
+      <div class="scroll" style="filter:blur(1.4px);opacity:.5">
+        <div class="hdr" style="padding-bottom:10px"><div class="h2">What did you have, Jane?</div></div>
+        <div class="card"><div class="row"><span class="qty">1</span><div class="grow"><div class="lbl">Chicken</div></div><div class="amt mono">18.00</div></div>
+        <div class="row"><span class="qty">2</span><div class="grow"><div class="lbl">Chicken</div></div><div class="amt mono">36.00</div></div></div>
+      </div>
+      <div class="scrim"><div class="sheet">
+        <div class="grab"></div>
+        <div class="h2">Chicken · <span class="mono">$18.00</span></div>
+        <div class="sub" style="margin-bottom:13px">Mary claimed this one on her own. Joining splits it between you.</div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="row" style="align-items:center"><div class="grow"><div class="lbl">Mary</div>
+            <div class="meta">Was paying <span class="mono">$18.00</span> · now <span class="mono">$9.00</span></div></div>
+            <span class="chip"><span class="av">M</span></span></div>
+          <div class="row row--mine" style="align-items:center"><div class="grow"><div class="lbl">You</div>
+            <div class="meta">You'll pay <span class="mono">$9.00</span></div></div>
+            <span class="chip chip--me"><span class="av">J</span></span></div>
+        </div>
+        <div class="chips" style="margin-bottom:14px"><span class="chip chip--pick chip--add">＋ Someone else shared it too</span></div>
+        <div class="note note--amber">Mary will see that you joined, and can take herself off if you've got it wrong.</div>
+        <button class="btn">Join this plate</button>
+        <div style="height:6px"></div>
+      </div></div>
+      <div class="hm"><i></i></div>
+    </div>
+  </div>
+  <p class="cap"><b>Joining a solo claim, with the consequence shown.</b> <span class="tag">#7</span> Mary's $18 becoming $9 is stated before Jane commits, not discovered after. Under the hood this is a server RPC, since Jane may not write Mary's <code>item_claims</code> row.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:48</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body">
+      <div class="scroll" style="filter:blur(1.4px);opacity:.5">
+        <div class="hdr" style="padding-bottom:10px"><div class="h2">What did you have, Jane?</div></div>
+        <div class="card"><div class="row"><span class="qty">1</span><div class="grow"><div class="lbl">Juice</div></div><div class="amt mono">4.50</div></div></div>
+      </div>
+      <div class="scrim"><div class="sheet">
+        <div class="grab"></div>
+        <div class="h2">Who had the juice with you?</div>
+        <div class="sub" style="margin-bottom:13px">Tap anyone already here.</div>
+        <div class="chips" style="gap:7px">
+          <span class="chip chip--pick chip--picked"><span class="av">J</span>You</span>
+          <span class="chip chip--pick"><span class="av">A</span>Andrew</span>
+          <span class="chip chip--pick"><span class="av">P</span>Purity</span>
+          <span class="chip chip--pick"><span class="av">B</span>Bob</span>
+          <span class="chip chip--pick"><span class="av">M</span>Mary</span>
+          <span class="chip chip--pick"><span class="av">S</span>Steve</span>
+          <span class="chip chip--pick"><span class="av">X</span>Alex</span>
+          <span class="chip chip--pick"><span class="av">O</span>Mo</span>
+          <span class="chip chip--pick chip--add">＋ Someone else</span>
+        </div>
+        <div class="note note--blue" style="margin-top:16px">Just you · <b class="mono">$4.50</b></div>
+        <button class="btn">Done</button>
+        <div style="height:6px"></div>
+      </div></div>
+      <div class="hm"><i></i></div>
+    </div>
+  </div>
+  <p class="cap"><b>Faces first, typing last.</b> Everyone on the bill is one tap. <i>Someone else</i> sits last and smallest because it is the only path that can mint a duplicate person — and if it's used, the uniqueness block from frame 2 applies there too.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:51</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body">
+      <div class="scroll">
+        <div class="hdr" style="padding-bottom:8px"><div class="h2">Add what's missing</div>
+        <div class="sub">The scan missed it? Add it and claim it.</div></div>
+        <div style="height:6px"></div>
+        <div class="flbl">What was it?</div>
+        <div class="inp inp--on">Mango sticky rice<i class="cur"></i></div>
+        <div style="height:14px"></div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1"><div class="flbl">How many?</div><div class="inp">1</div></div>
+          <div style="flex:1.3"><div class="flbl">Price each</div><div class="inp mono">$9.00</div></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="note note--amber"><b>This changes the bill total.</b> <span class="mono">$214.60</span> → <span class="mono">$223.60</span>. Andrew approves it before it counts.</div>
+        <button class="btn">Add and claim it</button>
+      </div>
+      <div class="hm"><i></i></div>
+    </div>
+  </div>
+  <p class="cap"><b>Editing is honest about its consequence.</b> Every guest edit is attributed and routed to the payer for individual approval. Nobody rewrites a receipt quietly, and nobody is stopped from fixing a genuine miss either.</p></div>
+
+</div>
+
+<div class="sect">3 · Finishing — the number they came for</div>
+<div class="rail">
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:55</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body"><div class="scroll">
+      <div class="hdr" style="padding-bottom:10px"><div class="h2">You're done, Jane</div></div>
+      <div class="hero"><div class="k">You owe Andrew</div><div class="v mono">$34.20</div>
+        <div class="w">Ramen night · Tuk Tuk Kitchen</div></div>
+      <div class="card" style="padding:4px 14px">
+        <div class="tot"><span>Chicken <b style="color:var(--ink-2);font-weight:500">· shared with Mary</b></span><b class="mono">9.00</b></div>
+        <div class="tot"><span>Soda</span><b class="mono">4.00</b></div>
+        <div class="tot"><span>Juice</span><b class="mono">4.50</b></div>
+        <div class="tot"><span>Mango sticky rice</span><b class="mono">9.00</b></div>
+        <div class="tot" style="color:var(--ink-3)"><span>Tax <b style="color:var(--ink-3);font-weight:500">· share of what you ate</b></span><b class="mono" style="color:var(--ink-3)">3.01</b></div>
+        <div class="tot" style="color:var(--ink-3)"><span>Tip <b style="color:var(--ink-3);font-weight:500">· split evenly</b></span><b class="mono" style="color:var(--ink-3)">4.69</b></div>
+        <div class="tot tot--big"><span>Your total</span><span class="mono">$34.20</span></div>
+      </div>
+      <div class="pay"><div class="ic">V</div><div class="grow">
+        <div class="lbl">Pay Andrew on Venmo</div><div class="meta">@andrew-chelimo</div></div>
+        <button class="act">Copy</button></div>
+      <button class="btn btn--ghost btn--sm">Change what I claimed</button>
+      <div class="appline">Keep every bill you've split, in one place.<br><a>Get Evenly →</a></div>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>Tax and tip are itemised, not buried.</b> "$4.50 juice, $34.20 total" reads as a bug unless the extras are shown. Wording mirrors the app exactly: tax proportional, tip even. <i>Change what I claimed</i> stays live to the end.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:56</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body"><div class="scroll">
+      <div class="hdr"><div class="h2">Who actually paid?</div>
+      <div class="sub">Andrew scanned the receipt, but says he didn't pay the bill.</div></div>
+      <div style="height:12px"></div>
+      <div class="card">
+        <div class="row"><div class="grow"><div class="lbl">Andrew</div><div class="meta">Scanned the receipt</div></div><button class="act">Pick</button></div>
+        <div class="row row--mine"><div class="grow"><div class="lbl">Jane <b style="color:var(--blue);font-weight:650">· you</b></div><div class="meta">Everyone will owe you</div></div><button class="act act--on">Picked</button></div>
+        <div class="row"><div class="grow"><div class="lbl">Mary</div></div><button class="act">Pick</button></div>
+        <div class="row"><div class="grow"><div class="lbl">Bob</div></div><button class="act">Pick</button></div>
+      </div>
+      <div class="note note--green"><b>You paid <span class="mono">$223.60</span>.</b> The other 11 owe you their share. Andrew sees this in the app.</div>
+      <button class="btn">That's right</button>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>A guest can be the payer.</b> Common when the person with the app isn't the one whose card went down. They can be named payer of an existing bill; they can never create one.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">22:30</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="url"><i class="lock"></i>split-evenly.app/b/7fq2</div>
+    <div class="body"><div class="scroll">
+      <div class="hdr" style="padding-bottom:10px"><div class="h2">This link has expired</div>
+      <div class="sub">Claiming closed 72 hours after the bill was scanned.</div></div>
+      <div style="height:10px"></div>
+      <div class="card" style="padding:4px 14px">
+        <div class="tot"><span>Ramen night · 2 Aug</span><b class="mono">$223.60</b></div>
+        <div class="tot tot--big"><span>You owed Andrew</span><span class="mono">$34.20</span></div>
+      </div>
+      <div class="note note--blue">Need to change something? <b>Ask Andrew</b> to reopen it.</div>
+      <button class="btn">Pay Andrew on Venmo</button>
+      <div class="appline">Your bills stay open as long as you need them.<br><a>Get Evenly →</a></div>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>Expiry without a dead end.</b> Writes stop; the amount and the way to pay it stay. Paying is the primary action because it's the only thing left worth doing here. The app line stays a footnote even on the screen where it would convert best.</p></div>
+
+</div>
+
+<div class="sect">4 · The payer, in the app</div>
+<p class="sectsub">Three screens, all in the native app: approve edits one at a time, watch who's still outstanding, and hand out the link.</p>
+<div class="rail">
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:58</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="body" style="padding-top:8px"><div class="scroll">
+      <div class="hdr" style="padding-bottom:10px"><div class="eyebrow">Ramen night</div>
+      <div class="h2" style="margin-top:6px">3 changes to review</div>
+      <div class="sub">People edited the bill after it was scanned. Approve each one.</div></div>
+
+      <div class="card">
+        <div class="row" style="display:block">
+          <div class="lbl">Purity added <span style="color:var(--blue)">Mango sticky rice</span></div>
+          <div class="meta">Wasn't on the receipt · 1 × <span class="mono">$9.00</span></div>
+          <div class="chips"><span class="chip chip--pick chip--ok">Approve</span><span class="chip chip--pick">Reject</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row" style="display:block">
+          <div class="lbl">Mo changed <span style="color:var(--blue)">Sea bass</span></div>
+          <div class="meta">Price each · <span class="mono" style="text-decoration:line-through;color:var(--ink-3)">$26.00</span> → <b class="mono">$28.00</b></div>
+          <div class="chips"><span class="chip chip--pick">Approve</span><span class="chip chip--pick">Reject</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row" style="display:block">
+          <div class="lbl">Steve changed <span style="color:var(--blue)">Edamame</span></div>
+          <div class="meta">Quantity · <b class="mono">3</b> → <b class="mono">2</b></div>
+          <div class="chips"><span class="chip chip--pick">Approve</span><span class="chip chip--pick">Reject</span></div>
+        </div>
+      </div>
+      <div class="note note--amber">While anything here is unapproved, the bill shows <b>as scanned</b>. Approving Mango sticky rice takes the total to <span class="mono">$223.60</span>.</div>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>One card per change, each independently decided.</b> <span class="tag">#4</span> Who, what, and for an edit the before and after. No "undo both". The bill holds its scanned shape until you say otherwise, so an unreviewed edit can't quietly move anyone's money.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">20:04</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="body" style="padding-top:8px"><div class="scroll">
+      <div class="hdr" style="padding-bottom:8px"><div class="eyebrow">Ramen night</div>
+      <div class="h2" style="margin-top:6px">Who's still to claim</div>
+      <div class="prog"><div class="trk"><i style="width:88%"></i></div>
+        <div class="prlbl"><span><b class="mono">$196.10</b> of <span class="mono">$223.60</span></span><span>updated just now</span></div></div></div>
+      <div class="card">
+        <div class="row" style="align-items:center"><span class="chip"><span class="av">S</span></span><div class="grow">
+          <div class="lbl">Sam</div><div class="meta">Hasn't opened the link</div></div></div>
+        <div class="row" style="align-items:center"><span class="chip"><span class="av">T</span></span><div class="grow">
+          <div class="lbl">Tabby</div><div class="meta">Opened it, claimed nothing</div></div></div>
+        <div class="row" style="align-items:center"><span class="chip"><span class="av">J</span></span><div class="grow">
+          <div class="lbl">Jo</div><div class="meta">Hasn't opened the link</div></div></div>
+      </div>
+      <div class="note note--amber"><b><span class="mono">$27.50</span> is unclaimed</b> across 4 items. If they never claim, you decide what happens to it.
+        <div class="chips" style="margin-top:10px"><span class="chip chip--pick">Split it between the three</span><span class="chip chip--pick">Split it evenly across everyone</span></div>
+      </div>
+      <button class="btn btn--ghost btn--sm">Share the link again</button>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>Polled in the app only, never on web.</b> <span class="tag">#7</span> Answers "how many are left?" without leaving the screen. It also closes the loop the whole feature depends on: a bill where three people went home must still be able to finish.</p></div>
+
+  <div class="cell"><div class="ph">
+    <div class="st"><span class="mono">19:40</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
+    <div class="body" style="padding-top:8px"><div class="scroll">
+      <div class="hdr" style="padding-bottom:12px"><div class="eyebrow">Ramen night</div>
+      <div class="h2" style="margin-top:6px">Let everyone claim</div>
+      <div class="sub">Hold this up at the table. They pick what they had, no app needed.</div></div>
+      <div class="qr"><svg viewBox="0 0 29 29" shape-rendering="crispEdges"><rect width="29" height="29" fill="#fff"/><g fill="#0B1220">
+        <rect x="0" y="0" width="7" height="1"/><rect x="0" y="6" width="7" height="1"/><rect x="0" y="0" width="1" height="7"/><rect x="6" y="0" width="1" height="7"/><rect x="2" y="2" width="3" height="3"/>
+        <rect x="22" y="0" width="7" height="1"/><rect x="22" y="6" width="7" height="1"/><rect x="22" y="0" width="1" height="7"/><rect x="28" y="0" width="1" height="7"/><rect x="24" y="2" width="3" height="3"/>
+        <rect x="0" y="22" width="7" height="1"/><rect x="0" y="28" width="7" height="1"/><rect x="0" y="22" width="1" height="7"/><rect x="6" y="22" width="1" height="7"/><rect x="2" y="24" width="3" height="3"/>
+        <rect x="8" y="0" width="1" height="1"/><rect x="10" y="0" width="1" height="1"/><rect x="13" y="1" width="1" height="1"/><rect x="9" y="2" width="1" height="1"/><rect x="11" y="2" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="12" y="3" width="1" height="1"/><rect x="10" y="5" width="1" height="1"/><rect x="13" y="5" width="1" height="1"/><rect x="9" y="6" width="1" height="1"/>
+        <rect x="16" y="1" width="1" height="1"/><rect x="18" y="0" width="1" height="1"/><rect x="17" y="3" width="1" height="1"/><rect x="19" y="2" width="1" height="1"/><rect x="16" y="5" width="1" height="1"/><rect x="19" y="5" width="1" height="1"/><rect x="18" y="6" width="1" height="1"/>
+        <rect x="0" y="9" width="1" height="1"/><rect x="2" y="8" width="1" height="1"/><rect x="4" y="10" width="1" height="1"/><rect x="1" y="12" width="1" height="1"/><rect x="3" y="13" width="1" height="1"/><rect x="5" y="15" width="1" height="1"/><rect x="0" y="17" width="1" height="1"/><rect x="2" y="19" width="1" height="1"/><rect x="4" y="18" width="1" height="1"/>
+        <rect x="8" y="8" width="2" height="2"/><rect x="12" y="9" width="1" height="1"/><rect x="15" y="8" width="1" height="1"/><rect x="18" y="9" width="2" height="1"/><rect x="22" y="8" width="1" height="1"/><rect x="25" y="9" width="1" height="1"/><rect x="27" y="8" width="1" height="1"/>
+        <rect x="9" y="11" width="1" height="1"/><rect x="11" y="12" width="2" height="1"/><rect x="14" y="11" width="1" height="1"/><rect x="16" y="12" width="1" height="1"/><rect x="19" y="11" width="1" height="1"/><rect x="21" y="12" width="1" height="1"/><rect x="24" y="11" width="1" height="1"/><rect x="26" y="12" width="1" height="1"/>
+        <rect x="8" y="14" width="1" height="1"/><rect x="10" y="15" width="1" height="1"/><rect x="13" y="14" width="2" height="1"/><rect x="17" y="15" width="1" height="1"/><rect x="20" y="14" width="1" height="1"/><rect x="23" y="15" width="1" height="1"/><rect x="25" y="14" width="1" height="1"/><rect x="28" y="15" width="1" height="1"/>
+        <rect x="9" y="17" width="1" height="1"/><rect x="12" y="18" width="1" height="1"/><rect x="15" y="17" width="1" height="1"/><rect x="18" y="18" width="2" height="1"/><rect x="22" y="17" width="1" height="1"/><rect x="26" y="18" width="1" height="1"/>
+        <rect x="8" y="20" width="1" height="1"/><rect x="11" y="21" width="1" height="1"/><rect x="14" y="20" width="1" height="1"/><rect x="16" y="21" width="1" height="1"/><rect x="19" y="20" width="1" height="1"/><rect x="23" y="21" width="1" height="1"/><rect x="27" y="20" width="1" height="1"/>
+        <rect x="9" y="23" width="1" height="1"/><rect x="12" y="24" width="1" height="1"/><rect x="15" y="23" width="1" height="1"/><rect x="17" y="25" width="1" height="1"/><rect x="20" y="23" width="1" height="1"/><rect x="24" y="24" width="1" height="1"/><rect x="26" y="26" width="1" height="1"/>
+        <rect x="8" y="26" width="1" height="1"/><rect x="10" y="27" width="1" height="1"/><rect x="13" y="26" width="1" height="1"/><rect x="16" y="28" width="1" height="1"/><rect x="19" y="27" width="1" height="1"/><rect x="22" y="26" width="1" height="1"/><rect x="25" y="28" width="1" height="1"/><rect x="28" y="26" width="1" height="1"/>
+        <rect x="22" y="10" width="1" height="1"/><rect x="24" y="13" width="1" height="1"/><rect x="27" y="15" width="1" height="1"/><rect x="23" y="18" width="1" height="1"/><rect x="26" y="21" width="1" height="1"/><rect x="22" y="23" width="1" height="1"/>
+      </g></svg></div>
+      <div class="sub" style="text-align:center;margin-top:12px">split-evenly.app/b/7fq2 · <b>open for 72 hours</b></div>
+      <div style="height:16px"></div>
+      <button class="btn">Share the link instead</button>
+      <div style="height:10px"></div>
+      <button class="btn btn--ghost btn--sm">Invite them to the group on Evenly</button>
+      <div style="height:14px"></div>
+      <div class="note">This link opens <b>this bill only</b>. It can't see your balances, your other expenses, or anyone's history.</div>
+    </div></div>
+    <div class="hm"><i></i></div>
+  </div>
+  <p class="cap"><b>Two different links, kept apart.</b> <span class="tag">#5</span> This one is per-expense, 72 hours, claim-only. The group invite below it is the permanent one that gets people onto the app. QR is primary because holding up a screen beats messaging 11 people who are standing up to leave.</p></div>
+
+</div>
