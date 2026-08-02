@@ -139,12 +139,20 @@ filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer`
 
 | File                                        | Lines |
 | ------------------------------------------- | ----- |
-| `ui/screen/expense/AddExpenseScreen.kt`     | 1104  |
 | `ui/screen/bill/BillEditScreen.kt`          | 1061  |
 | `ui/screen/expense/ExpenseDetailScreen.kt`  | 850   |
 | `ui/screen/auth/WelcomeScreen.kt`           | 639   |
 | `ui/navigation/LedgerRoutes.kt`             | 580   |
 
-The rule for these is **do not grow them.** When you make a substantial change inside one, extract the
-section you touched on your way out. Do not propose a big speculative rewrite — report the delta, not the
+**The add-expense editor is split by feature** (2026-08-02, was 1116 lines): `AddExpenseScreen.kt` keeps
+the shell — state, the shared header, the picker sheets. `SplitApproachChooser.kt` is the up-front
+divide-vs-itemize question; `DivideSplitBody.kt` holds `DivideSplitState` plus the amount/method/preview
+body; `bill/ItemizedExpenseBody.kt` holds `ItemizedBillState` plus the scan hero, item rows and extras,
+next to the `ItemEditorRow`/`ExtrasCard` it already borrowed. Each body owns its own state class and takes
+the participant `ids` as an argument, so selection stays owned by the screen. Both bodies emit their rows
+straight into the caller's `Column`, so the caller's `spacedBy` still spaces them. **`BillEditScreen` still
+has its own copy of the item-list body** — unifying the two was deliberately out of scope, not overlooked.
+
+The rule for the offenders above is **do not grow them.** When you make a substantial change inside one,
+extract the section you touched on your way out. Do not propose a big speculative rewrite — report the delta, not the
 backlog. (`data/repository/BillRepositoryImpl.kt` at 636 is the one offender outside this layer.)

@@ -143,3 +143,31 @@ fun format2dp(value: Double): String {
     val frac = (scaled % 100).let { if (it < 0) -it else it }
     return "$whole.${if (frac < 10) "0$frac" else "$frac"}"
 }
+
+/** Keep only digits and a single decimal point (for the inline %/Exact fields). */
+internal fun sanitizeDecimal(text: String): String {
+    val filtered = text.filter { it.isDigit() || it == '.' }
+    val dot = filtered.indexOf('.')
+    return if (dot < 0) filtered else filtered.substring(0, dot + 1) + filtered.substring(dot + 1).replace(".", "")
+}
+
+internal fun parsePercent(text: String?): Double {
+    val cleaned = text?.trim().orEmpty()
+    if (cleaned.isEmpty()) return 0.0
+    return cleaned.toDoubleOrNull() ?: 0.0
+}
+
+internal fun parseAmountSubunits(text: String): Long {
+    val cleaned = text.replace(",", "").trim()
+    if (cleaned.isEmpty()) return 0
+    val value = cleaned.toDoubleOrNull() ?: return 0
+    return (value * 100.0).roundToLong()
+}
+
+/** Even split with largest-remainder distribution (first `rem` ids get +1 subunit). Sums to total. */
+internal fun evenSplit(totalSubunits: Long, ids: List<String>): Map<String, Long> {
+    if (ids.isEmpty() || totalSubunits <= 0) return emptyMap()
+    val base = totalSubunits / ids.size
+    val rem = (totalSubunits % ids.size).toInt()
+    return ids.mapIndexed { i, id -> id to (base + if (i < rem) 1L else 0L) }.toMap()
+}
