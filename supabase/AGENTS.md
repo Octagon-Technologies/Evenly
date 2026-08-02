@@ -49,6 +49,34 @@ history across two accounts silently.
 The client calls it at **flush** time (an undone claim never reaches it) and **before** pushing the
 merged rows — a loser then reverses rows no other client has pulled. Don't move it after the push.
 
+## Web claim (`WEB_CLAIM_SPEC.md`) — step 1 landed
+
+Three new tables and two new RPCs, additive per the spec's §11 build order. Nothing in `code/` reads
+them yet — that's steps 2–6.
+
+- **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
+  policies: only the (not-yet-built) `web-claim` edge function's service key ever touches it.
+- **`web_bill_links`** — the 72h revocable bill token, stored hashed. RLS enabled, zero policies for
+  now; the payer's in-app share/revoke screen (step 6) adds a scoped policy in its own migration.
+- **`pending_item_edits`** — a guest's proposed add/relabel/reprice/requantify/remove, awaiting the
+  payer's individual approval. **Synced** (the app reads and decides on it in step 6), so it already
+  carries the same permissive `for all to authenticated` policy as the rest of this schema, and is in
+  the doorbell trigger loop.
+- **`join_item_portion(item_id, joiner_user_id, portion_id, now, over_claim_ack)`** — the write a
+  client can never safely make itself: converting someone else's solo `item_claims` row into a shared
+  `item_shares` portion. `security definer`; the caller-identity check only fires when `auth.uid()` is
+  present, since this is called from both the app (real auth) and the edge function (service key, no
+  JWT). Granted to `authenticated` (also fixes a live invariant gap in `BillClaimScreen` per step 2).
+- **`claim_web_placeholder(group_id, placeholder_user_id, session_id, now)`** — "first wins" for a web
+  guest's "That's me", but unlike `claim_placeholder` it's a **5-second race window**, not a permanent
+  lock: a guest may legitimately re-claim the same placeholder from a second device long after the
+  first (spec E7). Callable only by the service role — revoked from `anon` and `authenticated`.
+
+**Anon must never gain EXECUTE by default.** Supabase auto-grants `EXECUTE` to `anon`/`authenticated`
+at function-creation time, independent of `revoke ... from public` — confirmed via `get_advisors`
+(`anon_security_definer_function_executable`). Any new `security definer` function needs an *explicit*
+`revoke ... from anon` (and `from authenticated` if it's edge-function-only), not just `from public`.
+
 ## RLS — currently permissive, and that is a P0 before prod
 
 The loop at `schema.sql:455` generates `for all to authenticated using (true) with check (true)` for every

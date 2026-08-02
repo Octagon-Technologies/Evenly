@@ -1111,3 +1111,298 @@ end;
 $$;
 revoke all on function public.claim_placeholder(text, text, text, bigint) from public;
 grant execute on function public.claim_placeholder(text, text, text, bigint) to authenticated;
+
+-- ── Web claim (WEB_CLAIM_SPEC.md) — §11 step 1: schema + RPCs ─────────────────────────────────────
+
+-- Binds a browser to a placeholder user, group-scoped and durable (spec §2.2, §5.1). Not synced to
+-- Room; the app never reads it. Only the web-claim edge function's service key touches it — no grant
+-- to anon or authenticated, so RLS-enabled-with-no-policies denies both by default.
+create table if not exists public.web_sessions (
+  id text primary key,
+  group_id text not null,
+  user_id text not null,               -- the placeholder this browser is
+  token_hash text not null unique,     -- SHA-256 of the cookie value; plaintext exists only in the cookie
+  created_at bigint not null,
+  last_seen_at bigint not null,
+  revoked_at bigint
+);
+create index if not exists web_sessions_group_idx on public.web_sessions (group_id);
+create index if not exists web_sessions_user_idx on public.web_sessions (user_id);
+alter table public.web_sessions enable row level security;
+-- Deliberately no policies: anon and authenticated get zero access, matching spec §5.1.
+
+-- The 72h, revocable, bill-scoped authorisation link (spec §2.2, §2.9, §4.2). The token itself is
+-- 128-bit random base62, stored ONLY hashed; the plaintext lives in the URL/QR alone. RLS is enabled
+-- with no policies for now — the web-claim edge function (service key) is the only writer/reader.
+-- The payer's in-app share/revoke screen (build-order step 6) adds a membership-scoped read/write
+-- policy in its own migration; this one deliberately does not pre-grant broader access than step 1
+-- needs, since a token_hash column is more sensitive than the rest of this permissive-RLS schema.
+create table if not exists public.web_bill_links (
+  id text primary key,
+  expense_id text not null,
+  group_id text not null,
+  token_hash text not null unique,
+  created_by text not null,
+  created_at bigint not null,
+  expires_at bigint not null,
+  revoked_at bigint,
+  extended_count integer not null default 0,
+  updated_at bigint not null,
+  row_version bigint not null default 1
+);
+create index if not exists web_bill_links_expense_idx on public.web_bill_links (expense_id);
+create index if not exists web_bill_links_group_idx on public.web_bill_links (group_id);
+alter table public.web_bill_links enable row level security;
+
+-- A guest edit awaiting the payer's individual approval (spec §2.7, §5.2). This IS synced — the
+-- payer's app reads and decides on it (build-order step 6) — so per data/AGENTS.md the server
+-- migration (including grants) lands now, ahead of the Room entity, not deferred to step 6.
+create table if not exists public.pending_item_edits (
+  id text primary key,
+  expense_id text not null,
+  group_id text not null,
+  item_id text,                        -- null for an ADD
+  kind text not null,                  -- ADD | RELABEL | REPRICE | REQUANTITY | REMOVE
+  proposed_label text,
+  proposed_quantity integer,
+  proposed_unit_price_subunits bigint,
+  previous_label text,                 -- captured at proposal time, for before → after
+  previous_quantity integer,
+  previous_unit_price_subunits bigint,
+  proposed_by text not null,
+  proposed_at bigint not null,
+  decided_at bigint,
+  decided_by text,
+  decision text,                       -- APPROVED | REJECTED
+  created_at bigint not null,
+  updated_at bigint not null,
+  row_version bigint not null default 1
+);
+create index if not exists pending_item_edits_expense_idx on public.pending_item_edits (expense_id);
+create index if not exists pending_item_edits_group_idx on public.pending_item_edits (group_id);
+
+alter table public.pending_item_edits enable row level security;
+drop policy if exists pending_item_edits_rw on public.pending_item_edits;
+create policy pending_item_edits_rw on public.pending_item_edits
+  for all to authenticated using (true) with check (true);
+
+-- Doorbell: a guest's pending edit must wake the payer's app (spec §5.6). Same statement-level
+-- AFTER INSERT/UPDATE pattern as every other synced table — added to the existing trigger loop.
+drop trigger if exists bump_activity_ins on public.pending_item_edits;
+drop trigger if exists bump_activity_upd on public.pending_item_edits;
+create trigger bump_activity_ins after insert on public.pending_item_edits
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity();
+create trigger bump_activity_upd after update on public.pending_item_edits
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity();
+
+-- The one write that cannot be done client-side (spec §5.3): converting Mary's solo claim into a
+-- shared portion with Jane means writing a row Jane does not own, which breaks the "item_claims is
+-- partitioned by user" invariant if done directly. security definer, explicit participant check.
+--
+-- Called from TWO contexts with different auth: the app (authenticated, real auth.uid()) and the
+-- web-claim edge function (service key, auth.uid() is null — the edge function already authorised
+-- the caller against the bill token). The self-check below only fires when auth.uid() IS present,
+-- so it protects the app path without breaking the service-role path; RLS is already fully
+-- permissive for authenticated today (this file's RLS section above), so this isn't loosening
+-- anything that wasn't already open.
+create or replace function public.join_item_portion(
+  p_item_id text,
+  p_joiner_user_id text,
+  p_portion_id text,
+  p_now bigint,
+  p_over_claim_ack boolean default false
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := auth.uid()::text;
+  v_expense_id text;
+  v_group_id text;
+  v_line_quantity int;
+  v_assigned int;
+  v_portion_id text := p_portion_id;
+  v_portion_quantity int;
+  v_target_claim public.item_claims%rowtype;
+  v_target_count int;
+  v_share_id text;
+  v_members text[];
+begin
+  if v_uid is not null and v_uid is distinct from p_joiner_user_id then
+    raise exception 'join_item_portion: caller may only join as themselves';
+  end if;
+
+  select ei.expense_id, ei.group_id, ei.quantity
+    into v_expense_id, v_group_id, v_line_quantity
+    from public.expense_items ei
+    where ei.id = p_item_id and ei.deleted_at is null;
+  if not found then
+    raise exception 'join_item_portion: item not found';
+  end if;
+
+  if not exists (
+    select 1 from public.bill_participants bp
+    where bp.expense_id = v_expense_id and bp.user_id = p_joiner_user_id and bp.deleted_at is null
+  ) then
+    raise exception 'join_item_portion: not a participant of this bill';
+  end if;
+
+  -- Idempotent no-op: already an active member of the named portion.
+  if v_portion_id is not null and exists (
+    select 1 from public.item_shares s
+    where s.item_id = p_item_id and s.portion_id = v_portion_id
+      and s.user_id = p_joiner_user_id and s.deleted_at is null
+  ) then
+    select array_agg(user_id) into v_members from public.item_shares
+      where item_id = p_item_id and portion_id = v_portion_id and deleted_at is null;
+    return jsonb_build_object('ok', true, 'portion_id', v_portion_id, 'members', to_jsonb(v_members));
+  end if;
+
+  -- Units currently assigned = solo claims + one count per distinct active portion (never per member).
+  select coalesce(sum(c.quantity), 0) into v_assigned
+    from public.item_claims c where c.item_id = p_item_id and c.deleted_at is null;
+  v_assigned := v_assigned + coalesce((
+    select sum(x.quantity) from (
+      select distinct on (s.portion_id) s.portion_id, s.quantity
+      from public.item_shares s
+      where s.item_id = p_item_id and s.portion_id is not null and s.deleted_at is null
+      order by s.portion_id, s.created_at
+    ) x
+  ), 0);
+
+  if v_portion_id is not null then
+    -- Joining a NAMED existing portion doesn't change the unit count it already holds.
+    select quantity into v_portion_quantity from public.item_shares
+      where item_id = p_item_id and portion_id = v_portion_id and deleted_at is null
+      order by created_at limit 1;
+    if not found then
+      raise exception 'join_item_portion: portion not found';
+    end if;
+  else
+    -- No portion named: convert the line's one solo claim into a shared portion (spec §5.3.2), or
+    -- start a fresh single-member portion if the line has no solo claim to join (spec §5.3.3). A
+    -- line with MORE THAN ONE active solo claim is ambiguous from these three arguments alone — the
+    -- caller must resolve it to a specific portion_id instead of guessing which claimer to merge with.
+    select count(*) into v_target_count from public.item_claims
+      where item_id = p_item_id and deleted_at is null and user_id <> p_joiner_user_id;
+    if v_target_count > 1 then
+      raise exception 'join_item_portion: ambiguous target — pass an explicit portion_id';
+    end if;
+
+    select * into v_target_claim from public.item_claims
+      where item_id = p_item_id and deleted_at is null and user_id <> p_joiner_user_id
+      limit 1;
+
+    if found then
+      v_portion_id := p_item_id || '__joined_' || v_target_claim.user_id;
+      v_portion_quantity := v_target_claim.quantity;
+      update public.item_claims set
+        deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+      where id = v_target_claim.id;
+      insert into public.item_shares
+        (id, item_id, expense_id, group_id, user_id, portion_id, quantity, added_by, created_at, updated_at)
+      values
+        (p_item_id || '__' || v_target_claim.user_id || '__' || v_portion_id, p_item_id, v_expense_id,
+         v_group_id, v_target_claim.user_id, v_portion_id, v_portion_quantity, p_joiner_user_id, p_now, p_now)
+      on conflict (id) do update set deleted_at = null, updated_at = p_now, row_version = item_shares.row_version + 1;
+    else
+      v_portion_id := p_item_id || '__solo_' || p_joiner_user_id;
+      v_portion_quantity := 1;
+    end if;
+  end if;
+
+  -- Only the fresh "solo portion of one" branch adds a new unit — joining a named portion or
+  -- converting an existing solo claim into a shared one redistributes units that were already
+  -- assigned, so neither can push the line over its quantity.
+  if not p_over_claim_ack and v_target_claim.id is null and v_portion_id = p_item_id || '__solo_' || p_joiner_user_id
+     and v_assigned + 1 > v_line_quantity then
+    raise exception using
+      errcode = 'P0001',
+      message = 'OVERCLAIMED',
+      detail = format('item %s: %s of %s units already assigned', p_item_id, v_assigned, v_line_quantity);
+  end if;
+
+  v_share_id := p_item_id || '__' || p_joiner_user_id || '__' || v_portion_id;
+  insert into public.item_shares
+    (id, item_id, expense_id, group_id, user_id, portion_id, quantity, added_by, created_at, updated_at)
+  values
+    (v_share_id, p_item_id, v_expense_id, v_group_id, p_joiner_user_id, v_portion_id, v_portion_quantity,
+     p_joiner_user_id, p_now, p_now)
+  on conflict (id) do update set deleted_at = null, updated_at = p_now, row_version = item_shares.row_version + 1;
+
+  select array_agg(user_id) into v_members from public.item_shares
+    where item_id = p_item_id and portion_id = v_portion_id and deleted_at is null;
+
+  return jsonb_build_object('ok', true, 'portion_id', v_portion_id, 'members', to_jsonb(v_members));
+end;
+$$;
+revoke all on function public.join_item_portion(text, text, text, bigint, boolean) from public;
+grant execute on function public.join_item_portion(text, text, text, bigint, boolean) to authenticated;
+-- Supabase grants EXECUTE to anon/authenticated by default at function-creation time, independent of
+-- `revoke ... from public`. join_item_portion must never be callable by the anon role (spec §4.1) —
+-- only the app (authenticated) and the web-claim edge function's service key (which bypasses grants
+-- entirely). Confirmed via get_advisors (`anon_security_definer_function_executable`) that the plain
+-- `revoke ... from public` above does NOT strip this — the explicit revoke below is required.
+revoke all on function public.join_item_portion(text, text, text, bigint, boolean) from anon;
+
+-- First-claim-wins for "That's me" on the web evidence list (spec §5.4, mirroring claim_placeholder).
+-- Called ONLY by the web-claim edge function's service key — never granted to anon/authenticated,
+-- since a web guest is never an authenticated Supabase user (spec §4.1: the browser never touches
+-- PostgREST or holds credentials at all).
+--
+-- Unlike claim_placeholder, "first wins" here is a SHORT RACE WINDOW, not a permanent lock: spec E7
+-- explicitly allows a returning guest to claim the SAME placeholder again from a second device, long
+-- after the first. An advisory transaction lock serializes truly concurrent callers (two browsers
+-- racing for the same name in the same moment); a claim landing more than 5s after the placeholder's
+-- last live session is a legitimate later re-claim, not a contested race, and always wins. This does
+-- NOT touch members.placeholder_claim_completed_at — that column is reserved for a real account merge
+-- (spec §2.1); this is a much lighter "recognise this browser as her" claim.
+create or replace function public.claim_web_placeholder(
+  p_group_id text,
+  p_placeholder_user_id text,
+  p_session_id text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_lock_key bigint := hashtextextended(p_group_id || ':' || p_placeholder_user_id, 0);
+  v_existing_session text;
+begin
+  if not exists (
+    select 1 from public.users
+    where id = p_placeholder_user_id and is_placeholder = true and placeholder_group_id = p_group_id
+  ) then
+    raise exception 'claim_web_placeholder: not an unclaimed placeholder in this group';
+  end if;
+  if exists (
+    select 1 from public.members m
+    where m.group_id = p_group_id and m.user_id = p_placeholder_user_id
+      and m.placeholder_claim_completed_at is not null
+  ) then
+    raise exception 'claim_web_placeholder: already claimed by an account holder — not offered on web';
+  end if;
+
+  perform pg_advisory_xact_lock(v_lock_key);
+
+  select ws.id into v_existing_session
+    from public.web_sessions ws
+    where ws.group_id = p_group_id and ws.user_id = p_placeholder_user_id and ws.revoked_at is null
+      and ws.id <> p_session_id
+      and ws.created_at >= p_now - 5000
+    order by ws.created_at asc
+    limit 1;
+
+  if v_existing_session is not null then
+    return jsonb_build_object('won', false, 'winner_is_me', false, 'winner_session_id', v_existing_session);
+  end if;
+
+  return jsonb_build_object('won', true, 'winner_is_me', true, 'winner_session_id', p_session_id);
+end;
+$$;
+revoke all on function public.claim_web_placeholder(text, text, text, bigint) from public, anon, authenticated;
