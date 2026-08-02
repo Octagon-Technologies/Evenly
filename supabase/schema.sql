@@ -1,4 +1,4 @@
--- ShareCost — Supabase schema for the synced tables.
+-- Evenly — Supabase schema for the synced tables.
 -- Columns mirror the Room @Entity rows 1:1 (snake_case). Run in the dashboard SQL Editor.
 -- Types: TEXT (uuid/strings/ISO dates), BIGINT (epoch-ms timestamps + minor-unit money + row_version),
 --        INTEGER (share units), DOUBLE PRECISION (share %), BOOLEAN (flags).
@@ -17,6 +17,10 @@ create table if not exists public.users (
   zelle_handle text,
   preferred_payment_app text,
   placeholder_group_id text,
+  -- Who typed this name in. Non-null only for is_placeholder rows; it exists for exactly one purpose:
+  -- never ask someone whether they are a name they created themselves. Rows predating the column stay
+  -- null ("creator unknown") and are offered to everyone, which is the pre-feature behaviour.
+  created_by text,
   notify_new_expenses boolean not null default true,
   notify_payments boolean not null default true,
   notify_conflict_reminders boolean not null default false,
@@ -54,6 +58,9 @@ create table if not exists public.members (
   left_at bigint,
   archived_at bigint,
   placeholder_claim_completed_at bigint,
+  -- WHO claimed this placeholder. completed_at records that a name was claimed but not by whom, and the
+  -- loser of a concurrent claim has to be told who won (see claim_placeholder() at the bottom).
+  placeholder_claimed_by text,
   created_at bigint not null,
   updated_at bigint not null,
   row_version bigint not null default 1,
@@ -61,6 +68,55 @@ create table if not exists public.members (
 );
 create index if not exists members_group_idx on public.members (group_id);
 create index if not exists members_user_idx on public.members (user_id);
+
+-- ── "Is this you?" identity claim: the "not me" answers ──────────────────────────────────────────
+-- Only NEGATIVE answers are stored. "That's me" is already represented by the merge
+-- (members.placeholder_claim_completed_at) and "Later" is device-local. Synced rather than a local
+-- "card dismissed" flag so answers survive a reinstall, travel to a second device, and let a name added
+-- LATER still be asked about while the already-answered ones stay gone. The list a member sees is
+-- simply "unclaimed names in this group" minus "names I've answered" — nobody has to dismiss forever,
+-- they run out of question.
+create table if not exists public.placeholder_claim_answers (
+  id text primary key,
+  group_id text not null,
+  placeholder_user_id text not null,   -- the name being ruled out
+  answered_by_user_id text not null,   -- the account saying "not me"
+  answered_at bigint not null,
+  created_at bigint not null,
+  updated_at bigint not null,
+  row_version bigint not null default 1,
+  unique (group_id, placeholder_user_id, answered_by_user_id)
+);
+create index if not exists pca_group_idx on public.placeholder_claim_answers (group_id);
+
+-- RLS: unlike the permissive `_rw` loop further down, this table is membership-scoped from day one —
+-- it is new, so there is no back-compat cost, and an answer is a personal statement about identity.
+--   select : any ACTIVE member of the group (so "everyone ruled it out" is knowable group-wide)
+--   insert : only as yourself
+--   update : only your own row. The client's push is a PostgREST upsert (on conflict do update), so a
+--            re-push of an unchanged row needs the UPDATE branch or this table's push wedges. Scoped to
+--            your own row it can only rewrite a statement you already made, so it grants nothing new.
+--   delete : revoked outright.
+alter table public.placeholder_claim_answers enable row level security;
+drop policy if exists placeholder_claim_answers_read on public.placeholder_claim_answers;
+create policy placeholder_claim_answers_read on public.placeholder_claim_answers
+  for select to authenticated
+  using (exists (
+    select 1 from public.members m
+    where m.group_id = placeholder_claim_answers.group_id
+      and m.user_id = auth.uid()::text
+      and m.status = 'ACTIVE'));
+drop policy if exists placeholder_claim_answers_insert on public.placeholder_claim_answers;
+create policy placeholder_claim_answers_insert on public.placeholder_claim_answers
+  for insert to authenticated
+  with check (answered_by_user_id = auth.uid()::text);
+drop policy if exists placeholder_claim_answers_update on public.placeholder_claim_answers;
+create policy placeholder_claim_answers_update on public.placeholder_claim_answers
+  for update to authenticated
+  using (answered_by_user_id = auth.uid()::text)
+  with check (answered_by_user_id = auth.uid()::text);
+revoke delete on public.placeholder_claim_answers from anon, authenticated;
+-- ⚠️ Deliberately NOT in the `supabase_realtime` publication. See the doorbell section below.
 
 create table if not exists public.expenses (
   id text primary key,
@@ -942,3 +998,76 @@ begin
     'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id and s.deleted_at is null));
 end;
 $$;
+
+-- ── First claim wins: claim_placeholder() ───────────────────────────────────────────────────────
+-- Two members can both claim the same name while offline. Without a guard both merges land and the
+-- name's history ends up split across two accounts with nothing signalling that it happened. This
+-- stamps `placeholder_claim_completed_at` ONLY where it is currently null and reports whether the
+-- caller won, plus who did if they didn't.
+--
+-- Ordering matters: the client calls this at FLUSH time (so a claim undone inside the 5s window never
+-- touches it) and BEFORE pushing the merged rows — a loser then reverses rows no other client has
+-- pulled yet, instead of un-publishing money other people have already seen.
+create or replace function public.claim_placeholder(
+  p_group_id text,
+  p_placeholder_user_id text,
+  p_claimer_user_id text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := auth.uid()::text;
+  v_row public.members%rowtype;
+  v_updated int;
+  v_winner text;
+begin
+  if v_uid is null or v_uid is distinct from p_claimer_user_id then
+    raise exception 'claim_placeholder: caller may only claim as themselves';
+  end if;
+  -- security definer bypasses RLS, so this membership check is what stops a claim into a group you are
+  -- not in (which would rewrite money for people you have no relationship with).
+  if not exists (
+    select 1 from public.members m
+    where m.group_id = p_group_id and m.user_id = p_claimer_user_id and m.status = 'ACTIVE'
+  ) then
+    raise exception 'claim_placeholder: not an active member of this group';
+  end if;
+
+  select * into v_row from public.members
+   where group_id = p_group_id and user_id = p_placeholder_user_id;
+
+  -- No server row for this name yet (created offline, not pushed). Nothing to contest: the claim wins
+  -- and the client's own member push carries the stamp up.
+  if not found then
+    return jsonb_build_object('won', true, 'winner_user_id', p_claimer_user_id, 'winner_name', null);
+  end if;
+
+  update public.members set
+      placeholder_claim_completed_at = p_now,
+      placeholder_claimed_by = p_claimer_user_id,
+      status = 'LEFT',
+      left_at = p_now,
+      is_admin = false,
+      updated_at = greatest(updated_at, p_now),
+      row_version = row_version + 1
+    where group_id = p_group_id
+      and user_id = p_placeholder_user_id
+      and placeholder_claim_completed_at is null;
+  get diagnostics v_updated = row_count;
+
+  select m.placeholder_claimed_by into v_winner from public.members m
+   where m.group_id = p_group_id and m.user_id = p_placeholder_user_id;
+
+  return jsonb_build_object(
+    -- Idempotent: a retry after a lost response sees its own id as the winner and still wins. A claim
+    -- stamped before this function existed has a null winner and is reported as a loss with no name.
+    'won', v_updated > 0 or v_winner is not distinct from p_claimer_user_id,
+    'winner_user_id', v_winner,
+    'winner_name', (select u.display_name from public.users u where u.id = v_winner));
+end;
+$$;
+revoke all on function public.claim_placeholder(text, text, text, bigint) from public;
+grant execute on function public.claim_placeholder(text, text, text, bigint) to authenticated;
