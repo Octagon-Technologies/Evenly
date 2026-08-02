@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
+import app.splitevenly.data.db.projection.ClaimLineRow
 import app.splitevenly.data.db.projection.UnclaimedNameRow
 import kotlinx.coroutines.flow.Flow
 
@@ -76,4 +77,35 @@ interface PlaceholderClaimAnswerDao {
         """
     )
     fun observeUnansweredNames(groupId: String, userId: String): Flow<List<UnclaimedNameRow>>
+
+    /**
+     * What claiming [placeholderUserId] would add to the claimer's own debts: one line per expense the
+     * name is booked into, at the **share** amount rather than the expense total, because the share is
+     * what lands on a balance. Oldest first, so the sheet reads in the order the money happened.
+     */
+    @Query(
+        """
+        SELECT e.title AS title, s.share_owed_subunits AS amount_subunits, e.currency AS currency
+        FROM shares s INNER JOIN expenses e ON e.id = s.expense_id
+        WHERE s.user_id = :placeholderUserId AND s.deleted_at IS NULL
+          AND e.group_id = :groupId AND e.deleted_at IS NULL
+          AND (e.payer_user_id IS NULL OR e.payer_user_id <> :placeholderUserId)
+        ORDER BY e.expense_date ASC, e.id ASC
+        """
+    )
+    suspend fun owedLines(groupId: String, placeholderUserId: String): List<ClaimLineRow>
+
+    /**
+     * What the claimer would be recorded as having **paid**: the expenses the name is the payer of, at
+     * the full expense amount (that is what they put on the table).
+     */
+    @Query(
+        """
+        SELECT e.title AS title, e.amount_subunits AS amount_subunits, e.currency AS currency
+        FROM expenses e
+        WHERE e.group_id = :groupId AND e.deleted_at IS NULL AND e.payer_user_id = :placeholderUserId
+        ORDER BY e.expense_date ASC, e.id ASC
+        """
+    )
+    suspend fun paidLines(groupId: String, placeholderUserId: String): List<ClaimLineRow>
 }

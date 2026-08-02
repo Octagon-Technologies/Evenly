@@ -115,6 +115,7 @@ fun EvenlyNavHost(
                     navController.navigate(Route.IncludeMember(r.groupId, conflictId, expenseId, memberUserId))
                 },
                 onExport = {},
+                onClaimNames = { navController.navigate(Route.Reconcile(r.groupId)) },
             )
         }
         composable<Route.Search> { entry ->

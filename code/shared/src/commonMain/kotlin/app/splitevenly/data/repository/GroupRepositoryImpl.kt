@@ -24,6 +24,8 @@ import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.UserEntity
+import app.splitevenly.domain.group.ClaimLine
+import app.splitevenly.domain.group.ClaimPreview
 import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.Member
@@ -316,6 +318,22 @@ class GroupRepositoryImpl(
         )
         analytics?.capture("placeholder_not_me")
         return AppResult.Ok(Unit)
+    }
+
+    override suspend fun claimPreview(groupId: GroupId, placeholderUserId: UserId, name: String): ClaimPreview {
+        val owed = claimAnswerDao.owedLines(groupId.value, placeholderUserId.value)
+            .map { ClaimLine(it.title, it.amountSubunits, it.currency) }
+        val paid = claimAnswerDao.paidLines(groupId.value, placeholderUserId.value)
+            .map { ClaimLine(it.title, it.amountSubunits, it.currency) }
+        val currencies = (owed + paid).mapTo(HashSet()) { it.currency }
+        return ClaimPreview(
+            name = name,
+            owed = owed,
+            paid = paid,
+            owedTotalSubunits = owed.sumOf { it.amountSubunits },
+            // One total only makes sense in one currency; across several there is no number to print.
+            currency = currencies.singleOrNull(),
+        )
     }
 
     override fun observeConflicts(groupId: GroupId): Flow<List<Conflict>> =

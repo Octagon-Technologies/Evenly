@@ -3,6 +3,7 @@ package app.splitevenly.domain.repository
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.domain.group.ClaimPreview
 import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.Member
@@ -92,6 +93,9 @@ interface GroupRepository {
      * reinstall and reaches their other devices. Idempotent: re-answering the same name is a no-op.
      */
     suspend fun answerNotMe(groupId: GroupId, placeholderUserIds: List<UserId>, userId: UserId): AppResult<Unit>
+
+    /** The money a claim would move, for the confirm sheet. A claim never happens without showing this. */
+    suspend fun claimPreview(groupId: GroupId, placeholderUserId: UserId, name: String): ClaimPreview
 
     /** Unresolved retroactive-member conflicts, oldest first — drives the Conflicts tab + its badge (03 §8). */
     fun observeConflicts(groupId: GroupId): Flow<List<Conflict>>

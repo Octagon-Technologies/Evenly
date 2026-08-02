@@ -50,6 +50,7 @@ import app.splitevenly.ui.components.EvSegmented
 import app.splitevenly.ui.components.EvSheetScaffold
 import app.splitevenly.ui.components.EvSkeletonRow
 import app.splitevenly.ui.components.EvTopBar
+import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.domain.expense.ExpenseCategory
@@ -107,6 +108,21 @@ fun GroupExpensesTab(
     onRotateInvite: () -> Unit = {},
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
+    // "Is this you?" (identity claim). Rendered here because this is where people actually look; the
+    // settings row and the full-screen list are the deliberate second and third doors, not the first.
+    identityNames: List<UnclaimedNameUi> = emptyList(),
+    identityFinished: Boolean = false,
+    onIdentityThatsMe: (String) -> Unit = {},
+    onIdentityNotMe: (String) -> Unit = {},
+    onIdentityNoneOfThese: () -> Unit = {},
+    onIdentityLater: () -> Unit = {},
+    onIdentitySeeAll: () -> Unit = {},
+    /** Non-null while a claim is still cancellable. The merge has not been written yet. */
+    undoToastText: String? = null,
+    onUndoClaim: () -> Unit = {},
+    /** How a finished claim ended, when that needs saying (someone else won it, or it couldn't be confirmed). */
+    claimNoticeText: String? = null,
+    onDismissClaimNotice: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var sub by remember { mutableStateOf("Active") }
@@ -153,6 +169,21 @@ fun GroupExpensesTab(
         if (unresolvedBills.isNotEmpty()) {
             UnresolvedBillsSection(unresolvedBills, claimsExpanded, { claimsExpanded = !claimsExpanded }, onOpenBill)
         }
+        // Outside the feed's LazyColumn on purpose: the question has to be there on every sub-tab, with
+        // a filter on, and in the empty states too, which are exactly the moments a scrolling item
+        // wouldn't render.
+        if (identityNames.isNotEmpty()) {
+            IdentityClaimCard(
+                names = identityNames,
+                onThatsMe = onIdentityThatsMe,
+                onNotMe = onIdentityNotMe,
+                onNoneOfThese = onIdentityNoneOfThese,
+                onLater = onIdentityLater,
+                onSeeAll = onIdentitySeeAll,
+            )
+        } else if (identityFinished) {
+            IdentityClaimDoneNote()
+        }
 
         // The sub-tab narrows by settlement status; drop days that have nothing under the active view.
         val visibleDays = days.mapNotNull { day ->
@@ -186,7 +217,10 @@ fun GroupExpensesTab(
             )
             else -> Box(Modifier.weight(1f)) {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    if (drafts > 0 && !filterActive && sub != "Settled") {
+                    // One prompt at a time, identity first: this strip already stacks the offline
+                    // banner, the filter chips, and the unresolved-bills section, and a fifth
+                    // interstitial buries the feed.
+                    if (drafts > 0 && !filterActive && sub != "Settled" && identityNames.isEmpty()) {
                         item {
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)
@@ -226,6 +260,15 @@ fun GroupExpensesTab(
                 EvFab(onAdd, Modifier.align(Alignment.BottomEnd).padding(16.dp))
             }
         }
+    }
+    // Sits above the FAB, over whatever branch rendered. Swiping it away is deliberately not a cancel:
+    // only the Undo button is, so a stray gesture can't quietly decide who someone is.
+    val toastModifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = 92.dp)
+    when {
+        undoToastText != null -> EvUndoToast(undoToastText, onUndoClaim, toastModifier)
+        // A claim that lost the race or couldn't be confirmed has to say so. Nothing was written either
+        // way, so the card is still there to try again.
+        claimNoticeText != null -> EvUndoToast(claimNoticeText, onDismissClaimNotice, toastModifier, actionLabel = "Got it")
     }
     if (showInvite) {
         InviteSheet(

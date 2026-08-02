@@ -19,6 +19,7 @@ import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.repository.BillRepository
+import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.platform.AppForeground
@@ -84,6 +85,8 @@ val dataModule: Module = module {
     // "Is this you?" claims: schedules the merge behind a 5-second undo window and runs the
     // first-claim-wins guard before writing anything. A single, because it has to outlive the screen
     // that started it (backgrounding flushes a pending claim).
+    // "Later" and the closing note are deliberately not persisted; see IdentityPromptSnooze.
+    single { IdentityPromptSnooze() }
     single {
         PlaceholderClaimCoordinator(
             groups = get(),

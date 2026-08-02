@@ -49,6 +49,8 @@ fun GroupHomeScreen(
     onSettlePeer: (String) -> Unit = {},
     onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit = { _, _, _ -> },
     onExport: () -> Unit = {},
+    /** "See all N" on the identity card, and the settings row, both open the full-screen list. */
+    onClaimNames: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     // Saved so leaving a tab for a pushed screen (an expense, settle, bill) and coming back returns to
@@ -68,7 +70,7 @@ fun GroupHomeScreen(
         Box(Modifier.weight(1f)) {
             Crossfade(targetState = tab, animationSpec = EvMotion.standard()) { current ->
                 when (current) {
-                    GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onOpenBill, onSearch)
+                    GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onOpenBill, onSearch, onClaimNames)
                     GroupTab.Balances -> GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
                     GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
                     GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack, onExport = onExport)

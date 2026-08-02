@@ -1,6 +1,8 @@
 package app.splitevenly.ui.screen.group
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,11 +18,15 @@ import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.core.time.todayUtc
+import app.splitevenly.data.claim.ClaimStatus
+import app.splitevenly.data.claim.IdentityPromptSnooze
+import app.splitevenly.data.claim.PlaceholderClaimCoordinator
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.balance.Debt
 import app.splitevenly.domain.balance.OutstandingItem
 import app.splitevenly.domain.balance.Overpayment
 import app.splitevenly.domain.expense.ConflictSide
+import app.splitevenly.domain.group.ClaimPreview
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.ExpenseRepository
@@ -29,6 +35,9 @@ import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.settlement.SettlementRecord
 import app.splitevenly.platform.PlatformShare
 import app.splitevenly.ui.components.moneySubunits
+import app.splitevenly.ui.screen.reconcile.ClaimLineUi
+import app.splitevenly.ui.screen.reconcile.ReconcileConfirmModal
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import kotlin.time.Clock
@@ -155,6 +164,7 @@ fun GroupExpensesRoute(
     onOpenExpense: (String) -> Unit,
     onOpenBill: (String) -> Unit,
     onSearch: () -> Unit,
+    onClaimNames: () -> Unit = {},
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
@@ -185,6 +195,66 @@ fun GroupExpensesRoute(
     val share = koinInject<PlatformShare>()
     val inviteToken = group?.inviteToken
     val inviteLink = inviteToken?.let { "split-evenly.app/j/$it" } ?: "Generating link…"
+
+    // ── "Is this you?" ───────────────────────────────────────────────────────────────────────────
+    val claims = koinInject<PlaceholderClaimCoordinator>()
+    val snooze = koinInject<IdentityPromptSnooze>()
+    val claimStatus by claims.status.collectAsStateWithLifecycle()
+    val snoozed by snooze.snoozed.collectAsStateWithLifecycle()
+    val finished by snooze.finished.collectAsStateWithLifecycle()
+    val unclaimed by remember(gid, userId) {
+        userId?.let { groups.observeUnclaimedNames(gid, it) } ?: flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
+    // A claim in flight is not a question any more: hide the name being claimed so the card can't
+    // offer it again while its 5 seconds run down.
+    val pendingName = (claimStatus as? ClaimStatus.Undoable)?.placeholderUserId?.value
+    val myName = members.firstOrNull { it.userId == userId }?.displayName.orEmpty()
+    val identityNames = remember(unclaimed, pendingName, myName, group?.baseCurrency) {
+        unclaimed.filter { it.userId.value != pendingName }
+            // Matching only ever changes ORDERING, never whether we ask: the motivating case is someone
+            // added as "Chelimo" who signed up as "Andrew", which matches nothing and is exactly the
+            // case that must not be missed.
+            .sortedByDescending { plausiblyMe(it.displayName, myName) }
+            .map { n ->
+                UnclaimedNameUi(
+                    id = n.userId.value,
+                    name = n.displayName,
+                    expenseCount = n.expenseCount,
+                    amountLabel = n.currency?.let { moneySubunits(n.owedSubunits, it) },
+                )
+            }
+    }
+    var pendingConfirm by remember { mutableStateOf<ClaimPreview?>(null) }
+    // The card is the only thing that hides on "Later"; the closing note is the receipt for the tap
+    // that emptied the list, so it only shows to whoever just did the emptying.
+    val showCard = identityNames.isNotEmpty() && groupId !in snoozed
+    val undoText = (claimStatus as? ClaimStatus.Undoable)
+        ?.takeIf { it.groupId.value == groupId }
+        ?.let { "${it.name} is now you" }
+    // Losing the race or failing to reach the guard both mean nothing was written, so both say so and
+    // leave the card in place. Silence here would read as "it worked" and the money wouldn't have moved.
+    val claimNotice = when (val s = claimStatus) {
+        is ClaimStatus.Lost -> s.winnerName
+            ?.let { "Someone else already claimed this name. ${s.name} now belongs to $it." }
+            ?: "Someone else already claimed this name."
+        is ClaimStatus.Failed -> "Couldn't confirm that claim. Check your connection and try again."
+        else -> null
+    }?.takeIf { (claimStatus as? ClaimStatus.Lost)?.groupId?.value == groupId || (claimStatus as? ClaimStatus.Failed)?.groupId?.value == groupId }
+
+    // Leaving the tab commits a pending claim rather than leaving it hanging: the user has moved on,
+    // and a claim that is never written is a claim that silently didn't happen.
+    DisposableEffect(claims) {
+        onDispose { scope.launch { claims.flush() } }
+    }
+    // A successful claim needs no toast of its own (the undo toast already said what happened), but it
+    // counts as answering, so the closing note can appear once it was the last open name.
+    LaunchedEffect(claimStatus) {
+        if (claimStatus is ClaimStatus.Claimed) {
+            snooze.markFinished(gid)
+            claims.acknowledge()
+        }
+    }
+
     GroupExpensesTab(
         groupEmoji = ui.groupEmoji, groupName = ui.groupName, state = ui.state, days = ui.days, drafts = 0,
         filterActive = filter.isActive,
@@ -196,13 +266,77 @@ fun GroupExpensesRoute(
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,
+        identityNames = if (showCard) identityNames else emptyList(),
+        // The closing note is the receipt for the tap that emptied the list, so it needs both: this
+        // person answered something here, and there is nothing left to ask.
+        identityFinished = groupId in finished && identityNames.isEmpty(),
+        onIdentityThatsMe = { id ->
+            // Never merge straight off the card: the confirm sheet has to show the money first.
+            scope.launch {
+                val n = unclaimed.firstOrNull { it.userId.value == id } ?: return@launch
+                pendingConfirm = groups.claimPreview(gid, n.userId, n.displayName)
+            }
+        },
+        onIdentityNotMe = { id ->
+            userId?.let { me ->
+                scope.launch { groups.answerNotMe(gid, listOf(UserId(id)), me) }
+                snooze.markFinished(gid)
+            }
+        },
+        onIdentityNoneOfThese = {
+            // Only this explicit tap writes the answers. Closing the card or navigating away writes
+            // nothing, because "opened and left" also means "I'm not sure" and "I mis-tapped back".
+            userId?.let { me ->
+                scope.launch { groups.answerNotMe(gid, identityNames.map { UserId(it.id) }, me) }
+                snooze.markFinished(gid)
+            }
+        },
+        onIdentityLater = { snooze.snooze(gid) },
+        onIdentitySeeAll = onClaimNames,
+        undoToastText = undoText,
+        onUndoClaim = { scope.launch { claims.undo() } },
+        claimNoticeText = claimNotice,
+        onDismissClaimNotice = { claims.acknowledge() },
     )
+
+    pendingConfirm?.let { preview ->
+        ReconcileConfirmModal(
+            name = preview.name,
+            owed = preview.owed.map { ClaimLineUi(it.title, moneySubunits(it.amountSubunits, it.currency)) },
+            paid = preview.paid.map { ClaimLineUi(it.title, moneySubunits(it.amountSubunits, it.currency)) },
+            owedTotalLabel = preview.currency?.takeIf { preview.owed.isNotEmpty() }
+                ?.let { moneySubunits(preview.owedTotalSubunits, it) },
+            onConfirm = {
+                val me = userId
+                val target = unclaimed.firstOrNull { it.displayName == preview.name }
+                pendingConfirm = null
+                if (me != null && target != null) {
+                    scope.launch { claims.confirm(gid, target.userId, preview.name, me) }
+                }
+            },
+            onCancel = { pendingConfirm = null },
+        )
+    }
 
     // Shown as an overlay on top of the tab, not a separate route push — matches the sheet pattern
     // used elsewhere (e.g. HomeScreen's "Create or join a group" sheet).
     if (showFilter) {
         FilterRoute(groupId = groupId, onDismiss = { showFilter = false })
     }
+}
+
+/**
+ * Does this name look like it could be the viewer? Used ONLY to order the list so a likely match is
+ * first. It never decides whether a name is offered, because the case worth catching is the one that
+ * matches nothing at all.
+ */
+private fun plausiblyMe(candidate: String, myName: String): Boolean {
+    if (myName.isBlank()) return false
+    val a = candidate.trim().lowercase()
+    val b = myName.trim().lowercase()
+    if (a == b) return true
+    val myParts = b.split(' ').filter { it.length > 2 }
+    return myParts.any { a.contains(it) } || (a.length > 2 && b.contains(a))
 }
 
 /** Balances tab content, wired: the current user's pairwise debts (converted to the group base, F2),

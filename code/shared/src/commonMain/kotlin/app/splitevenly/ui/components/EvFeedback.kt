@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -165,4 +166,41 @@ fun EvSkeletonRow(modifier: Modifier = Modifier) {
 @Composable
 fun EvSpinner(modifier: Modifier = Modifier, color: Color = EvenlyTheme.colors.onAccent, size: Dp = 18.dp) {
     CircularProgressIndicator(modifier = modifier.size(size), color = color, strokeWidth = 2.5.dp)
+}
+
+/**
+ * A transient action toast: what just happened, plus one chance to take it back.
+ *
+ * Used by the identity claim, where the action is deferred rather than reversed — the merge has not
+ * been written while this is on screen, so [onUndo] cancels rather than un-does. Dismissing the toast
+ * by other means is deliberately NOT a cancel: only the button is.
+ */
+@Composable
+fun EvUndoToast(
+    text: String,
+    onUndo: () -> Unit,
+    modifier: Modifier = Modifier,
+    actionLabel: String = "Undo",
+) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.ink)
+            .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(text, color = c.page, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Text(
+            actionLabel,
+            color = c.page,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onUndo)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
 }
