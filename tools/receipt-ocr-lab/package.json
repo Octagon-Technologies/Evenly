@@ -1,0 +1,14 @@
+{
+  "name": "receipt-ocr-lab",
+  "version": "1.0.0",
+  "description": "Local test bench for receipt OCR extraction — compare models on real receipt photos (cost, latency, accuracy) before wiring changes into the app.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^2.0.0"
+  }
+}
