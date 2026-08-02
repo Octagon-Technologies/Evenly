@@ -371,6 +371,13 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
+# The web-claim function IS the security boundary for a guest with no Supabase auth session at all
+# (spec §4.1: the browser ships no anon key). Project-level JWT verification would 401 every request
+# before the function's own token-based authorisation ever runs, so it must stay off here — this makes
+# that persistent across deploys rather than relying on remembering a `--no-verify-jwt` flag each time.
+[functions.web-claim]
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.

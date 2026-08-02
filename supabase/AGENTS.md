@@ -49,10 +49,14 @@ history across two accounts silently.
 The client calls it at **flush** time (an undone claim never reaches it) and **before** pushing the
 merged rows — a loser then reverses rows no other client has pulled. Don't move it after the push.
 
-## Web claim (`WEB_CLAIM_SPEC.md`) — step 1 landed
+## Web claim (`WEB_CLAIM_SPEC.md`) — steps 1–3 landed
 
-Three new tables and two new RPCs, additive per the spec's §11 build order. Step 2 (`BillRepository
-.joinItem` + a `setPortion` fix) is the only one wired into `code/` so far — the rest lands in steps 3–6.
+Additive per the spec's §11 build order. Step 2 (`BillRepository.joinItem` + a `setPortion` fix) wired
+`join_item_portion` into the app; step 3 is the `web-claim` edge function (see its own README) — the
+security boundary and CRUD surface, minus payer-role assignment and pending-edit approval (both
+deferred, see that README). Steps 4–6 (the TS money engine + CI gate, the Svelte surface, and the app's
+payer screens) are still ahead. A fourth table, `web_claim_write_log` (insert-only, no grants — the
+`web-claim` function's per-token rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
 
 - **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
   policies: only the (not-yet-built) `web-claim` edge function's service key ever touches it.
@@ -117,6 +121,7 @@ tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its S
 | Function                    | Status                                                     |
 | --------------------------- | ---------------------------------------------------------- |
 | `extract-receipt`           | Live — Claude vision → structured bill draft (multi-page)  |
+| `web-claim`                 | Live — the web claim security boundary; `verify_jwt = false` (own token auth) |
 | `push-notify`               | Deployed but **inert** until `FCM_SERVICE_ACCOUNT` is set  |
 | `dispatch_push`             | Push fan-out                                                |
 | `export_group`              | Group data export                                           |

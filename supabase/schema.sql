@@ -1420,3 +1420,15 @@ begin
 end;
 $$;
 revoke all on function public.claim_web_placeholder(text, text, text, bigint) from public, anon, authenticated;
+
+-- Step 3 (WEB_CLAIM_SPEC.md §4.5): the web-claim edge function's per-token write rate limit (120
+-- writes/min). Mirrors receipt_scan_log's pattern — insert-only, service-role-only, no grants to
+-- anon/authenticated (the edge function is the only writer, same as web_sessions/web_bill_links).
+create table if not exists public.web_claim_write_log (
+  id text primary key,
+  token_hash text not null,
+  created_at bigint not null
+);
+create index if not exists web_claim_write_log_token_idx on public.web_claim_write_log (token_hash, created_at);
+alter table public.web_claim_write_log enable row level security;
+-- Deliberately no policies — only the web-claim edge function's service key touches this table.
