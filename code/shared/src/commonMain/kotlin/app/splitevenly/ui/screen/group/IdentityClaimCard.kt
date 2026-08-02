@@ -113,7 +113,8 @@ private fun NamedShape(
                 letterSpacing = (-0.3).sp,
             )
             Text(
-                evidenceLine(person),
+                // Cold, "3 expenses and no account" doesn't say why you're being asked. This does.
+                namedSubtitle(person),
                 color = c.ink2,
                 style = MaterialTheme.typography.bodyMedium,
                 lineHeight = 20.sp,
@@ -274,6 +275,20 @@ private fun evidenceLine(person: UnclaimedNameUi): String = when {
     person.amountLabel == null -> "${person.expenseCount} expenses, and no account."
     person.expenseCount == 1 -> "1 expense, ${person.amountLabel}, and no account."
     else -> "${person.expenseCount} expenses, ${person.amountLabel}, and no account."
+}
+
+/**
+ * The single-name shape has room to say *why* this is being asked, and needs to: the whole situation
+ * ("a name in this group that isn't an account") is one a first-timer has never met before.
+ */
+private fun namedSubtitle(person: UnclaimedNameUi): String {
+    val lead = "Someone added this name before you joined."
+    return when {
+        person.expenseCount == 0 -> "$lead Nothing has been logged under it yet."
+        person.amountLabel == null -> "$lead It has ${person.expenseCount} expenses on it."
+        person.expenseCount == 1 -> "$lead It has 1 expense, ${person.amountLabel}."
+        else -> "$lead It has ${person.expenseCount} expenses, ${person.amountLabel}."
+    }
 }
 
 /** Three names inline; beyond that the card would bury the feed it sits on top of. */

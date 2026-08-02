@@ -159,6 +159,15 @@ class PlaceholderClaimCoordinator(
         cancelledTimer?.cancel()
     }
 
+    /**
+     * [flush] from a place whose own scope is about to die — leaving the screen is the main one. It runs
+     * on the coordinator's scope, because a flush launched into a scope that is being cancelled is a
+     * claim the user confirmed and that then silently never happened.
+     */
+    fun flushDetached() {
+        scope.launch { flush() }
+    }
+
     /** Clear a finished notice once the user has seen it. */
     fun acknowledge() {
         val s = _status.value

@@ -19,6 +19,7 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.claim.ClaimStatus
+import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
 import app.splitevenly.domain.auth.AuthSession
@@ -198,6 +199,7 @@ fun GroupExpensesRoute(
 
     // ── "Is this you?" ───────────────────────────────────────────────────────────────────────────
     val claims = koinInject<PlaceholderClaimCoordinator>()
+    val shareDao = koinInject<ShareDao>()
     val snooze = koinInject<IdentityPromptSnooze>()
     val claimStatus by claims.status.collectAsStateWithLifecycle()
     val snoozed by snooze.snoozed.collectAsStateWithLifecycle()
@@ -224,7 +226,24 @@ fun GroupExpensesRoute(
                 )
             }
     }
-    var pendingConfirm by remember { mutableStateOf<ClaimPreview?>(null) }
+    // Held as (id, preview), never looked up again by name: two names can read identically ("Tyler R."
+    // twice) and claiming the wrong one moves the wrong money.
+    // Evidence for the single-name shape. "Are you Chelimo?" is unanswerable from a name alone, while
+    // "Chelimo bought the airport taxi" is answerable in a second, so the one-name card shows the actual
+    // expenses. Only fetched for that shape; the list rows have no room for them.
+    var namedEvidence by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    val soleName = identityNames.singleOrNull()?.id
+    LaunchedEffect(soleName) {
+        namedEvidence = soleName?.let { id ->
+            shareDao.expensesForUser(groupId, id).take(3).map { it.title to moneySubunits(it.amountSubunits, group?.baseCurrency ?: "USD") }
+        }.orEmpty()
+    }
+    val cardNames = remember(identityNames, namedEvidence) {
+        if (identityNames.size == 1) listOf(identityNames.single().copy(recentExpenses = namedEvidence))
+        else identityNames
+    }
+
+    var pendingConfirm by remember { mutableStateOf<Pair<UserId, ClaimPreview>?>(null) }
     // The card is the only thing that hides on "Later"; the closing note is the receipt for the tap
     // that emptied the list, so it only shows to whoever just did the emptying.
     val showCard = identityNames.isNotEmpty() && groupId !in snoozed
@@ -244,7 +263,7 @@ fun GroupExpensesRoute(
     // Leaving the tab commits a pending claim rather than leaving it hanging: the user has moved on,
     // and a claim that is never written is a claim that silently didn't happen.
     DisposableEffect(claims) {
-        onDispose { scope.launch { claims.flush() } }
+        onDispose { claims.flushDetached() }
     }
     // A successful claim needs no toast of its own (the undo toast already said what happened), but it
     // counts as answering, so the closing note can appear once it was the last open name.
@@ -266,7 +285,7 @@ fun GroupExpensesRoute(
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,
-        identityNames = if (showCard) identityNames else emptyList(),
+        identityNames = if (showCard) cardNames else emptyList(),
         // The closing note is the receipt for the tap that emptied the list, so it needs both: this
         // person answered something here, and there is nothing left to ask.
         identityFinished = groupId in finished && identityNames.isEmpty(),
@@ -274,7 +293,7 @@ fun GroupExpensesRoute(
             // Never merge straight off the card: the confirm sheet has to show the money first.
             scope.launch {
                 val n = unclaimed.firstOrNull { it.userId.value == id } ?: return@launch
-                pendingConfirm = groups.claimPreview(gid, n.userId, n.displayName)
+                pendingConfirm = n.userId to groups.claimPreview(gid, n.userId, n.displayName)
             }
         },
         onIdentityNotMe = { id ->
@@ -299,7 +318,7 @@ fun GroupExpensesRoute(
         onDismissClaimNotice = { claims.acknowledge() },
     )
 
-    pendingConfirm?.let { preview ->
+    pendingConfirm?.let { (targetId, preview) ->
         ReconcileConfirmModal(
             name = preview.name,
             owed = preview.owed.map { ClaimLineUi(it.title, moneySubunits(it.amountSubunits, it.currency)) },
@@ -308,11 +327,8 @@ fun GroupExpensesRoute(
                 ?.let { moneySubunits(preview.owedTotalSubunits, it) },
             onConfirm = {
                 val me = userId
-                val target = unclaimed.firstOrNull { it.displayName == preview.name }
                 pendingConfirm = null
-                if (me != null && target != null) {
-                    scope.launch { claims.confirm(gid, target.userId, preview.name, me) }
-                }
+                if (me != null) scope.launch { claims.confirm(gid, targetId, preview.name, me) }
             },
             onCancel = { pendingConfirm = null },
         )
