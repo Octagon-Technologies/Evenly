@@ -38,7 +38,7 @@ function Home({ state = 'populated', onOpenGroup, onNewGroup }) {
     <div className="sc-screen sc-screen--surface" style={{ height: '100%' }}>
       <TopBar
         left={<Avatar name="Alex Rivera" me />}
-        title={<span style={{ fontSize: 17 }}>ShareCost</span>} center
+        title={<span style={{ fontSize: 17 }}>Evenly</span>} center
         right={<button className="sc-iconbtn" style={{ color: 'var(--blue)' }} onClick={onNewGroup}><Icon name="plus" size={24} /></button>}
       />
       {state === 'loading' && <Scroll surface><div style={{ paddingTop: 8 }}>{[0,1,2].map(i => <SkelRow key={i} />)}</div></Scroll>}

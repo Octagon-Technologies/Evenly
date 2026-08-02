@@ -1,4 +1,4 @@
-# ShareCost — Finish Plan (wired-with-stubs → fully functional)
+# Evenly — Finish Plan (wired-with-stubs → fully functional)
 
 > Companion to `BUILD_PLAN.md`. That plan got the layered architecture stood up and the
 > 22 screens drawn + mostly wired. This plan closes the gap between **"screens render real
@@ -40,13 +40,13 @@ Everything currently fake, grouped by the phase that fixes it.
 | Onboarding | Discards name/currency/handles; always `signIn("Alex Rivera")` | `ui/navigation/WiredScreens.kt:35` |
 | Magic-link | Ignores typed email, `signIn("You")` anonymously; no Loading/Sent state; resend no-op | `ui/navigation/WiredScreens.kt:42`, `ui/screen/auth/MagicLinkScreen.kt` |
 | Home cards | `members = 1`, `status = Settled`, `last = "Tap to open"` hardcoded; `archived = emptyList()` | `ui/screen/home/HomeViewModel.kt:40,61-69` |
-| Archived screen | Renders `ArchivedSamples`; `onUnarchive` no-op; never navigated to | `ui/screen/home/ArchivedScreen.kt:58`, `ui/navigation/ShareCostNavHost.kt:73` |
-| Join sheet | Hardcoded "Tulum Trip / 5 members"; ignores deep-link token; routes to `GroupHome("joined")` | `ui/screen/home/JoinGroupSheet.kt:48`, `ShareCostNavHost.kt:74-80` |
-| Settle-single sheet | Hardcoded "Dinner at La Negra / Andrew / $24"; `onMarkPaid` records nothing | `ui/screen/settle/SettleSingleSheet.kt:42-47`, `ShareCostNavHost.kt:138-145` |
-| Reconcile screen | "Demo placeholder data" people; `onConfirm` → `GroupHome("1")`, ignores claims; never navigated to | `ui/screen/reconcile/ReconcileScreen.kt:63`, `ShareCostNavHost.kt:181` |
+| Archived screen | Renders `ArchivedSamples`; `onUnarchive` no-op; never navigated to | `ui/screen/home/ArchivedScreen.kt:58`, `ui/navigation/EvenlyNavHost.kt:73` |
+| Join sheet | Hardcoded "Tulum Trip / 5 members"; ignores deep-link token; routes to `GroupHome("joined")` | `ui/screen/home/JoinGroupSheet.kt:48`, `EvenlyNavHost.kt:74-80` |
+| Settle-single sheet | Hardcoded "Dinner at La Negra / Andrew / $24"; `onMarkPaid` records nothing | `ui/screen/settle/SettleSingleSheet.kt:42-47`, `EvenlyNavHost.kt:138-145` |
+| Reconcile screen | "Demo placeholder data" people; `onConfirm` → `GroupHome("1")`, ignores claims; never navigated to | `ui/screen/reconcile/ReconcileScreen.kt:63`, `EvenlyNavHost.kt:181` |
 | ReconcileConfirmModal | Demo data; **dead code** — only its own `@Preview` references it | `ui/screen/reconcile/ReconcileConfirmModal.kt:49` |
-| Filter sheet | Hardcoded member list + "Show 14 results"; `onApply` ignored | `ui/screen/group/FilterSheet.kt:45,81`, `ShareCostNavHost.kt:101` |
-| Search overlay | Query prefilled "tax"; hardcoded results; `onResult` no-op | `ui/screen/group/SearchOverlay.kt:45`, `ShareCostNavHost.kt:103` |
+| Filter sheet | Hardcoded member list + "Show 14 results"; `onApply` ignored | `ui/screen/group/FilterSheet.kt:45,81`, `EvenlyNavHost.kt:101` |
+| Search overlay | Query prefilled "tax"; hardcoded results; `onResult` no-op | `ui/screen/group/SearchOverlay.kt:45`, `EvenlyNavHost.kt:103` |
 | Expense-detail comments | Two hardcoded `CommentBubble`s ("I already sent Andrew $16 in cash 🙌"); can't type; Send no-op; no repo | `ui/screen/expense/ExpenseDetailScreen.kt:186-193` |
 | Expense-detail receipts | 2 fake thumbnails; "Add" `clickable {}`; no storage | `ui/screen/expense/ExpenseDetailScreen.kt:134-141` |
 | Expense-detail history | Literal "Andrew added this expense · May 23, 8:40 PM" | `ui/screen/expense/ExpenseDetailScreen.kt:260` |
@@ -59,7 +59,7 @@ Everything currently fake, grouped by the phase that fixes it.
 | "≈ £18.36 (rate: 0.765)" | Hardcoded string, not a real conversion | `ui/screen/settle/SettleSingleSheet.kt:84` |
 | Category spend card | Always empty — no `category` field on `Expense` | `ui/screen/group/GroupTabRoutes.kt:81`, `domain/expense/Expense.kt` |
 | `setArchived` / `leaveGroup` / `renameGroup` | Real repo methods + tests, **no UI invokes them** | `data/repository/GroupRepositoryImpl.kt:149-201` |
-| Invite link | Real `inviteToken` exists; UI shows literal "sharecost.app/j/8Kk2-Tulum", copy/rotate no-op | `ui/screen/settings/GroupSettingsScreen.kt:124-142` |
+| Invite link | Real `inviteToken` exists; UI shows literal "split-evenly.app/j/8Kk2-Tulum", copy/rotate no-op | `ui/screen/settings/GroupSettingsScreen.kt:124-142` |
 | `joinByToken` | Resolves **local cache only**; never-synced groups return `GROUP_NOT_CACHED` | `data/repository/GroupRepositoryImpl.kt:124-131` |
 | Push | `PushService` reads real FCM token, but **no host registration emits/consumes**; notification toggles local-only | `platform/PushService.kt`, `ui/screen/settings/ProfileScreen.kt:86-90` |
 | Sync | 15s heartbeat full-table last-write-wins; **no realtime, no per-write outbox** | `data/remote/supabase/SyncEngine.kt`, `SupabaseAuthSession.kt:54-61` |
@@ -184,7 +184,7 @@ template to copy.
 **Files:** `data/repository/SettlementRepositoryImpl.kt` · `data/repository/GroupRepositoryImpl.kt`
 (new reconcile method) · `ui/navigation/SettleRoutes.kt` (add `SettleSingleRoute`) ·
 `ui/screen/settle/SettleSingleSheet.kt` + `DeepLinkConfirmSheet.kt` · `ui/screen/reconcile/*` ·
-`ui/navigation/ShareCostNavHost.kt`.
+`ui/navigation/EvenlyNavHost.kt`.
 
 **Tasks:**
 1. Build `SettleSingleRoute` (mirror `SettlePersonRoute`): load the share, call
@@ -206,7 +206,7 @@ template to copy.
 > Phase F3 from `FINISH_PLAN.md`: wire single-expense settle + deep-link confirm to
 > `applySettlement`, and build real placeholder reconciliation. Start by reading the working
 > `SettlePersonRoute` in `SettleRoutes.kt` as the template, then `SettlementRepositoryImpl.kt`,
-> `ShareCostNavHost.kt` (SettleExpense/SettleConfirm/Reconcile destinations), and the reconcile screens.
+> `EvenlyNavHost.kt` (SettleExpense/SettleConfirm/Reconcile destinations), and the reconcile screens.
 
 ---
 
@@ -221,7 +221,7 @@ cluster of group-management screens — one session holds it all.
 **Files:** `data/repository/GroupRepositoryImpl.kt` (mostly read-only here — methods exist) ·
 `ui/screen/settings/GroupSettingsScreen.kt` + route · `ui/screen/home/HomeViewModel.kt` ·
 `ui/screen/home/ArchivedScreen.kt` · `ui/screen/home/JoinGroupSheet.kt` ·
-`ui/navigation/ShareCostNavHost.kt` · deep-link parsing in `App.kt`.
+`ui/navigation/EvenlyNavHost.kt` · deep-link parsing in `App.kt`.
 
 **Tasks:**
 1. `HomeViewModel.toCard`: compute real `members` count, balance `status`, and `last` activity
@@ -268,7 +268,7 @@ tables + Supabase Storage.)
 same screen — splitting them across sessions would mean re-loading the same context.
 
 **Files:** new `data/db/entity/CommentEntity.kt`, `ReceiptEntity.kt`, `HistoryEventEntity.kt`
-+ DAOs + `ShareCostDatabase` migration · new `CommentRepository` (+ receipts/history) ·
++ DAOs + `EvenlyDatabase` migration · new `CommentRepository` (+ receipts/history) ·
 `data/remote/supabase/SupabaseClientFactory.kt` (install Storage) + `SyncEngine` (new tables) ·
 `ui/screen/expense/ExpenseDetailScreen.kt` · `platform/FilePicker.kt` (exists) +
 `platform/ImageProcessor` (new, for receipt compression).
@@ -293,7 +293,7 @@ same screen — splitting them across sessions would mean re-loading the same co
 > `ExpenseDetailScreen` with real persisted features. Add `CommentEntity`/`ReceiptEntity`/
 > `HistoryEventEntity` + DAOs + a Room migration, a comment/receipt repository, install Supabase
 > Storage in `SupabaseClientFactory.kt`, and extend `SyncEngine`. Start by reading
-> `ExpenseDetailScreen.kt:130-200`, `ShareCostDatabase.kt`, and `SyncEngine.kt`.
+> `ExpenseDetailScreen.kt:130-200`, `EvenlyDatabase.kt`, and `SyncEngine.kt`.
 
 ---
 
@@ -338,7 +338,7 @@ the expenses feed.
 > debounced `pull()`), and a 60s safety-net full sync (which also drains offline edits on reconnect).
 > Server-resolve join-by-token via `RemoteGroupGateway`(+Supabase impl) — a never-synced group now joins
 > (`GROUP_NOT_CACHED` → real lookup; only a true miss is `GROUP_NOT_FOUND`). Push: Android
-> `ShareCostMessagingService` + manifest + `firebase-messaging` dep forward FCM into `PushBus`;
+> `EvenlyMessagingService` + manifest + `firebase-messaging` dep forward FCM into `PushBus`;
 > `PushController` registers the token to `device_tokens` and pulls on each delivered message; Android 13+
 > notification permission requested in `MainActivity`. `device_tokens` table + realtime publication added to
 > the schema + applied. Tests: server-resolve join (fake gateway). Green on Android + iOS.
@@ -387,7 +387,7 @@ best done once the data model is final (after F2/F5 add their tables).
 
 ### Phase F8 — Polish & cosmetics (optional)  🔄 (2026-06-17, mostly done)
 > **Done:** Privacy/Terms/Send-feedback links open real destinations; **theme switch** (System/Light/Dark,
-> persisted on the user row, drives `ShareCostTheme` from `App`); **delete account** (confirm → security-definer
+> persisted on the user row, drives `EvenlyTheme` from `App`); **delete account** (confirm → security-definer
 > RPC removing profile + device tokens + auth user → sign out + local clear); **notification toggles** now
 > persist (per-user, synced — see F7). **Deferred (v1.1+ per spec):** CSV/JSON/PDF export, storage/categories
 > management, member-detail rows.

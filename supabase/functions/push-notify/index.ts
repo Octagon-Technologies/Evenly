@@ -1,4 +1,4 @@
-// ShareCost push-sender (F7). Looks up the device tokens of a group's members and sends each an FCM
+// Evenly push-sender (F7). Looks up the device tokens of a group's members and sends each an FCM
 // notification via the FCM HTTP v1 API. Invoke from a DB webhook (on expense/settlement insert) or
 // directly with a service key.
 //

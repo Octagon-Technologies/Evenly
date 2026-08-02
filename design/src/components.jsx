@@ -1,4 +1,4 @@
-// components.jsx — ShareCost shared UI primitives. Exports to window.
+// components.jsx — Evenly shared UI primitives. Exports to window.
 // Depends on: Icon (icons.jsx)
 
 const { useState } = React;

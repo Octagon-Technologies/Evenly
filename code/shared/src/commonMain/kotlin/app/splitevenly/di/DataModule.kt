@@ -57,6 +57,7 @@ val dataModule: Module = module {
     single { get<EvenlyDatabase>().billParticipantDao() }
     single { get<EvenlyDatabase>().supersededNoticeDao() }
     single { get<EvenlyDatabase>().placeholderMergeDao() }
+    single { get<EvenlyDatabase>().placeholderClaimAnswerDao() }
 
     // Remote
     single<FxRateFetcher> { FrankfurterFxFetcher(get()) }
@@ -69,7 +70,7 @@ val dataModule: Module = module {
 
     // Repositories
     // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).
-    single<GroupRepository> { GroupRepositoryImpl(get(), get(), get(), get(), get(), get(), get(), remoteGroups = getOrNull<RemoteGroupGateway>(), receiptDao = get(), analytics = getOrNull<EvAnalytics>()) }
+    single<GroupRepository> { GroupRepositoryImpl(get(), get(), get(), get(), get(), get(), get(), get(), remoteGroups = getOrNull<RemoteGroupGateway>(), receiptDao = get(), analytics = getOrNull<EvAnalytics>()) }
     // ExpenseRepository takes the FX repo + group DAO so balances convert to the group base currency (F2),
     // and the history DAO so create/edit/delete append to the activity log (F5).
     single<ExpenseRepository> { ExpenseRepositoryImpl(get(), get(), fxRepository = get(), groupDao = get(), historyEventDao = get(), editConflictDao = get(), supersededNoticeDao = get(), analytics = getOrNull<EvAnalytics>()) }

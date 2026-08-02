@@ -1,20 +1,20 @@
 # Anti-patterns & the jargon blocklist
 
-Two catalogs: (1) failure modes drawn from real competitor reviews and ShareCost's own design —
+Two catalogs: (1) failure modes drawn from real competitor reviews and Evenly's own design —
 the specific traps to hunt for; (2) the jargon blocklist for heuristic 5.
 
 ---
 
 ## Competitor failure modes (from real 1–3★ reviews in `app_store_complaints/`)
 
-ShareCost exists *because* these are the things people hate. If our app reproduces any of them,
+Evenly exists *because* these are the things people hate. If our app reproduces any of them,
 we've lost our reason to exist. Hunt for each:
 
 1. **Attribution confusion — "I can't tell who owes whom."** (Tricount 3★: *"it shows the rest of
    people owes money to me and not the person who paid… this app miss the basics."*) → The
    owe/owed direction and counterparty must be glanceable and correct everywhere. This is the
    heartbeat (Job 4). Treat any ambiguity as P0.
-2. **Forced full-balance settlement.** Competitors make you settle the whole balance. ShareCost's
+2. **Forced full-balance settlement.** Competitors make you settle the whole balance. Evenly's
    headline feature is paying a *single* expense. If the settle flow nudges toward "pay everything"
    and hides the per-expense path, we've thrown away the differentiator.
 3. **Money custody / caps / KYC.** (Splitwise 1★: transfer limits, *"you'd be better off working
@@ -33,7 +33,7 @@ we've lost our reason to exist. Hunt for each:
 
 ---
 
-## ShareCost-specific traps (complexity leaking from the architecture)
+## Evenly-specific traps (complexity leaking from the architecture)
 
 The app has genuinely sophisticated machinery. The risk is never the machinery — it's the
 machinery *showing through* to a user who shouldn't have to know it exists.
@@ -87,7 +87,7 @@ owes who · split · I had this · add someone · this is me · done.*
 **Quick check for a new screen:**
 ```
 grep -rEi 'materiali|reconcil|placeholder|allocat|tombstone|\bCAS\b|row.?version|base.?version|sync.?state|\bdirty\b|\bparked\b' \
-  code/shared/src/commonMain/kotlin/da/chelimo/sharecost/ui/
+  code/shared/src/commonMain/kotlin/app/splitevenly/ui/
 ```
 Hits inside `//` comments or route/enum names are fine; hits inside a user-visible string literal
 are the finding.

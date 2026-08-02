@@ -110,7 +110,7 @@ function Onboarding({ step: stepInit = 0 }) {
       </OnbBody>
     );
     if (cur === 'analytics') return (
-      <OnbBody icon="chart" title="Help improve ShareCost" text="Share anonymous usage data. No expense details, ever.">
+      <OnbBody icon="chart" title="Help improve Evenly" text="Share anonymous usage data. No expense details, ever.">
         <div className="sc-card sc-card__pad row between" style={{ width: '100%', cursor: 'pointer' }} onClick={() => setAnalytics(a => !a)}>
           <span className="col" style={{ alignItems: 'flex-start' }}><span style={{ fontWeight: 600 }}>Anonymous analytics</span><span className="sc-tiny sc-muted">On by default</span></span>
           <Toggle on={analytics} />

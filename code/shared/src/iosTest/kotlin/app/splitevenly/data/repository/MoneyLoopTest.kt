@@ -34,7 +34,7 @@ class MoneyLoopTest {
     fun setUp() {
         db = inMemoryTestDatabase()
         val clock = clockAt("2026-06-15")
-        groups = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(), db.placeholderMergeDao(), clock)
+        groups = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(), db.placeholderMergeDao(), db.placeholderClaimAnswerDao(), clock)
         expenses = ExpenseRepositoryImpl(db.expenseDao(), db.shareDao(), clock)
         settlements = SettlementRepositoryImpl(db.settlementDao(), db.shareDao(), clock)
     }

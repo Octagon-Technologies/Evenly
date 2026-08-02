@@ -15,7 +15,7 @@ function SystemOverview() {
         <div className="col gap16" style={{ maxWidth: 460 }}>
           <Wordmark size={36} />
           <div style={{ fontSize: 17, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-            A free shared-expense <b style={{ color: 'var(--ink)' }}>tracker</b> — never a wallet. ShareCost records who owes whom and hands settlement to your own payment app. Its signature move: pay back <b style={{ color: 'var(--ink)' }}>one expense</b>, not your whole balance — so every amount shows a large <b style={{ color: 'var(--ink)' }}>remaining</b> over a small, muted <b style={{ color: 'var(--ink)' }}>original</b>.
+            A free shared-expense <b style={{ color: 'var(--ink)' }}>tracker</b> — never a wallet. Evenly records who owes whom and hands settlement to your own payment app. Its signature move: pay back <b style={{ color: 'var(--ink)' }}>one expense</b>, not your whole balance — so every amount shows a large <b style={{ color: 'var(--ink)' }}>remaining</b> over a small, muted <b style={{ color: 'var(--ink)' }}>original</b>.
           </div>
         </div>
         <div className="col gap8" style={{ background: 'var(--surface)', borderRadius: 16, padding: 20, minWidth: 240 }}>

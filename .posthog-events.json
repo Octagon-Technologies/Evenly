@@ -2,61 +2,61 @@
   {
     "event_name": "user_signed_in",
     "event_description": "Fires when a user transitions from signed-out to signed-in (any provider: Google, email OTP, password, or anonymous).",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/auth/SupabaseAuthSession.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/auth/SupabaseAuthSession.kt"
   },
   {
     "event_name": "user_signed_out",
     "event_description": "Fires when the user explicitly signs out of the app.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/auth/SupabaseAuthSession.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/auth/SupabaseAuthSession.kt"
   },
   {
     "event_name": "account_deleted",
     "event_description": "Fires when the user successfully deletes their account.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/auth/SupabaseAuthSession.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/auth/SupabaseAuthSession.kt"
   },
   {
     "event_name": "group_created",
     "event_description": "Fires when a user creates a new expense-splitting group.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/GroupRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "group_joined",
     "event_description": "Fires when a user joins an existing group via invite link or token.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/GroupRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "group_left",
     "event_description": "Fires when a user leaves a group they belong to.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/GroupRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "placeholder_added",
     "event_description": "Fires when a user adds a non-app member (placeholder) to a group, indicating proxy assignment.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/GroupRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "expense_added",
     "event_description": "Fires when a user adds a new expense to a group, with split_mode as a property.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/ExpenseRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/ExpenseRepositoryImpl.kt"
   },
   {
     "event_name": "expense_edited",
     "event_description": "Fires when a user edits an existing expense, indicating engagement depth.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/ExpenseRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/ExpenseRepositoryImpl.kt"
   },
   {
     "event_name": "expense_deleted",
     "event_description": "Fires when a user deletes an expense, a potential churn or correction signal.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/ExpenseRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/ExpenseRepositoryImpl.kt"
   },
   {
     "event_name": "settlement_applied",
     "event_description": "Fires when a user records a payment to settle outstanding balances, the core value-delivery moment.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/SettlementRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/SettlementRepositoryImpl.kt"
   },
   {
     "event_name": "bill_created",
     "event_description": "Fires when a user creates an itemized bill (split-the-bill feature), measuring AI/itemized feature adoption.",
-    "file": "code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/repository/BillRepositoryImpl.kt"
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/BillRepositoryImpl.kt"
   }
 ]

@@ -1,4 +1,4 @@
-# ShareCost MVP Build Plan
+# Evenly MVP Build Plan
 
 > One row = one test→implement→audit cycle.
 > Status: ✅ done | 🔄 in progress | ⬜ not started
@@ -39,7 +39,7 @@ Each cycle = one entity group + its DAO + an in-memory Room test.
 
 | # | Status | What | Spec | Key files |
 |---|---|---|---|---|
-| R-1 | ✅ | User entity + DAO (+ Room/KSP wiring, DB scaffold) | 02 §3.2, AC-M1-020/021 | `data/db/entity/UserEntity.kt`, `dao/UserDao.kt`, `ShareCostDatabase.kt` |
+| R-1 | ✅ | User entity + DAO (+ Room/KSP wiring, DB scaffold) | 02 §3.2, AC-M1-020/021 | `data/db/entity/UserEntity.kt`, `dao/UserDao.kt`, `EvenlyDatabase.kt` |
 | R-2 | ✅ | Group + Member entities + DAOs | 02 §3.4/3.5 | `data/db/entity/GroupEntity.kt`, `MemberEntity.kt` |
 | R-3 | ✅ | Expense + Share entities + DAOs (+ status recompute) | 02 §3.7/3.8, §6/§7.5 | `data/db/entity/ExpenseEntity.kt`, `ShareEntity.kt`, `ExpenseStatus.kt` |
 | R-4 | ✅ | Settlement + Allocation entities + DAOs | 02 §3.9 | `data/db/entity/SettlementEntity.kt`, `SettlementAllocationEntity.kt` |
@@ -95,7 +95,7 @@ The Android/iOS boundary. Each cycle = one `expect` declaration + both actuals (
 > `satisfied`). **E-4** is FCM both sides: Android reads the token off the SDK; iOS reads a token bridged
 > from the Swift `MessagingDelegate` ([IosPushTokenHolder]); both re-expose a shared `PushBus` that the
 > host notification entry points feed. **E-5** uses the foreground-Activity tracker (`installActivityTracking`,
-> wired in `ShareCostApplication`) on Android and `UIDocumentPickerViewController` on iOS. DI: all five are
+> wired in `EvenlyApplication`) on Android and `UIDocumentPickerViewController` on iOS. DI: all five are
 > bound in `platformModule()` per platform. Manifest gains `INTERNET` / `ACCESS_NETWORK_STATE` /
 > `POST_NOTIFICATIONS`. **Verified:** both targets compile (`compileAndroidMain`, iOS sim) + `:androidApp:assembleDebug`;
 > the iOS Keychain actual has a 7-test round-trip suite (`iosSimulatorArm64Test`, 115 total green) gated on a
@@ -116,7 +116,7 @@ This is where you learn Compose theming, MVI state, and navigation.
 
 | # | Status | What | Spec | Learn |
 |---|---|---|---|---|
-| U-0 | ⬜ | ShareCostTheme + design tokens | 06 §4.1/4.2 | MaterialTheme, CompositionLocal, dark mode |
+| U-0 | ⬜ | EvenlyTheme + design tokens | 06 §4.1/4.2 | MaterialTheme, CompositionLocal, dark mode |
 | U-1 | ⬜ | Auth screen (Google + Apple sign-in) | 05 §1, AC-M1-001/002 | OAuth flow, Supabase Auth |
 | U-2 | ⬜ | Home screen (group list) | 05 §2 | LazyColumn, StateFlow→collectAsState |
 | U-3 | ⬜ | Group home (expense list, date headers) | 05 §3, AC-M2-060/061 | Sticky headers, tab navigation |

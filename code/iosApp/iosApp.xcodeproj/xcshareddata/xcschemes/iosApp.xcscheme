@@ -14,7 +14,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "D95CE288A901E655246D20C2"
-               BuildableName = "ShareCost.app"
+               BuildableName = "Evenly.app"
                BlueprintName = "iosApp"
                ReferencedContainer = "container:iosApp.xcodeproj">
             </BuildableReference>
@@ -43,7 +43,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D95CE288A901E655246D20C2"
-            BuildableName = "ShareCost.app"
+            BuildableName = "Evenly.app"
             BlueprintName = "iosApp"
             ReferencedContainer = "container:iosApp.xcodeproj">
          </BuildableReference>

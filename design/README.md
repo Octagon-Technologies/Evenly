@@ -1,4 +1,4 @@
-# ShareCost — Design reference
+# Evenly — Design reference
 
 This folder holds the finished mobile UI exported from **Claude Design**, plus its decoded
 source. It is the **visual source of truth** for the Compose Multiplatform UI built under
@@ -9,7 +9,7 @@ disagree, **the design here wins** (per the build decision).
 
 | Path | What |
 |---|---|
-| `ShareCost-Standalone.html` | The original self-contained export (open in a browser to see the live, interactive design). |
+| `Evenly-Standalone.html` | The original self-contained export (open in a browser to see the live, interactive design). |
 | `extract.py` | Decoder: unpacks the HTML's `__bundler/manifest` (gzip+base64 modules) and `__bundler/template` (the CSS) into `src/`. Re-run with `python3 extract.py`. |
 | `src/design.css` | **The complete design system**: `@font-face` (IBM Plex), `:root` tokens, and every `.sc-*` component class with exact px/weights/colors. The definitive styling reference. |
 | `src/components.jsx` | Shared UI primitives (the React originals of our `ui/components/`). |

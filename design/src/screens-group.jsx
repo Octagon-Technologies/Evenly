@@ -34,7 +34,7 @@ function GroupExpenses({ state = 'populated', tab = 'Active', onAdd, onOpenExpen
       )}
 
       {state === 'empty' && (
-        <EmptyState icon="receipt" title="No expenses yet" text="Add the first shared cost and ShareCost tracks who owes whom." cta="Add expense" onCta={onAdd} />
+        <EmptyState icon="receipt" title="No expenses yet" text="Add the first shared cost and Evenly tracks who owes whom." cta="Add expense" onCta={onAdd} />
       )}
 
       {state === 'populated' && (

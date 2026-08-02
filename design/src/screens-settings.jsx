@@ -40,7 +40,7 @@ function GroupSettings({ onBack }) {
             <div className="sc-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 12, paddingBlock: 16 }}>
               <div className="row gap12">
                 <div style={{ width: 64, height: 64, borderRadius: 12, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 0 0 1px var(--border)' }}><Icon name="qr" size={40} style={{ color: 'var(--ink)' }} /></div>
-                <div className="grow col gap4"><span style={{ fontWeight: 600, fontSize: 14 }}>Invite link</span><span className="sc-tiny mono sc-muted" style={{ wordBreak: 'break-all' }}>sharecost.app/j/8Kk2-Tulum</span></div>
+                <div className="grow col gap4"><span style={{ fontWeight: 600, fontSize: 14 }}>Invite link</span><span className="sc-tiny mono sc-muted" style={{ wordBreak: 'break-all' }}>split-evenly.app/j/8Kk2-Tulum</span></div>
               </div>
               <div className="row gap8"><Btn variant="secondary" sm icon="copy" style={{ flex: 1 }}>Copy link</Btn><Btn variant="secondary" sm icon="reload" style={{ flex: 1 }}>Rotate</Btn></div>
             </div>
@@ -141,7 +141,7 @@ function Profile({ onBack }) {
             <SetRow icon="back" label="Sign out" />
             <SetRow icon="trash" label="Delete account" danger last right={null} />
           </Group>
-          <div className="sc-tiny sc-muted" style={{ textAlign: 'center' }}>ShareCost v2.4.0</div>
+          <div className="sc-tiny sc-muted" style={{ textAlign: 'center' }}>Evenly v2.4.0</div>
           <div style={{ height: 16 }} />
         </div>
       </Scroll>

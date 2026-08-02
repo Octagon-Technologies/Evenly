@@ -13,6 +13,7 @@ import app.splitevenly.data.db.dao.ConflictDao
 import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.GroupDao
 import app.splitevenly.data.db.dao.MemberDao
+import app.splitevenly.data.db.dao.PlaceholderClaimAnswerDao
 import app.splitevenly.data.db.dao.PlaceholderMergeDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.dao.ShareDao
@@ -20,6 +21,7 @@ import app.splitevenly.data.db.dao.UserDao
 import app.splitevenly.data.db.entity.ConflictEntity
 import app.splitevenly.data.db.entity.GroupEntity
 import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.UserEntity
 import app.splitevenly.domain.group.Conflict
@@ -27,6 +29,7 @@ import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.group.MemberSnapshot
 import app.splitevenly.domain.group.NewGroup
+import app.splitevenly.domain.group.UnclaimedName
 import app.splitevenly.domain.group.determineNextAdmin
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
 import app.splitevenly.domain.repository.GroupRepository
@@ -54,6 +57,7 @@ class GroupRepositoryImpl(
     // NOT an optional ctor dep: the placeholder merge is a money-correctness path, and a null-defaulted
     // "legacy behaviour" fallback here would be the blind reassignment this replaced.
     private val placeholderMergeDao: PlaceholderMergeDao,
+    private val claimAnswerDao: PlaceholderClaimAnswerDao,
     private val clock: Clock = Clock.System,
     // Server-side invite-token resolution (F7); null in tests / offline stub → local-cache-only behaviour.
     private val remoteGroups: RemoteGroupGateway? = null,
@@ -63,7 +67,7 @@ class GroupRepositoryImpl(
     private val analytics: EvAnalytics? = null,
 ) : GroupRepository {
 
-    override suspend fun addPlaceholder(groupId: GroupId, name: String): AppResult<Member> {
+    override suspend fun addPlaceholder(groupId: GroupId, name: String, createdBy: UserId?): AppResult<Member> {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return validationErr("name", AppError.Validation.Reason.Required)
         val now = clock.nowEpochMillis()
@@ -75,6 +79,10 @@ class GroupRepositoryImpl(
                 displayName = trimmed,
                 email = null,
                 placeholderGroupId = groupId.value,
+                // Stamped here rather than inferred later: inferring the creator from the payer of the
+                // earliest expense the name appears in is wrong whenever someone adds a person to a bill
+                // they didn't pay for.
+                createdBy = createdBy?.value,
                 createdAt = now,
                 updatedAt = now,
             ),
@@ -262,6 +270,51 @@ class GroupRepositoryImpl(
         // and finally the members row. See [PlaceholderMergeDao]: a half-applied merge is silently wrong
         // money across several people's balances, which is worse than a merge that didn't run.
         placeholderMergeDao.mergePlaceholder(groupId.value, placeholderUserId.value, realUserId.value, now)
+        return AppResult.Ok(Unit)
+    }
+
+    override fun observeUnclaimedNames(groupId: GroupId, userId: UserId): Flow<List<UnclaimedName>> =
+        claimAnswerDao.observeUnansweredNames(groupId.value, userId.value).map { rows ->
+            rows.map { r ->
+                UnclaimedName(
+                    userId = UserId(r.userId),
+                    displayName = r.displayName,
+                    expenseCount = r.expenseCount,
+                    owedSubunits = r.owedSubunits,
+                    // Summing across currencies is meaningless, so a multi-currency name shows its count
+                    // alone and the card drops the amount rather than printing a wrong one.
+                    currency = r.currency.takeIf { r.currencyCount == 1 },
+                    multiCurrency = r.currencyCount > 1,
+                )
+            }
+        }
+
+    override suspend fun answerNotMe(
+        groupId: GroupId,
+        placeholderUserIds: List<UserId>,
+        userId: UserId,
+    ): AppResult<Unit> {
+        if (placeholderUserIds.isEmpty()) return AppResult.Ok(Unit)
+        val now = clock.nowEpochMillis()
+        // Deterministic id from (group, name, answerer): the same answer made twice — offline on two
+        // devices, or a re-tap — is one row, on the client and on the server's unique key alike.
+        val answered = claimAnswerDao.answersOf(groupId.value, userId.value).associateBy { it.placeholderUserId }
+        claimAnswerDao.upsertAll(
+            placeholderUserIds.distinct().map { ph ->
+                val existing = answered[ph.value]
+                PlaceholderClaimAnswerEntity(
+                    id = existing?.id ?: "${groupId.value}__${ph.value}__${userId.value}",
+                    groupId = groupId.value,
+                    placeholderUserId = ph.value,
+                    answeredByUserId = userId.value,
+                    answeredAt = existing?.answeredAt ?: now,
+                    createdAt = existing?.createdAt ?: now,
+                    updatedAt = now,
+                    rowVersion = (existing?.rowVersion ?: 0L) + 1,
+                )
+            },
+        )
+        analytics?.capture("placeholder_not_me")
         return AppResult.Ok(Unit)
     }
 

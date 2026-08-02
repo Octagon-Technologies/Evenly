@@ -1,0 +1,87 @@
+package app.splitevenly.ui.navigation
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.splitevenly.core.error.AppResult
+import app.splitevenly.core.id.GroupId
+import app.splitevenly.core.id.UserId
+import app.splitevenly.domain.auth.AuthSession
+import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.platform.PlatformShare
+import app.splitevenly.ui.screen.settings.GroupSettingsScreen
+import app.splitevenly.ui.screen.settings.MemberRowUi
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
+
+/** Group settings, wired: streams the group + members; renames, copies the invite, and leaves (F4). */
+@Composable
+fun GroupSettingsRoute(
+    groupId: String,
+    onBack: () -> Unit,
+    onLeft: () -> Unit,
+    onReconcile: () -> Unit,
+    onEditCategories: () -> Unit = {},
+) {
+    val groups = koinInject<GroupRepository>()
+    val auth = koinInject<AuthSession>()
+    val gid = remember(groupId) { GroupId(groupId) }
+    val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
+    val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
+    val storageUsedBytes by remember(gid) { groups.observeStorageUsedBytes(gid) }.collectAsStateWithLifecycle(0L)
+    val userId by auth.currentUserId.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    val share = koinInject<PlatformShare>()
+    val inviteToken = group?.inviteToken
+    val inviteLink = inviteToken?.let { "split-evenly.app/j/$it" } ?: "Generating link…"
+
+    val rows = members.map { m ->
+        MemberRowUi(
+            userId = m.userId.value,
+            name = m.displayName ?: "Someone",
+            role = when {
+                m.isAdmin -> "Admin"
+                m.isPlaceholder -> "Placeholder"
+                else -> ""
+            },
+            isMe = m.userId == userId,
+        )
+    }
+
+    GroupSettingsScreen(
+        groupName = group?.name ?: "",
+        groupEmoji = group?.emoji ?: "💸",
+        baseCurrency = group?.baseCurrency ?: "USD",
+        members = rows,
+        inviteLink = inviteLink,
+        storageUsedBytes = storageUsedBytes,
+        onBack = onBack,
+        onAddMember = { name, addToPast ->
+            scope.launch {
+                // Adds the member as a placeholder; "all past" sweeps existing expenses (03 §8.1).
+                val added = groups.addPlaceholder(gid, name, createdBy = userId)
+                if (added is AppResult.Ok && addToPast) {
+                    userId?.let { me -> groups.addMemberToPastExpenses(gid, added.value.userId, me) }
+                }
+            }
+        },
+        onRename = { name -> scope.launch { groups.renameGroup(gid, name) } },
+        onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
+        onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },
+        onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
+        onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
+        onReconcile = onReconcile,
+        onEditCategories = onEditCategories,
+        onArchive = {
+            userId?.let { me -> scope.launch { if (groups.setArchived(gid, me, archived = true) is AppResult.Ok) onLeft() } }
+        },
+        onLeave = {
+            userId?.let { me -> scope.launch { if (groups.leaveGroup(gid, me) is AppResult.Ok) onLeft() } }
+        },
+    )
+}

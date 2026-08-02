@@ -1,4 +1,4 @@
-// canvas.jsx — composes all ShareCost screens onto the design canvas.
+// canvas.jsx — composes all Evenly screens onto the design canvas.
 // DCSection inspects children for element.type === DCArtboard, so Frame() is
 // CALLED as a function (returns a DCArtboard element); the stateful state-toggle
 // lives in the inner <StateView> component.
@@ -37,7 +37,7 @@ function App() {
     <DesignCanvas>
 
       {/* ───────── START HERE ───────── */}
-      <DCSection id="start" title="ShareCost" subtitle="Complete mobile UI · blue-led monochrome · light-first financial ledger">
+      <DCSection id="start" title="Evenly" subtitle="Complete mobile UI · blue-led monochrome · light-first financial ledger">
         <DCArtboard id="system" label="Design system" width={820} height={760}>
           <div style={{ width: '100%', height: '100%', overflow: 'hidden', background: '#fff' }}><SystemOverview /></div>
         </DCArtboard>

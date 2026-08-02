@@ -1,4 +1,4 @@
-// ShareCost receipt OCR ("Split the bill"). Takes a receipt photo and returns a structured, EDITABLE
+// Evenly receipt OCR ("Split the bill"). Takes a receipt photo and returns a structured, EDITABLE
 // draft of the bill — line items + tax/gratuity/tip/discount — by asking Claude vision for forced
 // structured output. The client always lands the user on the editable item list to confirm before any
 // money is computed; this function only produces a first draft, never a source of truth.

@@ -14,7 +14,7 @@ Xcode → **File → Add Package Dependencies** → `https://github.com/firebase
 **FirebaseMessaging** product to the `iosApp` target.
 
 ## 2. Add the config file
-Firebase console → add an **iOS app** (bundle id `da.chelimo.sharecost`) → download **`GoogleService-Info.plist`**
+Firebase console → add an **iOS app** (bundle id `app.splitevenly`) → download **`GoogleService-Info.plist`**
 → drag it into the `iosApp` target in Xcode (✓ "Copy if needed", target membership = iosApp).
 
 ## 3. Capabilities  ← the APNs-key part is deferred
@@ -113,4 +113,4 @@ struct iOSApp: App {
 
 That's it — `IosPushTokenHolder.shared` and `PushBus.shared` are already exported by the `Shared`
 framework, and the shared `PushController` does the rest (token registration + pull-on-message),
-symmetric with the Android `ShareCostMessagingService`.
+symmetric with the Android `EvenlyMessagingService`.

@@ -2,7 +2,7 @@
 
 > KMP/CMP code layout, dependencies, expect/actual surfaces, build configuration, and clean-architecture boundaries. Provides the structural map that implementing agents fill in.
 >
-> **This revision reconciles the spec with the actual Android-Studio-generated KMP project** that already lives in `code/`. The generated project uses a `shared` library module + a thin `androidApp` host + an `iosApp` host (the modern KMP template, AGP `com.android.kotlin.multiplatform.library` plugin), package `da.chelimo.sharecost`. The major-directory layout below matches that reality; the internal `core/data/domain/ui/di` layout under the shared module is unchanged from the previous revision.
+> **This revision reconciles the spec with the actual Android-Studio-generated KMP project** that already lives in `code/`. The generated project uses a `shared` library module + a thin `androidApp` host + an `iosApp` host (the modern KMP template, AGP `com.android.kotlin.multiplatform.library` plugin), package `app.splitevenly`. The major-directory layout below matches that reality; the internal `core/data/domain/ui/di` layout under the shared module is unchanged from the previous revision.
 
 ---
 
@@ -11,7 +11,7 @@
 The `code/` directory is a working Android Studio **Kotlin Multiplatform** project (shared Compose UI). Do **not** re-scaffold it — extend it. Baseline facts the implementer must preserve:
 
 - **Modules:** `:shared` (KMP library, holds shared logic **and** the Compose UI) and `:androidApp` (Android application host). The iOS host is the `iosApp/` Xcode project. `settings.gradle.kts` already declares `include(":androidApp")` and `include(":shared")` and enables `TYPESAFE_PROJECT_ACCESSORS` (use `implementation(projects.shared)`).
-- **Package / namespace:** `da.chelimo.sharecost` (app), `da.chelimo.sharecost.shared` (shared library namespace). The iOS framework `baseName = "Shared"` (Swift `import Shared`, entry point `MainViewControllerKt.MainViewController()`).
+- **Package / namespace:** `app.splitevenly` (app), `app.splitevenly.shared` (shared library namespace). The iOS framework `baseName = "Shared"` (Swift `import Shared`, entry point `MainViewControllerKt.MainViewController()`).
 - **Shared module Android target** uses the new `androidLibrary { … }` DSL from `com.android.kotlin.multiplatform.library` — there is **no `AndroidManifest.xml` in `shared`**. Android app manifest, permissions, deep-link filters, and `google-services.json` live in `:androidApp`.
 - **iOS targets:** `iosArm64` + `iosSimulatorArm64`, static framework. (`iosX64` not built.)
 - **Compose UI is shared:** `App()` is in `shared/commonMain`; both hosts render it (`MainActivity.setContent { App() }`, `ContentView` → `MainViewController()`).
@@ -37,7 +37,7 @@ ShareCost/                              ← git repo root
 │   │   ├── build.gradle.kts            ← kotlinMultiplatform + androidMultiplatformLibrary + compose
 │   │   └── src/
 │   │       ├── commonMain/
-│   │       │   ├── kotlin/da/chelimo/sharecost/
+│   │       │   ├── kotlin/app/splitevenly/
 │   │       │   │   ├── core/           ← Money, ID value classes, AppError, AppResult, UuidV7, Logger, Clock
 │   │       │   │   ├── data/           ← Room schema/DAOs, Supabase wrappers, sync engine, repo impls
 │   │       │   │   │   ├── db/
@@ -58,8 +58,8 @@ ShareCost/                              ← git repo root
 │   │       │   │   ├── platform/       ← expect declarations (SecureStorage, PushService, …)
 │   │       │   │   └── di/             ← Koin modules
 │   │       │   └── composeResources/   ← strings (xml/json), drawables, fonts
-│   │       ├── androidMain/kotlin/da/chelimo/sharecost/platform/  ← Android actuals
-│   │       ├── iosMain/kotlin/da/chelimo/sharecost/platform/      ← iOS actuals
+│   │       ├── androidMain/kotlin/app/splitevenly/platform/  ← Android actuals
+│   │       ├── iosMain/kotlin/app/splitevenly/platform/      ← iOS actuals
 │   │       ├── commonTest/             ← unit + pure-logic tests
 │   │       ├── androidHostTest/        ← JVM-hosted Android unit tests
 │   │       └── iosTest/                ← iOS unit tests
@@ -67,7 +67,7 @@ ShareCost/                              ← git repo root
 │   │   ├── build.gradle.kts            ← com.android.application (+ google-services, crashlytics plugins)
 │   │   └── src/main/
 │   │       ├── AndroidManifest.xml     ← permissions, deep-link intent-filters, WorkManager, FCM service
-│   │       ├── kotlin/da/chelimo/sharecost/MainActivity.kt
+│   │       ├── kotlin/app/splitevenly/MainActivity.kt
 │   │       ├── google-services.json    ← Firebase config (gitignored / per-env)
 │   │       └── res/
 │   └── iosApp/                         ← iOS application host (Xcode project)
@@ -215,7 +215,7 @@ Standard Compose file layout in `ui/theme/`:
 - **`Color.kt`** — raw brand `Color(0xFF…)` constants for light and dark.
 - **`Type.kt`** — a `Typography` mapping the brand type ramp onto the M3 type scale (`displayLarge … labelSmall`).
 - **`Shape.kt`** — a `Shapes` (small/medium/large corner radii).
-- **`Theme.kt`** — `lightColorScheme()` / `darkColorScheme()` and the `ShareCostTheme` wrapper.
+- **`Theme.kt`** — `lightColorScheme()` / `darkColorScheme()` and the `EvenlyTheme` wrapper.
 - **`ExtendedColors.kt`** — the brand-semantic colors Material lacks (§4.3).
 
 ```kotlin
@@ -229,7 +229,7 @@ private val DarkColors = darkColorScheme(
 private val LightColors = lightColorScheme( /* … */ )
 
 @Composable
-fun ShareCostTheme(
+fun EvenlyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),   // default theme is DARK (05 header) — see §4.4
     content: @Composable () -> Unit,
 ) {
@@ -239,7 +239,7 @@ fun ShareCostTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = ShareCostTypography,
-            shapes = ShareCostShapes,
+            shapes = EvenlyShapes,
             content = content,
         )
     }
@@ -280,7 +280,7 @@ data class ExtendedColors(
 
 val LocalExtendedColors = staticCompositionLocalOf<ExtendedColors> { error("No ExtendedColors") }
 
-object ShareCostTheme {                    // usage: ShareCostTheme.colors.positive
+object EvenlyTheme {                    // usage: EvenlyTheme.colors.positive
     val colors: ExtendedColors
         @Composable @ReadOnlyComposable get() = LocalExtendedColors.current
 }

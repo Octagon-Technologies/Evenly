@@ -8,24 +8,25 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:name=".ShareCostApplication"
+        android:name=".EvenlyApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.Evenly">
         <activity
             android:exported="true"
             android:launchMode="singleTop"
-            android:name=".MainActivity">
+            android:name=".MainActivity"
+            android:theme="@style/Theme.Evenly.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- OAuth / magic-link redirect target (sharecost://login-callback). Must match the Auth
+            <!-- OAuth / magic-link redirect target (splitevenly://login-callback). Must match the Auth
                  deep link in SupabaseClientFactory + the Supabase Auth URL allow-list. -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
@@ -33,17 +34,17 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <data android:scheme="sharecost" android:host="login-callback" />
+                <data android:scheme="splitevenly" android:host="login-callback" />
             </intent-filter>
 
-            <!-- Join-by-invite deep link (sharecost://j/<token>) → NavHost Route.Join. -->
+            <!-- Join-by-invite deep link (splitevenly://j/<token>) → NavHost Route.Join. -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <data android:scheme="sharecost" android:host="j" />
+                <data android:scheme="splitevenly" android:host="j" />
             </intent-filter>
         </activity>
 
@@ -61,7 +62,7 @@
 
         <!-- FCM delivery (06 §5.4): forwards tokens + messages into the shared PushBus. -->
         <service
-            android:name=".ShareCostMessagingService"
+            android:name=".EvenlyMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

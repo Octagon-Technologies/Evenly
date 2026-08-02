@@ -5,7 +5,7 @@ credentials switches DI to the live Supabase auth + sync path (`authModule`, `06
 
 ## 1. Paste your project credentials
 
-Edit **`code/shared/src/commonMain/kotlin/da/chelimo/sharecost/data/remote/supabase/SupabaseConfig.kt`**
+Edit **`code/shared/src/commonMain/kotlin/app/splitevenly/data/remote/supabase/SupabaseConfig.kt`**
 and replace the two placeholders:
 
 ```kotlin

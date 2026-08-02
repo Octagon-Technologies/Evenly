@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build the ShareCost iOS app and run it on an iOS Simulator.
+# Build the Evenly iOS app and run it on an iOS Simulator.
 #
 # This drives `xcodebuild`, whose "Run Script" build phase invokes Gradle to compile the shared
 # Kotlin/Native framework first — so this single command builds BOTH the shared module and the
@@ -15,7 +15,7 @@ set -euo pipefail
 PROJECT="iosApp.xcodeproj"
 SCHEME="iosApp"
 CONFIG="Debug"
-BUNDLE_ID="da.chelimo.sharecost.ShareCost"   # PRODUCT_BUNDLE_IDENTIFIER (TEAM_ID empty → no suffix)
+BUNDLE_ID="app.splitevenly"   # PRODUCT_BUNDLE_IDENTIFIER (TEAM_ID empty → no suffix)
 SIM_NAME="${SIM_NAME:-iPhone 16}"            # override via env var
 DERIVED="build/dd"
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Decode the ShareCost Claude-Design export into readable source.
+Decode the Evenly Claude-Design export into readable source.
 
 The standalone HTML is a self-unpacking bundle with two data blocks:
 
@@ -23,7 +23,7 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HTML = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "ShareCost-Standalone.html")
+HTML = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "Evenly-Standalone.html")
 OUT = os.path.join(HERE, "src")
 
 # Authored modules are commented with their original filename on line 1

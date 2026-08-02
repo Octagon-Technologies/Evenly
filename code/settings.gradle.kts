@@ -1,4 +1,4 @@
-rootProject.name = "ShareCost"
+rootProject.name = "Evenly"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {

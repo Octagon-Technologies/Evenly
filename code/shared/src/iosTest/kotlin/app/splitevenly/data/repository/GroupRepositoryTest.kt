@@ -36,7 +36,7 @@ class GroupRepositoryTest {
     @BeforeTest
     fun setUp() {
         db = inMemoryTestDatabase()
-        repo = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(), db.placeholderMergeDao(), clockAt("2026-06-12"))
+        repo = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(), db.placeholderMergeDao(), db.placeholderClaimAnswerDao(), clockAt("2026-06-12"))
     }
 
     @AfterTest
@@ -116,7 +116,7 @@ class GroupRepositoryTest {
         val gateway = FakeRemoteGroupGateway(db)
         val withRemote = GroupRepositoryImpl(
             db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(),
-            db.placeholderMergeDao(), clockAt("2026-06-12"), remoteGroups = gateway,
+            db.placeholderMergeDao(), db.placeholderClaimAnswerDao(), clockAt("2026-06-12"), remoteGroups = gateway,
         )
         val joined = withRemote.joinByToken("remote-token", UserId("u2"))
         assertTrue(joined is AppResult.Ok)

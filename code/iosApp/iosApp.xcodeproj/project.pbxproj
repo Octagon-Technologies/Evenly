@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		282E886575943A1B32ABCB64 /* ShareCost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShareCost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		282E886575943A1B32ABCB64 /* Evenly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Evenly.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -59,7 +59,7 @@
 		C5037476A93020BB9D9045A5 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				282E886575943A1B32ABCB64 /* ShareCost.app */,
+				282E886575943A1B32ABCB64 /* Evenly.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -87,7 +87,7 @@
 			packageProductDependencies = (
 			);
 			productName = iosApp;
-			productReference = 282E886575943A1B32ABCB64 /* ShareCost.app */;
+			productReference = 282E886575943A1B32ABCB64 /* Evenly.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */

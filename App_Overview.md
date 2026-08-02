@@ -1,8 +1,8 @@
-# App Overview: ShareCost
+# App Overview: Evenly
 
 ## 1. App Name
 
-ShareCost.
+Evenly.
 
 ## 2. One-Line Description
 
@@ -10,7 +10,7 @@ A free shared-expense tracker that records who owes whom and hands settlement of
 
 ## 3. Elevator Pitch
 
-ShareCost helps groups of people who keep owing each other small amounts of money (trip companions, roommates, couples, recurring social groups) record expenses, see clear bilateral balances, and settle through whichever payment app they already use. The app is a tracking layer only: it never custodies money, never asks for a bank account, and never imposes daily caps or timers on the core flow. It exists because the dominant incumbent in this category has started gating basic entry behind a subscription, and users are actively looking for a replacement that stays free, stays fast, and respects the social texture of shared debts. The sharpest reason to choose ShareCost is that you can pay back a single expense, through your own payment app, without ever giving a third party your bank details.
+Evenly helps groups of people who keep owing each other small amounts of money (trip companions, roommates, couples, recurring social groups) record expenses, see clear bilateral balances, and settle through whichever payment app they already use. The app is a tracking layer only: it never custodies money, never asks for a bank account, and never imposes daily caps or timers on the core flow. It exists because the dominant incumbent in this category has started gating basic entry behind a subscription, and users are actively looking for a replacement that stays free, stays fast, and respects the social texture of shared debts. The sharpest reason to choose Evenly is that you can pay back a single expense, through your own payment app, without ever giving a third party your bank details.
 
 ## 4. Target Users
 
@@ -52,13 +52,13 @@ Why it matters: forced full-balance settlement is the second-most-cited grievanc
 
 **Settle via deep link to the user's payment app**  |  Importance: 10/10  |  Confidence: High
 
-During onboarding, the user picks one or more preferred payment apps (Zelle, Cash App, Venmo, PayPal) and stores their handle on their profile. Other members see those preferences on the payee's profile. When paying, the user taps an expense (or a balance), picks full or partial amount, picks one of the payee's preferred apps, and ShareCost opens that app via deep link with amount and recipient pre-filled. On return, the user confirms the transfer completed and the expense is marked paid. ShareCost never custodies money and never asks for bank details.
+During onboarding, the user picks one or more preferred payment apps (Zelle, Cash App, Venmo, PayPal) and stores their handle on their profile. Other members see those preferences on the payee's profile. When paying, the user taps an expense (or a balance), picks full or partial amount, picks one of the payee's preferred apps, and Evenly opens that app via deep link with amount and recipient pre-filled. On return, the user confirms the transfer completed and the expense is marked paid. Evenly never custodies money and never asks for bank details.
 
 Why it matters: the "no middleman, no KYC, no bank link" promise is the inverse of the most painful thing about the dominant competitor and is the single most concrete trust signal we offer.
 
 **Mid-trip member addition with conflict resolution and auto-refunds**  |  Importance: 9/10  |  Confidence: High
 
-When a member is added, the adder chooses between "add to all past expenses" or "future only." Under "all past," equal-split expenses are silently recomputed to include the new member; uneven splits (by share or by exact amount) land in a Conflicts tab where any group member can either modify the split to include the new member or dismiss them from that specific expense. If a re-split changes the share of someone who has already settled, ShareCost auto-generates a refund from the original payer to the over-settler, linked to the original expense and labeled as an auto-refund. Removing a member reverses these auto-refunds. Unresolved conflicts do not block any group action; instead, ShareCost surfaces a periodic reminder to the group admin. Default cadence is weekly; the admin can adjust it to daily or every three days. When opening a conflict to add the new member, the system does not pre-fill a suggested share; the resolver enters the new member's share manually.
+When a member is added, the adder chooses between "add to all past expenses" or "future only." Under "all past," equal-split expenses are silently recomputed to include the new member; uneven splits (by share or by exact amount) land in a Conflicts tab where any group member can either modify the split to include the new member or dismiss them from that specific expense. If a re-split changes the share of someone who has already settled, Evenly auto-generates a refund from the original payer to the over-settler, linked to the original expense and labeled as an auto-refund. Removing a member reverses these auto-refunds. Unresolved conflicts do not block any group action; instead, Evenly surfaces a periodic reminder to the group admin. Default cadence is weekly; the admin can adjust it to daily or every three days. When opening a conflict to add the new member, the system does not pre-fill a suggested share; the resolver enters the new member's share manually.
 
 Why it matters: no current app handles retroactive member adds without forcing users to redo expenses manually; this is the source of multiple "I had to rebuild the whole trip" complaints.
 

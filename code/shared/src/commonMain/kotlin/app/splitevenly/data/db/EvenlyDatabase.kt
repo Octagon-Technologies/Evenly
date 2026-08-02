@@ -21,6 +21,7 @@ import app.splitevenly.data.db.dao.HistoryEventDao
 import app.splitevenly.data.db.dao.ItemClaimDao
 import app.splitevenly.data.db.dao.ItemShareDao
 import app.splitevenly.data.db.dao.MemberDao
+import app.splitevenly.data.db.dao.PlaceholderClaimAnswerDao
 import app.splitevenly.data.db.dao.PlaceholderMergeDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.dao.ReceiptUploadDao
@@ -45,6 +46,7 @@ import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
@@ -73,6 +75,7 @@ import app.splitevenly.data.db.entity.UserEntity
         UserEntity::class,
         GroupEntity::class,
         MemberEntity::class,
+        PlaceholderClaimAnswerEntity::class,
         ExpenseEntity::class,
         ShareEntity::class,
         SettlementEntity::class,
@@ -95,7 +98,7 @@ import app.splitevenly.data.db.entity.UserEntity
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -104,6 +107,7 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun groupDao(): GroupDao
     abstract fun memberDao(): MemberDao
     abstract fun placeholderMergeDao(): PlaceholderMergeDao
+    abstract fun placeholderClaimAnswerDao(): PlaceholderClaimAnswerDao
     abstract fun expenseDao(): ExpenseDao
     abstract fun shareDao(): ShareDao
     abstract fun settlementDao(): SettlementDao

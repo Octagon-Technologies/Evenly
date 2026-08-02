@@ -19,6 +19,10 @@ dependencies {
 
     implementation(libs.androidx.activity.compose)
 
+    // Branded launch screen. Backports the Android 12 splash API to minSdk 24, so the blue-and-feather
+    // launch is identical on every supported version instead of only on 31+.
+    implementation(libs.androidx.core.splashscreen)
+
     // Firebase Cloud Messaging — the host-registered messaging service forwards into the shared PushBus (F7).
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
@@ -28,7 +32,7 @@ dependencies {
 }
 
 android {
-    namespace = "da.chelimo.sharecost"
+    namespace = "app.splitevenly"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     buildFeatures {
@@ -36,7 +40,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "da.chelimo.sharecost"
+        applicationId = "app.splitevenly"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1

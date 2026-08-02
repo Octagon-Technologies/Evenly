@@ -9,7 +9,7 @@ likely to lose a first-timer — verify them specifically, don't assume they're 
 
 ## Job 1 — Join a group from an invite (Sam, ≤ 3 taps)
 
-**Path:** deep link `sharecost://j/{token}` (or paste a link → `JoinByLinkSheet`) → `JoinRoute`
+**Path:** deep link `splitevenly://j/{token}` (or paste a link → `JoinByLinkSheet`) → `JoinRoute`
 → `JoinGroupSheet` → `GroupHome` (Expenses tab).
 
 **Cold script:** You got a text with a link. You don't have the app / just installed it. Tap the
@@ -102,7 +102,7 @@ owed, to whom, how much? Then expand one row — does the per-expense detail mak
 `SettleSingleSheet`.)*
 
 **Cold script:** Mara owes Sam $24. She wants to pay through Venmo and mark it done. This is
-ShareCost's **signature advantage** (pay a single expense, through your own app, no bank link) —
+Evenly's **signature advantage** (pay a single expense, through your own app, no bank link) —
 it has to be the smoothest thing in the app or the whole thesis is forfeit.
 
 **Trap spots**

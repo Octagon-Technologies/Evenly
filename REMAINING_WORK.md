@@ -1,4 +1,4 @@
-# ShareCost — Remaining Work Handoff (E1 · F · C3)
+# Evenly — Remaining Work Handoff (E1 · F · C3)
 
 > Written by the previous agent for a fresh Claude Code agent. It contains everything already decided
 > or discovered in the prior session, plus **"DISCOVER"** pointers for what you should confirm yourself
@@ -21,7 +21,7 @@ agree the model in writing first. Commit per coherent feature, only when **both*
 `gradlew` lives in `code/`, not the repo root. From anywhere, use `-p`:
 
 ```bash
-CODE=/Users/DaChelimo/Documents/TechWork/ShareCost/code
+CODE=/Users/DaChelimo/Documents/TechWork/Evenly/code
 $CODE/gradlew -p $CODE :shared:compileAndroidMain              # Android/JVM + Room KSP
 $CODE/gradlew -p $CODE :shared:compileKotlinIosSimulatorArm64  # Kotlin/Native — catches iOS-only breakage
 $CODE/gradlew -p $CODE :shared:testAndroidHostTest :shared:iosSimulatorArm64Test  # both test suites
@@ -33,7 +33,7 @@ Run on the already-set-up emulator (AVD `Pixel_10_Pro`) — the owner had `emula
 export ANDROID_HOME=~/Library/Android/sdk; export PATH="$PATH:$ANDROID_HOME/platform-tools"
 adb devices                                      # confirm a device is attached (boot one if not)
 adb install -r $CODE/androidApp/build/outputs/apk/debug/androidApp-debug.apk
-adb shell am start -n da.chelimo.sharecost/.MainActivity
+adb shell am start -n app.splitevenly/.MainActivity
 adb exec-out screencap -p > /tmp/shot.png        # then Read the PNG to see the UI
 ```
 The emulator screen is 1280×2856; a Read'd screenshot displays scaled — multiply displayed coords by
@@ -83,14 +83,14 @@ background, and cards barely separate from the page. Keep the blue/light brand i
 so the accent reads clearly; strengthen **page↔surface separation** and **borders** so cards are distinct.
 
 **Files / current dark tokens (confirm exact line numbers — file may have shifted):**
-- `code/shared/src/commonMain/kotlin/da/chelimo/sharecost/ui/theme/Color.kt` — dark palette (~lines 51–79):
-  `ScPageDark #0B0F17`, `ScSurfaceDark #141A24` (too close to page → cards vanish), `ScInkDark #E7ECF3`,
-  `ScBlueDark #5B8DEF` (the accent the owner can't see — likely needs lifting/saturating), `ScBorderDark
-  #232C3A` (too subtle), `ScBorderStrongDark #334052`.
-- `code/shared/src/commonMain/kotlin/da/chelimo/sharecost/ui/theme/ExtendedColors.kt` — `ExtendedDark`
+- `code/shared/src/commonMain/kotlin/app/splitevenly/ui/theme/Color.kt` — dark palette (~lines 51–79):
+  `EvPageDark #0B0F17`, `EvSurfaceDark #141A24` (too close to page → cards vanish), `EvInkDark #E7ECF3`,
+  `EvBlueDark #5B8DEF` (the accent the owner can't see — likely needs lifting/saturating), `EvBorderDark
+  #232C3A` (too subtle), `EvBorderStrongDark #334052`.
+- `code/shared/src/commonMain/kotlin/app/splitevenly/ui/theme/ExtendedColors.kt` — `ExtendedDark`
   (~94–125) maps the brand tokens; also has `blueTint`/`blueTint2`/`onAccent` used all over the new UI.
 - `Theme.kt` (M3 dark ColorScheme wiring), `SystemBars.kt` (status-bar icon contrast follows the theme),
-  `components/ScBars.kt` (`StatusBarScrim` paints `page` behind the status bar).
+  `components/EvBars.kt` (`StatusBarScrim` paints `page` behind the status bar).
 
 **Approach:** (1) **Mock it first** — produce a dark-mode Artifact showing the retuned palette on real
 screens (Groups list, an expense, the assign screen) for owner sign-off; the owner iterates on the mock.
@@ -177,5 +177,5 @@ coding** (per the CLAUDE.md design gate). The full "When Two Edits Collide" rati
   `commit_expense` RPC in `schema.sql`, and `GroupConflictsTab` + `GroupHomeScreen` — you're replacing all
   of it. Read the Notion "When Two Edits Collide" article if accessible.
 
-Also see the memory file `sharecost-post-testing-overhaul.md` (auto-loaded) for the decision history and
+Also see the memory file `evenly-post-testing-overhaul.md` (auto-loaded) for the decision history and
 the commit list of everything already done.

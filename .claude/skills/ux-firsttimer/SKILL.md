@@ -1,7 +1,7 @@
 ---
 name: ux-firsttimer
 description: >-
-  Evaluate ShareCost's UI as a confused first-time user to find friction before
+  Evaluate Evenly's UI as a confused first-time user to find friction before
   real people do. Use when auditing or testing usability, deciding whether a
   screen or flow is understandable, or BEFORE finishing ANY UI change. Walks the
   core money-splitting jobs "cold" (no architecture knowledge), scores against
@@ -11,17 +11,17 @@ description: >-
   this flow", or any new/changed screen.
 ---
 
-# ux-firsttimer — audit ShareCost the way a real user would
+# ux-firsttimer — audit Evenly the way a real user would
 
 ## Why this exists
 
 The person who built a screen is the worst judge of whether it's usable — everything
 makes sense *because you already know the answer*. This is the **curse of knowledge**, and
-it is the single reason ShareCost feels intuitive to its author and opaque to a beta tester.
+it is the single reason Evenly feels intuitive to its author and opaque to a beta tester.
 
 This skill replaces "does this make sense to me?" (useless) with "does this make sense to
 **someone who has never seen it and doesn't care how it works**?" (the only question that
-matters). ShareCost is a *money* app for *non-technical friends*; the bar is not "a smart
+matters). Evenly is a *money* app for *non-technical friends*; the bar is not "a smart
 person could figure it out" — it's "a mildly-drunk friend at a dinner table gets it in one
 tap, and never wonders whether they owe or are owed."
 
@@ -132,7 +132,7 @@ Score every screen. Each is a yes/no with a concrete test, not a vibe.
 1. **Get the app on screen.** Build + launch on the simulator (invoke the `run` skill, or the
    iOS build from `CLAUDE.md`: `cd code && ./gradlew :shared:compileKotlinIosSimulatorArm64`,
    then run the iOS app). If you truly can't run it, fall back to the interactive design export
-   (`design/ShareCost-Standalone.html`) or reading the composables — but say so; a real run
+   (`design/Evenly-Standalone.html`) or reading the composables — but say so; a real run
    beats a read.
 2. **Seed realistic state.** A cold audit needs a populated group: a few members (incl. a
    placeholder), a mix of expenses (even, itemized, a settled one), and a non-zero balance for
