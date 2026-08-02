@@ -84,6 +84,16 @@ enum class ExpensesState { Loading, Empty, Populated }
 /** Shared corner radius for the expense feed's per-row cards (and the settled tray). */
 private val ExpenseCardShape = RoundedCornerShape(14.dp)
 
+/**
+ * Whether [inviteLink] is a real join link rather than the "Generating link…" placeholder.
+ *
+ * Keyed on the path segment, deliberately **not** the host: the host is branding and has already
+ * changed once (sharecost.app to split-evenly.app), and may change again if the domain moves. The
+ * previous version of this test matched the brand prefix, and the rebrand silently falsified it,
+ * so the invite QR stopped rendering with nothing to catch it.
+ */
+internal fun hasInviteToken(inviteLink: String): Boolean = "/j/" in inviteLink
+
 /** 6 · Group · Expenses tab (design/src/screens-group.jsx). Hosted inside GroupHomeScreen. */
 @Composable
 fun GroupExpensesTab(
@@ -305,8 +315,11 @@ private fun InviteSheet(
         sub = "Anyone with this link can join.",
     ) {
         // Scannable QR of the join link — hand the phone across the table instead of typing a URL.
-        // White plate + dark modules so it scans in both light and dark themes. Hidden until the token syncs.
-        if (inviteLink.startsWith("splitevenly")) {
+        // White plate + dark modules so it scans in both light and dark themes. Hidden until the token
+        // syncs: the test is for a real "/j/<token>" link rather than the "Generating link…" sentinel.
+        // Do NOT reinstate a brand-prefix check here — the rebrand silently falsified exactly that and
+        // the QR stopped rendering, because the guard and the link are built in two different files.
+        if (hasInviteToken(inviteLink)) {
             Box(Modifier.fillMaxWidth().padding(bottom = 12.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White).padding(14.dp)) {
                     Image(
