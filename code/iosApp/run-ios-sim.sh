@@ -55,5 +55,24 @@ echo "▸ Installing $(basename "$APP")"
 xcrun simctl install "$UDID" "$APP"
 
 echo "▸ Launching $BUNDLE_ID"
-xcrun simctl launch "$UDID" "$BUNDLE_ID"
+# Capture the app's stdout/stderr. A plain `simctl launch` throws both away, and Kotlin/Native prints
+# "Uncaught Kotlin exception: …" to stderr before it aborts — without this, a crash leaves only an .ips
+# whose backtrace stops at Compose's SurfaceMetalRedrawer.draw, with the actual exception nowhere on disk.
+# --console-pty stays attached for the life of the app, so it runs detached and the shell returns.
+CONSOLE_LOG="${CONSOLE_LOG:-${TMPDIR:-/tmp}/evenly-console.log}"
+: > "$CONSOLE_LOG"
+nohup xcrun simctl launch --console-pty "$UDID" "$BUNDLE_ID" >"$CONSOLE_LOG" 2>&1 &
+# Wait for the app to register with launchd before claiming success. Poll rather than sleep-once: under
+# --console-pty it routinely takes >2s to appear, and a single early sample reports a false failure.
+UP=""
+for _ in $(seq 1 15); do
+  if xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "UIKitApplication:$BUNDLE_ID"; then
+    UP=1; break
+  fi
+  sleep 1
+done
+if [ -z "$UP" ]; then
+  echo "✗ App did not stay up. Console output:"; cat "$CONSOLE_LOG"; exit 1
+fi
 echo "✓ Running on simulator $UDID"
+echo "  Console (Kotlin exceptions land here): $CONSOLE_LOG"

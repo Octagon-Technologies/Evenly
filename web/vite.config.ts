@@ -16,5 +16,8 @@ export default defineConfig({
   },
   server: {
     port: 5177,
+    // Binds IPv4 too (Vite defaults to IPv6-only localhost), so 127.0.0.1 resolves from the iOS
+    // Simulator, which shares the host's network stack rather than having its own loopback.
+    host: true,
   },
 });
