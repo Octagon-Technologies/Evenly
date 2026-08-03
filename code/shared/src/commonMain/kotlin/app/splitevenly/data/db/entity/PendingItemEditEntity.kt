@@ -7,21 +7,25 @@ import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
 
 /**
- * Local mirror of `pending_item_edits` — a change a **web guest** proposed to a bill's menu, waiting for
- * the payer to approve or reject it one card at a time (WEB_CLAIM_SPEC.md §2.7, §5.2).
+ * Local mirror of `pending_item_edits` — the permanent, attributed log of every change a **web guest**
+ * made to a bill's menu (WEB_CLAIM_SPEC.md §2.7, §5.2).
  *
- * The asymmetry this table encodes is deliberate and must not be "harmonised": joining someone's claim
- * applies instantly, because it moves two people's money and one of them is at the table; **editing a
- * line changes the bill total and therefore everyone's money**, so only the payer can adjudicate it.
- * Nothing here has touched `expense_items` — the edge function only ever inserts a proposal, so an
- * unapproved ADD has no item row and therefore no claims on it.
+ * **Nothing here is pending.** The name is the table's, and the table is synced, so renaming it costs
+ * more than the confusion it removes. Every row arrives already `APPLIED`: `apply_web_bill_edit` writes
+ * the change to `expense_items` and this row in one transaction. What the payer does with it is Undo.
  *
- * The `previous_*` columns are captured at proposal time, not read back at decision time, so the
- * before → after the payer sees is what the guest was actually looking at. If the payer repriced the
- * line in between, the card still shows the guest's world and approving simply overwrites.
+ * The asymmetry this encodes is deliberate and must not be "harmonised": joining someone's claim moves
+ * two people's money with both of them at the table, so nothing is announced; **editing a line changes
+ * the bill total and therefore everyone's money**, so it is. Announced, not adjudicated — against an
+ * honest mistake an undo is worth as much as an approval and costs nothing when the edit was fine.
  *
- * Rows are **never deleted**: a decided edit is the audit trail of who changed what on a shared bill.
- * There is no `deleted_at` column here for the same reason — nothing to soft-delete.
+ * The `previous_*` columns are captured at APPLY time, server-side, from the row as it then stood: they
+ * are what Undo restores. [previousLineTotalSubunits] is the one Undo actually uses;
+ * [previousUnitPriceSubunits] is display only, and rebuilding a line total from it would give back
+ * $9.99 for a $10.00 line over 3 units.
+ *
+ * Rows are **never deleted**: this is the audit trail of who changed what on a shared bill, and an undo
+ * is another entry in it rather than an erasure. There is no `deleted_at` column for the same reason.
  *
  * Synced (`@Serializable`, snake_case columns 1:1 with Postgres, no Room FK), carries `group_id` for
  * pull scoping plus `row_version` + `updated_at` for the `keepNewer` last-write-wins guard.
@@ -45,7 +49,9 @@ data class PendingItemEditEntity(
     @ColumnInfo(name = "group_id")
     val groupId: String,
 
-    /** The line being changed; null for an ADD, which has no line yet. */
+    /** The line this changed. Always set, **including for an ADD**, where it is the line the ADD
+     *  created: without it Undo has nothing to target and an added line becomes unremovable. Nullable
+     *  only because the column is. */
     @ColumnInfo(name = "item_id")
     val itemId: String? = null,
 
@@ -68,8 +74,14 @@ data class PendingItemEditEntity(
     @ColumnInfo(name = "previous_quantity")
     val previousQuantity: Int? = null,
 
+    /** Display only, for "Price each  $18.00 → $20.00". Never rebuild a line total from this. */
     @ColumnInfo(name = "previous_unit_price_subunits")
     val previousUnitPriceSubunits: Long? = null,
+
+    /** What Undo restores. The line total is the entered source of truth (`domain/AGENTS.md`); per-unit
+     *  is a rounded view of it, so this is the only value that restores exactly. */
+    @ColumnInfo(name = "previous_line_total_subunits")
+    val previousLineTotalSubunits: Long? = null,
 
     @ColumnInfo(name = "proposed_by")
     val proposedBy: String,
@@ -83,7 +95,8 @@ data class PendingItemEditEntity(
     @ColumnInfo(name = "decided_by")
     val decidedBy: String? = null,
 
-    /** APPROVED | REJECTED, null while undecided. */
+    /** APPLIED (live, undoable) | UNDONE (history). Null only on a row written before this vocabulary,
+     *  of which there are none in the wild — verified empty before the change. */
     @ColumnInfo(name = "decision")
     val decision: String? = null,
 

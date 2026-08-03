@@ -52,8 +52,12 @@ data class WebBillLinkState(
  * While true the QR/share link points at the `web/` Vite dev server (`npm run dev`, port 5177) instead
  * of the production domain, so step-3 claiming can be exercised before split-evenly.app is live on
  * Netlify. `127.0.0.1` is correct for the iOS Simulator (shares the host network); swap it for
- * `10.0.2.2` on the Android emulator or `http://<lan-ip>:5177` on a physical device. **Flip this back
- * to false before shipping** (WEB_CLAIM_SPEC.md ships against the real domain, not localhost).
+ * `10.0.2.2` on the Android emulator or `http://<lan-ip>:5177` on a physical device.
+ *
+ * **Flip this back to false before shipping.** Left true, the payer holds up a QR that resolves to
+ * nothing on anyone else's phone, and there is no error to notice: it looks like a working link. Prose
+ * does not hold that, so `.github/workflows/release-guards.yml` fails the build on `main` and on any PR
+ * targeting it while this is true. Feature branches are unaffected, which is the point.
  */
 private const val USE_LOCAL_WEB_CLAIM_HOST: Boolean = true
 private const val LOCAL_WEB_CLAIM_HOST: String = "http://127.0.0.1:5177"

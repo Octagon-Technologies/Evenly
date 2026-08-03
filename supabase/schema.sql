@@ -1166,9 +1166,15 @@ create table if not exists public.pending_item_edits (
   proposed_label text,
   proposed_quantity integer,
   proposed_unit_price_subunits bigint,
-  previous_label text,                 -- captured at proposal time, for before → after
+  previous_label text,                 -- captured when the edit was applied, for before → after
   previous_quantity integer,
-  previous_unit_price_subunits bigint,
+  previous_unit_price_subunits bigint, -- DISPLAY only ("Price each  $18.00 → $20.00")
+  -- What Undo restores, and the reason this column exists rather than being derived. Per-unit is a
+  -- ROUNDED view of the line total (`domain/AGENTS.md`: the line total is the entered source of truth),
+  -- so rebuilding a $10.00 line over 3 units from round(333.33) × 3 gives back $9.99. An undo that is a
+  -- penny off is a wrong dollar amount in somebody's real dinner, which is the one thing this layer may
+  -- never do.
+  previous_line_total_subunits bigint,
   proposed_by text not null,
   proposed_at bigint not null,
   decided_at bigint,
@@ -1180,6 +1186,10 @@ create table if not exists public.pending_item_edits (
 );
 create index if not exists pending_item_edits_expense_idx on public.pending_item_edits (expense_id);
 create index if not exists pending_item_edits_group_idx on public.pending_item_edits (group_id);
+-- Additive for a project created before the approval gate was dropped (`WEB_CLAIM_PATCH_PLAN.md`), and
+-- server-side FIRST per `AGENTS.md` §4.4: the client's full-row upsert sends every field, so a column
+-- the server lacks breaks ALL sync for this table, not just this column.
+alter table public.pending_item_edits add column if not exists previous_line_total_subunits bigint;
 
 alter table public.pending_item_edits enable row level security;
 drop policy if exists pending_item_edits_rw on public.pending_item_edits;
@@ -1751,3 +1761,373 @@ end;
 $$;
 revoke all on function public.web_bill_link_status(text, text) from public, anon;
 grant execute on function public.web_bill_link_status(text, text) to authenticated;
+
+-- ── The guest's Zone-2 write path (WEB_CLAIM_SPEC.md §5.8) ────────────────────────────────────────
+--
+-- A web guest changing a bill's MONEY is the one thing the web-claim edge function cannot express as a
+-- table write. It holds a service key and has NO auth.uid(), so it cannot go through merge_expense
+-- (which runs as the authenticated caller and derives the actor from the session), and it must not
+-- update `expenses` blind: skipping the split_version bump means the payer's next push carries a base
+-- that is causally AHEAD of a change it never saw, and merge_expense then applies the payer's older
+-- split on top — silently reverting the guest's edit. That is precisely the failure the causal model
+-- exists to prevent (`data/AGENTS.md`, "Expenses sync through a ZONE-AWARE MERGE RPC").
+--
+-- So: three security-definer RPCs, all SERVICE-ROLE ONLY. Every one of them ends by re-deriving
+-- expenses.amount_subunits from the live lines and advancing split_version, via the shared helper
+-- below, so there is exactly one place that arithmetic lives.
+--
+-- Not calling merge_expense from here is a deliberate choice, not an oversight: it takes a whole
+-- expense payload plus the full share set, and constructing one for a one-field change would mean the
+-- edge function reconstructing the split it is not allowed to compute. These are written against the
+-- SAME causal rule instead — see set_web_bill_payer.
+
+-- Bill total = Σ(live line totals) + tax + gratuity + tip − discount, and one more turn of the causal
+-- version. Identical to BillRepositoryImpl's `total(...)` and to BillPendingEdits'; if that rule ever
+-- changes, it changes in both places or a guest's bill stops matching the payer's.
+--
+-- `shares` are deliberately NOT touched. An itemized bill's shares are a LOCAL derived materialization
+-- (`data/AGENTS.md`) — every device re-derives them from items + claims on pull, and SyncEngine's
+-- rematerializeGroups does exactly that when a bill's sources change. Writing them here would freeze a
+-- second, competing copy of the split on the server.
+create or replace function public._reprice_web_bill(p_expense_id text, p_actor text, p_now bigint)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_e public.expenses%rowtype;
+  v_lines bigint;
+begin
+  select * into v_e from public.expenses where id = p_expense_id for update;
+  if not found or v_e.deleted_at is not null then
+    raise exception 'web bill: expense not found';
+  end if;
+
+  select coalesce(sum(line_total_subunits), 0) into v_lines
+    from public.expense_items where expense_id = p_expense_id and deleted_at is null;
+
+  update public.expenses set
+    amount_subunits = v_lines
+      + coalesce(v_e.tax_subunits, 0) + coalesce(v_e.gratuity_subunits, 0)
+      + coalesce(v_e.tip_subunits, 0) - coalesce(v_e.discount_subunits, 0),
+    split_version    = v_e.split_version + 1,
+    split_updated_by = p_actor,
+    updated_at       = greatest(v_e.updated_at, p_now),
+    row_version      = v_e.row_version + 1
+  where id = p_expense_id;
+
+  return jsonb_build_object(
+    'amount_subunits', (select amount_subunits from public.expenses where id = p_expense_id),
+    'split_version',   (select split_version from public.expenses where id = p_expense_id));
+end;
+$$;
+revoke all on function public._reprice_web_bill(text, text, bigint) from public, anon, authenticated;
+
+-- A guest's menu edit, APPLIED (spec §2.7, §3.6). The proposal row and the change to `expense_items`
+-- land in ONE transaction, and the row lands already stamped APPLIED — there is no waiting state and no
+-- second step. `pending_item_edits` keeps its name because renaming a synced table costs more than it
+-- explains; what it now holds is the permanent, attributed, undoable log of who changed what.
+--
+-- item_id is ALWAYS written back, including for an ADD, where it is the id of the line this call just
+-- created. Without it Undo has nothing to target and an added line becomes unremovable from the app.
+--
+-- previous_* are captured HERE, from the row as it is at this instant, rather than trusted from the
+-- client: they are what Undo restores, so a stale or hostile client value would restore the wrong price.
+--
+-- The web editor collects a PER-UNIT price; the bill stores the line total as truth (`domain/AGENTS.md`),
+-- so every branch multiplies back out. unit_price_subunits is kept populated with the rounded per-unit
+-- for backward compatibility and is never read as truth.
+create or replace function public.apply_web_bill_edit(
+  p_expense_id text,
+  p_group_id text,
+  p_kind text,
+  p_item_id text,
+  p_label text,
+  p_quantity integer,
+  p_unit_price_subunits bigint,
+  p_actor text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_item public.expense_items%rowtype;
+  v_item_id text := p_item_id;
+  v_quantity integer;
+  v_per_unit bigint;
+  v_line_total bigint;
+  v_edit_id text;
+  v_priced jsonb;
+begin
+  if p_kind not in ('ADD', 'RELABEL', 'REPRICE', 'REQUANTITY', 'REMOVE') then
+    raise exception 'apply_web_bill_edit: unknown kind %', p_kind;
+  end if;
+
+  if p_kind = 'ADD' then
+    v_quantity := greatest(coalesce(p_quantity, 1), 1);
+    v_line_total := coalesce(p_unit_price_subunits, 0) * v_quantity;
+    v_item_id := gen_random_uuid()::text;
+    insert into public.expense_items
+      (id, expense_id, group_id, label, quantity, unit_price_subunits, line_total_subunits,
+       sort_order, created_at, updated_at)
+    values
+      (v_item_id, p_expense_id, p_group_id,
+       coalesce(nullif(btrim(coalesce(p_label, '')), ''), 'Item'), v_quantity,
+       round(v_line_total::numeric / v_quantity), v_line_total,
+       -- Lands at the end of the receipt: it was not printed on it.
+       coalesce((select max(sort_order) from public.expense_items where expense_id = p_expense_id), -1) + 1,
+       p_now, p_now);
+  else
+    select * into v_item from public.expense_items
+      where id = p_item_id and expense_id = p_expense_id and deleted_at is null
+      for update;
+    if not found then
+      raise exception 'apply_web_bill_edit: item not on this bill';
+    end if;
+
+    if p_kind = 'REMOVE' then
+      update public.expense_items set
+        deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+      where id = v_item.id;
+      -- Claims on a line that no longer exists must go with it, or they keep counting toward people's
+      -- tabs (spec E16). Stamped with EXACTLY p_now, which is what makes an Undo able to revive these
+      -- and only these — see undo_web_bill_edit.
+      update public.item_claims set deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+        where item_id = v_item.id and deleted_at is null;
+      update public.item_shares set deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+        where item_id = v_item.id and deleted_at is null;
+    elsif p_kind = 'RELABEL' then
+      update public.expense_items set
+        label = coalesce(nullif(btrim(coalesce(p_label, '')), ''), v_item.label),
+        updated_at = p_now, row_version = row_version + 1
+      where id = v_item.id;
+    elsif p_kind = 'REPRICE' then
+      if p_unit_price_subunits is null then
+        raise exception 'apply_web_bill_edit: REPRICE needs a price';
+      end if;
+      v_quantity := v_item.quantity;
+      v_line_total := p_unit_price_subunits * v_quantity;
+      update public.expense_items set
+        line_total_subunits = v_line_total,
+        unit_price_subunits = round(v_line_total::numeric / greatest(v_quantity, 1)),
+        updated_at = p_now, row_version = row_version + 1
+      where id = v_item.id;
+    elsif p_kind = 'REQUANTITY' then
+      if p_quantity is null then
+        raise exception 'apply_web_bill_edit: REQUANTITY needs a quantity';
+      end if;
+      v_quantity := greatest(p_quantity, 1);
+      -- Per-unit is held constant, because that is what "change the quantity" means on a receipt: three
+      -- bowls cost three times one bowl.
+      v_per_unit := coalesce(
+        p_unit_price_subunits,
+        round(v_item.line_total_subunits::numeric / greatest(v_item.quantity, 1)));
+      v_line_total := v_per_unit * v_quantity;
+      update public.expense_items set
+        quantity = v_quantity,
+        line_total_subunits = v_line_total,
+        unit_price_subunits = round(v_line_total::numeric / greatest(v_quantity, 1)),
+        updated_at = p_now, row_version = row_version + 1
+      where id = v_item.id;
+    end if;
+  end if;
+
+  v_edit_id := gen_random_uuid()::text;
+  insert into public.pending_item_edits
+    (id, expense_id, group_id, item_id, kind,
+     proposed_label, proposed_quantity, proposed_unit_price_subunits,
+     previous_label, previous_quantity, previous_unit_price_subunits, previous_line_total_subunits,
+     proposed_by, proposed_at, decided_at, decided_by, decision, created_at, updated_at)
+  values
+    (v_edit_id, p_expense_id, p_group_id, v_item_id, p_kind,
+     p_label, p_quantity, p_unit_price_subunits,
+     v_item.label, v_item.quantity,
+     case when v_item.id is null then null
+          else round(v_item.line_total_subunits::numeric / greatest(v_item.quantity, 1))::bigint end,
+     v_item.line_total_subunits,
+     p_actor, p_now, p_now, p_actor, 'APPLIED', p_now, p_now);
+
+  v_priced := public._reprice_web_bill(p_expense_id, p_actor, p_now);
+  return jsonb_build_object(
+    'ok', true, 'edit_id', v_edit_id, 'item_id', v_item_id,
+    'amount_subunits', v_priced->'amount_subunits', 'split_version', v_priced->'split_version');
+end;
+$$;
+revoke all on function public.apply_web_bill_edit(text, text, text, text, text, integer, bigint, text, bigint)
+  from public, anon, authenticated;
+
+-- Undo. **Anyone on the bill may call it** (spec §2.7) — there is deliberately no rights hierarchy and
+-- no arbitration. An undo is itself an attributed entry in the log, so the worst case is A edits,
+-- B undoes, A edits again, with every step visible and a name against it. The log is the tiebreak.
+--
+-- First-undo-wins is a CONDITIONAL update, the same shape as claim_placeholder: the row is locked, and
+-- anything that is not currently APPLIED returns ok with changed=false rather than raising. Two taps on
+-- a slow card must not un-remove a line twice.
+--
+-- The REMOVE branch is the subtle one. Reviving the line is easy; reviving its claims is not, because a
+-- claim killed by the removal is indistinguishable from a claim its owner dropped in the same minute.
+-- The revival is therefore scoped to the removal's EXACT deleted_at stamp, which is the applied-at time
+-- recorded on the log row. Widen that to a range and an undo resurrects claims people deliberately let go.
+create or replace function public.undo_web_bill_edit(
+  p_edit_id text,
+  p_actor text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_edit public.pending_item_edits%rowtype;
+  v_applied_at bigint;
+  v_quantity integer;
+  v_line_total bigint;
+  v_priced jsonb;
+begin
+  select * into v_edit from public.pending_item_edits where id = p_edit_id for update;
+  if not found then
+    raise exception 'undo_web_bill_edit: no such change';
+  end if;
+  if v_edit.decision is distinct from 'APPLIED' then
+    return jsonb_build_object('ok', true, 'changed', false, 'item_id', v_edit.item_id);
+  end if;
+  if v_edit.item_id is null then
+    -- Only reachable for a row written before item_id was backfilled on ADD. Nothing to target, and
+    -- pretending otherwise would leave the log claiming an undo that never happened.
+    raise exception 'undo_web_bill_edit: this change has no line to restore';
+  end if;
+
+  v_applied_at := coalesce(v_edit.decided_at, v_edit.proposed_at);
+
+  if v_edit.kind = 'ADD' then
+    update public.expense_items set
+      deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+    where id = v_edit.item_id and deleted_at is null;
+    -- Anyone who claimed the added line goes with it (spec E22): the line is not on the bill any more,
+    -- so a claim against it would keep billing for something that does not exist.
+    update public.item_claims set deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+      where item_id = v_edit.item_id and deleted_at is null;
+    update public.item_shares set deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+      where item_id = v_edit.item_id and deleted_at is null;
+
+  elsif v_edit.kind = 'REMOVE' then
+    update public.expense_items set
+      deleted_at = null, updated_at = p_now, row_version = row_version + 1
+    where id = v_edit.item_id;
+    -- EXACT stamp, not a window. See the header.
+    update public.item_claims set deleted_at = null, updated_at = p_now, row_version = row_version + 1
+      where item_id = v_edit.item_id and deleted_at = v_applied_at;
+    update public.item_shares set deleted_at = null, updated_at = p_now, row_version = row_version + 1
+      where item_id = v_edit.item_id and deleted_at = v_applied_at;
+
+  elsif v_edit.kind = 'RELABEL' then
+    update public.expense_items set
+      label = coalesce(v_edit.previous_label, label),
+      updated_at = p_now, row_version = row_version + 1
+    where id = v_edit.item_id;
+
+  else -- REPRICE | REQUANTITY: restore the quantity and the LINE TOTAL exactly as they were.
+    select coalesce(v_edit.previous_quantity, quantity) into v_quantity
+      from public.expense_items where id = v_edit.item_id;
+    v_quantity := greatest(coalesce(v_quantity, 1), 1);
+    -- The stored line total, not per-unit × quantity: rebuilding from the rounded per-unit is where a
+    -- $10.00 line over 3 units comes back as $9.99. Falls back to the product only for a log row written
+    -- before previous_line_total_subunits existed.
+    v_line_total := coalesce(
+      v_edit.previous_line_total_subunits,
+      coalesce(v_edit.previous_unit_price_subunits, 0) * v_quantity);
+    update public.expense_items set
+      quantity = v_quantity,
+      line_total_subunits = v_line_total,
+      unit_price_subunits = round(v_line_total::numeric / v_quantity),
+      updated_at = p_now, row_version = row_version + 1
+    where id = v_edit.item_id;
+  end if;
+
+  update public.pending_item_edits set
+    decision = 'UNDONE', decided_at = p_now, decided_by = p_actor,
+    updated_at = p_now, row_version = row_version + 1
+  where id = p_edit_id;
+
+  v_priced := public._reprice_web_bill(v_edit.expense_id, p_actor, p_now);
+  return jsonb_build_object(
+    'ok', true, 'changed', true, 'item_id', v_edit.item_id,
+    'amount_subunits', v_priced->'amount_subunits', 'split_version', v_priced->'split_version');
+end;
+$$;
+revoke all on function public.undo_web_bill_edit(text, text, bigint) from public, anon, authenticated;
+
+-- A guest naming the payer (spec §3.8, §5.5, E24, E25). payer_user_id sits in Zone 2, so this is not a
+-- field update — it is a causal one, and it implements the SAME rule as merge_expense:
+--
+--   base matches  (canonical.split_version <= p_base_split_version) -> apply and advance
+--   base is stale (canonical.split_version >  p_base_split_version) -> refuse, and say who the payer is
+--
+-- E25 is the whole reason: two guests both tap "I paid", the second read a version that has since moved,
+-- and she is TOLD ("Andrew is the payer now") rather than silently losing or silently winning. A blind
+-- update would make the last request win regardless of what it was deciding against, which is the
+-- wall-clock model this schema replaced everywhere else.
+--
+-- The named payer must already be a participant of this bill. A token authorises writes to THIS bill
+-- (spec §4.3), never the nomination of an arbitrary user id as somebody's creditor.
+create or replace function public.set_web_bill_payer(
+  p_expense_id text,
+  p_user_id text,
+  p_base_split_version bigint,
+  p_actor text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_e public.expenses%rowtype;
+  v_name text;
+begin
+  select * into v_e from public.expenses where id = p_expense_id for update;
+  if not found or v_e.deleted_at is not null then
+    raise exception 'set_web_bill_payer: bill not found';
+  end if;
+
+  if not exists (
+    select 1 from public.bill_participants
+    where expense_id = p_expense_id and user_id = p_user_id and deleted_at is null
+  ) then
+    raise exception 'set_web_bill_payer: not a participant of this bill';
+  end if;
+
+  if v_e.split_version > p_base_split_version then
+    select display_name into v_name from public.users where id = v_e.payer_user_id;
+    return jsonb_build_object(
+      'ok', false, 'stale', true,
+      'payer_user_id', v_e.payer_user_id, 'payer_name', v_name,
+      'split_version', v_e.split_version);
+  end if;
+
+  update public.expenses set
+    payer_user_id      = p_user_id,
+    payer_outside_name = null,
+    split_version      = v_e.split_version + 1,
+    split_updated_by   = p_actor,
+    updated_at         = greatest(v_e.updated_at, p_now),
+    row_version        = v_e.row_version + 1
+  where id = p_expense_id;
+
+  select display_name into v_name from public.users where id = p_user_id;
+  return jsonb_build_object(
+    'ok', true, 'stale', false,
+    'payer_user_id', p_user_id, 'payer_name', v_name,
+    'split_version', v_e.split_version + 1);
+end;
+$$;
+revoke all on function public.set_web_bill_payer(text, text, bigint, text, bigint)
+  from public, anon, authenticated;
+-- All four functions above are edge-function-only, so `authenticated` is named in every revoke as well
+-- as `anon`. Supabase grants EXECUTE to both at creation time regardless of `revoke ... from public`
+-- (see join_item_portion's note); the service key bypasses grants entirely, which is how web-claim
+-- reaches them. Nothing in the app calls these — the payer's own undo is a local-first Room write that
+-- reaches the server through merge_expense like every other in-app money edit.

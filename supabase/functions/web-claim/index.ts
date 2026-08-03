@@ -472,19 +472,19 @@ async function actionBill(sb: SupabaseClient, body: { token?: string }): Promise
     sb.from("item_claims").select("id, item_id, user_id, quantity").eq("expense_id", expenseId).is("deleted_at", null),
     sb.from("item_shares").select("id, item_id, user_id, portion_id, quantity, added_by").eq("expense_id", expenseId).is("deleted_at", null),
     sb.from("bill_participants").select("user_id, done_at").eq("expense_id", expenseId).is("deleted_at", null),
-    // Spec E19: a guest's total must include her own unapproved edit, with the line marked as
-    // waiting — "she must never see a number she cannot account for". The client can only honour that
-    // if it can see the proposals, so they ship with the rows. Decided ones come too, and recently
-    // enough to carry E22's "your addition was rejected" note on the next poll.
+    // The bill's change log (spec §2.7). Every row here has ALREADY moved the money in `items` above —
+    // an edit applies on write — so this is never folded into the split. It exists so the guest can see
+    // what changed and undo it, and so E19 holds for the honest reason: her total includes her edit
+    // because the edit is real, not because the client is guessing at a provisional one.
     sb.from("pending_item_edits")
-      .select("id, item_id, kind, proposed_label, proposed_quantity, proposed_unit_price_subunits, previous_label, previous_quantity, previous_unit_price_subunits, proposed_by, proposed_at, decided_at, decision")
+      .select("id, item_id, kind, proposed_label, proposed_quantity, proposed_unit_price_subunits, previous_label, previous_quantity, previous_unit_price_subunits, proposed_by, proposed_at, decided_at, decided_by, decision")
       .eq("expense_id", expenseId).order("proposed_at"),
   ]);
 
   const participantIds = (participants ?? []).map((p) => p.user_id as string);
   const claimantIds = (claims ?? []).map((c) => c.user_id as string);
   const shareUserIds = (shares ?? []).map((s) => s.user_id as string);
-  const proposerIds = (pendingEdits ?? []).map((e) => e.proposed_by as string);
+  const proposerIds = (pendingEdits ?? []).flatMap((e) => [e.proposed_by, e.decided_by]).filter(Boolean) as string[];
   const nameIds = Array.from(new Set([...participantIds, ...claimantIds, ...shareUserIds, ...proposerIds]));
   const { data: users } = nameIds.length
     ? await sb.from("users").select("id, display_name").in("id", nameIds)
@@ -514,6 +514,9 @@ async function actionBill(sb: SupabaseClient, body: { token?: string }): Promise
       taxSubunits: ctx.expense.tax_subunits, gratuitySubunits: ctx.expense.gratuity_subunits,
       tipSubunits: ctx.expense.tip_subunits, tipSplitMode: ctx.expense.tip_split_mode,
       discountSubunits: ctx.expense.discount_subunits,
+      // The causal version the guest read, which she hands back when naming the payer (spec §5.5,
+      // E25). It is a *base*, not a claim: the server decides whether it is still current.
+      splitVersion: ctx.expense.split_version ?? 1,
     },
     items: items ?? [],
     claims: claims ?? [],
@@ -687,9 +690,16 @@ async function actionJoin(
   });
 }
 
-/** POST /web-claim/edit — propose add/relabel/reprice/requantify/remove (spec §2.7, §3.6). Every write
- *  here lands as a PENDING edit; nothing here ever touches `expense_items` directly. Approval is the
- *  payer's in-app screen (build-order step 6), not implemented in this function. */
+/** POST /web-claim/edit — add/relabel/reprice/requantify/remove a line (spec §2.7, §3.6).
+ *
+ *  **It applies.** There is no approval gate and no waiting state: the edit lands on `expense_items` and
+ *  the log row lands stamped `APPLIED`, both inside `apply_web_bill_edit`'s single transaction. The
+ *  payer is *told*, and anyone on the bill can undo (see `actionUndoEdit`).
+ *
+ *  Nothing here writes `expenses` or `expense_items` directly, and that is not stylistic. This function
+ *  has a service key and no `auth.uid()`, so it cannot go through `merge_expense`; a blind update that
+ *  skipped the causal `split_version` bump would be silently reverted by the payer's next push. The RPC
+ *  is the only place that write is expressed. See `WEB_CLAIM_SPEC.md` §5.8. */
 async function actionEdit(
   sb: SupabaseClient,
   body: {
@@ -704,31 +714,113 @@ async function actionEdit(
     if (session instanceof Response) return session;
     const kind = body.kind;
     if (!kind || !["ADD", "RELABEL", "REPRICE", "REQUANTITY", "REMOVE"].includes(kind)) return err("BAD_REQUEST", 400, "invalid kind");
+    if (kind !== "ADD" && !body.itemId) return err("BAD_REQUEST", 400, "itemId required");
 
-    let previous: { label: string | null; quantity: number | null; unit_price_subunits: number | null } | null = null;
-    if (kind !== "ADD") {
-      if (!body.itemId) return err("BAD_REQUEST", 400, "itemId required");
-      const { data: item } = await sb.from("expense_items").select("label, quantity, unit_price_subunits").eq("id", body.itemId).eq("expense_id", ctx.link.expense_id).is("deleted_at", null).maybeSingle();
-      if (!item) return err("BAD_REQUEST", 400, "item not on this bill");
-      previous = item;
-    } else {
-      const [{ count: itemCount }, { count: pendingAdds }] = await Promise.all([
-        sb.from("expense_items").select("id", { count: "exact", head: true }).eq("expense_id", ctx.link.expense_id).is("deleted_at", null),
-        sb.from("pending_item_edits").select("id", { count: "exact", head: true }).eq("expense_id", ctx.link.expense_id).eq("kind", "ADD").is("decided_at", null),
-      ]);
-      if ((itemCount ?? 0) + (pendingAdds ?? 0) >= MAX_ITEMS_PER_BILL) return err("EXPIRED", 410, "too many items");
+    // An unapproved ADD used to be a proposal with no line, so the cap had to count proposals too.
+    // They are real lines now, and counting them twice would cap a bill at half its limit.
+    if (kind === "ADD") {
+      const { count: itemCount } = await sb.from("expense_items")
+        .select("id", { count: "exact", head: true })
+        .eq("expense_id", ctx.link.expense_id).is("deleted_at", null);
+      if ((itemCount ?? 0) >= MAX_ITEMS_PER_BILL) return err("EXPIRED", 410, "too many items");
     }
 
-    const now = Date.now();
-    const { data: inserted, error } = await sb.from("pending_item_edits").insert({
-      id: newId(), expense_id: ctx.link.expense_id, group_id: ctx.link.group_id,
-      item_id: body.itemId ?? null, kind,
-      proposed_label: body.label ?? null, proposed_quantity: body.quantity ?? null, proposed_unit_price_subunits: body.unitPriceSubunits ?? null,
-      previous_label: previous?.label ?? null, previous_quantity: previous?.quantity ?? null, previous_unit_price_subunits: previous?.unit_price_subunits ?? null,
-      proposed_by: session.user_id, proposed_at: now, created_at: now, updated_at: now,
-    }).select("id").single();
+    // `previous_*` are captured inside the RPC, from the row as it stands at that instant, rather than
+    // sent from here: they are what Undo restores, so a value that took a round trip through a browser
+    // would let a stale client restore the wrong price.
+    const { data, error } = await sb.rpc("apply_web_bill_edit", {
+      p_expense_id: ctx.link.expense_id,
+      p_group_id: ctx.link.group_id,
+      p_kind: kind,
+      p_item_id: body.itemId ?? null,
+      p_label: body.label ?? null,
+      p_quantity: body.quantity ?? null,
+      p_unit_price_subunits: body.unitPriceSubunits ?? null,
+      p_actor: session.user_id,
+      p_now: Date.now(),
+    });
+    if (error) {
+      if (error.message?.includes("item not on this bill")) return err("BAD_REQUEST", 400, error.message);
+      return err("BACKEND", 500, error.message);
+    }
+    return json({ ok: true, editId: data.edit_id, itemId: data.item_id });
+  });
+}
+
+/** POST /web-claim/undo — take back a change to the menu (spec §2.7).
+ *
+ *  **Anyone on the bill may call this**, not only the person who made the change and not only the payer.
+ *  That is the decision, not an oversight: an undo is itself an attributed entry in the log, undoing an
+ *  already-undone change is a no-op, and the log is the tiebreak. A rights hierarchy here would
+ *  re-import the adjudication model that dropping the approval gate removed.
+ *
+ *  Session-gated all the same — "anyone on the bill" means an identified guest, not an anonymous holder
+ *  of the URL. */
+async function actionUndoEdit(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; editId?: string },
+): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withWriteGuard(sb, ctx, async () => {
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
+    if (!body.editId) return err("BAD_REQUEST", 400, "editId required");
+
+    // Scoped to THIS bill before the RPC sees it: a token authorises writes to one expense (spec §4.3),
+    // and the RPC takes only an edit id, so nothing else stops a guest naming a change on another bill.
+    const { data: edit } = await sb.from("pending_item_edits")
+      .select("id").eq("id", body.editId).eq("expense_id", ctx.link.expense_id).maybeSingle();
+    if (!edit) return err("BAD_REQUEST", 400, "change not on this bill");
+
+    const { data, error } = await sb.rpc("undo_web_bill_edit", {
+      p_edit_id: body.editId,
+      p_actor: session.user_id,
+      p_now: Date.now(),
+    });
     if (error) return err("BACKEND", 500, error.message);
-    return json({ ok: true, pendingEditId: inserted.id });
+    return json({ ok: true, changed: data.changed });
+  });
+}
+
+/** POST /web-claim/payer — "I paid for this" (spec §3.8, §5.5, E24, E25).
+ *
+ *  A guest may be named the payer of an existing bill. They may never create one, upload a receipt, or
+ *  trigger OCR (spec §9) — nothing here does any of that.
+ *
+ *  `baseSplitVersion` is the version the guest's page last read, and the server decides whether it is
+ *  still current. Two guests both tapping "I paid" is E25: the second one is causally stale, loses, and
+ *  is told who the payer now is. That is a `200` with `ok: false`, not an error — losing a race you
+ *  entered honestly is a state to explain, not a failure to retry. */
+async function actionSetPayer(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; userId?: string; baseSplitVersion?: number },
+): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withWriteGuard(sb, ctx, async () => {
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
+    // Naming *someone else* the payer is allowed and is the same write; what is not allowed is naming a
+    // user id that is not on this bill, which the RPC also refuses.
+    const userId = body.userId ?? session.user_id;
+
+    const { data, error } = await sb.rpc("set_web_bill_payer", {
+      p_expense_id: ctx.link.expense_id,
+      p_user_id: userId,
+      p_base_split_version: body.baseSplitVersion ?? (ctx.expense.split_version as number) ?? 1,
+      p_actor: session.user_id,
+      p_now: Date.now(),
+    });
+    if (error) {
+      if (error.message?.includes("not a participant")) return err("BAD_REQUEST", 400, error.message);
+      return err("BACKEND", 500, error.message);
+    }
+    return json({
+      ok: data.ok, stale: data.stale,
+      payerUserId: data.payer_user_id, payerName: data.payer_name,
+      splitVersion: data.split_version,
+    });
   });
 }
 
@@ -781,6 +873,8 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any) => Promise<Respons
   share: actionShare,
   leave: actionLeave,
   edit: actionEdit,
+  undo: actionUndoEdit,
+  payer: actionSetPayer,
   done: actionDone,
   release: actionRelease,
 };

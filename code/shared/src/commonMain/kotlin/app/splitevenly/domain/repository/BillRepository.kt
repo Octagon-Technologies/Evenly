@@ -102,20 +102,21 @@ interface BillRepository {
     suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit>
 
     /**
-     * Menu changes web guests proposed on this bill, oldest first, decided rows included
-     * (WEB_CLAIM_SPEC.md §2.7, §3.9.1). Nothing here has touched the bill yet.
+     * Menu changes web guests made to this bill, oldest first, undone ones included
+     * (WEB_CLAIM_SPEC.md §2.7, §3.9.1). **All of them have already moved the money** — a guest's edit
+     * applies on write — so this is the bill's history, not an inbox.
      */
     fun observePendingEdits(expenseId: ExpenseId): Flow<List<PendingBillEdit>>
 
     /**
-     * Approve or reject **one** proposal ([approve] = the payer's verdict). Approving applies the change
-     * to `expense_items`, advances the causal `split_version` (it is a Zone-2 money edit) and re-derives
-     * the bill's shares; rejecting stamps the verdict and touches nothing else. Either way the row is
-     * kept as the audit trail of who changed what.
+     * Take **one** change back. Restores the line to what it replaced, advances the causal
+     * `split_version` (it is a Zone-2 money edit) and re-derives the bill's shares. The log row is kept
+     * and stamped `UNDONE`, because an undo is another entry in the record rather than an erasure.
      *
-     * There is deliberately no bulk variant: §3.9.1 requires each change to be decided individually.
+     * Anyone on the bill may undo (§2.7); [undoneBy] is recorded, not checked. Undoing something already
+     * undone is a no-op, not an error. There is deliberately no bulk variant.
      */
-    suspend fun decidePendingEdit(editId: String, approve: Boolean, decidedBy: UserId): AppResult<Unit>
+    suspend fun undoPendingEdit(editId: String, undoneBy: UserId): AppResult<Unit>
 
     /**
      * Hand every still-unassigned unit on this bill to [memberIds], splitting each line's leftover evenly

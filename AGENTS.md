@@ -17,7 +17,7 @@ Do not guess, and do not ask the owner for anything in this table. Go read it.
 | --------------------------------------- | ------------------------------------------------- |
 | What is the product supposed to do?     | `App_Overview.md`                                 |
 | What does a screen look like?           | `design/` — the **visual source of truth**        |
-| What's built, what's left?              | `FINISH_PLAN.md`, `REMAINING_WORK.md` (history: `BUILD_PLAN.md`) |
+| What's built, what's left?              | `FINISH_PLAN.md`, `REMAINING_WORK.md`, `WEB_CLAIM_PATCH_PLAN.md` (history: `BUILD_PLAN.md`) |
 | Gotchas for the area I'm editing        | The nearest `AGENTS.md` (see §2)                  |
 | Database shape, RLS, RPCs               | `supabase/schema.sql` + `supabase/AGENTS.md`      |
 | How do I run it on a device?            | §5 below                                          |

@@ -14,8 +14,8 @@
 
 import { api, ApiError, type BillHeader, type BillResponse, type Candidate, type EditKind } from './api.ts';
 import { clearSessionToken, saveSessionToken, tokenForBill, tokenForGroup } from './session.ts';
-import { splitBill, type BillResult, type ItemStatus } from './money/index.ts';
-import { buildLines, claimProgress, splitInputWithPending, type LineView } from './lines.ts';
+import { splitBill, toSplitInput, type BillResult, type ItemStatus } from './money/index.ts';
+import { buildChanges, buildLines, claimProgress, type ChangeView, type LineView } from './lines.ts';
 
 export type Phase =
   | 'loading'
@@ -51,10 +51,13 @@ export class ClaimStore {
   #pollTimer: ReturnType<typeof setInterval> | null = null;
   #onVisibility: (() => void) | null = null;
 
-  /** The money engine's verdict on the current rows. Recomputed whenever the bill changes. */
-  // Folds each guest's own unapproved ADD into the bill before splitting, so her total includes it
-  // and is accountable line by line (spec E19).
-  split = $derived<BillResult | null>(this.bill ? splitBill(splitInputWithPending(this.bill)) : null);
+  /** The money engine's verdict on the current rows. Recomputed whenever the bill changes.
+   *
+   *  Straight off the rows, with nothing folded in. A guest's edit is a real line the moment she makes
+   *  it (§2.7), so E19 holds by construction: her total includes it because it is there. The earlier
+   *  version synthesised provisional lines from undecided proposals, and that whole idea goes with the
+   *  approval gate — synthesising one now would count the same money twice. */
+  split = $derived<BillResult | null>(this.bill ? splitBill(toSplitInput(this.bill)) : null);
 
   itemStatus = $derived<Record<string, ItemStatus>>(
     Object.fromEntries((this.split?.items ?? []).map((i) => [i.itemId, i.status])),
@@ -72,6 +75,17 @@ export class ClaimStore {
   );
 
   progress = $derived(claimProgress(this.lines));
+
+  /** The bill's change log, oldest first. Empty on the overwhelming majority of bills. */
+  changes = $derived<ChangeView[]>(this.bill ? buildChanges(this.bill, this.identity?.userId ?? null) : []);
+
+  /** Set when this guest just lost a payer race (E25), so the page can say who won. */
+  payerNotice = $state<string | null>(null);
+
+  /** Whether the person holding this browser is currently the bill's payer. */
+  get iAmPayer(): boolean {
+    return Boolean(this.identity && this.bill?.payer.userId === this.identity.userId);
+  }
 
   /** What I owe, broken into parts, so the summary can explain the number instead of asserting it. */
   myBreakdown = $derived(
@@ -313,8 +327,15 @@ export class ClaimStore {
     }, undefined);
   }
 
-  /** Every guest edit is a proposal the payer decides individually (§2.7). Never applied here. */
-  async proposeEdit(edit: {
+  /**
+   * Change a line. It applies, is attributed, and the payer is told; anyone can undo it (§2.7).
+   *
+   * An `ADD` also **claims** the new line for the person who added it, in the same call. "The scan
+   * missed it? Add it and claim it" is what the sheet promises, and someone typing in the dessert they
+   * ate has already told us they ate it — leaving the line unclaimed would make them say it twice. It
+   * is a normal claim afterwards, so they can drop it or share it like any other.
+   */
+  async editLine(edit: {
     kind: EditKind;
     itemId?: string;
     label?: string;
@@ -322,9 +343,39 @@ export class ClaimStore {
     unitPriceSubunits?: number;
   }): Promise<boolean> {
     return this.#write(async () => {
-      await api.edit(this.billToken, this.sessionToken!, edit);
+      const res = await api.edit(this.billToken, this.sessionToken!, edit);
+      if (edit.kind === 'ADD' && res.itemId) {
+        await api.claim(this.billToken, this.sessionToken!, res.itemId, edit.quantity ?? 1);
+      }
       await this.refresh();
       return true;
+    }, false);
+  }
+
+  /** Take a change back. Anyone on the bill may, and a second undo of the same change does nothing. */
+  async undoChange(editId: string): Promise<void> {
+    await this.#write(async () => {
+      await api.undo(this.billToken, this.sessionToken!, editId);
+      await this.refresh();
+    }, undefined);
+  }
+
+  /**
+   * "I paid for this" (§3.8, E24). The base is the `split_version` this page last read, and the server
+   * decides against it: two guests both tapping this is E25, and the causally stale one is *told* who
+   * the payer is rather than silently losing. That is not an error path, so it does not go through
+   * `#handle` — it sets a notice and re-reads.
+   */
+  async setPayer(userId: string): Promise<boolean> {
+    const base = this.bill?.expense.splitVersion;
+    if (base === undefined) return false;
+    return this.#write(async () => {
+      const res = await api.setPayer(this.billToken, this.sessionToken!, userId, base);
+      this.payerNotice = res.ok
+        ? null
+        : `${res.payerName ?? 'Someone else'} is the payer now. Nothing you claimed has changed.`;
+      await this.refresh();
+      return res.ok;
     }, false);
   }
 

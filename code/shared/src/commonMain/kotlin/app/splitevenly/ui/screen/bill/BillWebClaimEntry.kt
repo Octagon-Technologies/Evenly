@@ -35,16 +35,19 @@ import app.splitevenly.ui.theme.EvenlyTheme
  */
 
 /**
- * Unreviewed guest edits, above everything else on the assign screen. Until they are decided, the
- * amounts the payer is looking at are not the amounts the guests are looking at, so this is not a
- * dismissible notice: it clears when the cards are decided and not before.
+ * Guest edits the payer has not looked at yet, above everything else on the assign screen.
+ *
+ * It is a **notification, not a call to action**: the changes have already applied, and the payer's
+ * amounts and the guests' amounts already agree. So it says what happened rather than asking for a
+ * decision, and it clears by being *read* (opening the screen marks them seen), not by anyone deciding
+ * anything. [unseenCount] is what drives it, so the list of past changes can outlive the banner.
  */
 @Composable
-internal fun PendingEditsBanner(pendingEditCount: Int, onReviewEdits: () -> Unit) {
-    if (pendingEditCount <= 0) return
+internal fun PendingEditsBanner(unseenCount: Int, onReviewEdits: () -> Unit) {
+    if (unseenCount <= 0) return
     Row(Modifier.fillMaxWidth().clickable(onClick = onReviewEdits)) {
         EvBanner(
-            if (pendingEditCount == 1) "1 change to review" else "$pendingEditCount changes to review",
+            if (unseenCount == 1) "1 change to the bill" else "$unseenCount changes to the bill",
             variant = BannerVariant.Amber,
             leadingIcon = EvIcons.Edit,
         )

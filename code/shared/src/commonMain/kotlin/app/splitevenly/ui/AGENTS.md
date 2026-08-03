@@ -111,9 +111,13 @@ entry points are on `BillClaimScreen` and nowhere else: the phone-holder is alre
 table is claiming, and that is the only moment any of them is wanted. Three rules that look like taste
 and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
 
-- **No "approve all" on the review screen.** A payer who clears three cards in one tap has reviewed
-  none of them, and each card is somebody's money. Editing a line moves the bill total, which is why it
-  needs approval at all while joining a claim does not. Do not harmonise the two.
+- **"What changed" reports; it does not adjudicate.** Every change on that screen has already applied
+  (`WEB_CLAIM_PATCH_PLAN.md`). Editing a line moves the bill total and therefore everyone's money, so
+  the payer is *told*; joining a claim moves two people's with both at the table, so nothing is said.
+  That asymmetry is the announcement, not a wait. Do not harmonise the two, and do not re-add an
+  approval gate. **No "undo all"** either, and no rights hierarchy: anyone on the bill may undo, an undo
+  is itself an attributed entry, and the log is the tiebreak. The banner clears by being **read** (a
+  device-local marker in `SecureStorage`, `changesSeenKey` in `WebClaimRoutes.kt`), not by deciding.
 - **The bill QR and the group invite are different links and stay apart.** Per-expense, 72 hours,
   no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button.
   The scope reassurance under it ("this bill only") is not decoration: the payer is deciding whether to

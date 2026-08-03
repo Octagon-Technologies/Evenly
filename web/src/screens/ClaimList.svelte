@@ -48,6 +48,14 @@
     await store.setClaim(line.itemId, 1);
   }
 
+  /** "Purity added Mango sticky rice". Past tense, because it already happened. */
+  function verb(kind: string): string {
+    if (kind === 'ADD') return 'added';
+    if (kind === 'REMOVE') return 'removed';
+    if (kind === 'RELABEL') return 'renamed';
+    return 'changed';
+  }
+
   function finish() {
     if (store.myTotalSubunits === 0) {
       // Never a silent dead end (root AGENTS.md §7): the button stays live and says what's missing.
@@ -84,31 +92,19 @@
         <div class="row" class:row--mine={line.mine}>
           <span class="qty">{line.quantity}</span>
           <div class="grow">
-            {#if line.pending}
-              <!-- E19: it counts toward her total, and it says whose approval it is waiting on, so
-                   she is never shown a number she cannot account for. -->
+            <!-- The label is the wide tap target that opens the line's sheet (§2.6). The chips beside
+                 it are their own buttons, so nothing interactive is nested inside anything else. -->
+            <button
+              type="button"
+              class="linebtn"
+              aria-label="{line.label} — who had this?"
+              onclick={() => (sharing = line)}
+            >
               <span class="lbl">{line.label}</span>
-              <div class="meta">
-                {line.pending.mine ? 'You added this' : `${line.pending.proposedByName} added this`} ·
-                waiting for {store.bill?.payer.name ?? 'the payer'}
-              </div>
-            {:else}
-              <!-- The label is the wide tap target that opens the line's sheet (§2.6). The chips beside
-                   it are their own buttons, so nothing interactive is nested inside anything else. -->
-              <button
-                type="button"
-                class="linebtn"
-                aria-label="{line.label} — who had this?"
-                onclick={() => (sharing = line)}
-              >
-                <span class="lbl">{line.label}</span>
-              </button>
-            {/if}
+            </button>
             <div class="chips">
               {#each line.chips as chip (chip.userId + (chip.portionId ?? ''))}
-                {#if chip.isMe && line.pending}
-                  <span class="chip chip--me"><Avatar name={store.identity?.name ?? 'You'} />You</span>
-                {:else if chip.isMe}
+                {#if chip.isMe}
                   <button type="button" class="chip chip--me" onclick={() => (sharing = line)}>
                     <Avatar name={store.identity?.name ?? 'You'} />You
                   </button>
@@ -143,6 +139,45 @@
     <button type="button" class="btn btn--ghost btn--sm" onclick={() => (adding = true)}>
       ＋  Add something that's missing
     </button>
+
+    <!--
+      What changed, and the way to take it back (§2.7). This is NOT prose in the claim list: the rule
+      there is chips only, and this is a separate section below the lines that renders on the minority
+      of bills where anyone edited anything.
+
+      **Anyone on the bill may undo**, not just the person who did it and not just the payer. An undo is
+      itself an attributed entry here, and undoing something already undone does nothing, so the log is
+      the tiebreak. A rights hierarchy would re-import the adjudication the approval gate used to be.
+    -->
+    {#if store.changes.length > 0}
+      <div class="changes">
+        <div class="k">Changes to this bill</div>
+        {#each store.changes as change (change.id)}
+          <div class="chg" class:chg--done={!change.live}>
+            <div class="grow">
+              <span class="lbl">{change.mine ? 'You' : change.byName} {verb(change.kind)} {change.label}</span
+              >
+              <div class="meta">
+                {#if change.live}
+                  {#if change.deltaSubunits !== 0}
+                    {change.deltaSubunits > 0 ? '+' : '−'}<span class="mono"
+                      >{amount(Math.abs(change.deltaSubunits), store.currency)}</span
+                    > on the bill
+                  {:else}
+                    No change to the total
+                  {/if}
+                {:else}
+                  Undone by {change.undoneByName}
+                {/if}
+              </div>
+            </div>
+            {#if change.live}
+              <button type="button" class="link" onclick={() => store.undoChange(change.id)}>Undo</button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
 
     {#if hint}
       <div class="note note--amber" role="alert" style="margin-top:14px">{hint}</div>
@@ -185,5 +220,34 @@
     font: inherit;
     color: inherit;
     cursor: pointer;
+  }
+
+  .changes {
+    margin-top: 18px;
+  }
+  .changes > .k {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+  }
+  .chg {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--border);
+  }
+  /* An undone change stays on screen: a mis-tap that vanished would be worse than one that is legible. */
+  .chg--done .lbl {
+    text-decoration: line-through;
+    color: var(--ink-3);
+  }
+  .chg .lbl {
+    font-size: 13.5px;
+  }
+  .chg .meta {
+    font-size: 11.5px;
+    color: var(--ink-3);
   }
 </style>

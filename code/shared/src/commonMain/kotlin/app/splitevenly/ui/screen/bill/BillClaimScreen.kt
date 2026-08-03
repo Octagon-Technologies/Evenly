@@ -140,7 +140,8 @@ fun BillClaimScreen(
     onShareLink: () -> Unit = {},
     onWhoIsLeft: () -> Unit = {},
     onReviewEdits: () -> Unit = {},
-    pendingEditCount: Int = 0,
+    /// Changes this device has not opened the "What changed" screen for yet. They have already applied.
+    unseenChangeCount: Int = 0,
     stillToClaimCount: Int = 0,
     // True on a user's first couple of visits — auto-expands the numbered how-to. Reopenable anytime.
     guideAutoOpen: Boolean = false,
@@ -169,7 +170,7 @@ fun BillClaimScreen(
                 }
             }
 
-            PendingEditsBanner(pendingEditCount, onReviewEdits)
+            PendingEditsBanner(unseenChangeCount, onReviewEdits)
 
             if (state.totals.isNotEmpty()) {
                 TotalsBar(state.totals, state.currency, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))

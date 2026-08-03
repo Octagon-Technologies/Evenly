@@ -7,8 +7,8 @@ This is **not** a web version of Evenly. One bill, one job, 72 hours. Spec §9 l
 deliberately excludes — no group view, no balances, no settle-up, no expense creation, no offline.
 If you are adding a second screen that is not in `design/web-claim-mockup.html`, stop and re-read it.
 
-Currently this tree holds only the money engine (spec build-order step 4). The Svelte surface is
-step 5; extend this file when it lands.
+`src/lib/money/` is the ported split math (step 4); `src/screens/` is the Svelte surface, frames 1-9
+(step 5). `src/lib/mock.ts` is the walkthrough fixture behind `?mock` and is dead code in a build.
 
 ## The money port is a copy, and the copy is gated
 
@@ -25,7 +25,11 @@ the ledger *records*. If they disagree, Kotlin wins and the web is stale by one 
   idiomatic: being diffable against `BillSplit.kt` *is* the safety mechanism.
 - **Money is integer subunits.** No floats, no `toFixed` arithmetic. `allocate` does its
   multiply-then-divide in `BigInt` because Kotlin does it in `Long`, and a double silently rounds
-  past 2^53. No currency conversion either — show the bill's own currency (spec §12.3).
+  past 2^53.
+- **The bill's own currency, always, never converted** (spec §12.3, answered). The app has FX
+  (`refresh_fx_rates`); this bundle has none, ships no Supabase client, and has **zero runtime
+  dependencies** — there is nothing to convert with and nothing to convert from. A guest converting in
+  her head is a guest paying the wrong number. Do not "fix" this later by adding a rate.
 - The gate is `.github/workflows/money-vectors.yml`, and `code/shared/build.gradle.kts` declares the
   vectors file as a test input so a vectors-only edit cannot pass as UP-TO-DATE.
 
@@ -47,8 +51,16 @@ section exists to prevent.
   makes a shared plate unjoinable and silently wrong.
 - **The claim affordance is a chip in the people row** (§2.6), never a button in the price column,
   and there is no prose in the claim list — chips only.
-- **Editing a line needs the payer's approval; joining a claim does not** (§2.7). These look
-  inconsistent and are not. Do not harmonise them.
+- **An item edit is announced; joining a claim is not** (§2.7). Both apply instantly. An edit moves
+  the bill total and therefore everyone's money, so it lands in the change log under the item card and
+  the payer is told in the app; joining moves two people's with both at the table, so nothing is said.
+  These look inconsistent and are not. Do not harmonise them, and **do not re-add an approval gate** —
+  `store.editLine` applies, `store.undoChange` takes it back, and **anyone on the bill may undo**.
+- **The change log is a section below the lines, never prose inside them.** "No prose in the claim
+  list" (§2.6) is about the rows themselves: chips only. The log renders on the minority of bills where
+  anyone edited anything, and an undone entry stays legible rather than vanishing.
+- **An `ADD` also claims the new line for whoever added it.** The sheet says "Add it and claim it", and
+  someone typing in the dessert they ate has already told us they ate it.
 - **Exact duplicate names are blocked, not warned** (§2.4), with one-tap suffixes and an always-visible
   "Wait, I am that Purity" escape hatch.
 - **No optimistic writes** (§6). A failed write shows a retry, never a fake success — a guest who

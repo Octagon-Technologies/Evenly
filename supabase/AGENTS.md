@@ -49,6 +49,30 @@ history across two accounts silently.
 The client calls it at **flush** time (an undone claim never reaches it) and **before** pushing the
 merged rows — a loser then reverses rows no other client has pulled. Don't move it after the push.
 
+## The guest's Zone-2 write path — the one thing `merge_expense` cannot do
+
+`merge_expense` runs as the authenticated caller. The `web-claim` edge function has a service key and
+**no `auth.uid()`**, so a guest changing a bill's money needs its own path. Three `security definer`
+RPCs, all **service-role only** (`revoke ... from anon, authenticated`), sharing `_reprice_web_bill`:
+
+- **`apply_web_bill_edit`** — writes `expense_items` *and* the `pending_item_edits` log row in one
+  transaction, stamped `APPLIED`. Captures `previous_*` server-side (they are what Undo restores, so a
+  client-supplied value could restore the wrong price) and writes the created line's id back into
+  `item_id` on an ADD (without it Undo has nothing to target).
+- **`undo_web_bill_edit`** — first-undo-wins via a conditional update on `decision = 'APPLIED'`; a
+  second call returns `changed: false` rather than raising. Undoing a REMOVE revives the claims that
+  removal killed by matching its **exact `deleted_at` stamp** — widen that to a range and an undo
+  resurrects claims people deliberately dropped in the same minute.
+- **`set_web_bill_payer`** — the same causal rule as `merge_expense`: base matches ⇒ apply and advance;
+  base stale ⇒ refuse and return who the payer now is (spec E25).
+
+**Every one of them advances `split_version`.** Skipping the bump is not cosmetic: the payer's next push
+would carry a base causally ahead of a change it never saw, `merge_expense` would apply the older split
+on top, and the guest's edit would revert with nothing to show it ever happened.
+
+Nothing in the app calls these. The payer's own undo is a local-first Room write that reaches the server
+through `merge_expense` like every other in-app money edit.
+
 ## Web claim (`WEB_CLAIM_SPEC.md`) — steps 1–6 landed
 
 Additive per the spec's §11 build order. Step 2 (`BillRepository.joinItem` + a `setPortion` fix) wired
@@ -78,10 +102,12 @@ rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
   RLS is still `using (true)` app-wide, so *any* policy here makes `token_hash` readable by every
   authenticated user, and that hash is the entire authorisation check `web-claim` performs. The app
   reaches the table only through the `security definer` RPCs below, none of which return the hash.
-- **`pending_item_edits`** — a guest's proposed add/relabel/reprice/requantify/remove, awaiting the
-  payer's individual approval. **Synced** (the app reads and decides on it in step 6), so it already
-  carries the same permissive `for all to authenticated` policy as the rest of this schema, and is in
-  the doorbell trigger loop.
+- **`pending_item_edits`** — the bill's change log: a guest's add/relabel/reprice/requantify/remove,
+  written **already `APPLIED`**. The name predates the drop of the approval gate
+  (`WEB_CLAIM_PATCH_PLAN.md`) and the table is synced, so renaming it costs more than it explains.
+  **Synced**, so it carries the same permissive `for all to authenticated` policy as the rest of this
+  schema, and is in the doorbell trigger loop. `previous_line_total_subunits` is what an undo restores;
+  `previous_unit_price_subunits` is display only and rebuilding a line total from it loses a penny.
 - **`join_item_portion(item_id, joiner_user_id, portion_id, now, over_claim_ack)`** — the write a
   client can never safely make itself: converting someone else's solo `item_claims` row into a shared
   `item_shares` portion. `security definer`; the caller-identity check only fires when `auth.uid()` is

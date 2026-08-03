@@ -40,7 +40,7 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.theme.EvenlyTheme
 
-/** One proposal, as the payer sees it. Copy is assembled in the screen so this stays previewable. */
+/** One change, as the payer sees it. Copy is assembled in the screen so this stays previewable. */
 data class ReviewEditUi(
     val id: String,
     val proposerName: String,
@@ -51,44 +51,43 @@ data class ReviewEditUi(
     val previousUnitPriceSubunits: Long? = null,
     val proposedQuantity: Int? = null,
     val proposedUnitPriceSubunits: Long? = null,
-    /** Signed change to the bill total if approved. */
+    /** Signed effect this change had on the bill total. */
     val deltaSubunits: Long = 0L,
     val decision: PendingEditDecision? = null,
+    /** Who took it back. Anyone on the bill can, so this is often not the payer looking at the screen. */
+    val undoneByName: String? = null,
 )
 
 data class ReviewEditsState(
     val billTitle: String,
     val currency: String,
     val edits: List<ReviewEditUi>,
-    /** The bill's total as it stands now, before anything here is approved. */
+    /** The bill's total as it stands now, which already includes every live change below. */
     val currentTotalSubunits: Long,
 ) {
-    val pending: List<ReviewEditUi> get() = edits.filter { it.decision == null }
-    val decided: List<ReviewEditUi> get() = edits.filter { it.decision != null }
-
-    /** What the bill would come to if every waiting change were approved. */
-    val totalIfAllApprovedSubunits: Long get() = currentTotalSubunits + pending.sumOf { it.deltaSubunits }
+    val live: List<ReviewEditUi> get() = edits.filter { it.decision != PendingEditDecision.UNDONE }
+    val undone: List<ReviewEditUi> get() = edits.filter { it.decision == PendingEditDecision.UNDONE }
 }
 
 /**
- * "N changes to review" — the payer decides each web guest's proposed menu change, one card at a time
- * (WEB_CLAIM_SPEC.md §3.9.1).
+ * "N changes to the bill" — what web guests changed after the receipt was scanned, and the way to take
+ * any of it back (WEB_CLAIM_SPEC.md §3.9.1).
  *
- * **There is no "approve all".** A payer who clears three cards with one tap has reviewed none of them,
- * and each card is somebody's money. The asymmetry with joining a claim (which applies instantly) is
- * deliberate and documented in §2.7: joining moves two people's money with both of them at the table;
- * editing a line moves the bill total and therefore everyone's.
+ * **This screen reports; it does not adjudicate.** Every change listed has already applied. The payer is
+ * told because an item edit moves the bill total and therefore everyone's money, and joining a claim
+ * (which moves two people's, with both at the table) is not announced at all. That asymmetry is
+ * deliberate and documented in §2.7; do not harmonise them.
  *
- * The bill keeps its current amounts until a card is decided, so an unreviewed edit can never quietly
- * move anyone's balance. DI-free.
+ * **There is no "undo all".** Each change is somebody's money and gets its own decision. And there is no
+ * rights hierarchy: anyone on the bill may undo, an undo is itself an attributed entry, and the log is
+ * the tiebreak. DI-free.
  */
 @Composable
 fun BillReviewEditsScreen(
     state: ReviewEditsState,
     onBack: () -> Unit = {},
-    onApprove: (editId: String) -> Unit = {},
-    onReject: (editId: String) -> Unit = {},
-    /** Set when a decision could not be saved. Shown rather than swallowed: the tap looked like it worked. */
+    onUndo: (editId: String) -> Unit = {},
+    /** Set when an undo could not be saved. Shown rather than swallowed: the tap looked like it worked. */
     notice: String? = null,
     onDismissNotice: () -> Unit = {},
 ) {
@@ -114,53 +113,53 @@ fun BillReviewEditsScreen(
             item {
                 Column(Modifier.padding(top = 4.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        headline(state.pending.size),
+                        headline(state.live.size),
                         color = c.ink,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        if (state.pending.isEmpty()) "Nothing is waiting on you."
-                        else "People edited the bill after it was scanned. Approve each one.",
+                        if (state.live.isEmpty()) "Nobody has changed anything."
+                        else "People edited the bill after it was scanned. The bill already includes these.",
                         color = c.ink2,
                         fontSize = 13.5.sp,
                     )
                 }
             }
 
-            items(state.pending, key = { it.id }) { edit ->
-                EditCard(edit, state.currency, onApprove = { onApprove(edit.id) }, onReject = { onReject(edit.id) })
+            items(state.live, key = { it.id }) { edit ->
+                EditCard(edit, state.currency, onUndo = { onUndo(edit.id) })
             }
 
-            if (state.pending.isNotEmpty()) {
-                item { WaitingNote(state) }
+            if (state.live.isNotEmpty()) {
+                item { TotalNote(state) }
             }
 
-            if (state.decided.isNotEmpty()) {
+            if (state.undone.isNotEmpty()) {
                 item {
                     Text(
-                        "Already decided",
+                        "Undone",
                         color = c.ink3,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(top = 10.dp),
                     )
                 }
-                items(state.decided, key = { "d-${it.id}" }) { edit -> DecidedCard(edit) }
+                items(state.undone, key = { "d-${it.id}" }) { edit -> UndoneCard(edit) }
             }
         }
     }
 }
 
-private fun headline(pendingCount: Int): String = when (pendingCount) {
-    0 -> "No changes to review"
-    1 -> "1 change to review"
-    else -> "$pendingCount changes to review"
+private fun headline(liveCount: Int): String = when (liveCount) {
+    0 -> "No changes to the bill"
+    1 -> "1 change to the bill"
+    else -> "$liveCount changes to the bill"
 }
 
 /** Who did what, in one line: "Purity added Mango sticky rice". The item name carries the blue. */
 @Composable
-private fun EditCard(edit: ReviewEditUi, currency: String, onApprove: () -> Unit, onReject: () -> Unit) {
+private fun EditCard(edit: ReviewEditUi, currency: String, onUndo: () -> Unit) {
     val c = EvenlyTheme.colors
     EvCard(padded = true) {
         Text(
@@ -178,8 +177,7 @@ private fun EditCard(edit: ReviewEditUi, currency: String, onApprove: () -> Unit
         DetailLine(edit, currency)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DecisionChip("Approve", approve = true, onClick = onApprove)
-            DecisionChip("Reject", approve = false, onClick = onReject)
+            UndoChip(onClick = onUndo)
         }
     }
 }
@@ -251,35 +249,34 @@ private fun verb(kind: PendingEditKind): String = when (kind) {
     PendingEditKind.REPRICE, PendingEditKind.REQUANTITY -> "changed"
 }
 
-/** Both verdicts are the same weight on purpose: neither is the recommended one. */
+/** Deliberately quiet. Undo is available, not recommended: the overwhelming majority of these edits are
+ *  someone fixing a genuine OCR miss, and a loud control invites second-guessing every one of them. */
 @Composable
-private fun DecisionChip(label: String, approve: Boolean, onClick: () -> Unit) {
+private fun UndoChip(onClick: () -> Unit) {
     val c = EvenlyTheme.colors
-    val fg = if (approve) c.blueText else c.ink2
-    val border = if (approve) c.blueTint2 else c.border
     Row(
         Modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(if (approve) c.blueTint else c.surface)
-            .border(1.dp, border, RoundedCornerShape(10.dp))
+            .background(c.surface)
+            .border(1.dp, c.border, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        EvIcon(if (approve) EvIcons.Check else EvIcons.Close, size = 15.dp, tint = fg)
-        Text(label, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        EvIcon(EvIcons.Undo, size = 15.dp, tint = c.ink2)
+        Text("Undo", color = c.ink2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
-/** What the payer has already settled, kept on screen so a mis-tap is visible rather than vanishing. */
+/** What has been taken back, kept on screen so a mis-tap is visible rather than vanishing. Anyone on the
+ *  bill can undo, so this is also how the payer sees that a guest undid somebody else's change. */
 @Composable
-private fun DecidedCard(edit: ReviewEditUi) {
+private fun UndoneCard(edit: ReviewEditUi) {
     val c = EvenlyTheme.colors
-    val approved = edit.decision == PendingEditDecision.APPROVED
     EvCard(fill = true, bordered = true, padded = true) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            EvIcon(if (approved) EvIcons.CheckCircle else EvIcons.Close, size = 16.dp, tint = c.ink3)
+            EvIcon(EvIcons.Undo, size = 16.dp, tint = c.ink3)
             Column(Modifier.fillMaxWidth()) {
                 Text(
                     "${edit.proposerName} ${verb(edit.kind)} ${edit.itemLabel}",
@@ -288,7 +285,8 @@ private fun DecidedCard(edit: ReviewEditUi) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    if (approved) "Approved. It's on the bill." else "Rejected. The bill didn't change.",
+                    if (edit.undoneByName != null) "Undone by ${edit.undoneByName}. The bill is back to what it was."
+                    else "Undone. The bill is back to what it was.",
                     color = c.ink3,
                     fontSize = 12.sp,
                 )
@@ -297,25 +295,28 @@ private fun DecidedCard(edit: ReviewEditUi) {
     }
 }
 
-/** The one place the arithmetic is spelled out, so nobody has to add up card deltas in their head. */
+/** The one place the arithmetic is spelled out, so nobody has to add up card deltas in their head.
+ *
+ *  Blue, not amber. The old amber note said the bill was holding its scanned amounts until the payer
+ *  decided, which is now false; and there is nothing here to warn about, only a number to state. */
 @Composable
-private fun WaitingNote(state: ReviewEditsState) {
+private fun TotalNote(state: ReviewEditsState) {
     val c = EvenlyTheme.colors
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.warningTint)
-            .border(1.dp, c.warning.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.blueTint)
+            .border(1.dp, c.blueTint2, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        EvIcon(EvIcons.Info, size = 16.dp, tint = c.warning, modifier = Modifier.padding(top = 2.dp))
+        EvIcon(EvIcons.Info, size = 16.dp, tint = c.blueText, modifier = Modifier.padding(top = 2.dp))
         Text(
             buildAnnotatedString {
-                append("The bill keeps its current amounts until you decide. Approving everything here takes the total to ")
+                append("The bill is ")
                 withStyle(SpanStyle(fontFamily = EvenlyTheme.monoFamily, fontWeight = FontWeight.Bold)) {
-                    append(moneySubunits(state.totalIfAllApprovedSubunits, state.currency))
+                    append(moneySubunits(state.currentTotalSubunits, state.currency))
                 }
-                append(".")
+                append(" with all of these. Undo anything that looks wrong.")
             },
             color = c.ink2,
             fontSize = 12.5.sp,

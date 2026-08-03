@@ -18,11 +18,13 @@ import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.ClaimProgressState
+import app.splitevenly.domain.expense.PendingEditDecision
 import app.splitevenly.domain.expense.WebBillLinkState
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.WebBillLinkRepository
 import app.splitevenly.platform.PlatformShare
+import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.bill.BillClaimProgressScreen
 import app.splitevenly.ui.screen.bill.BillClaimProgressState
 import app.splitevenly.ui.screen.bill.BillReviewEditsScreen
@@ -42,25 +44,47 @@ import kotlin.time.ExperimentalTime
  * The payer's three web-claim screens (WEB_CLAIM_SPEC.md §3.9), wired.
  *
  * All three are **payer-side, in-app only**. Nothing here is reachable from the web bundle, and nothing
- * here talks to the `web-claim` edge function: that function reads links and never writes them, and it
- * has no notion of approving anything. This file is the other half of that boundary.
+ * here talks to the `web-claim` edge function: that function reads links and never writes them. This
+ * file is the other half of that boundary.
+ *
+ * Undo exists on both sides — anyone on the bill may take a change back (§2.7) — but the two halves get
+ * there differently and deliberately so. A guest's undo goes through `undo_web_bill_edit`, because the
+ * edge function has a service key and no `auth.uid()`. The payer's is a local-first Room write that
+ * reaches the server through `merge_expense`, like every other in-app money edit.
  */
 
 /** Poll cadence for the payer's watch screen (§3.9.2). Matches the guest's 5s so the two stay in step. */
 private const val PROGRESS_POLL_MS = 5_000L
 
-// ── 1. Review changes ────────────────────────────────────────────────────────────────────────────
+/**
+ * Device-local marker for "this device has seen the bill's changes up to here" (`WEB_CLAIM_PATCH_PLAN`
+ * §3 P4). Keyed by expense, in [app.splitevenly.platform.SecureStorage], exactly like
+ * `CLAIM_GUIDE_OPENS_KEY` in `BillRoutes.kt`.
+ *
+ * Chosen over a synced column deliberately: a new column on a synced entity is the heaviest change in
+ * this codebase (`AGENTS.md` §4.4) and the cost of getting it wrong is that whole table's sync, for a
+ * banner. The tradeoff is that the payer's second device nags again about changes they have already
+ * seen. That is acceptable for a payer, and the decision is reversible later.
+ */
+internal fun changesSeenKey(expenseId: String) = "web_changes_seen_at__$expenseId"
+
+// ── 1. What changed ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * "N changes to review" — approve or reject each web guest's proposed menu change individually (§3.9.1).
- * Approving is a Zone-2 money edit and goes through the repository, which advances `split_version` and
- * re-derives the bill's shares; the Composable only ever names an id and a verdict.
+ * "N changes to the bill" — what web guests changed, and the way to take any of it back (§3.9.1).
+ *
+ * Two things happen here. The screen **marks the changes seen**, which is what clears the banner on the
+ * assign screen: the changes have already applied, so there is nothing to decide and reading is the only
+ * completion there is. And an undo goes through the repository, which restores the line, advances
+ * `split_version` and re-derives; the Composable only ever names an id.
  */
+@OptIn(ExperimentalTime::class)
 @Composable
 fun BillReviewEditsRoute(groupId: String, expenseId: String, onBack: () -> Unit) {
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
+    val storage = koinInject<SecureStorage>()
     val gid = remember(groupId) { GroupId(groupId) }
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val bill by remember(eid) { bills.observeBill(eid) }.collectAsStateWithLifecycle(null)
@@ -69,6 +93,16 @@ fun BillReviewEditsRoute(groupId: String, expenseId: String, onBack: () -> Unit)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var notice by remember { mutableStateOf<String?>(null) }
+
+    // Being on this screen IS having seen them, so the marker moves as the list does rather than on the
+    // way out. `SecureStorage.putString` suspends, and `onDispose` cannot; doing it here also means a
+    // change that lands while the payer is reading is marked seen the moment it renders, which is the
+    // truth. Worst case the marker is missed and the banner shows once more, which is the cheap
+    // direction to fail in.
+    val newest = edits.maxOfOrNull { it.proposedAt } ?: 0L
+    LaunchedEffect(eid, newest) {
+        if (newest > 0L) storage.putString(changesSeenKey(eid.value), newest.toString())
+    }
 
     val view = bill ?: return
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
@@ -97,16 +131,21 @@ fun BillReviewEditsRoute(groupId: String, expenseId: String, onBack: () -> Unit)
                 proposedUnitPriceSubunits = edit.proposedUnitPriceSubunits,
                 deltaSubunits = edit.totalDeltaSubunits,
                 decision = edit.decision,
+                // `decided_by` is set on an APPLIED row too (it is the guest who made the change), so
+                // this is gated on the decision rather than on the column being present.
+                undoneByName = edit.decidedBy
+                    ?.takeIf { edit.decision == PendingEditDecision.UNDONE }
+                    ?.let { nameByUser[it.value] },
             )
         },
     )
 
-    fun decide(editId: String, approve: Boolean) {
+    fun undo(editId: String) {
         val me = userId ?: return
         scope.launch {
-            // A verdict that didn't save has to say so: the card would otherwise stay put with no reason,
+            // An undo that didn't save has to say so: the card would otherwise stay put with no reason,
             // which reads as a broken button rather than a failed write.
-            if (bills.decidePendingEdit(editId, approve, me) is AppResult.Err) {
+            if (bills.undoPendingEdit(editId, me) is AppResult.Err) {
                 notice = "Couldn't save that. Check your connection and tap again."
             }
         }
@@ -115,8 +154,7 @@ fun BillReviewEditsRoute(groupId: String, expenseId: String, onBack: () -> Unit)
     BillReviewEditsScreen(
         state = state,
         onBack = onBack,
-        onApprove = { decide(it, approve = true) },
-        onReject = { decide(it, approve = false) },
+        onUndo = ::undo,
         notice = notice,
         onDismissNotice = { notice = null },
     )

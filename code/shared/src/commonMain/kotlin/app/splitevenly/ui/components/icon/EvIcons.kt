@@ -73,6 +73,10 @@ object EvIcons {
     val Trash: ImageVector by lazy { lineIcon("M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M7 7l1 13h8l1-13") }
     val Edit: ImageVector by lazy { lineIcon("M4 20h4L19 9l-4-4L4 16v4z M14 6l4 4") }
     val Refund: ImageVector by lazy { lineIcon("M4 9h11a5 5 0 010 10h-3M4 9l4-4M4 9l4 4") }
+
+    /** Curved arrow back to the left. Distinct from [Reload] (a full circle, "do it again") and from
+     *  [Refund] (an arrow head at both ends): this one means "put it back the way it was". */
+    val Undo: ImageVector by lazy { lineIcon("M4 10h10a5 5 0 010 10h-4M4 10l4-4M4 10l4 4") }
     val Copy: ImageVector by lazy { lineIcon("M11 9h7a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-7a2 2 0 0 1 -2 -2v-7a2 2 0 0 1 2 -2Z M5 15V5a2 2 0 012-2h8") }
     val Camera: ImageVector by lazy { lineIcon("M5.5 7h13a2.5 2.5 0 0 1 2.5 2.5v8a2.5 2.5 0 0 1 -2.5 2.5h-13a2.5 2.5 0 0 1 -2.5 -2.5v-8a2.5 2.5 0 0 1 2.5 -2.5Z M8.5 13.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0Z M8 7l1.5-3h5L16 7") }
     val Image: ImageVector by lazy { lineIcon("M5.5 5h13a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1 -2.5 2.5h-13a2.5 2.5 0 0 1 -2.5 -2.5v-9a2.5 2.5 0 0 1 2.5 -2.5Z M6.7 10a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0 -3.6 0Z M21 16l-5-5L5 19") }

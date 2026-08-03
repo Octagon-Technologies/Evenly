@@ -294,8 +294,8 @@ fun BillClaimRoute(
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val bill by remember(eid) { bills.observeBill(eid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
-    // Web guests' proposed menu edits (WEB_CLAIM_SPEC.md §2.7). Only the undecided ones are a call to
-    // action; the decided ones live on the review screen as its audit trail.
+    // Web guests' menu changes (WEB_CLAIM_SPEC.md §2.7). All of them have already applied, so the
+    // banner counts what this device has not SEEN, not what is undecided: there is nothing to decide.
     val pendingEdits by remember(eid) { bills.observePendingEdits(eid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -305,10 +305,16 @@ fun BillClaimRoute(
     var guideAutoOpen by remember { mutableStateOf(false) }
     // Set when an assignment didn't land, so the screen can say so instead of looking like it worked.
     var assignNotice by remember { mutableStateOf<String?>(null) }
+    // Device-local read marker for the changes banner, written by BillReviewEditsRoute on the way out.
+    // Re-read on every resume so the banner clears when the payer comes back from that screen.
+    var changesSeenAt by remember(eid) { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
         val seen = storage.getString(CLAIM_GUIDE_OPENS_KEY)?.toIntOrNull() ?: 0
         guideAutoOpen = seen < 2
         storage.putString(CLAIM_GUIDE_OPENS_KEY, (seen + 1).toString())
+    }
+    LaunchedEffect(eid, pendingEdits) {
+        changesSeenAt = storage.getString(changesSeenKey(eid.value))?.toLongOrNull() ?: 0L
     }
 
     val view = bill ?: return
@@ -391,7 +397,7 @@ fun BillClaimRoute(
         onShareLink = onShareLink,
         onWhoIsLeft = onWhoIsLeft,
         onReviewEdits = onReviewEdits,
-        pendingEditCount = pendingEdits.count { it.isPending },
+        unseenChangeCount = pendingEdits.count { it.proposedAt > changesSeenAt },
         // "Claiming" here means a claim or a portion membership exists, NOT that they tapped "I'm done":
         // done is a nudge-silencer, not a resolution (data/AGENTS.md), and a payer looking for who still
         // owes them an answer wants the people with nothing on the bill.

@@ -12,6 +12,7 @@
  *   `?mock&as=purity`     → a recognised returning guest               → frame 3
  *   `?mock&state=expired` → the link died                              → frame 9
  *   `?mock&state=gone`    → revoked / deleted
+ *   `?mock&race=payer`    → every "I paid" loses the causal race (spec E25)
  */
 
 import { ApiError, setTransport, type ApiErrorCode } from './api.ts';
@@ -34,6 +35,8 @@ const NAMES: Record<string, string> = {
   'u-jane': 'Jane',
 };
 
+/** Mutable, because a guest's edit APPLIES (spec §2.7) — the fixture has to move with it or the mock
+ *  walkthrough would still be showing the model this feature replaced. */
 const ITEMS: MockItem[] = [
   { id: 'i-chicken-1', label: 'Chicken', quantity: 1, line_total_subunits: 1800, sort_order: 1 },
   { id: 'i-chicken-2', label: 'Chicken', quantity: 2, line_total_subunits: 3600, sort_order: 2 },
@@ -69,9 +72,14 @@ const state = {
     { id: 'c5', item_id: 'i-edamame', user_id: 'u-mo', quantity: 1 },
   ] as Claim[],
   shares: [] as Share[],
+  items: [...ITEMS],
+  /** The bill's change log. Named for the wire field, which is named for the table. */
   pendingEdits: [] as Array<Record<string, unknown>>,
+  /** The causal Zone-2 version a payer write is decided against (spec §5.5, E25). */
+  splitVersion: 1,
   participants: ['u-andrew', 'u-mary', 'u-bob', 'u-steve', 'u-mo'],
   doneAt: null as number | null,
+  payerUserId: 'u-andrew',
   me: null as string | null,
   seq: 0,
 };
@@ -216,8 +224,9 @@ export function installMockTransport(): void {
             tipSubunits: 2800,
             tipSplitMode: 'EVEN',
             discountSubunits: 0,
+            splitVersion: state.splitVersion,
           },
-          items: ITEMS,
+          items: state.items,
           claims: state.claims,
           shares: state.shares,
           pendingEdits: state.pendingEdits,
@@ -227,7 +236,12 @@ export function installMockTransport(): void {
             doneAt: userId === state.me ? state.doneAt : null,
           })),
           namesByUser: NAMES,
-          payer: { userId: 'u-andrew', name: 'Andrew', app: 'venmo', handle: '@andrew-chelimo' },
+          payer: {
+            userId: state.payerUserId,
+            name: NAMES[state.payerUserId] ?? null,
+            app: state.payerUserId === 'u-andrew' ? 'venmo' : null,
+            handle: state.payerUserId === 'u-andrew' ? '@andrew-chelimo' : null,
+          },
         };
 
       case 'claim': {
@@ -261,23 +275,129 @@ export function installMockTransport(): void {
       }
 
       case 'edit': {
+        // Applies, in one step, exactly like `apply_web_bill_edit` does server-side. previous_* are
+        // captured here from the row as it stands, because they are what Undo restores.
         const id = nextId('pe');
+        const kind = String(body.kind);
+        const target = state.items.find((i) => i.id === body.itemId);
+        const previous = target
+          ? {
+              previous_label: target.label,
+              previous_quantity: target.quantity,
+              previous_unit_price_subunits: Math.round(target.line_total_subunits / Math.max(target.quantity, 1)),
+              previous_line_total_subunits: target.line_total_subunits,
+            }
+          : { previous_label: null, previous_quantity: null, previous_unit_price_subunits: null, previous_line_total_subunits: null };
+        let itemId = (body.itemId as string | null) ?? null;
+
+        if (kind === 'ADD') {
+          const quantity = Math.max(Number(body.quantity ?? 1), 1);
+          itemId = nextId('i');
+          state.items = [
+            ...state.items,
+            {
+              id: itemId,
+              label: String(body.label ?? 'Item'),
+              quantity,
+              line_total_subunits: Number(body.unitPriceSubunits ?? 0) * quantity,
+              sort_order: state.items.length + 1,
+            },
+          ];
+        } else if (target) {
+          state.items = state.items.map((i) => {
+            if (i.id !== target.id) return i;
+            if (kind === 'RELABEL') return { ...i, label: String(body.label ?? i.label) };
+            if (kind === 'REPRICE') {
+              return { ...i, line_total_subunits: Number(body.unitPriceSubunits ?? 0) * i.quantity };
+            }
+            const quantity = Math.max(Number(body.quantity ?? i.quantity), 1);
+            const perUnit = Number(body.unitPriceSubunits ?? Math.round(i.line_total_subunits / Math.max(i.quantity, 1)));
+            return { ...i, quantity, line_total_subunits: perUnit * quantity };
+          });
+          if (kind === 'REMOVE') {
+            state.items = state.items.filter((i) => i.id !== target.id);
+            state.claims = state.claims.filter((c) => c.item_id !== target.id);
+            state.shares = state.shares.filter((sh) => sh.item_id !== target.id);
+          }
+        }
+
+        state.splitVersion += 1;
         state.pendingEdits.push({
           id,
-          item_id: body.itemId ?? null,
-          kind: body.kind,
+          item_id: itemId,
+          kind,
           proposed_label: body.label ?? null,
           proposed_quantity: body.quantity ?? null,
           proposed_unit_price_subunits: body.unitPriceSubunits ?? null,
-          previous_label: null,
-          previous_quantity: null,
-          previous_unit_price_subunits: null,
+          ...previous,
           proposed_by: state.me,
           proposed_at: Date.now(),
-          decided_at: null,
-          decision: null,
+          decided_at: Date.now(),
+          decided_by: state.me,
+          decision: 'APPLIED',
         });
-        return { ok: true, pendingEditId: id };
+        return { ok: true, editId: id, itemId };
+      }
+
+      case 'undo': {
+        // First-undo-wins, and a second undo is a no-op rather than an error.
+        const change = state.pendingEdits.find((e) => e.id === body.editId);
+        if (!change || change.decision !== 'APPLIED') return { ok: true, changed: false };
+        const itemId = change.item_id as string;
+        if (change.kind === 'ADD') {
+          state.items = state.items.filter((i) => i.id !== itemId);
+          state.claims = state.claims.filter((c) => c.item_id !== itemId);
+          state.shares = state.shares.filter((sh) => sh.item_id !== itemId);
+        } else if (change.kind === 'REMOVE') {
+          state.items = [
+            ...state.items,
+            {
+              id: itemId,
+              label: String(change.previous_label ?? 'Item'),
+              quantity: Number(change.previous_quantity ?? 1),
+              line_total_subunits: Number(change.previous_line_total_subunits ?? 0),
+              sort_order: state.items.length + 1,
+            },
+          ];
+        } else {
+          state.items = state.items.map((i) =>
+            i.id === itemId
+              ? {
+                  ...i,
+                  label: String(change.previous_label ?? i.label),
+                  quantity: Number(change.previous_quantity ?? i.quantity),
+                  // The stored line total, never per-unit x quantity: rebuilding a $10.00 line over 3
+                  // units from the rounded per-unit gives back $9.99.
+                  line_total_subunits: Number(change.previous_line_total_subunits ?? i.line_total_subunits),
+                }
+              : i,
+          );
+        }
+        state.splitVersion += 1;
+        change.decision = 'UNDONE';
+        change.decided_at = Date.now();
+        change.decided_by = state.me;
+        return { ok: true, changed: true };
+      }
+
+      case 'payer': {
+        // E25: a base that is behind canonical loses and is told who the payer is. `?mock&race=payer`
+        // forces that branch, because it is otherwise unreachable with one browser.
+        const base = Number(body.baseSplitVersion ?? 0);
+        if (flag('race') === 'payer' || base < state.splitVersion) {
+          return {
+            ok: false, stale: true,
+            payerUserId: state.payerUserId, payerName: NAMES[state.payerUserId] ?? null,
+            splitVersion: state.splitVersion,
+          };
+        }
+        state.payerUserId = String(body.userId);
+        state.splitVersion += 1;
+        return {
+          ok: true, stale: false,
+          payerUserId: state.payerUserId, payerName: NAMES[state.payerUserId] ?? null,
+          splitVersion: state.splitVersion,
+        };
       }
 
       case 'done':

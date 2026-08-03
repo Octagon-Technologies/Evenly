@@ -86,8 +86,8 @@ class BillRepositoryImpl(
     // The atomic server-side join RPC (spec §5.3). Null in unit tests / offline-stub builds => joining
     // someone else's already-claimed line is unavailable rather than risking a local cross-user write.
     private val joinItemGateway: JoinItemPortionGateway? = null,
-    // Web guests' proposed menu edits (spec §2.7). Null in unit tests that predate the web claim work =>
-    // the review surface is simply empty, which is the correct reading of "no web guest has proposed
+    // Web guests' menu changes (spec §2.7). Null in unit tests that predate the web claim work => the
+    // history surface is simply empty, which is the correct reading of "no web guest has changed
     // anything" rather than a failure.
     private val pendingItemEditDao: PendingItemEditDao? = null,
 ) : BillRepository {
@@ -96,8 +96,8 @@ class BillRepositoryImpl(
     // runs from SyncEngine on pull (P0 #3), so it lives in a shared collaborator, not inline here.
     private val materializer = BillMaterializer(expenseDao, expenseItemDao, itemClaimDao, itemShareDao, shareDao)
 
-    // The payer's half of the web claim flow. Null DAO => no web guest has proposed anything, which is
-    // the correct reading of an empty review surface rather than a failure.
+    // The payer's half of the web claim flow. Null DAO => no web guest has changed anything, which is
+    // the correct reading of an empty history rather than a failure.
     private val pendingEdits = pendingItemEditDao?.let {
         BillPendingEdits(expenseDao, expenseItemDao, itemClaimDao, itemShareDao, it, materializer, clock)
     }
@@ -685,16 +685,17 @@ class BillRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
-    // ── Web guests' proposed menu edits + the leftover (WEB_CLAIM_SPEC.md §2.7, §3.9) ────────────
+    // ── Web guests' menu changes + the leftover (WEB_CLAIM_SPEC.md §2.7, §3.9) ───────────────────
     // Both live in [BillPendingEdits] rather than inline: this file is a quarantined size offender
-    // (ui/AGENTS.md), and approving a guest's edit is a self-contained "apply, re-version, re-derive"
-    // unit with no overlap with the claim writes above.
+    // (ui/AGENTS.md), and undoing a guest's edit is a self-contained "restore, re-version, re-derive"
+    // unit with no overlap with the claim writes above. The *apply* half is server-side, in
+    // `apply_web_bill_edit` — the edge function has no auth.uid() and so cannot use merge_expense.
 
     override fun observePendingEdits(expenseId: ExpenseId): Flow<List<PendingBillEdit>> =
         pendingEdits?.observe(expenseId) ?: flowOf(emptyList())
 
-    override suspend fun decidePendingEdit(editId: String, approve: Boolean, decidedBy: UserId): AppResult<Unit> =
-        pendingEdits?.decide(editId, approve, decidedBy)
+    override suspend fun undoPendingEdit(editId: String, undoneBy: UserId): AppResult<Unit> =
+        pendingEdits?.undo(editId, undoneBy)
             ?: validationErr("pendingEdit", AppError.Validation.Reason.Required)
 
     override suspend fun assignRemainder(

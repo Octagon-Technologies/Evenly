@@ -101,7 +101,7 @@ import app.splitevenly.data.db.entity.UserEntity
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)

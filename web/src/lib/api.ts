@@ -84,7 +84,8 @@ export type ClaimPlaceholderResponse =
   | { won: true; sessionToken: string; userId: string; name: string; header: BillHeader };
 
 export interface BillResponse extends BillPayload {
-  expense: BillPayload['expense'] & { title: string; currency: string };
+  /** `splitVersion` is the causal base a payer write is decided against (spec §5.5, E25). */
+  expense: BillPayload['expense'] & { title: string; currency: string; splitVersion: number };
   items: Array<{
     id: string;
     label: string;
@@ -101,7 +102,9 @@ export interface BillResponse extends BillPayload {
     quantity: number;
     added_by: string | null;
   }>;
-  pendingEdits: PendingEdit[];
+  /** Named `pendingEdits` on the wire because the table is still `pending_item_edits`; nothing about it
+   *  is pending. Renaming a synced column costs more than the confusion it removes. */
+  pendingEdits: BillChange[];
   participants: Array<{ userId: string; name: string; doneAt: number | null }>;
   namesByUser: Record<string, string>;
   payer: { userId: string | null; name: string | null; app: string | null; handle: string | null };
@@ -109,8 +112,17 @@ export interface BillResponse extends BillPayload {
 
 export type EditKind = 'ADD' | 'RELABEL' | 'REPRICE' | 'REQUANTITY' | 'REMOVE';
 
-/** A guest's proposed change, awaiting the payer's individual decision (spec §2.7, §5.2). */
-export interface PendingEdit {
+/**
+ * One entry in the bill's change log (spec §2.7, §5.2).
+ *
+ * **Every row here has already moved the money.** An edit applies on write, so `items`/`claims` in the
+ * same response already reflect it and this must never be folded into the split a second time. The row
+ * exists so the change can be shown and undone, not so a total can be guessed at.
+ *
+ * `APPLIED` is live and undoable; `UNDONE` is history. `item_id` is always set, including on an `ADD`,
+ * where it is the line that ADD created.
+ */
+export interface BillChange {
   id: string;
   item_id: string | null;
   kind: EditKind;
@@ -123,7 +135,8 @@ export interface PendingEdit {
   proposed_by: string;
   proposed_at: number;
   decided_at: number | null;
-  decision: 'APPROVED' | 'REJECTED' | null;
+  decided_by: string | null;
+  decision: 'APPLIED' | 'UNDONE' | null;
 }
 
 /** Swapped for the dev fixture by `main.ts` when the page is opened with `?mock`. */
@@ -199,12 +212,24 @@ export const api = {
   leave: (token: string, sessionToken: string, itemId: string) =>
     post<{ ok: true }>('leave', { token, sessionToken, itemId }),
 
-  /** Propose an edit. Never applies it — the payer approves each one in the app (§2.7). */
+  /** Change a line. **Applies immediately**, attributed, and announced to the payer (§2.7, §3.6). */
   edit: (
     token: string,
     sessionToken: string,
     edit: { kind: EditKind; itemId?: string; label?: string; quantity?: number; unitPriceSubunits?: number },
-  ) => post<{ ok: true; pendingEditId: string }>('edit', { token, sessionToken, ...edit }),
+  ) => post<{ ok: true; editId: string; itemId: string }>('edit', { token, sessionToken, ...edit }),
+
+  /** Take a change back. Anyone on the bill may (§2.7); undoing twice is a no-op, not an error. */
+  undo: (token: string, sessionToken: string, editId: string) =>
+    post<{ ok: true; changed: boolean }>('undo', { token, sessionToken, editId }),
+
+  /** "I paid for this" (§3.8, E24). `baseSplitVersion` is what this page last read; a stale base loses
+   *  and comes back with `ok: false` naming whoever the payer now is (E25). Not an error. */
+  setPayer: (token: string, sessionToken: string, userId: string, baseSplitVersion: number) =>
+    post<{ ok: boolean; stale: boolean; payerUserId: string | null; payerName: string | null; splitVersion: number }>(
+      'payer',
+      { token, sessionToken, userId, baseSplitVersion },
+    ),
 
   /** A nudge-silencer, not a lock (§3.3, E31). */
   done: (token: string, sessionToken: string, done: boolean) =>

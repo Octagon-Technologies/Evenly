@@ -264,6 +264,19 @@ h1{font-size:26px;letter-spacing:-.02em;margin-bottom:6px}
             <div class="amt mono">13.50</div></div>
         </div>
         <button class="btn btn--ghost btn--sm">＋  Add something that's missing</button>
+
+        <div style="margin-top:18px">
+          <div style="font-size:12px;font-weight:600;color:var(--ink-3);margin-bottom:6px">Changes to this bill</div>
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border)">
+            <div class="grow"><div class="lbl" style="font-size:13.5px">Purity added Mango sticky rice</div>
+            <div class="meta" style="font-size:11.5px">+<span class="mono">9.00</span> on the bill</div></div>
+            <a style="font-size:12.5px">Undo</a>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border)">
+            <div class="grow"><div class="lbl" style="font-size:13.5px;text-decoration:line-through;color:var(--ink-3)">Mo changed Sea bass</div>
+            <div class="meta" style="font-size:11.5px">Undone by Andrew</div></div>
+          </div>
+        </div>
       </div>
       <div class="dock">
         <div class="dockrow"><span class="k">Your total so far</span><span class="v mono">$4.00</span></div>
@@ -272,7 +285,7 @@ h1{font-size:26px;letter-spacing:-.02em;margin-bottom:6px}
       <div class="hm"><i></i></div>
     </div>
   </div>
-  <p class="cap"><b>Every affordance is a chip in the people row</b>, so the amount column never moves and the card scans as one clean column of money. <i>＋ I had this</i> on an open line, <i>＋ Add me</i> where someone's already there. Row 2 is point 3 drawn: Bob on one chicken, Steve on the other, two individual claims, $18 each, no sharing. Row 5 is partly claimed and still open.</p></div>
+  <p class="cap"><b>Every affordance is a chip in the people row</b>, so the amount column never moves and the card scans as one clean column of money. <i>＋ I had this</i> on an open line, <i>＋ Add me</i> where someone's already there. Row 2 is point 3 drawn: Bob on one chicken, Steve on the other, two individual claims, $18 each, no sharing. Row 5 is partly claimed and still open. <b>Changes sit below the lines, never inside them</b> — the rule is chips only in the list itself, and this section renders on the minority of bills where anyone edited anything. Anyone on the bill can undo; an undone change stays legible rather than vanishing.</p></div>
 
   <div class="cell"><div class="ph">
     <div class="st"><span class="mono">19:47</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
@@ -353,13 +366,13 @@ h1{font-size:26px;letter-spacing:-.02em;margin-bottom:6px}
           <div style="flex:1.3"><div class="flbl">Price each</div><div class="inp mono">$9.00</div></div>
         </div>
         <div style="height:14px"></div>
-        <div class="note note--amber"><b>This changes the bill total.</b> <span class="mono">$214.60</span> → <span class="mono">$223.60</span>. Andrew approves it before it counts.</div>
+        <div class="note note--amber"><b>This changes the bill total.</b> <span class="mono">$214.60</span> → <span class="mono">$223.60</span>. Everyone on the bill sees it, and anyone can undo it.</div>
         <button class="btn">Add and claim it</button>
       </div>
       <div class="hm"><i></i></div>
     </div>
   </div>
-  <p class="cap"><b>Editing is honest about its consequence.</b> Every guest edit is attributed and routed to the payer for individual approval. Nobody rewrites a receipt quietly, and nobody is stopped from fixing a genuine miss either.</p></div>
+  <p class="cap"><b>Editing is honest about its consequence, and then it happens.</b> Every guest edit is attributed, applies immediately, and is announced to the payer with an Undo. It does not wait: approve-each taxes the 95% of edits that were fine to catch the 5% that weren't, at the exact moment twelve people are standing up to leave.</p></div>
 
 </div>
 
@@ -434,42 +447,42 @@ h1{font-size:26px;letter-spacing:-.02em;margin-bottom:6px}
 </div>
 
 <div class="sect">4 · The payer, in the app</div>
-<p class="sectsub">Three screens, all in the native app: approve edits one at a time, watch who's still outstanding, and hand out the link.</p>
+<p class="sectsub">Three screens, all in the native app: see what people changed (and undo any of it), watch who's still outstanding, and hand out the link.</p>
 <div class="rail">
 
   <div class="cell"><div class="ph">
     <div class="st"><span class="mono">19:58</span><span class="dots">▮▮▯ ⌁ ▰</span></div>
     <div class="body" style="padding-top:8px"><div class="scroll">
       <div class="hdr" style="padding-bottom:10px"><div class="eyebrow">Ramen night</div>
-      <div class="h2" style="margin-top:6px">3 changes to review</div>
-      <div class="sub">People edited the bill after it was scanned. Approve each one.</div></div>
+      <div class="h2" style="margin-top:6px">3 changes to the bill</div>
+      <div class="sub">People edited it after it was scanned. The bill already includes these.</div></div>
 
       <div class="card">
         <div class="row" style="display:block">
           <div class="lbl">Purity added <span style="color:var(--blue)">Mango sticky rice</span></div>
           <div class="meta">Wasn't on the receipt · 1 × <span class="mono">$9.00</span></div>
-          <div class="chips"><span class="chip chip--pick chip--ok">Approve</span><span class="chip chip--pick">Reject</span></div>
+          <div class="chips"><span class="chip chip--pick">Undo</span></div>
         </div>
       </div>
       <div class="card">
         <div class="row" style="display:block">
           <div class="lbl">Mo changed <span style="color:var(--blue)">Sea bass</span></div>
           <div class="meta">Price each · <span class="mono" style="text-decoration:line-through;color:var(--ink-3)">$26.00</span> → <b class="mono">$28.00</b></div>
-          <div class="chips"><span class="chip chip--pick">Approve</span><span class="chip chip--pick">Reject</span></div>
+          <div class="chips"><span class="chip chip--pick">Undo</span></div>
         </div>
       </div>
       <div class="card">
         <div class="row" style="display:block">
           <div class="lbl">Steve changed <span style="color:var(--blue)">Edamame</span></div>
           <div class="meta">Quantity · <b class="mono">3</b> → <b class="mono">2</b></div>
-          <div class="chips"><span class="chip chip--pick">Approve</span><span class="chip chip--pick">Reject</span></div>
+          <div class="chips"><span class="chip chip--pick">Undo</span></div>
         </div>
       </div>
-      <div class="note note--amber">While anything here is unapproved, the bill shows <b>as scanned</b>. Approving Mango sticky rice takes the total to <span class="mono">$223.60</span>.</div>
+      <div class="note note--blue">The bill is <span class="mono">$223.60</span> with all three. Undo anything that looks wrong.</div>
     </div></div>
     <div class="hm"><i></i></div>
   </div>
-  <p class="cap"><b>One card per change, each independently decided.</b> <span class="tag">#4</span> Who, what, and for an edit the before and after. No "undo both". The bill holds its scanned shape until you say otherwise, so an unreviewed edit can't quietly move anyone's money.</p></div>
+  <p class="cap"><b>One card per change, each independently undoable.</b> <span class="tag">#4</span> Who, what, and for an edit the before and after. No "undo all". This screen tells the payer what happened rather than asking them to adjudicate it: against an honest mistake an undo is worth exactly as much as an approval, and it costs nothing when the edit was fine. Opening the screen clears the banner; the list stays as the bill's history.</p></div>
 
   <div class="cell"><div class="ph">
     <div class="st"><span class="mono">20:04</span><span class="dots">▮▮▯ ⌁ ▰</span></div>

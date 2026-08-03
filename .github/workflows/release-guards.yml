@@ -1,0 +1,47 @@
+# Things that are fine on a feature branch and are a shipped bug on `main`.
+#
+# Prose does not hold these. `WebBillLink.kt` carries a `USE_LOCAL_WEB_CLAIM_HOST` switch that points
+# every QR and share link at `http://127.0.0.1:5177` so the web claim surface can be exercised against a
+# local Vite server. Left true, the payer holds up a QR that resolves to nothing on anyone else's phone,
+# and there is no error to notice: it looks like a working link.
+#
+# So it stays true while the feature is being built, and merging it to `main` fails loudly. That split
+# is the whole point of running on `main` and on pull requests targeting it, rather than on every push.
+name: release guards
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: release-guards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-hosts:
+    name: no local hosts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The web claim QR must point at the real domain
+        run: |
+          file=code/shared/src/commonMain/kotlin/app/splitevenly/domain/expense/WebBillLink.kt
+          if grep -qE '^[[:space:]]*private const val USE_LOCAL_WEB_CLAIM_HOST: Boolean = true' "$file"; then
+            echo "::error file=$file::USE_LOCAL_WEB_CLAIM_HOST is still true. Every bill QR and share"
+            echo "::error file=$file::link would point at http://127.0.0.1:5177 and silently resolve to"
+            echo "::error file=$file::nothing on a guest's phone. Set it to false before merging."
+            exit 1
+          fi
+          echo "USE_LOCAL_WEB_CLAIM_HOST is false."
+
+      - name: SupabaseConfig must point at the real project
+        run: |
+          file=$(git ls-files '*SupabaseConfig.kt' | head -1)
+          if [ -n "$file" ] && grep -qE '^[[:space:]]*private const val USE_LOCAL: Boolean = true' "$file"; then
+            echo "::error file=$file::USE_LOCAL is still true, so the app would talk to a local Supabase."
+            exit 1
+          fi
+          echo "SupabaseConfig is not pinned to a local stack."

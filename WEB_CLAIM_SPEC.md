@@ -116,15 +116,31 @@ the inference.
 **No prose in the claim list.** No "Bob had one, Steve had the other". Chips only. `1 left` is a chip,
 not a sentence, and carries no affordance weight because it is not tappable.
 
-### 2.7 Editing a line needs approval. Joining a claim does not.
+### 2.7 An item edit is announced. Joining a claim is not.
 
 These look inconsistent and are not. Do not "harmonise" them.
 
-- **Editing a line** (add, reprice, requantify) changes the bill total and therefore *everyone's* money.
-  Only the payer can adjudicate that, so it lands as a **pending edit** they approve or reject
-  individually.
+- **Editing a line** (add, reprice, requantify, remove) changes the bill total and therefore *everyone's*
+  money. It applies **instantly** and is **announced**: the payer is told what changed, and can undo it.
 - **Joining a claim** changes exactly two people's money, and one of them is holding a phone at the same
-  table. It applies **instantly**, is attributed, and the person affected can remove you.
+  table. It applies **instantly**, is attributed, and the person affected can remove you. Nothing is
+  announced, because there is nobody to tell who is not already looking at the line.
+
+The surviving asymmetry is the **announcement**, not a wait. An earlier version of this spec held an item
+edit behind the payer's individual approval. That gate is gone. The risk model here is honest mistakes,
+not bad faith: this is a group of friends splitting a dinner, and against an honest mistake **an undo is
+worth exactly as much as an approval** while costing nothing in the overwhelming case where the edit was
+fine. Approve-each taxes the 95% to catch the 5%, and the tax falls at the worst possible moment, with
+twelve people standing up to leave.
+
+Everything that made the gate safe survives: every change is **attributed**, **reversible**, and
+**recorded permanently**. Only the waiting went.
+
+**Anyone on the bill may undo**, and there is deliberately no arbitration. An undo is itself an attributed
+entry in the log, and undoing an already-undone change is a no-op (first-undo-wins, conditional update,
+same shape as `claim_placeholder`). The worst case is A edits, B undoes, A edits again, with every step
+visible to everyone and a name against it. **The log is the tiebreak.** Do not add a rights hierarchy on
+top of it.
 
 ### 2.8 The install prompt is a footnote
 
@@ -209,8 +225,9 @@ Backed by `join_item_portion` (§5.3).
 
 ### 3.6 Adding or editing a line
 
-Guest may add a line, and edit label / quantity / unit price on any line. Every such write creates a
-**pending edit** (§5.2), attributed, and shows its effect on the bill total before commit.
+Guest may add a line, and edit label / quantity / unit price on any line. Every such write **applies**
+(§5.2), is attributed, shows its effect on the bill total before commit, and **is announced** to the
+payer as an undoable change. It never waits on anyone.
 
 ### 3.7 Done — the total
 
@@ -227,8 +244,9 @@ receipt, or trigger OCR. Writing the payer advances `expenses.split_version` (§
 
 ### 3.9 In the app — three screens for the payer
 
-1. **Review changes.** One card per pending edit: who, what, and for an edit the before → after. Approve
-   or reject each **individually**. While anything is unapproved the bill shows as scanned.
+1. **What changed.** One card per applied guest edit: who, what, and for an edit the before → after. Each
+   carries **Undo**, which restores exactly what was there. Opening the screen marks the changes seen, so
+   the banner clears; the list stays afterwards as the bill's permanent history.
 2. **Who's still to claim.** Polled, app-only. Per-person state (`hasn't opened the link` / `opened it,
    claimed nothing` / claimed). Unclaimed remainder with two resolutions: split between the outstanding
    people, or split evenly across everyone.
@@ -266,8 +284,9 @@ Exactly this, and the edge function enforces it per-endpoint rather than trustin
   payer's *one* preferred payment handle, and the group's *name*.
 - **Read for identity**: unclaimed placeholders in the group with, per placeholder, at most 2 expenses
   as `{title, date, amount}`.
-- **Write**: item claims and shares on that expense; pending edits on that expense; the payer field of
-  that expense; new placeholder users in that group; `bill_participants` rows for that expense.
+- **Write**: item claims and shares on that expense; that expense's line items and their log rows, only
+  through the two `security definer` RPCs in §5.8, never as a direct table write; the payer field of that
+  expense; new placeholder users in that group; `bill_participants` rows for that expense.
 
 Everything else is denied. In particular a token grants **no** access to: group balances, the group's
 other expenses, member email addresses, receipt images, settlements, comments, or any other group.
@@ -320,7 +339,8 @@ service key inside `web-claim` touches it.
 
 ### 5.2 New table — `pending_item_edits`
 
-A guest edit awaiting the payer's individual approval (§2.7).
+The permanent, attributed log of every guest edit to the menu (§2.7). The name predates the decision to
+drop the approval gate and is kept because renaming a synced table costs more than it explains.
 
 ```sql
 create table if not exists public.pending_item_edits (
@@ -339,7 +359,7 @@ create table if not exists public.pending_item_edits (
   proposed_at bigint not null,
   decided_at bigint,
   decided_by text,
-  decision text,                       -- APPROVED | REJECTED
+  decision text,                       -- APPLIED | UNDONE
   created_at bigint not null,
   updated_at bigint not null,
   row_version bigint not null default 1
@@ -347,9 +367,12 @@ create table if not exists public.pending_item_edits (
 create index if not exists pending_item_edits_expense_idx on public.pending_item_edits (expense_id);
 ```
 
-Synced (the app reads and decides on it). **Server migration lands before the Room entity** per
-`AGENTS.md §4.4`. Approval applies the change to `expense_items` and stamps `decided_*`; rejection stamps
-only. Rows are kept as an audit trail, never deleted.
+Synced (the app reads it and can undo from it). **Server migration lands before the Room entity** per
+`AGENTS.md §4.4`. A row is written **already `APPLIED`**, in the same transaction that changes
+`expense_items`, with `decided_by` = the guest and `decided_at` = the moment it landed. An undo restores
+`previous_*` on the item and re-stamps the row `UNDONE`. `item_id` is **always** filled in, including for
+an `ADD` — the created line's id is written back, or the undo has nothing to target. Rows are kept as an
+audit trail, never deleted.
 
 ### 5.3 New RPC — `join_item_portion`
 
@@ -413,6 +436,32 @@ On `users`, nothing new: a web guest is `is_placeholder = true`, `placeholder_gr
 Note on `created_by`: `IDENTITY_CLAIM_SPEC.md` uses it to never ask someone whether they are a name they
 created themselves. A self-created web placeholder is exactly that case, so setting it correctly here
 keeps the later identity-claim card honest.
+
+### 5.8 The Zone-2 write path for a guest
+
+A guest changing Zone 2 is the one thing the edge function cannot express as a table write. It holds a
+service key and has **no `auth.uid()`**, so it cannot go through `merge_expense` (which runs as the
+authenticated caller) and must not update `expenses` blind: skipping the `split_version` bump means the
+payer's next push carries a stale base and **silently reverts the guest's change**, which is precisely
+the failure the causal model exists to prevent.
+
+Three `security definer` RPCs, all service-role only (explicit `revoke ... from anon, authenticated` —
+Supabase auto-grants `EXECUTE` at creation time regardless of `revoke ... from public`):
+
+```
+apply_web_bill_edit(expense_id, group_id, kind, item_id, label, quantity, unit_price_subunits, actor, now)
+  → { ok, edit_id, item_id, amount_subunits, split_version }
+undo_web_bill_edit(edit_id, actor, now)
+  → { ok, changed, item_id, amount_subunits, split_version }
+set_web_bill_payer(expense_id, user_id, base_split_version, actor, now)
+  → { ok, stale, payer_user_id, payer_name, split_version }
+```
+
+The first two change `expense_items` and re-derive `expenses.amount_subunits`, always advancing
+`split_version`. `set_web_bill_payer` implements the **same causal rule as `merge_expense`**: base matches
+⇒ apply and advance; base stale ⇒ refuse and return who the payer now is (E25). Calling `merge_expense`
+itself is the alternative and means constructing a whole expense payload for a one-field change; the
+dedicated RPC is preferred, written against the same rule.
 
 ---
 
@@ -479,11 +528,11 @@ only the claimed part.
 
 | # | Case | Behaviour |
 | --- | --- | --- |
-| E19 | **Guest's total includes an unapproved edit** | Her total includes it, the line is marked `waiting for Andrew`. On rejection her next open says so explicitly. She must never see a number she cannot account for |
-| E20 | Two guests edit the same line | Two independent pending edits; payer decides each. Approving the second applies on top of the first |
-| E21 | Link expires with edits pending | Edits survive and stay decidable. Expiry ends writes, not history |
-| E22 | Payer rejects an edit others claimed against | Claims on a rejected ADD are soft-deleted with a note to each claimer |
-| E23 | Guest deletes a scanned line | A `REMOVE` pending edit, same approval path. Never an immediate delete |
+| E19 | **Guest's total includes her edit** | Because it *applied*, not because it is provisional. There is no `waiting for Andrew` state and no line marked as such. If someone undoes it her next poll shows the line as it was, and the change stays in the bill's history with her name on it. She must never see a number she cannot account for |
+| E20 | Two guests edit the same line | Last write wins on the item; both edits are logged, attributed, and separately undoable |
+| E21 | Link expires with edits already made | The edits and the log survive. Expiry ends writes, not history |
+| E22 | An added line is undone after other people claimed it | The line is soft-deleted and the claims on it go with it, with a note to each claimer. Undoing a `REMOVE` revives only the claims that removal killed, matched on its exact `deleted_at` stamp, so a claim someone dropped themselves at the same moment is not resurrected |
+| E23 | Guest deletes a scanned line | It goes immediately, claims and all, and is announced as an undoable change like any other edit |
 
 ### Payer, link, lifecycle
 
@@ -530,7 +579,7 @@ Naming these prevents them being smuggled in as "obvious".
 | Duplicate names | Exact match blocked, suffix offered | 2.4 |
 | Claimed lines | Never hidden | 2.5 |
 | Claim affordance | A chip in the people row | 2.6 |
-| Item editing | Full edit, payer approves each individually | 2.7 |
+| Item editing | Instant, announced to the payer, undoable by anyone on the bill | 2.7 |
 | Joining a claim | Instant, attributed, reversible by the affected person | 2.7 |
 | Install prompt | One-line footnote, never a card or button | 2.8 |
 | Distribution | QR on the expense; group invite kept separate | 2.9 |
@@ -560,12 +609,18 @@ Each step ends green and useful on its own.
 
 ## 12. Open questions
 
-1. **Does the payer's approval gate apply to the *first* scan?** If Andrew scans and immediately hands
-   the QR round, the receipt is unverified (`UnverifiedReceiptNotice.kt`). Guests correcting OCR errors
-   would each generate a pending edit for a bill Andrew has not yet checked himself. Possibly the gate
-   should be dormant until Andrew has confirmed the scan once.
+1. ~~**Does the payer's approval gate apply to the *first* scan?**~~ **Answered: there is no gate.** The
+   question was real — twelve people correcting OCR on a freshly-scanned receipt generate twelve cards for
+   a bill the payer never read, and that is exactly when a payer starts approving without looking. The
+   fix considered first was to hold the gate dormant until the payer confirmed the scan, and there is no
+   such point to hang it on: `verified` lives only in editor UI state
+   (`ItemizedBillState.showUnverifiedNotice`, `EditBillState.verified`), is derived at scan time, and is
+   gone the moment the bill saves. No column, nothing in the schema. So the gate went instead (§2.7), and
+   with it the question.
 2. **`1 left` when the count is large.** A line with quantity 12 and 9 claimed reads `3 left`, which is
    fine. A line with quantity 1 never shows it. No known problem, but worth a look on a real receipt.
-3. **Currency display for a guest** whose device locale differs from the group's base currency. The app
-   has FX (`refresh_fx_rates`); the web should almost certainly just show the bill's currency and not
-   convert, but this is unconfirmed.
+   **Still open** — judge it in the cold walk (§11 step 7), not from a fixture.
+3. ~~**Currency display for a guest** whose device locale differs from the group's base currency.~~
+   **Answered: the bill's own currency, never converted.** `web/src/lib/money/` has no FX and the bundle
+   ships no Supabase client, so there is nothing to convert with and nothing to convert from. Written
+   down in `web/AGENTS.md` so it is not "fixed" later.

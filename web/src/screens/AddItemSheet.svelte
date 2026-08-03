@@ -2,11 +2,10 @@
   /**
    * Frame 7 — adding what the scan missed (spec §3.6).
    *
-   * Editing a line changes the bill total and therefore **everyone's** money, so unlike joining a
-   * claim it lands as a **pending edit** the payer approves or rejects individually (§2.7). This
-   * sheet is honest about that before the commit: it shows the effect on the bill total, and it says
-   * who has to agree. Nobody rewrites a receipt quietly, and nobody is stopped from fixing a genuine
-   * miss either.
+   * Adding a line changes the bill total and therefore **everyone's** money, so it applies straight
+   * away and is **announced** rather than held for approval (§2.7). This sheet is honest about that
+   * before the commit: it shows the effect on the bill total, and it says the payer will be told. What
+   * it does not do is make anyone wait, which is the whole point.
    */
   import Sheet from '../components/Sheet.svelte';
   import { money, parseAmount } from '../lib/format.ts';
@@ -36,12 +35,12 @@
       // Never grey out a control with no explanation (root AGENTS.md §7).
       hint =
         label.trim().length === 0
-          ? 'Give it a name first, so the payer knows what they are approving.'
+          ? 'Give it a name first, so everyone knows what it was.'
           : 'Add what it cost, so it can be split.';
       return;
     }
     hint = null;
-    const ok = await store.proposeEdit({
+    const ok = await store.editLine({
       kind: 'ADD',
       label: label.trim(),
       quantity: qty,
@@ -82,7 +81,7 @@
     <b>This changes the bill total.</b>
     <span class="mono">{money(billTotal, store.currency)}</span> →
     <span class="mono">{money(newTotal, store.currency)}</span>.
-    {store.bill?.payer.name ?? 'The payer'} approves it before it counts.
+    Everyone on the bill sees it, and anyone can undo it.
   </div>
 
   {#if hint}
@@ -93,6 +92,6 @@
   {/if}
 
   <button type="button" class="btn" class:btn--off={!ready} aria-busy={store.busy} onclick={submit}>
-    Add it
+    Add and claim it
   </button>
 </Sheet>

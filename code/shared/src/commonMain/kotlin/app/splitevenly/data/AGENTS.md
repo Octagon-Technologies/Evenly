@@ -158,14 +158,30 @@ the membership retires the claim in the same breath — the RPC for someone else
 itself for the target's *own* claim (a same-user write, no RPC needed). Leaving both counts that person
 twice in `assignedQuantityByItem` and in the money. `BillJoinPortionTest` pins all four paths.
 
-**A web guest's menu edit is a proposal, not a write.** `pending_item_edits` is a synced Room mirror
-the app only ever *decides* on: the `web-claim` edge function inserts the proposal and never touches
-`expense_items`, so an unapproved ADD has no line and therefore no claims on it.
-`BillRepository.decidePendingEdit` approves ONE card at a time (there is no bulk variant, and adding
-one would defeat the point of §3.9.1), applies it to `expense_items`, **advances the causal
-`split_version`**, and re-derives. Skipping that bump would let `merge_expense` treat the approval as
-causally stale and silently drop it. Deciding twice is an idempotent no-op, because two taps on a slow
-card must not put a second $9.00 line on someone's dinner. `assignRemainder` is the sibling write for
+**A web guest's menu edit APPLIES, server-side, and the app only ever undoes it.** `pending_item_edits`
+is a synced Room mirror of the bill's change log; the name predates the decision and the table is
+synced, so it stays. The `web-claim` edge function calls `apply_web_bill_edit`, which writes
+`expense_items` and the log row (stamped `APPLIED`, with `item_id` filled in even for an ADD) in one
+transaction. It cannot use `merge_expense`: it holds a service key and has no `auth.uid()`. See
+`supabase/AGENTS.md`.
+
+`BillRepository.undoPendingEdit` takes ONE change back (no bulk variant), restores the line,
+**advances the causal `split_version`**, and re-derives. Skipping that bump would let `merge_expense`
+treat the undo as causally stale and silently drop it. Two rules that look like details and are not:
+
+- **Restore the recorded LINE TOTAL, never per-unit × quantity.** `previous_line_total_subunits` exists
+  for exactly this — per-unit is a rounded view of the line total (`../domain/AGENTS.md`), so rebuilding
+  a $10.00 line over 3 units hands back $9.99.
+- **First-undo-wins is the conditional `UPDATE` in `PendingItemEditDao.markUndone`,** not a
+  read-then-write. Anyone on the bill may undo, so two simultaneous taps must produce one undo and one
+  no-op. Losing the race is an `Ok`: the change is undone, which is what the caller wanted.
+
+Undoing a REMOVE in-app restores the line but **not** the claims that removal killed — the app cannot
+tell them apart from claims their owners dropped at the same moment. The server's `undo_web_bill_edit`
+can, by matching the removal's exact `deleted_at` stamp, so a guest's undo revives them. Restoring the
+line and leaving the claiming to the table is the safe direction to be wrong in.
+
+`assignRemainder` is the sibling write for
 "three people never claimed" (spec E17): one NEW `item_shares` portion per line carrying only that
 line's leftover units, under a deterministic `"<item>__remainder"` id, so it needs no `join_item_portion`
 (nobody's existing claim is being rewritten) and running it twice converges instead of double-billing.

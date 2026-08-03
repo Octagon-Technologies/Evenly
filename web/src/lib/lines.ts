@@ -12,50 +12,60 @@
  *   and sharing is the inference.
  */
 
-import type { BillResponse, PendingEdit } from './api.ts';
-import type { BillItem, IndividualClaim, ItemStatus, SplitBillInput } from './money/index.ts';
-import { toSplitInput } from './money/index.ts';
-
-/** A pending ADD is folded into the bill under this id prefix, so it can never collide with a real one. */
-const PENDING_PREFIX = 'pending:';
-
-export function isPendingLine(itemId: string): boolean {
-  return itemId.startsWith(PENDING_PREFIX);
-}
-
-function undecidedAdds(bill: BillResponse): PendingEdit[] {
-  return bill.pendingEdits.filter((e) => e.kind === 'ADD' && e.decided_at === null);
-}
+import type { BillChange, BillResponse } from './api.ts';
+import type { ItemStatus } from './money/index.ts';
 
 /**
- * The engine's input, with each guest's own unapproved **addition** folded in as a real line she has
- * claimed (spec E19: "her total includes it … she must never see a number she cannot account for").
+ * One entry in the bill's change log, ready to render (spec §2.7, §3.9.1's web mirror).
  *
- * Only ADD is folded. A pending reprice or requantity would move money that has not been agreed, and
- * the line it touches is annotated instead — the narrower reading of E19, and the one that cannot
- * show anyone a number the payer has not seen.
+ * There is deliberately no "fold this into the split" step any more. An edit **applies on write**, so
+ * by the time the rows arrive the money already includes it; folding it a second time would double it.
+ * That is also the honest reading of E19: a guest's total includes her edit because her edit is real.
  */
-export function splitInputWithPending(bill: BillResponse): SplitBillInput {
-  const base = toSplitInput(bill);
-  const adds = undecidedAdds(bill);
-  if (adds.length === 0) return base;
+export interface ChangeView {
+  id: string;
+  kind: BillChange['kind'];
+  /** "Purity added Mango sticky rice". */
+  byName: string;
+  mine: boolean;
+  label: string;
+  /** Signed effect on the bill total, for the "it took the bill to X" line. */
+  deltaSubunits: number;
+  /** `false` once someone has undone it; the row stays on screen as history. */
+  live: boolean;
+  /** Who undid it, already resolved to "you" when that was this guest. */
+  undoneByName: string | null;
+}
 
-  const items: BillItem[] = adds.map((e) => ({
-    itemId: PENDING_PREFIX + e.id,
-    lineTotalSubunits: (e.proposed_unit_price_subunits ?? 0) * (e.proposed_quantity ?? 1),
-    quantity: e.proposed_quantity ?? 1,
-  }));
-  const claims: IndividualClaim[] = adds.map((e) => ({
-    itemId: PENDING_PREFIX + e.id,
-    userId: e.proposed_by,
-    units: e.proposed_quantity ?? 1,
-  }));
+function lineTotalOf(quantity: number | null, perUnit: number | null): number {
+  return (perUnit ?? 0) * (quantity ?? 1);
+}
 
-  return {
-    ...base,
-    items: [...base.items, ...items],
-    individualClaims: [...(base.individualClaims ?? []), ...claims],
-  };
+/** The log, oldest first, with the arithmetic already done. Pure, so the copy is testable. */
+export function buildChanges(bill: BillResponse, myUserId: string | null): ChangeView[] {
+  const nameOf = (userId: string | null): string =>
+    userId && userId === myUserId ? 'you' : (userId && bill.namesByUser[userId]) || 'someone';
+
+  return bill.pendingEdits.map((e) => {
+    const previous = lineTotalOf(e.previous_quantity, e.previous_unit_price_subunits);
+    const proposed =
+      e.kind === 'REMOVE'
+        ? 0
+        : e.kind === 'RELABEL'
+          ? previous
+          : lineTotalOf(e.proposed_quantity ?? e.previous_quantity, e.proposed_unit_price_subunits ?? e.previous_unit_price_subunits);
+    return {
+      id: e.id,
+      kind: e.kind,
+      // Capitalised at the start of "You added …"; `undoneByName` sits mid-sentence and stays lower.
+      byName: nameOf(e.proposed_by),
+      mine: e.proposed_by === myUserId,
+      label: e.proposed_label ?? e.previous_label ?? 'an item',
+      deltaSubunits: proposed - (e.kind === 'ADD' ? 0 : previous),
+      live: e.decision === 'APPLIED',
+      undoneByName: e.decision === 'UNDONE' ? nameOf(e.decided_by) : null,
+    };
+  });
 }
 
 export interface LineChip {
@@ -86,8 +96,6 @@ export interface LineView {
   action: LineAction;
   /** What I owe for this line right now, straight from the money engine. */
   myShareSubunits: number;
-  /** Set on a line that only exists as an unapproved proposal (spec E19). */
-  pending: { proposedByName: string; mine: boolean } | null;
 }
 
 export interface BuildLinesInput {
@@ -101,7 +109,7 @@ export interface BuildLinesInput {
 export function buildLines({ bill, myUserId, perItemByUser, itemStatus }: BuildLinesInput): LineView[] {
   const nameOf = (userId: string): string => bill.namesByUser[userId] ?? 'Someone';
 
-  const real: LineView[] = bill.items.map((item) => {
+  return bill.items.map((item) => {
     const claims = bill.claims.filter((c) => c.item_id === item.id && c.quantity > 0);
     const shares = bill.shares.filter((s) => s.item_id === item.id);
 
@@ -161,50 +169,17 @@ export function buildLines({ bill, myUserId, perItemByUser, itemStatus }: BuildL
       // join them. An empty line always has units left, so it lands on `claim` too.
       action: mine ? 'none' : left > 0 ? 'claim' : 'add-me',
       myShareSubunits: (myUserId && perItemByUser[item.id]?.[myUserId]) || 0,
-      pending: null,
     };
   });
-
-  // Unapproved additions sit at the foot of the list, marked, and offer nothing: there is no row to
-  // claim yet, and a second person joining a line that may be rejected is a promise we cannot keep.
-  const pending: LineView[] = undecidedAdds(bill).map((edit) => {
-    const itemId = PENDING_PREFIX + edit.id;
-    const quantity = edit.proposed_quantity ?? 1;
-    return {
-      itemId,
-      label: edit.proposed_label ?? 'Something',
-      quantity,
-      lineTotalSubunits: (edit.proposed_unit_price_subunits ?? 0) * quantity,
-      chips: [
-        {
-          userId: edit.proposed_by,
-          name: nameOf(edit.proposed_by),
-          isMe: edit.proposed_by === myUserId,
-          portionId: null,
-        },
-      ],
-      myUnits: edit.proposed_by === myUserId ? quantity : 0,
-      myPortionId: null,
-      mine: edit.proposed_by === myUserId,
-      assigned: quantity,
-      left: 0,
-      status: 'RESOLVED',
-      action: 'none',
-      myShareSubunits: (myUserId && perItemByUser[itemId]?.[myUserId]) || 0,
-      pending: { proposedByName: nameOf(edit.proposed_by), mine: edit.proposed_by === myUserId },
-    };
-  });
-
-  return [...real, ...pending];
 }
 
 /** The header's progress: claimed money against the bill, and people done against participants. */
 export function claimProgress(lines: LineView[]): { claimedSubunits: number; totalSubunits: number } {
   let claimedSubunits = 0;
   let totalSubunits = 0;
-  // Unapproved additions are excluded: the progress bar measures the bill as it stands, and the
-  // payer has not agreed to a bigger one yet.
-  for (const line of lines.filter((l) => l.pending === null)) {
+  // Every line here is a real line. A guest's addition is one of them from the moment she adds it, so
+  // there is nothing to exclude and the bar measures the bill as it actually stands.
+  for (const line of lines) {
     totalSubunits += line.lineTotalSubunits;
     if (line.quantity > 0) {
       claimedSubunits += Math.round((line.lineTotalSubunits * Math.min(line.assigned, line.quantity)) / line.quantity);

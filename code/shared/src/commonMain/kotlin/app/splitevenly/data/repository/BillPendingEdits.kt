@@ -28,13 +28,23 @@ import kotlin.time.ExperimentalTime
 
 /**
  * The payer's half of the web claim flow (WEB_CLAIM_SPEC.md §3.9), split out of [BillRepositoryImpl] —
- * which is a quarantined size offender (`ui/AGENTS.md`) — because approving a guest's edit is a
- * self-contained "apply, re-version, re-derive" unit with no overlap with the live claim writes.
+ * which is a quarantined size offender (`ui/AGENTS.md`) — because undoing a guest's edit is a
+ * self-contained "restore, re-version, re-derive" unit with no overlap with the live claim writes.
  *
  * [BillRepositoryImpl] owns the public contract; these two only do the work.
  */
 
-/** Deciding a web guest's proposed menu change, one card at a time (spec §2.7, §3.9.1). */
+/**
+ * Undoing a web guest's change to the menu (spec §2.7, §3.9.1).
+ *
+ * There is no *apply* half here any more, and its absence is the design. A guest's edit applies
+ * server-side, inside `apply_web_bill_edit`, because the edge function has a service key and no
+ * `auth.uid()` and therefore cannot go through `merge_expense`. The app only ever learns about the
+ * change on the next pull and offers to take it back.
+ *
+ * The undo itself stays **local-first**, like every other in-app money edit: it writes Room and reaches
+ * the server through `merge_expense`, on the same causal rules as any split edit.
+ */
 @OptIn(ExperimentalTime::class)
 internal class BillPendingEdits(
     private val expenseDao: ExpenseDao,
@@ -49,11 +59,14 @@ internal class BillPendingEdits(
     fun observe(expenseId: ExpenseId): Flow<List<PendingBillEdit>> =
         pendingItemEditDao.observeByExpense(expenseId.value).map { rows -> rows.mapNotNull { it.toDomain() } }
 
-    suspend fun decide(editId: String, approve: Boolean, decidedBy: UserId): AppResult<Unit> {
-        val row = pendingItemEditDao.getById(editId) ?: return validationErr("pendingEdit", AppError.Validation.Reason.Required)
-        // Already decided. Idempotent rather than an error: two taps on a slow card must not produce a
-        // second application of the same price change.
-        if (row.decidedAt != null) return AppResult.Ok(Unit)
+    /**
+     * Take a guest's change back. **Anyone on the bill may** (spec §2.7) — this method takes an actor
+     * rather than checking one, because the undo is itself an attributed entry in the log and the log is
+     * the tiebreak. Do not add a rights hierarchy on top.
+     */
+    suspend fun undo(editId: String, undoneBy: UserId): AppResult<Unit> {
+        val row = pendingItemEditDao.getById(editId)
+            ?: return validationErr("pendingEdit", AppError.Validation.Reason.Required)
         val edit = row.toDomain() ?: return validationErr("pendingEdit", AppError.Validation.Reason.Malformed)
         val expense = expenseDao.getById(row.expenseId)
         if (expense == null || expense.deletedAt != null) {
@@ -61,103 +74,96 @@ internal class BillPendingEdits(
         }
         val now = clock.nowEpochMillis()
 
-        if (approve) applyApprovedEdit(expense, edit, now)?.let { return it }
-        // Stamp last: an approval that could not be applied leaves the card in the payer's inbox rather
-        // than recording a verdict for a change that never landed.
-        pendingItemEditDao.decide(editId, if (approve) "APPROVED" else "REJECTED", decidedBy.value, now)
+        // First-undo-wins, decided by the conditional UPDATE rather than by a read-then-write: two people
+        // tapping Undo at the same moment must produce one undo and one no-op. Losing here means the
+        // change was already undone, which is the desired end state, so it is an Ok, not an error.
+        if (pendingItemEditDao.markUndone(editId, undoneBy.value, now) == 0) return AppResult.Ok(Unit)
+
+        restore(expense, edit, now)
         return AppResult.Ok(Unit)
     }
 
     /**
-     * Apply an approved proposal to the bill's menu, then re-derive. Returns an error to abort the
-     * decision, or null on success.
+     * Put the line back the way it was, then re-derive.
      *
      * Every branch touches money, so it advances the causal `split_version` exactly as
-     * [BillRepositoryImpl.editBill] does —
-     * a guest's approved reprice is a Zone-2 edit and has to lose to, or beat, a concurrent split edit on
-     * the same causal rules as any other (see `data/AGENTS.md`). Missing it would let `merge_expense`
-     * silently drop the approval.
+     * [BillRepositoryImpl.editBill] does — an undo is a Zone-2 edit and has to lose to, or beat, a
+     * concurrent split edit on the same causal rules as any other (see `data/AGENTS.md`). Missing the
+     * bump would let `merge_expense` treat the undo as causally stale and silently drop it.
      */
-    private suspend fun applyApprovedEdit(
+    private suspend fun restore(
         expense: ExpenseEntity,
         edit: PendingBillEdit,
         now: Long,
-    ): AppResult<Unit>? {
-        val items = expenseItemDao.getByExpense(expense.id)
-        val target = edit.itemId?.let { id -> items.firstOrNull { it.id == id && it.deletedAt == null } }
+    ) {
+        val itemId = edit.itemId
+        // Only reachable for a row written before `item_id` was backfilled on an ADD, of which there are
+        // none. The log entry is still stamped UNDONE above; there is simply no line to put back.
+        if (itemId != null) {
+            // `getByExpense` excludes tombstones, and undoing a REMOVE has to find one, so this reads the
+            // sync view instead.
+            val all = expenseItemDao.allForSync().filter { it.expenseId == expense.id }
+            val live = all.firstOrNull { it.id == itemId && it.deletedAt == null }
 
-        when (edit.kind) {
-            PendingEditKind.ADD -> {
-                val quantity = (edit.proposedQuantity ?: 1).coerceAtLeast(1)
-                val lineTotal = (edit.proposedUnitPriceSubunits ?: 0L) * quantity
-                expenseItemDao.upsert(
-                    ExpenseItemEntity(
-                        id = newId(),
-                        expenseId = expense.id,
-                        groupId = expense.groupId,
-                        label = edit.proposedLabel?.trim().orEmpty().ifEmpty { "Item" },
-                        quantity = quantity,
-                        unitPriceSubunits = perUnitSubunits(lineTotal, quantity),
-                        lineTotalSubunits = lineTotal,
-                        // Lands at the end of the receipt: it wasn't printed on it.
-                        sortOrder = (items.maxOfOrNull { it.sortOrder } ?: -1) + 1,
-                        createdAt = now,
-                        updatedAt = now,
-                    ),
-                )
-            }
-            // The line went while the proposal waited. Nothing to apply, and refusing would strand the
-            // card forever, so this is a successful no-op that still records the verdict.
-            PendingEditKind.RELABEL, PendingEditKind.REPRICE, PendingEditKind.REQUANTITY, PendingEditKind.REMOVE -> {
-                val item = target ?: return null
-                when (edit.kind) {
-                    PendingEditKind.REMOVE -> {
-                        expenseItemDao.softDeleteByIds(listOf(item.id), now)
-                        // Claims on a line that no longer exists must go with it, or they keep counting
-                        // toward people's tabs (spec E16 — the guest's next poll drops the line).
-                        itemClaimDao.softDeleteByItems(listOf(item.id), now)
-                        itemShareDao.softDeleteByItems(listOf(item.id), now)
-                    }
-                    PendingEditKind.RELABEL -> expenseItemDao.upsert(
-                        item.copy(
-                            label = edit.proposedLabel?.trim().orEmpty().ifEmpty { item.label },
+            when (edit.kind) {
+                // Undoing an ADD takes the line off the bill, and the claims people made against it go
+                // with it: a claim on a line that is not there any more would keep billing for it
+                // (spec E22).
+                PendingEditKind.ADD -> if (live != null) {
+                    expenseItemDao.softDeleteByIds(listOf(itemId), now)
+                    itemClaimDao.softDeleteByItems(listOf(itemId), now)
+                    itemShareDao.softDeleteByItems(listOf(itemId), now)
+                }
+
+                // Undoing a REMOVE puts the line back. The claims that removal killed are NOT revived
+                // here: the app cannot tell them apart from claims their owners dropped at the same
+                // moment, and the server's `undo_web_bill_edit` — which can, because it matches the
+                // removal's exact `deleted_at` stamp — is the path a guest's undo takes. A payer undoing
+                // a removal in-app restores the line and leaves the claiming to the table, which is the
+                // safe direction to be wrong in: nobody is billed for something they did not re-claim.
+                PendingEditKind.REMOVE -> {
+                    val tombstoned = all.firstOrNull { it.id == itemId } ?: return
+                    expenseItemDao.upsert(
+                        tombstoned.copy(
+                            deletedAt = null,
+                            label = edit.previousLabel ?: tombstoned.label,
+                            quantity = (edit.previousQuantity ?: tombstoned.quantity).coerceAtLeast(1),
+                            lineTotalSubunits = edit.previousLineTotalOrDerived,
+                            unitPriceSubunits = perUnitSubunits(
+                                edit.previousLineTotalOrDerived,
+                                (edit.previousQuantity ?: tombstoned.quantity).coerceAtLeast(1),
+                            ),
                             updatedAt = now,
-                            rowVersion = item.rowVersion + 1,
+                            rowVersion = tombstoned.rowVersion + 1,
                         ),
                     )
-                    // The web editor collects a per-unit price and a quantity; the bill stores the line
-                    // total as truth (`domain/AGENTS.md`), so both branches multiply back out rather than
-                    // writing unit_price_subunits, which is vestigial.
-                    PendingEditKind.REPRICE -> {
-                        val quantity = item.quantity
-                        val lineTotal = (edit.proposedUnitPriceSubunits ?: return null) * quantity
-                        expenseItemDao.upsert(
-                            item.copy(
-                                lineTotalSubunits = lineTotal,
-                                unitPriceSubunits = perUnitSubunits(lineTotal, quantity),
-                                updatedAt = now,
-                                rowVersion = item.rowVersion + 1,
-                            ),
-                        )
-                    }
-                    PendingEditKind.REQUANTITY -> {
-                        val quantity = (edit.proposedQuantity ?: return null).coerceAtLeast(1)
-                        // Per-unit price is held constant, since that is what "change the quantity" means
-                        // on a receipt: three bowls cost three times one bowl.
-                        val perUnit = edit.proposedUnitPriceSubunits
-                            ?: perUnitSubunits(item.lineTotalSubunits, item.quantity)
-                        val lineTotal = perUnit * quantity
-                        expenseItemDao.upsert(
-                            item.copy(
-                                quantity = quantity,
-                                lineTotalSubunits = lineTotal,
-                                unitPriceSubunits = perUnitSubunits(lineTotal, quantity),
-                                updatedAt = now,
-                                rowVersion = item.rowVersion + 1,
-                            ),
-                        )
-                    }
-                    PendingEditKind.ADD -> Unit // unreachable; handled above
+                }
+
+                PendingEditKind.RELABEL -> if (live != null) {
+                    expenseItemDao.upsert(
+                        live.copy(
+                            label = edit.previousLabel?.trim().orEmpty().ifEmpty { live.label },
+                            updatedAt = now,
+                            rowVersion = live.rowVersion + 1,
+                        ),
+                    )
+                }
+
+                // Both restore the quantity AND the recorded line total, never per-unit x quantity: the
+                // line total is the entered source of truth (`domain/AGENTS.md`) and per-unit is a
+                // rounded view of it, so rebuilding a $10.00 line over 3 units gives back $9.99.
+                PendingEditKind.REPRICE, PendingEditKind.REQUANTITY -> if (live != null) {
+                    val quantity = (edit.previousQuantity ?: live.quantity).coerceAtLeast(1)
+                    val lineTotal = edit.previousLineTotalOrDerived
+                    expenseItemDao.upsert(
+                        live.copy(
+                            quantity = quantity,
+                            lineTotalSubunits = lineTotal,
+                            unitPriceSubunits = perUnitSubunits(lineTotal, quantity),
+                            updatedAt = now,
+                            rowVersion = live.rowVersion + 1,
+                        ),
+                    )
                 }
             }
         }
@@ -173,7 +179,6 @@ internal class BillPendingEdits(
         )
         expenseDao.upsert(updated)
         materializer.materialize(updated, now)
-        return null
     }
 
     private fun validationErr(field: String, reason: AppError.Validation.Reason): AppResult<Nothing> =
@@ -254,8 +259,8 @@ internal class BillRemainder(
         AppError.Validation(mapOf(field to reason)).asErr()
 }
 
-/** Row → domain. Returns null for a `kind` this build does not know, so a newer web client proposing
- *  something unrecognised is skipped rather than crashing the payer's review screen. */
+/** Row → domain. Returns null for a `kind` this build does not know, so a newer web client making a
+ *  change this one cannot describe is skipped rather than crashing the payer's screen. */
 private fun PendingItemEditEntity.toDomain(): PendingBillEdit? {
     val parsedKind = PendingEditKind.entries.firstOrNull { it.name == kind } ?: return null
     return PendingBillEdit(
@@ -271,6 +276,7 @@ private fun PendingItemEditEntity.toDomain(): PendingBillEdit? {
         previousLabel = previousLabel,
         previousQuantity = previousQuantity,
         previousUnitPriceSubunits = previousUnitPriceSubunits,
+        previousLineTotalSubunits = previousLineTotalSubunits,
         decision = decision?.let { d -> PendingEditDecision.entries.firstOrNull { it.name == d } },
         decidedAt = decidedAt,
         decidedBy = decidedBy?.let { UserId(it) },

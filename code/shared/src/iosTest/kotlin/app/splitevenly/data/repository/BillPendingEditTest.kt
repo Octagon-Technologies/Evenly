@@ -19,13 +19,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The payer's half of a web guest's menu edit (WEB_CLAIM_SPEC.md §2.7, §3.9.1, build-order step 6).
+ * The payer's half of a web guest's menu change (WEB_CLAIM_SPEC.md §2.7, §3.9.1).
  *
- * A proposal never touches `expense_items` until the payer approves it, which is the whole reason the
- * table exists: editing a line moves the bill total and therefore everyone's money. These pin the four
- * things that would silently corrupt a bill if they drifted — that an approval actually applies, that a
- * rejection actually doesn't, that the causal `split_version` advances so `merge_expense` can't drop the
- * approval, and that a second tap can't apply the same change twice.
+ * A guest's edit **applies** — server-side, in `apply_web_bill_edit`, because the edge function has a
+ * service key and no `auth.uid()` and therefore cannot go through `merge_expense`. What reaches the app
+ * is the applied change plus a log row, and what the app can do about it is **undo**.
+ *
+ * These pin the four things that would silently corrupt a bill if they drifted: that an undo actually
+ * restores, that it restores **exactly** (the line total, not a rounded per-unit rebuilt into one), that
+ * the causal `split_version` advances so `merge_expense` cannot drop the undo, and that undoing twice
+ * changes nothing.
  *
  * [BillRepositoryImpl.assignRemainder] is covered here too, because it is the other half of the same
  * screen pair: what the payer does about the people who never claimed at all (§3.9.2, E17).
@@ -86,18 +89,30 @@ class BillPendingEditTest {
     private suspend fun splitVersionOf(expenseId: ExpenseId): Long =
         db.expenseDao().getById(expenseId.value)!!.splitVersion
 
-    private suspend fun propose(
+    private suspend fun lineOf(expenseId: ExpenseId, itemId: String) =
+        db.expenseItemDao().allForSync().first { it.id == itemId && it.expenseId == expenseId.value }
+
+    /**
+     * The log row a guest's edit leaves behind, as it arrives from the server: already `APPLIED`, with
+     * `previous_*` captured at apply time and `item_id` always filled in, including for an ADD.
+     *
+     * These tests write the row **and** the change it describes, because that is what the app pulls. The
+     * app never applies one itself.
+     */
+    private suspend fun applied(
         expenseId: ExpenseId,
         kind: String,
-        itemId: String? = null,
+        itemId: String,
         label: String? = null,
         quantity: Int? = null,
         unitPrice: Long? = null,
         previousLabel: String? = null,
         previousQuantity: Int? = null,
         previousUnitPrice: Long? = null,
+        previousLineTotal: Long? = null,
+        at: Long = 1L,
     ): String {
-        val id = "edit-$kind-${itemId ?: "new"}"
+        val id = "edit-$kind-$itemId"
         db.pendingItemEditDao().upsert(
             PendingItemEditEntity(
                 id = id,
@@ -111,127 +126,182 @@ class BillPendingEditTest {
                 previousLabel = previousLabel,
                 previousQuantity = previousQuantity,
                 previousUnitPriceSubunits = previousUnitPrice,
+                previousLineTotalSubunits = previousLineTotal,
                 proposedBy = guest.value,
-                proposedAt = 1L,
-                createdAt = 1L,
-                updatedAt = 1L,
+                proposedAt = at,
+                decidedAt = at,
+                decidedBy = guest.value,
+                decision = "APPLIED",
+                createdAt = at,
+                updatedAt = at,
             ),
         )
         return id
     }
 
     @Test
-    fun approvingAnAdd_putsTheLineOnTheBillAndAdvancesTheSplitVersion() = runTest {
+    fun undoingAnAdd_takesTheLineOffTheBillAndAdvancesTheSplitVersion() = runTest {
         val bills = repo()
         val bill = newBill(bills)
+        // The guest's ADD already landed: the line is on the bill and the log says so.
+        val added = "added-line"
+        db.expenseItemDao().upsert(
+            db.expenseItemDao().getByExpense(bill.value).first().copy(
+                id = added, label = "Mango sticky rice", quantity = 1,
+                unitPriceSubunits = 900, lineTotalSubunits = 900, sortOrder = 9,
+            ),
+        )
+        val edit = applied(bill, "ADD", added, label = "Mango sticky rice", quantity = 1, unitPrice = 900)
         val before = splitVersionOf(bill)
-        val edit = propose(bill, "ADD", label = "Mango sticky rice", quantity = 1, unitPrice = 900)
 
-        assertTrue(bills.decidePendingEdit(edit, approve = true, decidedBy = me) is AppResult.Ok)
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
 
-        val line = db.expenseItemDao().getByExpense(bill.value).firstOrNull { it.label == "Mango sticky rice" }
-        assertNotNull(line, "an approved ADD is the only thing that creates the line")
-        assertEquals(900L, line.lineTotalSubunits)
-        assertEquals(4050L + 900L, amountOf(bill))
-        // Zone 2: without the bump, merge_expense treats the approval as causally stale and drops it.
-        assertEquals(before + 1, splitVersionOf(bill))
-        assertEquals("APPROVED", db.pendingItemEditDao().getById(edit)!!.decision)
-    }
-
-    @Test
-    fun rejectingAnAdd_leavesTheBillExactlyAsItWas() = runTest {
-        val bills = repo()
-        val bill = newBill(bills)
-        val before = splitVersionOf(bill)
-        val edit = propose(bill, "ADD", label = "Mango sticky rice", quantity = 1, unitPrice = 900)
-
-        assertTrue(bills.decidePendingEdit(edit, approve = false, decidedBy = me) is AppResult.Ok)
-
-        assertEquals(2, db.expenseItemDao().getByExpense(bill.value).count { it.deletedAt == null })
+        assertNotNull(lineOf(bill, added).deletedAt, "an undone ADD is soft-deleted, never hard-deleted")
         assertEquals(4050L, amountOf(bill))
-        assertEquals(before, splitVersionOf(bill), "a rejection is not a money edit")
-        assertEquals("REJECTED", db.pendingItemEditDao().getById(edit)!!.decision)
+        // Zone 2: without the bump, merge_expense treats the undo as causally stale and drops it.
+        assertEquals(before + 1, splitVersionOf(bill))
+        assertEquals("UNDONE", db.pendingItemEditDao().getById(edit)!!.decision)
     }
 
     @Test
-    fun approvingAReprice_movesTheMoneyOfEveryoneAlreadyOnTheLine() = runTest {
+    fun undoingAnAdd_takesTheClaimsOnItTooRatherThanBillingForALineThatIsGone() = runTest {
+        val bills = repo()
+        val bill = newBill(bills)
+        val added = "added-line"
+        db.expenseItemDao().upsert(
+            db.expenseItemDao().getByExpense(bill.value).first().copy(
+                id = added, label = "Mango sticky rice", quantity = 1,
+                unitPriceSubunits = 900, lineTotalSubunits = 900, sortOrder = 9,
+            ),
+        )
+        bills.setClaim(bill, added, bob, 1)
+        assertEquals(900L, owed(bill)["b"])
+        val edit = applied(bill, "ADD", added, label = "Mango sticky rice", quantity = 1, unitPrice = 900)
+
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
+
+        assertNull(db.itemClaimDao().getActiveClaim(added, bob.value), "spec E22")
+        assertEquals(emptyMap(), owed(bill))
+    }
+
+    @Test
+    fun undoingAReprice_restoresTheLineTotalExactlyRatherThanRebuildingItFromPerUnit() = runTest {
         val bills = repo()
         val bill = newBill(bills)
         val pizza = itemId(bill, "Margherita pizza")
         bills.setClaim(bill, pizza, bob, 1)
         bills.setClaim(bill, pizza, cara, 1)
-        assertEquals(mapOf("b" to 1800L, "c" to 1800L), owed(bill))
 
-        // $18.00 each becomes $20.00 each: the line total is the truth, so 2 × 2000.
-        val edit = propose(bill, "REPRICE", itemId = pizza, unitPrice = 2000, previousUnitPrice = 1800, previousQuantity = 2)
-        assertTrue(bills.decidePendingEdit(edit, approve = true, decidedBy = me) is AppResult.Ok)
+        // The receipt says 2 for $36.01, which does not divide: per unit rounds to 1801, and 1801 x 2 is
+        // 3602. Rebuilding the line from the rounded per-unit would hand back a cent that was never on
+        // the bill, which is the one thing this layer may never do (`domain/AGENTS.md`).
+        val original = 3601L
+        db.expenseItemDao().upsert(lineOf(bill, pizza).copy(lineTotalSubunits = original, unitPriceSubunits = 1801))
+        // Then the guest repriced it to $20.00 each.
+        db.expenseItemDao().upsert(lineOf(bill, pizza).copy(lineTotalSubunits = 4000, unitPriceSubunits = 2000))
+        val edit = applied(
+            bill, "REPRICE", pizza, unitPrice = 2000,
+            previousQuantity = 2, previousUnitPrice = 1801, previousLineTotal = original,
+        )
 
-        assertEquals(4000L, db.expenseItemDao().getByExpense(bill.value).first { it.id == pizza }.lineTotalSubunits)
-        assertEquals(mapOf("b" to 2000L, "c" to 2000L), owed(bill), "an approved reprice re-derives the claims already on the line")
-        assertEquals(4000L + 450L, amountOf(bill))
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
+
+        assertEquals(original, lineOf(bill, pizza).lineTotalSubunits, "not 3602")
+        assertEquals(mapOf("b" to 1801L, "c" to 1800L), owed(bill), "an undo re-derives the claims on the line")
     }
 
     @Test
-    fun approvingARequantity_holdsThePerUnitPriceAndRescalesTheLine() = runTest {
+    fun undoingARequantity_restoresBothTheCountAndTheLineTotal() = runTest {
         val bills = repo()
         val bill = newBill(bills)
         val pizza = itemId(bill, "Margherita pizza")
+        // The guest said "there were 3, not 2", so the line is 3 x $18.00.
+        db.expenseItemDao().upsert(lineOf(bill, pizza).copy(quantity = 3, lineTotalSubunits = 5400))
+        val edit = applied(
+            bill, "REQUANTITY", pizza, quantity = 3,
+            previousQuantity = 2, previousUnitPrice = 1800, previousLineTotal = 3600,
+        )
 
-        // "There were 3, not 2." Per unit stays $18.00, so the line becomes $54.00.
-        val edit = propose(bill, "REQUANTITY", itemId = pizza, quantity = 3, previousQuantity = 2, previousUnitPrice = 1800)
-        assertTrue(bills.decidePendingEdit(edit, approve = true, decidedBy = me) is AppResult.Ok)
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
 
-        val line = db.expenseItemDao().getByExpense(bill.value).first { it.id == pizza }
-        assertEquals(3, line.quantity)
-        assertEquals(5400L, line.lineTotalSubunits)
+        val line = lineOf(bill, pizza)
+        assertEquals(2, line.quantity)
+        assertEquals(3600L, line.lineTotalSubunits)
+        assertEquals(4050L, amountOf(bill))
     }
 
     @Test
-    fun approvingARemove_takesTheLineAndEveryClaimOnItWithIt() = runTest {
+    fun undoingARelabel_putsTheOldNameBackAndMovesNoMoney() = runTest {
         val bills = repo()
         val bill = newBill(bills)
         val juice = itemId(bill, "Juice")
-        bills.setClaim(bill, juice, bob, 1)
-        assertEquals(mapOf("b" to 450L), owed(bill))
+        db.expenseItemDao().upsert(lineOf(bill, juice).copy(label = "Fresh orange juice"))
+        val edit = applied(bill, "RELABEL", juice, label = "Fresh orange juice", previousLabel = "Juice")
 
-        val edit = propose(bill, "REMOVE", itemId = juice, previousQuantity = 1, previousUnitPrice = 450)
-        assertTrue(bills.decidePendingEdit(edit, approve = true, decidedBy = me) is AppResult.Ok)
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
 
-        // getByExpense excludes tombstones, so read the sync view to prove it was soft-deleted rather
-        // than hard-deleted (Rule 1: the removal has to reach the server or it resurrects on the pull).
-        assertNotNull(db.expenseItemDao().allForSync().first { it.id == juice }.deletedAt)
-        assertNull(db.itemClaimDao().getActiveClaim(juice, bob.value), "a claim on a line that's gone must not keep billing")
-        assertEquals(emptyMap(), owed(bill))
-        assertEquals(3600L, amountOf(bill))
+        assertEquals("Juice", lineOf(bill, juice).label)
+        assertEquals(4050L, amountOf(bill))
     }
 
     @Test
-    fun decidingTwice_appliesTheChangeOnlyOnce() = runTest {
-        val bills = repo()
-        val bill = newBill(bills)
-        val edit = propose(bill, "ADD", label = "Mango sticky rice", quantity = 1, unitPrice = 900)
-
-        assertTrue(bills.decidePendingEdit(edit, approve = true, decidedBy = me) is AppResult.Ok)
-        // A second tap on a slow card. Idempotent rather than an error: the payer did nothing wrong, and
-        // applying it twice would put a second $9.00 line on somebody's dinner.
-        assertTrue(bills.decidePendingEdit(edit, approve = true, decidedBy = me) is AppResult.Ok)
-
-        assertEquals(1, db.expenseItemDao().getByExpense(bill.value).count { it.label == "Mango sticky rice" })
-        assertEquals(4950L, amountOf(bill))
-    }
-
-    @Test
-    fun approvingAnEditWhoseLineWentAway_stampsTheVerdictWithoutStrandingTheCard() = runTest {
+    fun undoingARemove_putsTheLineBackOnTheBill() = runTest {
         val bills = repo()
         val bill = newBill(bills)
         val juice = itemId(bill, "Juice")
-        val edit = propose(bill, "REPRICE", itemId = juice, unitPrice = 600, previousUnitPrice = 450, previousQuantity = 1)
+        db.expenseItemDao().softDeleteByIds(listOf(juice), 99L)
+        val edit = applied(
+            bill, "REMOVE", juice,
+            previousLabel = "Juice", previousQuantity = 1, previousUnitPrice = 450, previousLineTotal = 450,
+        )
+
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
+
+        val line = lineOf(bill, juice)
+        assertNull(line.deletedAt)
+        assertEquals(450L, line.lineTotalSubunits)
+        assertEquals(4050L, amountOf(bill))
+    }
+
+    @Test
+    fun undoingTwice_changesNothingTheSecondTime() = runTest {
+        val bills = repo()
+        val bill = newBill(bills)
+        val pizza = itemId(bill, "Margherita pizza")
+        db.expenseItemDao().upsert(lineOf(bill, pizza).copy(lineTotalSubunits = 4000))
+        val edit = applied(
+            bill, "REPRICE", pizza, unitPrice = 2000,
+            previousQuantity = 2, previousUnitPrice = 1800, previousLineTotal = 3600,
+        )
+
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
+        val afterFirst = splitVersionOf(bill)
+        // Two people tapping Undo at once, or one person tapping twice on a slow card. The conditional
+        // UPDATE is what makes the second a no-op instead of a second Zone-2 edit re-running the restore.
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = bob) is AppResult.Ok)
+
+        assertEquals(3600L, lineOf(bill, pizza).lineTotalSubunits)
+        assertEquals(4050L, amountOf(bill))
+        assertEquals(afterFirst, splitVersionOf(bill), "the second undo is not a money edit")
+        assertEquals(me.value, db.pendingItemEditDao().getById(edit)!!.decidedBy, "first undo wins")
+    }
+
+    @Test
+    fun undoingAChangeWhoseLineWentAway_stampsItWithoutStrandingTheCard() = runTest {
+        val bills = repo()
+        val bill = newBill(bills)
+        val juice = itemId(bill, "Juice")
+        val edit = applied(
+            bill, "REPRICE", juice, unitPrice = 600,
+            previousQuantity = 1, previousUnitPrice = 450, previousLineTotal = 450,
+        )
         db.expenseItemDao().softDeleteByIds(listOf(juice), 99L)
 
-        assertTrue(bills.decidePendingEdit(edit, approve = true, decidedBy = me) is AppResult.Ok)
+        assertTrue(bills.undoPendingEdit(edit, undoneBy = me) is AppResult.Ok)
 
-        // Refusing would leave the card in the payer's inbox forever with nothing they could do about it.
-        assertEquals("APPROVED", db.pendingItemEditDao().getById(edit)!!.decision)
+        // Refusing would leave the card on the payer's screen forever with nothing they could do about it.
+        assertEquals("UNDONE", db.pendingItemEditDao().getById(edit)!!.decision)
+        assertNotNull(lineOf(bill, juice).deletedAt, "and it does not resurrect a line the payer removed")
     }
 
     // ── The remainder (§3.9.2, E17) ──────────────────────────────────────────────────────────────
