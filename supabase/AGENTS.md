@@ -49,29 +49,35 @@ history across two accounts silently.
 The client calls it at **flush** time (an undone claim never reaches it) and **before** pushing the
 merged rows — a loser then reverses rows no other client has pulled. Don't move it after the push.
 
-## Web claim (`WEB_CLAIM_SPEC.md`) — steps 1–5 landed
+## Web claim (`WEB_CLAIM_SPEC.md`) — steps 1–6 landed
 
 Additive per the spec's §11 build order. Step 2 (`BillRepository.joinItem` + a `setPortion` fix) wired
 `join_item_portion` into the app; step 3 is the `web-claim` edge function (see its own README) — the
 security boundary and CRUD surface, minus payer-role assignment and pending-edit approval (both
 deferred, see that README). Step 4 is the TS money port + `test-vectors/bill-split.json` + its CI gate
-(`web/AGENTS.md`); step 5 is the Svelte surface in `web/`. Step 6 (the app's three payer screens) is
-still ahead.
+(`web/AGENTS.md`); step 5 is the Svelte surface in `web/`; step 6 is the app's three payer screens
+(review changes, who's still to claim, share/QR) and the link-lifecycle RPCs below.
+
+**Step 6 confirmed the pattern below again:** building the review screen is what settled that an
+unapproved `ADD` has no `expense_items` row at all (the edge function only ever inserts a proposal), so
+spec E22's "claims on a rejected ADD are soft-deleted" describes a state that cannot occur.
 
 **Building step 5 found three holes in step 3, now filled:** `share` (the share sheet names people who
 are not holding a phone — `join` only ever adds the caller), `leave` (§2.7 promises joining is
 reversible, and only solo claims could be undone), and `pendingEdits` on `/bill` plus `totalSubunits`
 on the header (E19 needs a guest's own unapproved edit inside her total; §3.1 needs the bill's amount
-before anyone is asked for a name). Expect the same when step 6 lands: a screen is the only honest test
-of an API.
+before anyone is asked for a name). A screen is the only honest test of an API.
 
 A fourth table, `web_claim_write_log` (insert-only, no grants — the `web-claim` function's per-token
 rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
 
 - **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
   policies: only the `web-claim` edge function's service key ever touches it.
-- **`web_bill_links`** — the 72h revocable bill token, stored hashed. RLS enabled, zero policies for
-  now; the payer's in-app share/revoke screen (step 6) adds a scoped policy in its own migration.
+- **`web_bill_links`** — the 72h revocable bill token, stored hashed. RLS enabled, **zero policies,
+  permanently.** Step 6 was planned to add a membership-scoped table policy and deliberately did not:
+  RLS is still `using (true)` app-wide, so *any* policy here makes `token_hash` readable by every
+  authenticated user, and that hash is the entire authorisation check `web-claim` performs. The app
+  reaches the table only through the `security definer` RPCs below, none of which return the hash.
 - **`pending_item_edits`** — a guest's proposed add/relabel/reprice/requantify/remove, awaiting the
   payer's individual approval. **Synced** (the app reads and decides on it in step 6), so it already
   carries the same permissive `for all to authenticated` policy as the rest of this schema, and is in
@@ -88,6 +94,18 @@ rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
   also retires the **joiner's own** live solo claim on that line, in every path and before units are
   counted: the app compensated for that half client-side, so the web path (no client mirror)
   double-counted anyone who claimed a line and then joined a portion of it.
+- **`create_web_bill_link` / `extend_web_bill_link` / `revoke_web_bill_link` / `web_bill_link_status`
+  (`expense_id, actor[, now, ttl_ms]`)** — step 6's payer-side link lifecycle. All four share
+  `web_bill_link_guard`, which re-derives ACTIVE membership of the expense's group and refuses to act
+  as anyone but `auth.uid()`. **The plaintext token is minted server-side and returned exactly once**:
+  `gen_random_uuid()` through `base62_encode` (Kotlin/Native has no crypto-grade RNG in `commonMain`,
+  and a guessable bill token is a public read of someone's bill). It is stored only as
+  `encode(sha256(convert_to(token,'utf8')),'hex')` — byte-identical to the edge function's `sha256Hex`,
+  which is what makes a token minted here resolve there. The creating device keeps the plaintext in its
+  own `SecureStorage`; **nothing can hand it back**, so a payer on a second device sees a live link with
+  no QR and is offered a rotation. `create_*` revokes any live link on the same bill first, so a bill
+  has at most one usable token. `web_bill_link_status` also returns per-participant `web_sessions`
+  activity — the one fact Room cannot hold, since that table is service-key-only.
 - **`claim_web_placeholder(group_id, placeholder_user_id, session_id, session_token_hash, now)`** —
   "first wins" for a web guest's "That's me", but unlike `claim_placeholder` it's a **5-second race
   window**, not a permanent lock: a guest may legitimately re-claim the same placeholder from a second

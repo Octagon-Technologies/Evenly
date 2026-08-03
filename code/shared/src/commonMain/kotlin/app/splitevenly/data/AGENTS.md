@@ -153,6 +153,38 @@ partitioned by user" invariant above. A fresh assignment with no colliding solo 
 locally, same as before; there's nothing to race against. No gateway (offline/stub/tests) means that
 specific add is skipped rather than risking a half-converted claim (WEB_CLAIM_SPEC.md §5.3).
 
+**A portion membership replaces a solo claim; the two must never both be live.** Whichever path writes
+the membership retires the claim in the same breath — the RPC for someone else's claim, `setPortion`
+itself for the target's *own* claim (a same-user write, no RPC needed). Leaving both counts that person
+twice in `assignedQuantityByItem` and in the money. `BillJoinPortionTest` pins all four paths.
+
+**A web guest's menu edit is a proposal, not a write.** `pending_item_edits` is a synced Room mirror
+the app only ever *decides* on: the `web-claim` edge function inserts the proposal and never touches
+`expense_items`, so an unapproved ADD has no line and therefore no claims on it.
+`BillRepository.decidePendingEdit` approves ONE card at a time (there is no bulk variant, and adding
+one would defeat the point of §3.9.1), applies it to `expense_items`, **advances the causal
+`split_version`**, and re-derives. Skipping that bump would let `merge_expense` treat the approval as
+causally stale and silently drop it. Deciding twice is an idempotent no-op, because two taps on a slow
+card must not put a second $9.00 line on someone's dinner. `assignRemainder` is the sibling write for
+"three people never claimed" (spec E17): one NEW `item_shares` portion per line carrying only that
+line's leftover units, under a deterministic `"<item>__remainder"` id, so it needs no `join_item_portion`
+(nobody's existing claim is being rewritten) and running it twice converges instead of double-billing.
+
+**`WebBillLinkRepository` is deliberately NOT local-first**, the only repository here that isn't. A
+bill link is a server-side authorisation: minting one offline hands out a QR nothing can validate, and
+revoking one offline tells the payer a link is dead while guests keep writing to it. Every call is a
+live round trip that reports its own failure. Its one piece of local state is the **plaintext token**,
+in `SecureStorage` (not Room) keyed by expense — it is a bearer credential for one bill, so it must
+never ride the sync push and must die on sign-out. The server stores only the hash and cannot hand the
+plaintext back, so losing that cache is a normal state (`url` goes null, `exists` stays true) and the
+screen offers a rotation rather than an error.
+
+**A conversion that could not be made is an `AppResult.Err`, and the claim screen shows it.** Adding
+someone to a line another person claimed needs the server; if that call fails there is no local
+fallback, so `setPortion` reports rather than returning `Ok` with a target silently missing. Every
+target that *did* apply is still saved — partial success, reported as failure, because the person who
+tapped did not get what they asked for.
+
 ## Placeholders, members, and names
 
 A placeholder is a `users` row (`is_placeholder=1` + `placeholder_group_id`) **plus** a `members` row —

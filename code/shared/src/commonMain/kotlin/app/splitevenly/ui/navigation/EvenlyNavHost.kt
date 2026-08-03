@@ -194,6 +194,34 @@ fun EvenlyNavHost(
                 onBack = { navController.popBackStack() },
                 onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
                 onAskGroup = { navController.navigate(Route.ExpenseDetail(r.groupId, r.expenseId)) },
+                onReviewEdits = { navController.navigate(Route.ReviewBillEdits(r.groupId, r.expenseId)) },
+                onWhoIsLeft = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
+                onShareLink = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+            )
+        }
+
+        // ── The payer's three web-claim screens (WEB_CLAIM_SPEC.md §3.9) ─
+        composable<Route.ReviewBillEdits> { entry ->
+            val r = entry.toRoute<Route.ReviewBillEdits>()
+            BillReviewEditsRoute(r.groupId, r.expenseId, onBack = { navController.popBackStack() })
+        }
+        composable<Route.BillClaimProgress> { entry ->
+            val r = entry.toRoute<Route.BillClaimProgress>()
+            BillClaimProgressRoute(
+                groupId = r.groupId,
+                expenseId = r.expenseId,
+                onBack = { navController.popBackStack() },
+                onShareLink = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+            )
+        }
+        composable<Route.ShareBillLink> { entry ->
+            val r = entry.toRoute<Route.ShareBillLink>()
+            ShareBillLinkRoute(
+                groupId = r.groupId,
+                expenseId = r.expenseId,
+                onBack = { navController.popBackStack() },
+                // The group invite is the OTHER link (§2.9) and lives with the group, not the bill.
+                onInviteToGroup = { navController.navigate(Route.GroupSettings(r.groupId)) },
             )
         }
 

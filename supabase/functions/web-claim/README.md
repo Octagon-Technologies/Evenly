@@ -38,10 +38,14 @@ from here on — `resolve` returns `state: "claimed_elsewhere"` and every write 
 - **Payer-role assignment.** `expenses.payer_user_id` is Zone 2 of the `merge_expense` causal-version
   model (`supabase/AGENTS.md`) — a guest setting the payer needs to go through that RPC's semantics with
   the `split_version` they read, not a blind update. Needs its own careful pass.
-- **Approving/rejecting a pending edit.** That's the payer's in-app screen (build-order step 6);
-  `pending_item_edits` rows just sit there, decidable, until the app acts on them.
-- **The QR/link lifecycle itself** (creating, extending, revoking `web_bill_links`). That's also an
-  in-app, payer-only action (step 6) — this function only ever *reads* a link, never writes one.
+- **Approving/rejecting a pending edit.** Landed in step 6 as the payer's in-app screen
+  (`BillRepository.decidePendingEdit`). This function still only ever *inserts* proposals; it has no
+  notion of a verdict, and an unapproved `ADD` deliberately has no `expense_items` row at all.
+- **The QR/link lifecycle itself** (creating, extending, revoking `web_bill_links`). Landed in step 6
+  as payer-only `security definer` RPCs (`supabase/AGENTS.md`). This function still only ever *reads* a
+  link, never writes one, and never sees the plaintext token.
+
+Payer-role assignment above is the one spec'd behaviour (§3.8, E24, E25) with no owner in any step.
 
 ## Security notes
 

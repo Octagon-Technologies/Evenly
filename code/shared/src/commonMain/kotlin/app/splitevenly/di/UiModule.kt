@@ -12,6 +12,8 @@ import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.SupabasePlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.SupabaseJoinItemPortionGateway
+import app.splitevenly.data.remote.supabase.WebBillLinkGateway
+import app.splitevenly.data.remote.supabase.SupabaseWebBillLinkGateway
 import app.splitevenly.data.remote.supabase.SupabaseRemoteGroupGateway
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
@@ -70,6 +72,9 @@ val authModule = module {
         // Atomic solo-claim-to-shared-portion conversion (spec §5.3). Unbound offline: joining a line
         // someone else already claimed is unavailable rather than risking a local cross-user write.
         single<JoinItemPortionGateway> { SupabaseJoinItemPortionGateway(get<SupabaseClient>()) }
+        // The payer's bill-link lifecycle (WEB_CLAIM_SPEC.md §3.9.3). Reaches `web_bill_links` only via
+        // security-definer RPCs, so `token_hash` never becomes readable through a table policy.
+        single<WebBillLinkGateway> { SupabaseWebBillLinkGateway(get<SupabaseClient>()) }
     } else {
         single<AuthSession> { StubAuthSession(get()) }
     }

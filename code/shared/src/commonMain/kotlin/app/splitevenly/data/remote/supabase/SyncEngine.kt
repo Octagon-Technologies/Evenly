@@ -16,6 +16,7 @@ import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
@@ -139,6 +140,9 @@ class SyncEngine(
         val itemClaims = if (expenseIds.isEmpty()) emptyList() else selectIn<ItemClaimEntity>("item_claims", "expense_id", expenseIds)
         val itemShares = if (expenseIds.isEmpty()) emptyList() else selectIn<ItemShareEntity>("item_shares", "expense_id", expenseIds)
         val billParticipants = if (expenseIds.isEmpty()) emptyList() else selectIn<BillParticipantEntity>("bill_participants", "expense_id", expenseIds)
+        // Web guests' proposed menu edits, awaiting the payer's individual approval (WEB_CLAIM_SPEC.md
+        // §2.7). Pull-heavy by nature: the guests write them from the browser, the app only decides.
+        val pendingItemEdits = if (expenseIds.isEmpty()) emptyList() else selectIn<PendingItemEditEntity>("pending_item_edits", "expense_id", expenseIds)
         val userIds = (members.map { it.userId } + expenses.mapNotNull { it.payerUserId } + shares.map { it.userId }).distinct()
         val users = if (userIds.isEmpty()) emptyList() else selectIn<UserEntity>("users", "id", userIds)
 
@@ -192,6 +196,9 @@ class SyncEngine(
         val freshClaims = land("item_claims", itemClaims, db.itemClaimDao().allForSync(), { it.id }, { it.updatedAt }) { db.itemClaimDao().upsertAll(it) }
         val freshItemShares = land("item_shares", itemShares, db.itemShareDao().allForSync(), { it.id }, { it.updatedAt }) { db.itemShareDao().upsertAll(it) }
         val freshParticipants = land("bill_participants", billParticipants, db.billParticipantDao().allForSync(), { it.id }, { it.updatedAt }) { db.billParticipantDao().upsertAll(it) }
+        // Pending edits carry updated_at, so the same last-write-wins guard applies: a stale server copy
+        // must not un-decide a verdict this device just stamped and hasn't pushed yet.
+        land("pending_item_edits", pendingItemEdits, db.pendingItemEditDao().allForSync(), { it.id }, { it.updatedAt }) { db.pendingItemEditDao().upsertAll(it) }
         land("placeholder_claim_answers", claimAnswers, db.placeholderClaimAnswerDao().allForSync(), { it.id }, { it.updatedAt }) { db.placeholderClaimAnswerDao().upsertAll(it) }
         // Allocations are append-only ground truth (no updated_at); blind upsert is correct.
         if (allocations.isNotEmpty()) {
@@ -305,6 +312,8 @@ class SyncEngine(
         step { pushDirty("item_claims", db.itemClaimDao().allForSync()) { it.id } }
         step { pushDirty("item_shares", db.itemShareDao().allForSync()) { it.id } }
         step { pushDirty("bill_participants", db.billParticipantDao().allForSync()) { it.id } }
+        // Only the decision half ever originates here — the proposals arrive from the web.
+        step { pushDirty("pending_item_edits", db.pendingItemEditDao().allForSync()) { it.id } }
         // No custom merge: the unique (group, name, answerer) key makes a re-insert idempotent, which is
         // what makes an offline "No" harmless if it ends up sent twice.
         step { pushDirty("placeholder_claim_answers", db.placeholderClaimAnswerDao().allForSync()) { it.id } }

@@ -276,7 +276,16 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
  *  conflict-free claim/portion writes; the tab + per-line amounts derive in real time. [onAskGroup] is
  *  retired but kept in the signature to avoid churning the NavHost. */
 @Composable
-fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEditBill: () -> Unit, onAskGroup: () -> Unit) {
+fun BillClaimRoute(
+    groupId: String,
+    expenseId: String,
+    onBack: () -> Unit,
+    onEditBill: () -> Unit,
+    onAskGroup: () -> Unit,
+    onReviewEdits: () -> Unit = {},
+    onWhoIsLeft: () -> Unit = {},
+    onShareLink: () -> Unit = {},
+) {
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
@@ -285,12 +294,17 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val bill by remember(eid) { bills.observeBill(eid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
+    // Web guests' proposed menu edits (WEB_CLAIM_SPEC.md §2.7). Only the undecided ones are a call to
+    // action; the decided ones live on the review screen as its audit trail.
+    val pendingEdits by remember(eid) { bills.observePendingEdits(eid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     // Device-local (not synced) "how many times has this device opened the assign screen" — the how-to
     // guide auto-expands only on the first couple of visits, then recedes to a one-liner.
     var guideAutoOpen by remember { mutableStateOf(false) }
+    // Set when an assignment didn't land, so the screen can say so instead of looking like it worked.
+    var assignNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         val seen = storage.getString(CLAIM_GUIDE_OPENS_KEY)?.toIntOrNull() ?: 0
         guideAutoOpen = seen < 2
@@ -344,12 +358,21 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
         onBack = onBack,
         onSetEveryone = { itemId, memberIds ->
             val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setPortion(eid, itemId, "${itemId}__all", memberIds.map { UserId(it) }, qtyOf(itemId), who) }
+            scope.launch {
+                // Adding someone to a line another person already claimed has to go through the server
+                // (it converts their solo claim into a shared portion). If that call can't be made, the
+                // person is NOT on the line, and saying nothing would leave the tap looking like it worked.
+                if (bills.setPortion(eid, itemId, "${itemId}__all", memberIds.map { UserId(it) }, qtyOf(itemId), who) is AppResult.Err) {
+                    assignNotice = "Couldn't save that. Check your connection and tap again."
+                }
+            }
         },
         onClearEveryone = { itemId ->
             val who = me ?: return@BillClaimScreen
             scope.launch { bills.setPortion(eid, itemId, "${itemId}__all", emptyList(), 0, who) }
         },
+        notice = assignNotice,
+        onDismissNotice = { assignNotice = null },
         // Full teardown + rebuild of the item's assignment, now a SINGLE atomic repo call (#15): the repo
         // tears down claims/portions and writes one quantity-1 portion per serving in ONE DB transaction,
         // so navigating away mid-flight can't leave the item wiped half-way (the old per-slot sequence of
@@ -365,6 +388,16 @@ fun BillClaimRoute(groupId: String, expenseId: String, onBack: () -> Unit, onEdi
             scope.launch { bills.markDone(eid, who, true); onBack() }
         },
         guideAutoOpen = guideAutoOpen,
+        onShareLink = onShareLink,
+        onWhoIsLeft = onWhoIsLeft,
+        onReviewEdits = onReviewEdits,
+        pendingEditCount = pendingEdits.count { it.isPending },
+        // "Claiming" here means a claim or a portion membership exists, NOT that they tapped "I'm done":
+        // done is a nudge-silencer, not a resolution (data/AGENTS.md), and a payer looking for who still
+        // owes them an answer wants the people with nothing on the bill.
+        stillToClaimCount = view.participants.count { p ->
+            view.claims.none { it.userId == p.userId } && view.shares.none { it.userId == p.userId }
+        },
     )
 }
 

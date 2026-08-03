@@ -105,6 +105,24 @@ bill works when only one person in the group has the app. Simple items are tap-c
 builder. The old per-line "Ask the group" jump and the per-current-user "your tab" claim UI are **retired** —
 do not reintroduce either.
 
+**The payer's three web-claim screens hang off the claim screen** (`BillReviewEditsScreen`,
+`BillClaimProgressScreen`, `BillShareLinkScreen`; wired in `ui/navigation/WebClaimRoutes.kt`). Their
+entry points are on `BillClaimScreen` and nowhere else: the phone-holder is already there while the
+table is claiming, and that is the only moment any of them is wanted. Three rules that look like taste
+and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
+
+- **No "approve all" on the review screen.** A payer who clears three cards in one tap has reviewed
+  none of them, and each card is somebody's money. Editing a line moves the bill total, which is why it
+  needs approval at all while joining a claim does not. Do not harmonise the two.
+- **The bill QR and the group invite are different links and stay apart.** Per-expense, 72 hours,
+  no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button.
+  The scope reassurance under it ("this bill only") is not decoration: the payer is deciding whether to
+  pass a URL into their finances round a table.
+- **"Hasn't opened the link" is only said about someone without the app.** An app member who simply
+  hasn't claimed gets different wording, because telling the payer to re-send a link to somebody who
+  was never going to use one turns a nudge into noise. Same reason the freshness line degrades from
+  "updated just now" rather than lying.
+
 **The participant picker scales with group size.** ≤6 members render as inline select-all/deselect toggle
 chips; larger groups collapse to a summary row that opens a searchable member-picker sheet. Same underlying
 selection state either way.
@@ -139,10 +157,10 @@ filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer`
 
 | File                                        | Lines |
 | ------------------------------------------- | ----- |
-| `ui/screen/bill/BillEditScreen.kt`          | 1061  |
+| `ui/screen/bill/BillEditScreen.kt`          | 1046  |
 | `ui/screen/expense/ExpenseDetailScreen.kt`  | 850   |
+| `ui/navigation/LedgerRoutes.kt`             | 662   |
 | `ui/screen/auth/WelcomeScreen.kt`           | 639   |
-| `ui/navigation/LedgerRoutes.kt`             | 580   |
 
 **The add-expense editor is split by feature** (2026-08-02, was 1116 lines): `AddExpenseScreen.kt` keeps
 the shell — state, the shared header, the picker sheets. `SplitApproachChooser.kt` is the up-front
@@ -155,4 +173,11 @@ has its own copy of the item-list body** — unifying the two was deliberately o
 
 The rule for the offenders above is **do not grow them.** When you make a substantial change inside one,
 extract the section you touched on your way out. Do not propose a big speculative rewrite — report the delta, not the
-backlog. (`data/repository/BillRepositoryImpl.kt` at 636 is the one offender outside this layer.)
+backlog. (`data/repository/BillRepositoryImpl.kt` at 804 is the one offender outside this layer.) Counts
+verified 2026-08-03; the earlier figures for `LedgerRoutes` (580) and `BillRepositoryImpl` (636) had
+gone stale, which is the usual way a ceiling stops being one.
+
+**`BillClaimScreen.kt` sits at 598** and is one addition away from the ceiling. Step 6's entry surface
+was extracted to `bill/BillWebClaimEntry.kt` on the way in for exactly that reason; the money side went
+to `data/repository/BillPendingEdits.kt`. The next thing this screen grows should take the servings
+sheet or the how-to guide out with it.

@@ -15,6 +15,7 @@ import app.splitevenly.data.db.dao.ExpenseItemDao
 import app.splitevenly.data.db.dao.HistoryEventDao
 import app.splitevenly.data.db.dao.ItemClaimDao
 import app.splitevenly.data.db.dao.ItemShareDao
+import app.splitevenly.data.db.dao.PendingItemEditDao
 import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.db.entity.BillParticipantEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
@@ -36,6 +37,7 @@ import app.splitevenly.domain.expense.BillParticipantView
 import app.splitevenly.domain.expense.BillShareView
 import app.splitevenly.domain.expense.ItemStatus
 import app.splitevenly.domain.expense.NewBill
+import app.splitevenly.domain.expense.PendingBillEdit
 import app.splitevenly.domain.expense.SharedMember
 import app.splitevenly.domain.expense.SharedPortion
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
@@ -48,6 +50,7 @@ import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
@@ -83,11 +86,22 @@ class BillRepositoryImpl(
     // The atomic server-side join RPC (spec §5.3). Null in unit tests / offline-stub builds => joining
     // someone else's already-claimed line is unavailable rather than risking a local cross-user write.
     private val joinItemGateway: JoinItemPortionGateway? = null,
+    // Web guests' proposed menu edits (spec §2.7). Null in unit tests that predate the web claim work =>
+    // the review surface is simply empty, which is the correct reading of "no web guest has proposed
+    // anything" rather than a failure.
+    private val pendingItemEditDao: PendingItemEditDao? = null,
 ) : BillRepository {
 
     // The bill's shares are a derived materialization of its items + claims + extras. The same derivation
     // runs from SyncEngine on pull (P0 #3), so it lives in a shared collaborator, not inline here.
     private val materializer = BillMaterializer(expenseDao, expenseItemDao, itemClaimDao, itemShareDao, shareDao)
+
+    // The payer's half of the web claim flow. Null DAO => no web guest has proposed anything, which is
+    // the correct reading of an empty review surface rather than a failure.
+    private val pendingEdits = pendingItemEditDao?.let {
+        BillPendingEdits(expenseDao, expenseItemDao, itemClaimDao, itemShareDao, it, materializer, clock)
+    }
+    private val remainder = BillRemainder(expenseDao, expenseItemDao, itemClaimDao, itemShareDao, materializer, clock)
 
     // Deterministic ids for USER-PARTITIONED rows (#5). Two devices assigning the same person to the same
     // slot used to mint two random PKs; the loser's upsert then violated the active unique index (23505)
@@ -428,7 +442,7 @@ class BillRepositoryImpl(
                 AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, cause = e))
             }
         }
-        applyJoinOutcomeLocally(expense, itemId, outcome, now)
+        applyJoinOutcomeLocally(expense, itemId, joinerUserId.value, outcome, now)
         materializeShares(expense, now)
         return AppResult.Ok(Unit)
     }
@@ -436,10 +450,17 @@ class BillRepositoryImpl(
     /** Mirror [join_item_portion]'s canonical result into Room: the RPC is the single source of truth for
      *  WHO ended up in the portion, so adopt its member list wholesale rather than recomputing locally —
      *  and retire any local solo claim for a member the server just folded into the portion, since the
-     *  RPC already did that conversion server-side. */
+     *  RPC already did that conversion server-side.
+     *
+     *  [joinerUserId] is stamped as `added_by` on every row this creates, matching what the RPC wrote:
+     *  the join was that person's action, including for the member whose solo claim was folded in. Using
+     *  each member's own id here instead looked harmless but diverged from the server, and the next
+     *  full-row push would have overwritten the server's attribution with it — losing the "joining a
+     *  claim is attributed, and the person affected can remove you" property (spec §2.7). */
     private suspend fun applyJoinOutcomeLocally(
         expense: ExpenseEntity,
         itemId: String,
+        joinerUserId: String,
         outcome: JoinItemPortionOutcome,
         now: Long,
     ) {
@@ -458,7 +479,7 @@ class BillRepositoryImpl(
                     userId = uid,
                     portionId = outcome.portionId,
                     quantity = outcome.quantity,
-                    addedBy = uid,
+                    addedBy = joinerUserId,
                     createdAt = now,
                     updatedAt = now,
                 ),
@@ -497,6 +518,10 @@ class BillRepositoryImpl(
         // Drop this slice's former members who aren't in the target set any more.
         val dropped = activeForItem.filter { it.portionId == portionId && it.userId !in targets }.map { it.id }
         if (dropped.isNotEmpty()) itemShareDao.softDeleteByIds(dropped, now)
+        // A target that needed the server-side claim conversion and couldn't get it. Everything that DID
+        // apply still gets materialized below; these two only decide what we return.
+        var joinFailure: Exception? = null
+        var unjoinable = false
         for (uid in targets) {
             // A person CAN be in more than one portion of the same line now (per-serving assignment: the
             // same person may be solo on one serving and shared with someone else on another) — so unlike
@@ -517,20 +542,38 @@ class BillRepositoryImpl(
             // claim has nothing to race against and stays local, same as before.
             val collidingClaim = activeClaimsForItem.firstOrNull { it.userId != uid }
             val gateway = joinItemGateway
-            if (collidingClaim != null && gateway != null) {
+            if (collidingClaim != null) {
+                // No gateway (offline build / tests) means there is no safe way to make this particular
+                // add: writing it locally is exactly the double-counting this branch exists to prevent.
+                // Skip it and report, rather than silently writing the wrong row.
+                if (gateway == null) {
+                    unjoinable = true
+                    continue
+                }
                 try {
                     // The screen already lets an assignment go over quantity (surfaced as OVERCLAIMED, never
                     // capped) — this is a deliberate, explicit re-assign, not the "+1 join" gesture the RPC's
                     // overclaim guard exists to protect, so acknowledge it up front.
                     val outcome = gateway.join(itemId, uid, portionId, now, overClaimAck = true)
-                    applyJoinOutcomeLocally(expense, itemId, outcome, now)
+                    applyJoinOutcomeLocally(expense, itemId, uid, outcome, now)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // Leave uid unassigned locally rather than risk a half-converted claim; the next retry
-                    // or pull reconciles once the server call can succeed.
+                    // Leave uid unassigned locally rather than risk a half-converted claim, and REPORT it.
+                    // Returning Ok here meant the caller ticked two people onto a line, one silently never
+                    // arrived, and nothing on screen said so — the silent dead end AGENTS.md §7 forbids.
+                    // Every other target still applies; only this one is reported as failed.
+                    joinFailure = e
                 }
                 continue
+            }
+            // Retire uid's OWN solo claim on this line, if they had one. Their portion membership replaces
+            // it; leaving both live counts them twice, in assignedQuantityByItem and in the money. This is
+            // the same conversion join_item_portion does server-side, and it is a same-user write (the
+            // person being assigned owns the row), so it needs no RPC — unlike the branch above, which
+            // touches somebody else's claim.
+            activeClaimsForItem.filter { it.userId == uid }.map { it.id }.let {
+                if (it.isNotEmpty()) itemClaimDao.softDeleteByIds(it, now)
             }
             itemShareDao.upsert(
                 ItemShareEntity(
@@ -548,6 +591,10 @@ class BillRepositoryImpl(
             )
         }
         materializeShares(expense, now)
+        // Partial success is still a failure to the person who tapped: they asked for a set of people on
+        // this line and did not get it. The caller surfaces it; the successful targets are already saved.
+        joinFailure?.let { return AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, cause = it)) }
+        if (unjoinable) return AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable))
         return AppResult.Ok(Unit)
     }
 
@@ -637,6 +684,24 @@ class BillRepositoryImpl(
         }
         return AppResult.Ok(Unit)
     }
+
+    // ── Web guests' proposed menu edits + the leftover (WEB_CLAIM_SPEC.md §2.7, §3.9) ────────────
+    // Both live in [BillPendingEdits] rather than inline: this file is a quarantined size offender
+    // (ui/AGENTS.md), and approving a guest's edit is a self-contained "apply, re-version, re-derive"
+    // unit with no overlap with the claim writes above.
+
+    override fun observePendingEdits(expenseId: ExpenseId): Flow<List<PendingBillEdit>> =
+        pendingEdits?.observe(expenseId) ?: flowOf(emptyList())
+
+    override suspend fun decidePendingEdit(editId: String, approve: Boolean, decidedBy: UserId): AppResult<Unit> =
+        pendingEdits?.decide(editId, approve, decidedBy)
+            ?: validationErr("pendingEdit", AppError.Validation.Reason.Required)
+
+    override suspend fun assignRemainder(
+        expenseId: ExpenseId,
+        memberIds: List<UserId>,
+        addedBy: UserId,
+    ): AppResult<Unit> = remainder.assign(expenseId, memberIds, addedBy)
 
     override fun observeUnresolvedBills(groupId: GroupId, viewer: UserId?): Flow<List<UnresolvedBill>> =
         combine(

@@ -53,6 +53,13 @@ sealed interface Route {
     @Serializable data class SplitBill(val groupId: String, val expenseId: String? = null) : Route  // edit menu
     @Serializable data class ClaimBill(val groupId: String, val expenseId: String) : Route           // live claim screen
 
+    // ── The payer's three web-claim screens (WEB_CLAIM_SPEC.md §3.9) ───
+    // All three hang off the live claim screen, not the expense detail: the phone-holder is already
+    // there while the table is claiming, and that is the only moment any of them are wanted.
+    @Serializable data class ReviewBillEdits(val groupId: String, val expenseId: String) : Route
+    @Serializable data class BillClaimProgress(val groupId: String, val expenseId: String) : Route
+    @Serializable data class ShareBillLink(val groupId: String, val expenseId: String) : Route
+
     // ── Settle ─────────────────────────────────────────────────────────
     @Serializable data class SettleExpense(val groupId: String, val expenseId: String) : Route  // sheet
     @Serializable data class SettlePerson(val groupId: String, val peerUserId: String) : Route

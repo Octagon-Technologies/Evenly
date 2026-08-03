@@ -9,6 +9,7 @@ import app.splitevenly.data.remote.supabase.RemoteGroupGateway
 import app.splitevenly.data.upload.ReceiptUploadHttp
 import app.splitevenly.data.repository.ActivityRepositoryImpl
 import app.splitevenly.data.repository.BillRepositoryImpl
+import app.splitevenly.data.repository.WebBillLinkRepositoryImpl
 import app.splitevenly.data.repository.CategoryRepositoryImpl
 import app.splitevenly.data.repository.ExpenseRepositoryImpl
 import app.splitevenly.data.repository.FxRepositoryImpl
@@ -19,10 +20,12 @@ import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.repository.BillRepository
+import app.splitevenly.domain.repository.WebBillLinkRepository
 import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
+import app.splitevenly.data.remote.supabase.WebBillLinkGateway
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.FxRepository
@@ -60,6 +63,7 @@ val dataModule: Module = module {
     single { get<EvenlyDatabase>().itemClaimDao() }
     single { get<EvenlyDatabase>().itemShareDao() }
     single { get<EvenlyDatabase>().billParticipantDao() }
+    single { get<EvenlyDatabase>().pendingItemEditDao() }
     single { get<EvenlyDatabase>().supersededNoticeDao() }
     single { get<EvenlyDatabase>().placeholderMergeDao() }
     single { get<EvenlyDatabase>().placeholderClaimAnswerDao() }
@@ -86,8 +90,12 @@ val dataModule: Module = module {
             historyEventDao = get(),
             analytics = getOrNull<EvAnalytics>(),
             joinItemGateway = getOrNull<JoinItemPortionGateway>(),
+            pendingItemEditDao = get(),
         )
     }
+    // The payer's web claim link (WEB_CLAIM_SPEC.md §3.9.3). Not local-first on purpose: a link is a
+    // server-side authorisation, so the gateway is required and its absence is reported, never faked.
+    single<WebBillLinkRepository> { WebBillLinkRepositoryImpl(getOrNull<WebBillLinkGateway>(), get()) }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get(), analytics = getOrNull<EvAnalytics>()) }
     single<FxRepository> { FxRepositoryImpl(get(), get(), get()) }
     // "Is this you?" claims: schedules the merge behind a 5-second undo window and runs the

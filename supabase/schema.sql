@@ -1239,6 +1239,7 @@ declare
   v_share_id text;
   v_members text[];
   v_added_new_unit boolean := false;
+  v_joiner_claim public.item_claims%rowtype;
 begin
   if v_uid is not null and v_uid is distinct from p_joiner_user_id then
     raise exception 'join_item_portion: caller may only join as themselves';
@@ -1257,6 +1258,23 @@ begin
     where bp.expense_id = v_expense_id and bp.user_id = p_joiner_user_id and bp.deleted_at is null
   ) then
     raise exception 'join_item_portion: not a participant of this bill';
+  end if;
+
+  -- Retire the JOINER'S OWN live solo claim on this line, in every path, before anything else counts
+  -- units. A guest who solo-claims a line and then joins a portion of it would otherwise hold a live
+  -- item_claims row AND a live item_shares row at once — double-counted in assignedQuantityByItem and
+  -- in the money split. The app's mirror (BillRepositoryImpl.applyJoinOutcomeLocally) already retires
+  -- it client-side; the web path has no such compensation, so it has to happen here, which is also the
+  -- only place that owns the invariant. This row belongs to the caller, so writing it breaks no
+  -- partition rule. Doing it BEFORE v_assigned is computed keeps the overclaim math honest: a joiner
+  -- swapping a solo claim for a portion membership adds no net unit.
+  select * into v_joiner_claim from public.item_claims
+    where item_id = p_item_id and user_id = p_joiner_user_id and deleted_at is null
+    limit 1;
+  if found then
+    update public.item_claims set
+      deleted_at = p_now, updated_at = p_now, row_version = row_version + 1
+    where id = v_joiner_claim.id;
   end if;
 
   -- Idempotent no-op: already an active member of the named portion.
@@ -1356,11 +1374,13 @@ end;
 $$;
 revoke all on function public.join_item_portion(text, text, text, bigint, boolean) from public, anon;
 grant execute on function public.join_item_portion(text, text, text, bigint, boolean) to authenticated;
--- Supabase grants EXECUTE to anon/authenticated by default at function-creation time, independent of
--- `revoke ... from public`. join_item_portion must never be callable by the anon role (spec §4.1) —
--- only the app (authenticated) and the web-claim edge function's service key (which bypasses grants
--- entirely). Confirmed via get_advisors (`anon_security_definer_function_executable`) that the plain
--- `revoke ... from public` above does NOT strip this — the explicit revoke below is required.
+-- Why the `revoke ... from anon` two lines above is spelled out explicitly: Supabase grants EXECUTE to
+-- anon/authenticated by default at function-creation time, independently of `revoke ... from public`,
+-- so revoking from `public` alone leaves anon holding EXECUTE. join_item_portion must never be callable
+-- by anon (spec §4.1) — only the app (authenticated) and the web-claim edge function's service key
+-- (which bypasses grants entirely). Confirmed via get_advisors
+-- (`anon_security_definer_function_executable`). Every security definer function below names anon (and
+-- `authenticated` where it is edge-function-only) in its own revoke for the same reason.
 
 -- First-claim-wins for "That's me" on the web evidence list (spec §5.4, mirroring claim_placeholder).
 -- Called ONLY by the web-claim edge function's service key — never granted to anon/authenticated,
@@ -1374,10 +1394,17 @@ grant execute on function public.join_item_portion(text, text, text, bigint, boo
 -- last live session is a legitimate later re-claim, not a contested race, and always wins. This does
 -- NOT touch members.placeholder_claim_completed_at — that column is reserved for a real account merge
 -- (spec §2.1); this is a much lighter "recognise this browser as her" claim.
+--
+-- The winning session row is inserted HERE, inside the advisory lock, not by the caller afterwards.
+-- An earlier version returned `won` and left the insert to the edge function: the xact lock released
+-- when this function returned, so two racers could each look, each see no session yet, and each be
+-- told they won — the lock guarded a read of state nobody had written yet. The write that decides the
+-- race has to happen under the lock that serializes it.
 create or replace function public.claim_web_placeholder(
   p_group_id text,
   p_placeholder_user_id text,
   p_session_id text,
+  p_session_token_hash text,
   p_now bigint
 ) returns jsonb
 language plpgsql
@@ -1416,10 +1443,86 @@ begin
     return jsonb_build_object('won', false, 'winner_is_me', false, 'winner_session_id', v_existing_session);
   end if;
 
+  insert into public.web_sessions (id, group_id, user_id, token_hash, created_at, last_seen_at)
+  values (p_session_id, p_group_id, p_placeholder_user_id, p_session_token_hash, p_now, p_now);
+
   return jsonb_build_object('won', true, 'winner_is_me', true, 'winner_session_id', p_session_id);
 end;
 $$;
-revoke all on function public.claim_web_placeholder(text, text, text, bigint) from public, anon, authenticated;
+revoke all on function public.claim_web_placeholder(text, text, text, text, bigint) from public, anon, authenticated;
+-- Supersedes the 4-arg version, which returned `won` without writing anything and so could declare two
+-- winners (above). Dropping a superseded FUNCTION destroys no rows — this is not the DROP that
+-- `supabase/AGENTS.md` forbids, and leaving the old overload live would leave the race callable.
+drop function if exists public.claim_web_placeholder(text, text, text, bigint);
+
+-- Creating a web guest's placeholder, atomically and race-free (spec §2.4, §3.2). The edge function
+-- still does the name matching that drives the UI — the block message, the suffix suggestions, the
+-- fuzzy "did you mean her?" — but the *decision* has to be re-taken here, under a lock, because §2.4
+-- is load-bearing: check-then-insert lets two guests typing "Purity" at the same table both pass the
+-- check and both land, and the whole feature depends on being able to point at people by name.
+--
+-- Normalisation mirrors the edge function's normalizeName() exactly: trim, collapse internal
+-- whitespace, cap at 40, compare case-insensitively. Deliberately NOT fuzzy — a false-positive block
+-- is a dead end (spec §2.4).
+--
+-- Doing the user + member + session + participant inserts in one transaction also removes the
+-- half-created guest: previously an insert could fail after the user row landed, leaving a named
+-- placeholder with no session, unreachable by the browser that just created it and offered to
+-- everyone else as evidence.
+create or replace function public.create_web_placeholder(
+  p_group_id text,
+  p_expense_id text,
+  p_name text,
+  p_user_id text,
+  p_member_id text,
+  p_session_id text,
+  p_session_token_hash text,
+  p_participant_id text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text := left(regexp_replace(btrim(p_name), '\s+', ' ', 'g'), 40);
+  v_lock_key bigint;
+  v_clash text;
+begin
+  if v_name = '' then
+    raise exception 'create_web_placeholder: name required';
+  end if;
+  v_lock_key := hashtextextended(p_group_id || ':' || lower(v_name), 0);
+  perform pg_advisory_xact_lock(v_lock_key);
+
+  select u.display_name into v_clash
+    from public.members m
+    join public.users u on u.id = m.user_id
+    where m.group_id = p_group_id and m.status = 'ACTIVE'
+      and lower(left(regexp_replace(btrim(u.display_name), '\s+', ' ', 'g'), 40)) = lower(v_name)
+    limit 1;
+  if v_clash is not null then
+    return jsonb_build_object('created', false, 'conflict', true, 'name', v_clash);
+  end if;
+
+  -- created_by = the guest's own new id (spec §5.7): a self-created placeholder is never asked "is this
+  -- you?" later, since IDENTITY_CLAIM_SPEC.md skips anyone who created their own name.
+  insert into public.users (id, is_placeholder, display_name, placeholder_group_id, created_by, created_at, updated_at)
+  values (p_user_id, true, v_name, p_group_id, p_user_id, p_now, p_now);
+
+  insert into public.members (id, group_id, user_id, status, joined_at, created_at, updated_at)
+  values (p_member_id, p_group_id, p_user_id, 'ACTIVE', p_now, p_now, p_now);
+
+  insert into public.web_sessions (id, group_id, user_id, token_hash, created_at, last_seen_at)
+  values (p_session_id, p_group_id, p_user_id, p_session_token_hash, p_now, p_now);
+
+  insert into public.bill_participants (id, expense_id, group_id, user_id, created_at, updated_at)
+  values (p_participant_id, p_expense_id, p_group_id, p_user_id, p_now, p_now);
+
+  return jsonb_build_object('created', true, 'conflict', false, 'name', v_name);
+end;
+$$;
+revoke all on function public.create_web_placeholder(text, text, text, text, text, text, text, text, bigint) from public, anon, authenticated;
 
 -- Step 3 (WEB_CLAIM_SPEC.md §4.5): the web-claim edge function's per-token write rate limit (120
 -- writes/min). Mirrors receipt_scan_log's pattern — insert-only, service-role-only, no grants to
@@ -1432,3 +1535,219 @@ create table if not exists public.web_claim_write_log (
 create index if not exists web_claim_write_log_token_idx on public.web_claim_write_log (token_hash, created_at);
 alter table public.web_claim_write_log enable row level security;
 -- Deliberately no policies — only the web-claim edge function's service key touches this table.
+
+-- ── Web claim — §11 step 6: the payer's in-app link lifecycle + claim progress ────────────────────
+--
+-- `web_bill_links` still carries RLS-with-no-policies, deliberately, and this section is the reason the
+-- earlier comment's "step 6 adds a membership-scoped table policy" plan was NOT taken. A table policy
+-- would make `token_hash` readable by every authenticated user (RLS is still `using (true)` app-wide),
+-- which is exactly the column that must never leave the server: the hash is the whole authorisation
+-- check the edge function performs, and a leaked hash column is a leaked bill for 72 hours. So the app
+-- reaches the table only through these `security definer` RPCs, each of which re-derives membership
+-- itself and never returns the hash.
+--
+-- The plaintext token is minted HERE and returned exactly once (spec §4.2: it exists only in the URL
+-- and the QR). The creating device keeps it in its own SecureStorage so it can re-render the QR;
+-- nothing server-side can hand it back. A payer on a second device makes a new link, which rotates.
+
+-- Base62 over a bytea, most-significant byte first. Pure arithmetic on `numeric`, which is exact well
+-- past 2^128, so no precision is lost. Used only for link tokens; `immutable` so it can be inlined.
+create or replace function public.base62_encode(p_bytes bytea) returns text
+language plpgsql
+immutable
+-- Pinned even though this touches no tables: it is called from inside `security definer` functions, and
+-- an unpinned search_path there is the standard advisory finding (`function_search_path_mutable`).
+set search_path = pg_catalog
+as $$
+declare
+  alphabet constant text := '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  v numeric := 0;
+  v_out text := '';
+  i int;
+begin
+  for i in 0 .. length(p_bytes) - 1 loop
+    v := v * 256 + get_byte(p_bytes, i);
+  end loop;
+  if v = 0 then return '0'; end if;
+  while v > 0 loop
+    v_out := substr(alphabet, (v % 62)::int + 1, 1) || v_out;
+    v := div(v, 62);
+  end loop;
+  return v_out;
+end;
+$$;
+revoke all on function public.base62_encode(bytea) from public, anon, authenticated;
+
+-- Shared guard for every RPC below: the caller must be an ACTIVE member of the group that owns this
+-- (live) expense. `security definer` bypasses RLS, so this check is the only thing standing between a
+-- signed-in stranger and minting a public link to someone else's dinner. Returns the group id.
+create or replace function public.web_bill_link_guard(p_expense_id text, p_actor text) returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := auth.uid()::text;
+  v_group_id text;
+begin
+  if v_uid is null or v_uid is distinct from p_actor then
+    raise exception 'web_bill_link: caller may only act as themselves';
+  end if;
+  select e.group_id into v_group_id from public.expenses e
+    where e.id = p_expense_id and e.deleted_at is null;
+  if v_group_id is null then
+    raise exception 'web_bill_link: expense not found';
+  end if;
+  if not exists (
+    select 1 from public.members m
+    where m.group_id = v_group_id and m.user_id = p_actor and m.status = 'ACTIVE'
+  ) then
+    raise exception 'web_bill_link: not an active member of this group';
+  end if;
+  return v_group_id;
+end;
+$$;
+revoke all on function public.web_bill_link_guard(text, text) from public, anon, authenticated;
+
+-- Mint a link for a bill. Any live link on the same expense is revoked first, so a bill has at most one
+-- usable token at a time and "make a new link" is genuinely a rotation rather than an extra open door.
+-- Entropy comes from `gen_random_uuid()` (a CSPRNG, 122 bits) rather than the client: Kotlin/Native has
+-- no crypto-grade RNG in commonMain, and a guessable bill token is a public read of someone's bill.
+create or replace function public.create_web_bill_link(
+  p_expense_id text,
+  p_actor text,
+  p_now bigint,
+  p_ttl_ms bigint default 259200000   -- 72 hours (spec §2.2)
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_group_id text := public.web_bill_link_guard(p_expense_id, p_actor);
+  v_token text := public.base62_encode(uuid_send(gen_random_uuid()));
+  v_id text := gen_random_uuid()::text;
+  v_expires bigint := p_now + p_ttl_ms;
+begin
+  update public.web_bill_links set
+      revoked_at = p_now, updated_at = p_now, row_version = row_version + 1
+    where expense_id = p_expense_id and revoked_at is null;
+
+  insert into public.web_bill_links (
+    id, expense_id, group_id, token_hash, created_by, created_at, expires_at, updated_at
+  ) values (
+    v_id, p_expense_id, v_group_id,
+    encode(sha256(convert_to(v_token, 'utf8')), 'hex'),
+    p_actor, p_now, v_expires, p_now
+  );
+
+  -- The only time the plaintext is ever readable. The caller stores it device-locally or loses it.
+  return jsonb_build_object('id', v_id, 'token', v_token, 'expires_at', v_expires);
+end;
+$$;
+revoke all on function public.create_web_bill_link(text, text, bigint, bigint) from public, anon;
+grant execute on function public.create_web_bill_link(text, text, bigint, bigint) to authenticated;
+
+-- Extend the live link's expiry without changing the token (spec E27: "new expiry on the same token,
+-- no new QR"). No-op when there is nothing live to extend — the caller then offers "make a new link".
+create or replace function public.extend_web_bill_link(
+  p_expense_id text,
+  p_actor text,
+  p_now bigint,
+  p_ttl_ms bigint default 259200000
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_group_id text := public.web_bill_link_guard(p_expense_id, p_actor);
+  v_expires bigint;
+begin
+  update public.web_bill_links set
+      expires_at = p_now + p_ttl_ms,
+      extended_count = extended_count + 1,
+      updated_at = p_now,
+      row_version = row_version + 1
+    where expense_id = p_expense_id and revoked_at is null
+    returning expires_at into v_expires;
+  return jsonb_build_object('ok', v_expires is not null, 'expires_at', v_expires);
+end;
+$$;
+revoke all on function public.extend_web_bill_link(text, text, bigint, bigint) from public, anon;
+grant execute on function public.extend_web_bill_link(text, text, bigint, bigint) to authenticated;
+
+-- Kill the link now (spec E28). The row survives as history; only `revoked_at` is stamped, so this is a
+-- soft delete like everything else in this schema.
+create or replace function public.revoke_web_bill_link(
+  p_expense_id text,
+  p_actor text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_group_id text := public.web_bill_link_guard(p_expense_id, p_actor);
+  v_count int;
+begin
+  update public.web_bill_links set
+      revoked_at = p_now, updated_at = p_now, row_version = row_version + 1
+    where expense_id = p_expense_id and revoked_at is null;
+  get diagnostics v_count = row_count;
+  return jsonb_build_object('ok', v_count > 0);
+end;
+$$;
+revoke all on function public.revoke_web_bill_link(text, text, bigint) from public, anon;
+grant execute on function public.revoke_web_bill_link(text, text, bigint) to authenticated;
+
+-- What the share screen needs to describe the link, and what the "who's still to claim" screen needs to
+-- tell "hasn't opened the link" apart from "opened it, claimed nothing". Never returns `token_hash`.
+--
+-- `opened` is the newest `last_seen_at` of a live web session for that person **in this group**, not on
+-- this bill: identity is group-scoped and durable (spec §2.2), so a guest recognised at Ramen night has
+-- a session before she ever opens tonight's link. The client therefore treats `opened >= link.created_at`
+-- as "opened this link" and anything older as "hasn't". That comparison lives client-side so a re-issued
+-- link automatically resets everyone to "hasn't opened" without a second server concept.
+create or replace function public.web_bill_link_status(
+  p_expense_id text,
+  p_actor text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_group_id text := public.web_bill_link_guard(p_expense_id, p_actor);
+  v_link public.web_bill_links%rowtype;
+  v_sessions jsonb;
+begin
+  select * into v_link from public.web_bill_links
+    where expense_id = p_expense_id
+    order by (revoked_at is null) desc, created_at desc
+    limit 1;
+
+  select coalesce(jsonb_agg(jsonb_build_object('user_id', s.user_id, 'opened_at', s.seen)), '[]'::jsonb)
+    into v_sessions
+    from (
+      select ws.user_id, max(ws.last_seen_at) as seen
+        from public.web_sessions ws
+        join public.bill_participants bp
+          on bp.user_id = ws.user_id and bp.expense_id = p_expense_id and bp.deleted_at is null
+       where ws.group_id = v_group_id and ws.revoked_at is null
+       group by ws.user_id
+    ) s;
+
+  return jsonb_build_object(
+    'exists', v_link.id is not null,
+    'link_id', v_link.id,
+    'created_at', v_link.created_at,
+    'expires_at', v_link.expires_at,
+    'revoked_at', v_link.revoked_at,
+    'extended_count', coalesce(v_link.extended_count, 0),
+    'sessions', v_sessions);
+end;
+$$;
+revoke all on function public.web_bill_link_status(text, text) from public, anon;
+grant execute on function public.web_bill_link_status(text, text) to authenticated;

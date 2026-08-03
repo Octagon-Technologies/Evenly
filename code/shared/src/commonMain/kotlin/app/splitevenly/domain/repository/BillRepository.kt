@@ -7,6 +7,7 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.expense.BillView
 import app.splitevenly.domain.expense.EditBill
 import app.splitevenly.domain.expense.NewBill
+import app.splitevenly.domain.expense.PendingBillEdit
 import app.splitevenly.domain.expense.UnresolvedBill
 import kotlinx.coroutines.flow.Flow
 
@@ -99,6 +100,30 @@ interface BillRepository {
 
     /** Add or remove a participant from a bill (who it's *for*). */
     suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit>
+
+    /**
+     * Menu changes web guests proposed on this bill, oldest first, decided rows included
+     * (WEB_CLAIM_SPEC.md §2.7, §3.9.1). Nothing here has touched the bill yet.
+     */
+    fun observePendingEdits(expenseId: ExpenseId): Flow<List<PendingBillEdit>>
+
+    /**
+     * Approve or reject **one** proposal ([approve] = the payer's verdict). Approving applies the change
+     * to `expense_items`, advances the causal `split_version` (it is a Zone-2 money edit) and re-derives
+     * the bill's shares; rejecting stamps the verdict and touches nothing else. Either way the row is
+     * kept as the audit trail of who changed what.
+     *
+     * There is deliberately no bulk variant: §3.9.1 requires each change to be decided individually.
+     */
+    suspend fun decidePendingEdit(editId: String, approve: Boolean, decidedBy: UserId): AppResult<Unit>
+
+    /**
+     * Hand every still-unassigned unit on this bill to [memberIds], splitting each line's leftover evenly
+     * between them (WEB_CLAIM_SPEC.md §3.9.2, E17 — "three people never claim"). One shared portion per
+     * line, so the remainder stays visible as a group slice rather than being silently folded into
+     * anyone's solo claim. Existing claims are never touched, and a bill with nothing left is a no-op.
+     */
+    suspend fun assignRemainder(expenseId: ExpenseId, memberIds: List<UserId>, addedBy: UserId): AppResult<Unit>
 
     /** Stamp / clear a participant's "I'm done claiming" marker (a personal nudge-silencer). */
     suspend fun markDone(expenseId: ExpenseId, userId: UserId, done: Boolean): AppResult<Unit>

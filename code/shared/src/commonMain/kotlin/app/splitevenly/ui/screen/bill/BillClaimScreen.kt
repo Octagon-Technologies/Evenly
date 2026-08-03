@@ -18,8 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,19 +32,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.ItemStatus
 import app.splitevenly.ui.components.AvatarSize
+import app.splitevenly.ui.components.BannerVariant
 import app.splitevenly.ui.components.ButtonVariant
+import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvAvatarStack
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
-import app.splitevenly.ui.components.EvDragSheet
 import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvParticipantChip
 import app.splitevenly.ui.components.EvTextField
@@ -136,8 +134,22 @@ fun BillClaimScreen(
     onAddPerson: (name: String) -> Unit = {},
     onEditBill: () -> Unit = {},
     onDone: () -> Unit = {},
+    // The web-claim entry points (WEB_CLAIM_SPEC.md §3.9), rendered by BillWebClaimEntry.kt. They live
+    // on this screen because the phone-holder is already here while the table claims. Counts of zero
+    // hide their respective surfaces.
+    onShareLink: () -> Unit = {},
+    onWhoIsLeft: () -> Unit = {},
+    onReviewEdits: () -> Unit = {},
+    pendingEditCount: Int = 0,
+    stillToClaimCount: Int = 0,
     // True on a user's first couple of visits — auto-expands the numbered how-to. Reopenable anytime.
     guideAutoOpen: Boolean = false,
+    // Set when an assignment could not be saved — adding someone to a line another person already claimed
+    // needs the server (it converts their solo claim into a shared portion, which this device may not
+    // write itself). Shown as a banner rather than dropped: the tap otherwise appears to work and the
+    // person simply never arrives on the line.
+    notice: String? = null,
+    onDismissNotice: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var servingsItemId by remember { mutableStateOf<String?>(null) }
@@ -151,21 +163,39 @@ fun BillClaimScreen(
             StatusBarScrim()
             EvTopBar(title = "Who had what?", navIcon = { EvIconButton(EvIcons.Back, onBack) }, showDivider = false)
 
+            notice?.let {
+                Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }, Arrangement.Start, Alignment.CenterVertically) {
+                    EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.WifiOff)
+                }
+            }
+
+            PendingEditsBanner(pendingEditCount, onReviewEdits)
+
             if (state.totals.isNotEmpty()) {
                 TotalsBar(state.totals, state.currency, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
-            ClaimGuide(
-                open = guideOpen,
-                onExpand = { guideOpen = true },
-                onCollapse = { guideOpen = false },
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp),
-            )
 
+            // Only the top bar, the two alerts and the totals bar are fixed. The web-claim doors and the
+            // how-to used to be pinned here too, which left the items — the thing you actually came to do —
+            // scrolling inside whatever height was left after four stacked cards.
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
+                // One item under a fixed key rather than one per card: `stillToClaimCount` arrives from a
+                // separate flow and would otherwise prepend a row above the anchor, scrolling the list on
+                // its own. Same failure the group feed had.
+                item(key = "claim-header") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        WebClaimActions(onShareLink, onWhoIsLeft, stillToClaimCount)
+                        ClaimGuide(
+                            open = guideOpen,
+                            onExpand = { guideOpen = true },
+                            onCollapse = { guideOpen = false },
+                        )
+                    }
+                }
                 items(state.items, key = { it.id }) { item ->
                     AssignItemCard(
                         item = item,
@@ -236,7 +266,7 @@ private fun TotalsBar(totals: List<Pair<ClaimParticipantUi, Long>>, currency: St
     val myTotal = totals.firstOrNull { it.first.isMe }
     val shape = RoundedCornerShape(14.dp)
     Column(
-        modifier.fillMaxWidth().clip(shape).background(c.surface)
+        modifier.fillMaxWidth().clip(shape).background(c.page)
             .border(1.dp, if (open) c.blue else c.border, shape)
             .clickable { open = !open },
     ) {
@@ -302,7 +332,7 @@ private fun ClaimGuide(open: Boolean, onExpand: () -> Unit, onCollapse: () -> Un
         return
     }
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface)
+        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.page)
             .border(1.dp, c.border, RoundedCornerShape(14.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -342,7 +372,7 @@ private fun GuideStep(n: Int, text: String) {
 private fun PendingPill(count: Int) {
     val c = EvenlyTheme.colors
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.page)
             .border(1.dp, c.border, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -372,9 +402,13 @@ private fun AssignItemCard(
     val needsSomeone = item.rows.isEmpty() || item.leftQty > 0
     val shape = RoundedCornerShape(16.dp)
     Column(
+        // Every card is the plain page colour; the *outline* is what says "this one still needs picking",
+        // so a full list of unclaimed items reads as a page of cards rather than a wall of tint. The
+        // outline follows [needsSomeone], which is the same test the footer's count uses, so a part-assigned
+        // multi-order line is flagged too (the old tint only fired when nothing at all was assigned).
         Modifier.fillMaxWidth().clip(shape)
-            .background(if (needsSomeone && item.rows.isEmpty()) c.warningTint else c.page)
-            .border(1.dp, if (needsSomeone && item.rows.isEmpty()) c.warning else c.border, shape)
+            .background(c.page)
+            .border(if (needsSomeone) 1.5.dp else 1.dp, if (needsSomeone) c.warning else c.border, shape)
             .padding(13.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -426,148 +460,3 @@ private fun AssignItemCard(
     }
 }
 
-/** The per-item servings sheet — one card per physical unit ("Serving N"), each independently
- *  assignable to one or more people. Every toggle re-derives and writes the item's full serving set
- *  immediately (same live-commit pattern as the simple chip path); there's no separate confirm step.
- *  Opens in a [EvDragSheet] (drag to expand, no dimming), and leads with the three figures that matter —
- *  servings, cost each, and the line total — so opening an item is also how you inspect it. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ServingsSheet(
-    item: ClaimItemUi,
-    participants: List<ClaimParticipantUi>,
-    currency: String,
-    onSetServings: (List<List<String>>) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    var expandedSlot by remember { mutableStateOf<Int?>(null) }
-    val slots = item.servingSlots()
-    val perUnit = if (item.quantity > 0) item.lineTotalSubunits / item.quantity else item.lineTotalSubunits
-
-    EvDragSheet(onDismiss = onDismiss) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(item.label, color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            EvIconButton(EvIcons.Close, onDismiss, size = 18.dp, tint = c.ink2)
-        }
-
-        // The three figures the owner asked to keep prominent: how many servings, the per-serving price,
-        // and the whole-line total.
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            StatTile("servings", "${item.quantity}", Modifier.weight(1f))
-            StatTile("each", moneySubunits(perUnit, currency), Modifier.weight(1f), mono = true)
-            StatTile("total", moneySubunits(item.lineTotalSubunits, currency), Modifier.weight(1f), mono = true)
-        }
-
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 16.dp, bottom = 10.dp)) {
-            Text("Tap a name for each serving", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Text(
-                if (item.leftQty > 0) "${item.assignedQty} of ${item.quantity} assigned" else "All ${item.quantity} assigned",
-                color = if (item.leftQty > 0) c.warning else c.ink3, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-
-        Column(
-            Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            slots.forEachIndexed { index, members ->
-                ServingCard(
-                    index = index,
-                    members = members,
-                    participants = participants,
-                    expanded = expandedSlot == index,
-                    onToggleExpand = { expandedSlot = if (expandedSlot == index) null else index },
-                    onToggleMember = { uid ->
-                        val nextMembers = if (uid in members) members - uid else members + uid
-                        val nextSlots = slots.toMutableList().also { it[index] = nextMembers }
-                        onSetServings(nextSlots.map { it.toList() })
-                    },
-                )
-            }
-        }
-
-        Box(Modifier.fillMaxWidth().padding(16.dp)) {
-            EvButton("Done", onDismiss, variant = ButtonVariant.Primary)
-        }
-    }
-}
-
-/** A compact "big number over small label" figure used in the sheet header (servings / each / total). */
-@Composable
-private fun StatTile(label: String, value: String, modifier: Modifier = Modifier, mono: Boolean = false) {
-    val c = EvenlyTheme.colors
-    Column(
-        modifier.clip(RoundedCornerShape(12.dp)).background(c.surface).padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(1.dp),
-    ) {
-        Text(value, color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = if (mono) EvenlyTheme.monoFamily else null)
-        Text(label, color = c.ink3, fontSize = 10.5.sp)
-    }
-}
-
-/** One physical serving — label left, assigned names right-aligned and capped at 40% of the card's
- *  width; tapping opens an inline picker to add/deselect people, matching the participant chip used
- *  everywhere else people are picked. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ServingCard(
-    index: Int,
-    members: Set<String>,
-    participants: List<ClaimParticipantUi>,
-    expanded: Boolean,
-    onToggleExpand: () -> Unit,
-    onToggleMember: (String) -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    val shape = RoundedCornerShape(12.dp)
-    Column(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(if (expanded) c.surface else c.page)
-            .border(1.dp, if (expanded) c.blueTint2 else c.border, shape)
-            .clickable(onClick = onToggleExpand)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Serving ${index + 1}", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(0.55f))
-            if (members.isEmpty()) {
-                // Bigger + accented so the "this is where you assign" affordance is obvious in the sheet.
-                Text(
-                    "Tap to assign", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                    modifier = Modifier.weight(0.45f),
-                )
-            } else {
-                val names = participants.filter { it.userId in members }.joinToString(", ") { if (it.isMe) "You" else it.name }
-                Text(
-                    names, color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(0.4f),
-                )
-            }
-        }
-        if (expanded) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                participants.forEach { p ->
-                    val on = p.userId in members
-                    EvParticipantChip(
-                        if (p.isMe) "You" else p.name, selected = on,
-                        leading = { EvAvatar(p.name, me = p.isMe, size = AvatarSize.Xs) },
-                        trailing = if (on) ({ EvIcon(EvIcons.Check, size = 14.dp) }) else null,
-                        onClick = { onToggleMember(p.userId) },
-                    )
-                }
-            }
-        }
-    }
-}
