@@ -1,0 +1,724 @@
+/*
+ * Ported from `design/web-claim-mockup.html`, which is the visual source of truth for this feature.
+ * The tokens are `design/src/design.css`'s, unchanged — do not "fix" them toward the older spec's
+ * dark/green, and do not invent new ones here.
+ *
+ * Light only, on purpose: the mockup is light, this is a single-task page a guest sees once at a
+ * dinner table, and a second theme is a second set of contrast bugs for no gain.
+ */
+
+:root {
+  --blue: #2563eb;
+  --blue-press: #1e40af;
+  --blue-tint: #eff4ff;
+  --blue-tint-2: #dbe6ff;
+  --page: #ffffff;
+  --surface: #f6f8fb;
+  --border: #e6eaf0;
+  --border-strong: #d6dce6;
+  --ink: #0b1220;
+  --ink-2: #5b6577;
+  --ink-3: #9aa3b2;
+  --red: #e0686b;
+  --red-tint: #fdeeed;
+  --amber: #687590;
+  --amber-tint: #eef1f8;
+  --green: #16a34a;
+  --green-tint: #e7f4ec;
+  --r-card: 16px;
+  --r-sm: 10px;
+  --r-pill: 999px;
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--page);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Wider viewports get a centred column, not a different design (spec §9).
+ *
+ * A fixed height, not `min-height`: the claim list's sticky footer carries the running total and
+ * "I'm done", and with `min-height` the flex column grows to fit the items instead of scrolling
+ * inside them — the footer lands below the fold on a long bill, which is every real bill.
+ * `dvh` so mobile browser chrome collapsing doesn't clip it.
+ */
+#app {
+  height: 100vh;
+  height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── page scaffold ───────────────────────────────────────────────────────────────────────── */
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 18px calc(20px + env(safe-area-inset-bottom));
+}
+
+.hdr {
+  padding: 2px 0 14px;
+}
+.eyebrow {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.h1 {
+  font-size: 23px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  margin-top: 7px;
+  line-height: 1.2;
+}
+.h2 {
+  font-size: 17.5px;
+  font-weight: 660;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+.sub {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+/* ── progress ────────────────────────────────────────────────────────────────────────────── */
+
+.prog {
+  margin: 12px 0 4px;
+}
+.trk {
+  height: 6px;
+  background: var(--blue-tint-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.trk i {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+.prlbl {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 7px;
+}
+
+/* ── cards and rows ──────────────────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.row {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  font: inherit;
+  color: inherit;
+}
+.row:last-child {
+  border-bottom: none;
+}
+.row--mine {
+  background: var(--blue-tint);
+}
+.row--tap {
+  cursor: pointer;
+}
+.row--tap:active {
+  background: var(--surface);
+}
+.row--mine.row--tap:active {
+  background: var(--blue-tint-2);
+}
+.row--center {
+  align-items: center;
+}
+.row--block {
+  display: block;
+}
+.qty {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  padding: 0 5px;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.lbl {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.meta {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+.amt {
+  font-size: 14px;
+  font-weight: 660;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* evidence strip — the identity jog (spec §2.3) */
+.ev {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ev::-webkit-scrollbar {
+  display: none;
+}
+.evi {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 6px 9px;
+  background: var(--surface);
+  min-width: 0;
+}
+.evi .t {
+  font-size: 11.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.evi .d {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* ── chips: the claim affordance lives here (spec §2.6) ──────────────────────────────────── */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 0 9px 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-family: inherit;
+}
+.chip--me {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+.av {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--blue-tint-2);
+  color: var(--blue);
+  font-size: 9.5px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.chip--me .av {
+  background: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+.chip--add {
+  background: none;
+  border: 1px dashed var(--border-strong);
+  color: var(--ink-2);
+  padding: 0 10px;
+}
+.chip--claim {
+  background: var(--page);
+  border: 1px dashed var(--blue);
+  color: var(--blue);
+  padding: 0 11px;
+  font-weight: 660;
+}
+.chip--join {
+  background: var(--blue-tint);
+  border: 1px solid var(--blue-tint-2);
+  color: var(--blue);
+  padding: 0 11px;
+  font-weight: 660;
+}
+/* `1 left` is a chip, not a sentence, and carries no affordance weight (spec §2.6). */
+.chip--ghost {
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  padding: 0 2px;
+  font-weight: 600;
+}
+.chip--pick {
+  min-height: 34px;
+  padding: 0 12px 0 5px;
+  font-size: 13px;
+  background: var(--page);
+  border-color: var(--border-strong);
+  color: var(--ink);
+  cursor: pointer;
+}
+.chip--pick .av {
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+.chip--picked {
+  background: var(--blue-tint);
+  border-color: var(--blue);
+  color: var(--blue);
+}
+.chip--ok {
+  background: var(--green-tint);
+  border-color: #c7e7d2;
+  color: #15803d;
+}
+
+/* ── buttons ─────────────────────────────────────────────────────────────────────────────── */
+
+.act {
+  border: 1px solid var(--border-strong);
+  background: var(--page);
+  border-radius: var(--r-pill);
+  min-height: 30px;
+  padding: 0 13px;
+  font-size: 12.5px;
+  font-weight: 660;
+  color: var(--ink);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  margin-top: 1px;
+  cursor: pointer;
+}
+.act--on {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+.act--no {
+  border-color: #edd3d3;
+  color: var(--red);
+  background: var(--red-tint);
+}
+
+.btn {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 14px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 15.5px;
+  font-weight: 660;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-family: inherit;
+  border: none;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+}
+.btn:active {
+  background: var(--blue-press);
+}
+.btn--ghost {
+  background: var(--page);
+  border: 1px solid var(--border-strong);
+  color: var(--ink);
+}
+.btn--ghost:active {
+  background: var(--surface);
+}
+.btn--sm {
+  min-height: 42px;
+  font-size: 14.5px;
+}
+/*
+ * Dimmed, NEVER disabled. Root AGENTS.md §7: no silent dead ends — the button stays live, and
+ * tapping it says what is missing.
+ */
+.btn--off {
+  opacity: 0.42;
+}
+.btn[aria-busy='true'] {
+  opacity: 0.6;
+}
+
+/* ── inputs ──────────────────────────────────────────────────────────────────────────────── */
+
+.inp {
+  width: 100%;
+  min-height: 52px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 0 15px;
+  /* 16px+ or iOS Safari zooms the page on focus and the layout jumps mid-task. */
+  font-size: 16.5px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--page);
+}
+.inp:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-tint);
+}
+.inp--bad,
+.inp--bad:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-tint);
+}
+.flbl {
+  font-size: 12.5px;
+  font-weight: 660;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+.field {
+  margin-bottom: 14px;
+}
+.fieldrow {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* ── notes ───────────────────────────────────────────────────────────────────────────────── */
+
+.note {
+  border-radius: var(--r-card);
+  padding: 13px 14px;
+  font-size: 12.8px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  margin-bottom: 12px;
+}
+.note b {
+  color: var(--ink);
+  font-weight: 660;
+}
+.note--blue {
+  background: var(--blue-tint);
+  border: 1px solid var(--blue-tint-2);
+}
+.note--amber {
+  background: var(--amber-tint);
+  border: 1px solid #dde3ef;
+}
+.note--green {
+  background: var(--green-tint);
+  border: 1px solid #c7e7d2;
+}
+.note--red {
+  background: var(--red-tint);
+  border: 1px solid #f4dada;
+}
+
+/* ── sticky footer ───────────────────────────────────────────────────────────────────────── */
+
+.dock {
+  flex-shrink: 0;
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--page);
+}
+.dockrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 11px;
+}
+.dockrow .k {
+  font-size: 13px;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.dockrow .v {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ── sheets ──────────────────────────────────────────────────────────────────────────────── */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 18, 32, 0.34);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 20;
+}
+.sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--page);
+  border-radius: 24px 24px 0 0;
+  padding: 10px 18px calc(16px + env(safe-area-inset-bottom));
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.sheet:focus {
+  /* The panel is focused programmatically for screen readers; it is not a control, so it must not
+     draw a focus ring. Real controls inside it keep theirs. */
+  outline: none;
+}
+.grab {
+  width: 38px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  margin: 0 auto 14px;
+}
+
+/* ── the total ───────────────────────────────────────────────────────────────────────────── */
+
+.tot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  padding: 9px 0;
+  color: var(--ink-2);
+}
+.tot b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.tot--extra,
+.tot--extra b {
+  color: var(--ink-3);
+}
+.tot--big {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 13px;
+}
+.card--tot {
+  padding: 4px 14px;
+}
+.hero {
+  background: var(--blue);
+  border-radius: 20px;
+  padding: 20px;
+  color: #fff;
+  margin-bottom: 14px;
+}
+.hero .k {
+  font-size: 13px;
+  opacity: 0.86;
+  font-weight: 600;
+}
+.hero .v {
+  font-size: 38px;
+  font-weight: 720;
+  letter-spacing: -0.03em;
+  margin-top: 4px;
+}
+.hero .w {
+  font-size: 13px;
+  opacity: 0.86;
+  margin-top: 5px;
+}
+.pay {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 13px 14px;
+  margin-bottom: 12px;
+}
+.pay .ic {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--blue-tint);
+  color: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+/*
+ * The install prompt: one quiet line at the foot of the page, benefit first (spec §2.8).
+ * Never a card, never a button, nothing to dismiss. If you are about to give this a background,
+ * a border, or an icon, re-read §2.8 — a card-sized pitch here is the single most likely thing
+ * to make someone abandon the bill.
+ */
+.appline {
+  padding: 15px 0 2px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--ink-3);
+  text-align: center;
+  line-height: 1.6;
+}
+.appline a {
+  color: var(--blue);
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* ── utility ─────────────────────────────────────────────────────────────────────────────── */
+
+.stack > * + * {
+  margin-top: 12px;
+}
+.center {
+  text-align: center;
+}
+.spacer {
+  height: 14px;
+}
+.muted {
+  color: var(--ink-3);
+}
+.strike {
+  text-decoration: line-through;
+  color: var(--ink-3);
+}
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--blue);
+  font-weight: 660;
+  cursor: pointer;
+  text-decoration: none;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.spin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--blue-tint-2);
+  border-top-color: var(--blue);
+  animation: spin 0.7s linear infinite;
+}
+.btn .spin {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 2s;
+  }
+  .trk i {
+    transition: none;
+  }
+}

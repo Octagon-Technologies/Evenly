@@ -1,18 +1,18 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
-    "module": "NodeNext",
-    "moduleResolution": "nodenext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "strict": true,
-    "noUncheckedIndexedAccess": false,
     "noEmit": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "isolatedModules": true,
-    "types": ["node"]
+    "resolveJsonModule": true,
+    "types": ["node", "vite/client"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "test/**/*.ts", "*.config.ts"]
 }

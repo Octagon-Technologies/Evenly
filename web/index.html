@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Mobile is the product surface (spec §9). Wider viewports get a centred column, not a
+         different design. `viewport-fit=cover` + the safe-area insets in app.css keep the sticky
+         footer above the home indicator, which is where "I'm done" lives. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#FFFFFF" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!-- A bill link in a chat thread must not render a preview of someone's dinner. -->
+    <meta name="referrer" content="no-referrer" />
+    <title>Claim your items · Evenly</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

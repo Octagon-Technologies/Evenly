@@ -8,10 +8,18 @@
     "node": ">=22.6"
   },
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "test": "node --experimental-strip-types --test test/vectors.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && svelte-check --threshold error"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@types/node": "^26.1.2",
+    "svelte": "^5.56.8",
+    "svelte-check": "^4.7.4",
+    "typescript": "^5.7.2",
+    "vite": "^8.2.0"
   }
 }

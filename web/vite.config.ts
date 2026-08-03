@@ -1,0 +1,20 @@
+import { defineConfig } from 'vite';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
+
+/**
+ * Static SPA. Every `/b/:token` URL serves the same `index.html` and the token is read from
+ * `location.pathname` — see `src/lib/router.ts` and `public/_redirects` for the host-side rewrite.
+ *
+ * `VITE_WEB_CLAIM_URL` points at the deployed `web-claim` edge function. There is deliberately no
+ * Supabase URL or anon key here: the bundle ships neither (spec §4.1).
+ */
+export default defineConfig({
+  plugins: [svelte()],
+  build: {
+    target: 'es2022',
+    outDir: 'dist',
+  },
+  server: {
+    port: 5177,
+  },
+});

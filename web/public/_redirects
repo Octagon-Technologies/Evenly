@@ -1,0 +1,4 @@
+# Static SPA: every bill link is /b/:token and must serve the same index.html.
+# Netlify / Cloudflare Pages syntax. On another host, use its equivalent rewrite.
+/b/*  /index.html  200
+/*    /index.html  200

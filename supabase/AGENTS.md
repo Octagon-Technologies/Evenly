@@ -49,17 +49,27 @@ history across two accounts silently.
 The client calls it at **flush** time (an undone claim never reaches it) and **before** pushing the
 merged rows — a loser then reverses rows no other client has pulled. Don't move it after the push.
 
-## Web claim (`WEB_CLAIM_SPEC.md`) — steps 1–3 landed
+## Web claim (`WEB_CLAIM_SPEC.md`) — steps 1–5 landed
 
 Additive per the spec's §11 build order. Step 2 (`BillRepository.joinItem` + a `setPortion` fix) wired
 `join_item_portion` into the app; step 3 is the `web-claim` edge function (see its own README) — the
 security boundary and CRUD surface, minus payer-role assignment and pending-edit approval (both
-deferred, see that README). Steps 4–6 (the TS money engine + CI gate, the Svelte surface, and the app's
-payer screens) are still ahead. A fourth table, `web_claim_write_log` (insert-only, no grants — the
-`web-claim` function's per-token rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
+deferred, see that README). Step 4 is the TS money port + `test-vectors/bill-split.json` + its CI gate
+(`web/AGENTS.md`); step 5 is the Svelte surface in `web/`. Step 6 (the app's three payer screens) is
+still ahead.
+
+**Building step 5 found three holes in step 3, now filled:** `share` (the share sheet names people who
+are not holding a phone — `join` only ever adds the caller), `leave` (§2.7 promises joining is
+reversible, and only solo claims could be undone), and `pendingEdits` on `/bill` plus `totalSubunits`
+on the header (E19 needs a guest's own unapproved edit inside her total; §3.1 needs the bill's amount
+before anyone is asked for a name). Expect the same when step 6 lands: a screen is the only honest test
+of an API.
+
+A fourth table, `web_claim_write_log` (insert-only, no grants — the `web-claim` function's per-token
+rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
 
 - **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
-  policies: only the (not-yet-built) `web-claim` edge function's service key ever touches it.
+  policies: only the `web-claim` edge function's service key ever touches it.
 - **`web_bill_links`** — the 72h revocable bill token, stored hashed. RLS enabled, zero policies for
   now; the payer's in-app share/revoke screen (step 6) adds a scoped policy in its own migration.
 - **`pending_item_edits`** — a guest's proposed add/relabel/reprice/requantify/remove, awaiting the
@@ -74,11 +84,24 @@ payer screens) are still ahead. A fourth table, `web_claim_write_log` (insert-on
   `BillRepositoryImpl.setPortion`), closing a live double-counting bug where adding someone to the
   app's fixed `"<item>__all"` shared portion never retired their pre-existing solo claim. `p_portion_id`
   may name a portion that isn't live yet (the app's own naming convention) — the RPC creates it under
-  that exact id via the same conversion-or-fresh-portion path used when no name is given at all.
-- **`claim_web_placeholder(group_id, placeholder_user_id, session_id, now)`** — "first wins" for a web
-  guest's "That's me", but unlike `claim_placeholder` it's a **5-second race window**, not a permanent
-  lock: a guest may legitimately re-claim the same placeholder from a second device long after the
-  first (spec E7). Callable only by the service role — revoked from `anon` and `authenticated`.
+  that exact id via the same conversion-or-fresh-portion path used when no name is given at all. It
+  also retires the **joiner's own** live solo claim on that line, in every path and before units are
+  counted: the app compensated for that half client-side, so the web path (no client mirror)
+  double-counted anyone who claimed a line and then joined a portion of it.
+- **`claim_web_placeholder(group_id, placeholder_user_id, session_id, session_token_hash, now)`** —
+  "first wins" for a web guest's "That's me", but unlike `claim_placeholder` it's a **5-second race
+  window**, not a permanent lock: a guest may legitimately re-claim the same placeholder from a second
+  device long after the first (spec E7). Service-role only.
+- **`create_web_placeholder(group_id, expense_id, name, user_id, member_id, session_id,
+  session_token_hash, participant_id, now)`** — the §2.4 name-uniqueness decision re-taken under an
+  advisory lock, plus the user/member/session/participant inserts in one transaction. The edge
+  function's own matching still drives the UI copy and the suffix suggestions; only this decides.
+  Service-role only.
+
+**A write that settles a race must happen inside the lock that serialises it.** Returning a verdict and
+letting the caller do the write leaves the deciding write outside the transaction, and the advisory lock
+stops meaning anything — two callers each look, each see nothing, each win. Both web-claim identity RPCs
+were written that way first. Check it in any new one.
 
 **Anon must never gain EXECUTE by default.** Supabase auto-grants `EXECUTE` to `anon`/`authenticated`
 at function-creation time, independent of `revoke ... from public` — confirmed via `get_advisors`
@@ -133,8 +156,11 @@ human verifies before any money is computed.
 
 ## Destructive SQL
 
-`DROP`, `TRUNCATE`, and unscoped `DELETE` are forbidden in any migration, RPC, or edge function. Today the
-schema is clean — zero `DROP`/`TRUNCATE`, and the only `DELETE` is the per-user `delete_my_account()` RPC.
-Keep it that way. The full production data-safety ruleset (audit log, soft-delete cascade, PITR, irreversible
+`DROP`, `TRUNCATE`, and unscoped `DELETE` are forbidden in any migration, RPC, or edge function. The rule
+is about **rows**: `drop trigger`/`drop policy`/`drop function` on a superseded object destroys no user
+data and is how this file already retires things (a stale overload left callable is worse). Today the
+schema holds no `drop table`/`truncate`; the only `DELETE`s are the per-user `delete_my_account()` RPC
+and `web-claim`'s prune of its own expired `web_claim_write_log` rows, scoped to one token. Keep it that
+way. The full production data-safety ruleset (audit log, soft-delete cascade, PITR, irreversible
 -operation headers) lives in the client-side `data/AGENTS.md`; it is gated on the app going live, but Rule 2
 above applies now.

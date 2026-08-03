@@ -41,12 +41,22 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
-/** 128-bit random token, base62 — what goes in the QR/URL. Never stored; only its hash is. */
+/** 128-bit random token, base62 — what goes in the QR/URL. Never stored; only its hash is.
+ *  Rejection sampling, not `byte % 62`: 256 isn't a multiple of 62, so the modulo would make the first
+ *  eight alphabet characters ~25% likelier than the rest. 22 chars clears 128 bits either way, so this
+ *  is belt-and-braces rather than a live break — but a biased token generator is not a thing to leave
+ *  in the one place that authorises a stranger to write to someone's bill. */
 function newPlaintextToken(): string {
   const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  const bytes = crypto.getRandomValues(new Uint8Array(22)); // 22 bytes > 128 bits of entropy
+  const limit = 256 - (256 % alphabet.length); // 248 — bytes at or above this are redrawn
   let out = "";
-  for (const b of bytes) out += alphabet[b % alphabet.length];
+  while (out.length < 22) {
+    for (const b of crypto.getRandomValues(new Uint8Array(32))) {
+      if (b >= limit) continue;
+      out += alphabet[b % alphabet.length];
+      if (out.length === 22) break;
+    }
+  }
   return out;
 }
 
@@ -124,15 +134,29 @@ async function resolveLink(sb: SupabaseClient, token: string | undefined): Promi
   return { link, expense, group };
 }
 
+interface Session {
+  id: string;
+  user_id: string;
+  /** The payer merged this placeholder into a real account in-app while the guest held the session
+   *  (spec E10). The session still identifies her, but it is now READ-ONLY: spec §4.4 is absolute that
+   *  a web guest may never act as an account holder, and post-merge her writes would land on a retired
+   *  placeholder id and silently detach from the account they were just folded into. */
+  claimedElsewhere: boolean;
+}
+
 /** A guest's `localStorage` token → the placeholder they are, scoped to the LINK's group (identity is
  *  group-scoped and durable, spec §2.2 — a long-dead Ramen-night link still recognises her at Sunday
  *  roast). Returns null (not a Response) when there's simply no session yet, which is a normal state,
- *  not an error. */
+ *  not an error.
+ *
+ *  The `claimedElsewhere` check lives HERE rather than in the landing action, because every write path
+ *  has to inherit it. It previously sat in actionResolve alone, which meant `claim`, `join`, `edit` and
+ *  `done` all kept writing as a placeholder that no longer existed as an independent person. */
 async function resolveSession(
   sb: SupabaseClient,
   groupId: string,
   sessionToken: string | undefined,
-): Promise<{ id: string; user_id: string } | null> {
+): Promise<Session | null> {
   if (!sessionToken) return null;
   const tokenHash = await sha256Hex(sessionToken);
   const { data } = await sb
@@ -142,15 +166,34 @@ async function resolveSession(
     .eq("token_hash", tokenHash)
     .maybeSingle();
   if (!data || data.revoked_at) return null;
+
+  const { data: member } = await sb
+    .from("members")
+    .select("placeholder_claim_completed_at")
+    .eq("group_id", groupId).eq("user_id", data.user_id)
+    .maybeSingle();
+
   await sb.from("web_sessions").update({ last_seen_at: Date.now() }).eq("id", data.id);
-  return { id: data.id, user_id: data.user_id };
+  return { id: data.id, user_id: data.user_id, claimedElsewhere: !!member?.placeholder_claim_completed_at };
+}
+
+/** The session gate every WRITE action runs: a session is required, and it must still be writable
+ *  (spec E10, §4.4). Callers do `if (s instanceof Response) return s;`. */
+function requireWritableSession(session: Session | null): Session | Response {
+  if (!session) return err("SESSION_REQUIRED", 401);
+  if (session.claimedElsewhere) return err("CLAIMED_ELSEWHERE", 409, "this name is now an account; the bill is read-only here");
+  return session;
 }
 
 /** Ensures a `bill_participants` row exists for [userId] on [expenseId] — every identified guest is
  *  a participant of the bill they're claiming on, per spec §3.3's premise that the claim screen is
- *  participant-scoped. Idempotent (checked read then insert, not an upsert, since the row has no
- *  deterministic id convention shared with the app). */
-async function ensureParticipant(sb: SupabaseClient, expenseId: string, groupId: string, userId: string, now: number) {
+ *  participant-scoped, and `join_item_portion` refuses a joiner who isn't one. Idempotent (checked read
+ *  then insert, not an upsert, since the row has no deterministic id convention shared with the app).
+ *  Returns an error message, or null on success — a guest who silently isn't a participant can't join
+ *  anything, and would be told nothing about why. */
+async function ensureParticipant(
+  sb: SupabaseClient, expenseId: string, groupId: string, userId: string, now: number,
+): Promise<string | null> {
   const { data: existing } = await sb
     .from("bill_participants")
     .select("id")
@@ -158,11 +201,15 @@ async function ensureParticipant(sb: SupabaseClient, expenseId: string, groupId:
     .eq("user_id", userId)
     .is("deleted_at", null)
     .maybeSingle();
-  if (existing) return;
-  await sb.from("bill_participants").insert({
+  if (existing) return null;
+  const { error } = await sb.from("bill_participants").insert({
     id: newId(), expense_id: expenseId, group_id: groupId, user_id: userId,
     created_at: now, updated_at: now,
   });
+  // A concurrent request winning the same insert is success, not failure: the partial unique index on
+  // (expense_id, user_id) where deleted_at is null is exactly what makes this idempotent under a race.
+  if (error && error.code !== "23505") return error.message;
+  return null;
 }
 
 // ── Rate limits (spec §4.5) ────────────────────────────────────────────────────────────────────
@@ -172,6 +219,9 @@ const MAX_PLACEHOLDERS_PER_GROUP = 40; // spec says "per bill"; placeholders are
                                         // schema (users.placeholder_group_id), so this enforces the
                                         // nearest real boundary — see supabase/AGENTS.md.
 const MAX_ITEMS_PER_BILL = 200;
+/** How long a `web_claim_write_log` row is worth keeping — a small multiple of the 60s window the rate
+ *  check reads, enough that a clock skew between edge invocations can't prune a row still being counted. */
+const RATE_LOG_RETENTION_MS = 5 * 60_000;
 
 /** True if [tokenHash] has hit the per-token write budget. Best-effort, not fail-closed: this is abuse
  *  mitigation on a free-to-write endpoint, not a financial guardrail like receipt_scan_log's cost-bearing
@@ -187,8 +237,15 @@ async function isWriteRateLimited(sb: SupabaseClient, tokenHash: string): Promis
   return (count ?? 0) >= MAX_WRITES_PER_MINUTE;
 }
 
+/** Records a write against the per-token budget, and drops that token's own rows older than the window
+ *  it is measured over. Without the prune this table only ever grows: it is pure abuse-mitigation
+ *  bookkeeping, nothing reads a row older than 60s, and a bill link lives 72 hours. The delete is
+ *  scoped to one token's expired rows — never a bare or prefix-wide DELETE (`supabase/AGENTS.md`). */
 async function logWrite(sb: SupabaseClient, tokenHash: string, now: number) {
   await sb.from("web_claim_write_log").insert({ id: newId(), token_hash: tokenHash, created_at: now });
+  await sb.from("web_claim_write_log").delete()
+    .eq("token_hash", tokenHash)
+    .lt("created_at", now - RATE_LOG_RETENTION_MS);
 }
 
 /** Wraps a write action with the rate check + write log, and the "exceeding a limit reads as expired,
@@ -226,6 +283,10 @@ async function buildHeader(sb: SupabaseClient, ctx: LinkContext) {
     groupName: ctx.group.name,
     title: ctx.expense.title,
     currency: ctx.expense.currency,
+    // The page has to prove it is real BEFORE it asks for a name (spec §3.1), and a bill with no
+    // amount on it proves nothing. This is the expense's own stored total, not a computed split —
+    // no per-person money is ever returned by this function.
+    totalSubunits: ctx.expense.amount_subunits ?? 0,
     itemCount: itemCount ?? 0,
     claimedCount: claimedCount ?? 0,
     participantCount: participantCount ?? 0,
@@ -243,16 +304,12 @@ async function actionResolve(sb: SupabaseClient, body: { token?: string; session
 
   const session = await resolveSession(sb, ctx.link.group_id, body.sessionToken);
   if (session) {
-    // E10: the payer may have claimed this placeholder in-app while the guest was mid-claim — a real
-    // account merge stamps `placeholder_claim_completed_at`, at which point the web session is stale.
-    const { data: user } = await sb.from("users").select("id, display_name, is_placeholder").eq("id", session.user_id).maybeSingle();
-    const { data: member } = await sb.from("members")
-      .select("placeholder_claim_completed_at")
-      .eq("group_id", ctx.link.group_id).eq("user_id", session.user_id).maybeSingle();
-    if (member?.placeholder_claim_completed_at) {
-      return json({ state: "claimed_elsewhere", header });
-    }
-    await ensureParticipant(sb, ctx.link.expense_id, ctx.link.group_id, session.user_id, Date.now());
+    // E10: the payer may have claimed this placeholder in-app while the guest was mid-claim. The gate
+    // itself is in resolveSession so that the write actions inherit it; here it only picks the screen.
+    if (session.claimedElsewhere) return json({ state: "claimed_elsewhere", header });
+    const { data: user } = await sb.from("users").select("id, display_name").eq("id", session.user_id).maybeSingle();
+    const participantErr = await ensureParticipant(sb, ctx.link.expense_id, ctx.link.group_id, session.user_id, Date.now());
+    if (participantErr) return err("BACKEND", 500, participantErr);
     return json({ state: "welcome_back", header, identity: { userId: user?.id, name: user?.display_name } });
   }
 
@@ -277,8 +334,17 @@ async function actionResolve(sb: SupabaseClient, body: { token?: string; session
  *  §2.3, §4.6). Deliberately excludes balances; this is the minimum needed to make "is this you?"
  *  answerable, and it's the same information the group's own members already see. */
 async function withEvidence(sb: SupabaseClient, groupId: string, placeholder: { id: string; display_name: string }) {
-  const { data: claimIds } = await sb.from("item_claims").select("expense_id").eq("user_id", placeholder.id).is("deleted_at", null).limit(20);
-  const { data: shareIds } = await sb.from("item_shares").select("expense_id").eq("user_id", placeholder.id).is("deleted_at", null).limit(20);
+  // Newest-first on the claim/share rows, not an arbitrary page of them: the two expenses shown have to
+  // be her two most RECENT, or the evidence strip can offer a stale pair while the dinner she actually
+  // remembers sits just outside the page. The cap is generous enough that only a very long history is
+  // truncated, and only at the far end.
+  const EVIDENCE_SCAN = 200;
+  const [{ data: claimIds }, { data: shareIds }] = await Promise.all([
+    sb.from("item_claims").select("expense_id, created_at").eq("user_id", placeholder.id).is("deleted_at", null)
+      .order("created_at", { ascending: false }).limit(EVIDENCE_SCAN),
+    sb.from("item_shares").select("expense_id, created_at").eq("user_id", placeholder.id).is("deleted_at", null)
+      .order("created_at", { ascending: false }).limit(EVIDENCE_SCAN),
+  ]);
   const expenseIds = Array.from(new Set([...(claimIds ?? []), ...(shareIds ?? [])].map((r) => r.expense_id as string)));
   let evidence: Array<{ title: string; date: string; amountSubunits: number }> = [];
   if (expenseIds.length > 0) {
@@ -332,25 +398,31 @@ async function actionName(
       .eq("placeholder_group_id", ctx.link.group_id).eq("is_placeholder", true);
     if ((placeholderCount ?? 0) >= MAX_PLACEHOLDERS_PER_GROUP) return err("EXPIRED", 410, "too many placeholders");
 
+    // The exact-match check above drives the UI (the block copy, the suffix suggestions); the RPC
+    // re-takes the same decision under an advisory lock and does the four inserts in one transaction.
+    // Both are needed: only the lock stops two guests typing "Purity" at once from both landing, and
+    // only one transaction stops a mid-sequence failure leaving a named placeholder with no session —
+    // unreachable by the browser that just made it, and offered to everyone else as evidence.
     const now = Date.now();
     const userId = newId();
-    // created_by = the guest's own new id (spec §5.7): a self-created placeholder is never asked
-    // "is this you?" later, since IDENTITY_CLAIM_SPEC.md skips anyone who created their own name.
-    const { error: userErr } = await sb.from("users").insert({
-      id: userId, is_placeholder: true, display_name: name, placeholder_group_id: ctx.link.group_id,
-      created_by: userId, created_at: now, updated_at: now,
-    });
-    if (userErr) return err("BACKEND", 500, userErr.message);
-    await sb.from("members").insert({
-      id: newId(), group_id: ctx.link.group_id, user_id: userId, status: "ACTIVE",
-      joined_at: now, created_at: now, updated_at: now,
-    });
     const sessionToken = newPlaintextToken();
-    await sb.from("web_sessions").insert({
-      id: newId(), group_id: ctx.link.group_id, user_id: userId,
-      token_hash: await sha256Hex(sessionToken), created_at: now, last_seen_at: now,
+    const { data: created, error: createErr } = await sb.rpc("create_web_placeholder", {
+      p_group_id: ctx.link.group_id,
+      p_expense_id: ctx.link.expense_id,
+      p_name: name,
+      p_user_id: userId,
+      p_member_id: newId(),
+      p_session_id: newId(),
+      p_session_token_hash: await sha256Hex(sessionToken),
+      p_participant_id: newId(),
+      p_now: now,
     });
-    await ensureParticipant(sb, ctx.link.expense_id, ctx.link.group_id, userId, now);
+    if (createErr) return err("BACKEND", 500, createErr.message);
+    if (!created.created) {
+      // Lost the race to an identical name. Same screen as the pre-check block, so the guest sees one
+      // consistent outcome rather than a failure they can't act on.
+      return json({ blocked: true, suggestions: [`${name} 2`, `${name} 3`, `${name} 4`] });
+    }
 
     return json({ created: true, userId, sessionToken, header: await buildHeader(sb, ctx) });
   });
@@ -366,23 +438,21 @@ async function actionClaimPlaceholder(
   return withWriteGuard(sb, ctx, async () => {
     if (!body.placeholderUserId) return err("BAD_REQUEST", 400, "placeholderUserId required");
     const now = Date.now();
-    const sessionId = newId();
+    // The RPC writes the winning session row itself, under the advisory lock that decides the race —
+    // inserting it out here afterwards let two racers each be told they won (see schema.sql).
+    const sessionToken = newPlaintextToken();
     const { data, error } = await sb.rpc("claim_web_placeholder", {
       p_group_id: ctx.link.group_id,
       p_placeholder_user_id: body.placeholderUserId,
-      p_session_id: sessionId,
+      p_session_id: newId(),
+      p_session_token_hash: await sha256Hex(sessionToken),
       p_now: now,
     });
     if (error) return err("BACKEND", 500, error.message);
     if (!data.won) return json({ won: false, winnerSessionId: data.winner_session_id });
 
-    const sessionToken = newPlaintextToken();
-    const { error: sessErr } = await sb.from("web_sessions").insert({
-      id: sessionId, group_id: ctx.link.group_id, user_id: body.placeholderUserId,
-      token_hash: await sha256Hex(sessionToken), created_at: now, last_seen_at: now,
-    });
-    if (sessErr) return err("BACKEND", 500, sessErr.message);
-    await ensureParticipant(sb, ctx.link.expense_id, ctx.link.group_id, body.placeholderUserId, now);
+    const participantErr = await ensureParticipant(sb, ctx.link.expense_id, ctx.link.group_id, body.placeholderUserId, now);
+    if (participantErr) return err("BACKEND", 500, participantErr);
 
     const { data: user } = await sb.from("users").select("display_name").eq("id", body.placeholderUserId).maybeSingle();
     return json({ won: true, sessionToken, userId: body.placeholderUserId, name: user?.display_name, header: await buildHeader(sb, ctx) });
@@ -397,17 +467,25 @@ async function actionBill(sb: SupabaseClient, body: { token?: string }): Promise
   if (ctx instanceof Response) return ctx;
 
   const expenseId = ctx.link.expense_id;
-  const [{ data: items }, { data: claims }, { data: shares }, { data: participants }] = await Promise.all([
+  const [{ data: items }, { data: claims }, { data: shares }, { data: participants }, { data: pendingEdits }] = await Promise.all([
     sb.from("expense_items").select("id, label, quantity, line_total_subunits, sort_order").eq("expense_id", expenseId).is("deleted_at", null).order("sort_order"),
     sb.from("item_claims").select("id, item_id, user_id, quantity").eq("expense_id", expenseId).is("deleted_at", null),
     sb.from("item_shares").select("id, item_id, user_id, portion_id, quantity, added_by").eq("expense_id", expenseId).is("deleted_at", null),
     sb.from("bill_participants").select("user_id, done_at").eq("expense_id", expenseId).is("deleted_at", null),
+    // Spec E19: a guest's total must include her own unapproved edit, with the line marked as
+    // waiting — "she must never see a number she cannot account for". The client can only honour that
+    // if it can see the proposals, so they ship with the rows. Decided ones come too, and recently
+    // enough to carry E22's "your addition was rejected" note on the next poll.
+    sb.from("pending_item_edits")
+      .select("id, item_id, kind, proposed_label, proposed_quantity, proposed_unit_price_subunits, previous_label, previous_quantity, previous_unit_price_subunits, proposed_by, proposed_at, decided_at, decision")
+      .eq("expense_id", expenseId).order("proposed_at"),
   ]);
 
   const participantIds = (participants ?? []).map((p) => p.user_id as string);
   const claimantIds = (claims ?? []).map((c) => c.user_id as string);
   const shareUserIds = (shares ?? []).map((s) => s.user_id as string);
-  const nameIds = Array.from(new Set([...participantIds, ...claimantIds, ...shareUserIds]));
+  const proposerIds = (pendingEdits ?? []).map((e) => e.proposed_by as string);
+  const nameIds = Array.from(new Set([...participantIds, ...claimantIds, ...shareUserIds, ...proposerIds]));
   const { data: users } = nameIds.length
     ? await sb.from("users").select("id, display_name").in("id", nameIds)
     : { data: [] as Array<{ id: string; display_name: string }> };
@@ -440,6 +518,7 @@ async function actionBill(sb: SupabaseClient, body: { token?: string }): Promise
     items: items ?? [],
     claims: claims ?? [],
     shares: shares ?? [],
+    pendingEdits: pendingEdits ?? [],
     participants: (participants ?? []).map((p) => ({ userId: p.user_id, name: namesByUser[p.user_id as string] ?? "Someone", doneAt: p.done_at })),
     namesByUser,
     payer,
@@ -456,8 +535,8 @@ async function actionClaim(
   const ctx = await resolveLink(sb, body.token);
   if (ctx instanceof Response) return ctx;
   return withWriteGuard(sb, ctx, async () => {
-    const session = await resolveSession(sb, ctx.link.group_id, body.sessionToken);
-    if (!session) return err("SESSION_REQUIRED", 401);
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
     if (!body.itemId) return err("BAD_REQUEST", 400, "itemId required");
     const { data: item } = await sb.from("expense_items").select("id").eq("id", body.itemId).eq("expense_id", ctx.link.expense_id).is("deleted_at", null).maybeSingle();
     if (!item) return err("BAD_REQUEST", 400, "item not on this bill");
@@ -466,15 +545,114 @@ async function actionClaim(
     const quantity = body.quantity ?? 0;
     const claimId = `${body.itemId}__${session.user_id}`;
     if (quantity <= 0) {
-      await sb.from("item_claims").update({ deleted_at: now, updated_at: now }).eq("item_id", body.itemId).eq("user_id", session.user_id).is("deleted_at", null);
+      const { error } = await sb.from("item_claims").update({ deleted_at: now, updated_at: now }).eq("item_id", body.itemId).eq("user_id", session.user_id).is("deleted_at", null);
+      if (error) return err("BACKEND", 500, error.message);
     } else {
-      const { data: existing } = await sb.from("item_claims").select("id, row_version").eq("item_id", body.itemId).eq("user_id", session.user_id).maybeSingle();
-      await sb.from("item_claims").upsert({
+      // Filtered to LIVE rows: `item_claims_item_user_active_uidx` is partial, so a tombstone and a live
+      // row can coexist for one (item, user) and an unfiltered maybeSingle() errors on the pair, drops
+      // to the deterministic id, and collides with the live legacy-id row.
+      const { data: existing } = await sb.from("item_claims").select("id, row_version")
+        .eq("item_id", body.itemId).eq("user_id", session.user_id).is("deleted_at", null).maybeSingle();
+      const { error } = await sb.from("item_claims").upsert({
         id: existing?.id ?? claimId, item_id: body.itemId, expense_id: ctx.link.expense_id, group_id: ctx.link.group_id,
         user_id: session.user_id, quantity, deleted_at: null, updated_at: now,
         created_at: existing ? undefined : now, row_version: (existing?.row_version ?? 0) + 1,
       });
+      if (error) return err("BACKEND", 500, error.message);
     }
+    return json({ ok: true });
+  });
+}
+
+/** POST /web-claim/share — declare who had a line together (spec §3.4, the share sheet).
+ *
+ *  `join` adds exactly one person: the caller. That is right for "＋ Add me", and useless for "who had
+ *  the juice with you?", where a guest names people who are not holding a phone. So this walks the
+ *  named members through `join_item_portion` **server-side**, caller first so the conversion of any
+ *  existing solo claim happens once, then everyone else onto that same portion id.
+ *
+ *  The loop is sequential on purpose: each call reads the line's current assignment to decide whether
+ *  it is converting a solo claim, creating a portion, or over-claiming, and running them concurrently
+ *  would race that read against its own siblings.
+ *
+ *  Membership is checked against `bill_participants`, not taken on trust: a token authorises writes to
+ *  THIS bill's claims (spec §4.3), never the invention of arbitrary user ids on someone else's plate. */
+async function actionShare(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; itemId?: string; memberUserIds?: string[]; overClaimAck?: boolean },
+): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withWriteGuard(sb, ctx, async () => {
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
+    if (!body.itemId) return err("BAD_REQUEST", 400, "itemId required");
+    const { data: item } = await sb.from("expense_items").select("id").eq("id", body.itemId).eq("expense_id", ctx.link.expense_id).is("deleted_at", null).maybeSingle();
+    if (!item) return err("BAD_REQUEST", 400, "item not on this bill");
+
+    const requested = Array.from(new Set(body.memberUserIds ?? []));
+    const { data: participants } = await sb
+      .from("bill_participants").select("user_id").eq("expense_id", ctx.link.expense_id).is("deleted_at", null);
+    const allowed = new Set((participants ?? []).map((p) => p.user_id as string));
+    const unknown = requested.filter((id) => !allowed.has(id));
+    if (unknown.length > 0) return err("BAD_REQUEST", 400, "not a participant of this bill");
+
+    // The caller goes first so the portion exists (and any solo claim on the line is retired) before
+    // anyone is added to it. Everyone else then names that portion explicitly.
+    const members = [session.user_id, ...requested.filter((id) => id !== session.user_id)];
+    let portionId: string | null = null;
+    for (const userId of members) {
+      const { data, error } = await sb.rpc("join_item_portion", {
+        p_item_id: body.itemId,
+        p_joiner_user_id: userId,
+        p_portion_id: portionId,
+        p_now: Date.now(),
+        p_over_claim_ack: body.overClaimAck ?? false,
+      });
+      if (error) {
+        if (error.message?.includes("OVERCLAIMED")) return err("OVERCLAIMED", 409, error.message);
+        return err("BACKEND", 500, error.message);
+      }
+      portionId = data.portion_id as string;
+    }
+    return json({ ok: true, portionId, members });
+  });
+}
+
+/** POST /web-claim/leave — take myself off a line (spec §2.7 "the person affected can remove you",
+ *  E12). The mirror of `join`, and deliberately NOT an RPC: leaving touches only the caller's OWN
+ *  `item_claims` / `item_shares` rows, so the partition invariant `join_item_portion` exists to
+ *  protect is never in play. A portion left with one member is a solo assignment expressed as a
+ *  one-member slice, which the split engine already bills correctly.
+ *
+ *  Without this, "＋ Add me" is a one-way door: a guest who joins the wrong plate can undo a solo
+ *  claim but never a share, and §2.7's promise that joining is "reversible by the affected person"
+ *  is only half true. */
+async function actionLeave(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; itemId?: string },
+): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withWriteGuard(sb, ctx, async () => {
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
+    if (!body.itemId) return err("BAD_REQUEST", 400, "itemId required");
+    const { data: item } = await sb.from("expense_items").select("id").eq("id", body.itemId).eq("expense_id", ctx.link.expense_id).is("deleted_at", null).maybeSingle();
+    if (!item) return err("BAD_REQUEST", 400, "item not on this bill");
+
+    // Soft-delete only, and scoped to this one (item, user) pair — never a bare delete, per
+    // `supabase/AGENTS.md`. Both tables in one action because "take me off this line" is one gesture
+    // to the guest whether she got there by claiming or by joining.
+    const now = Date.now();
+    const [claimRes, shareRes] = await Promise.all([
+      sb.from("item_claims").update({ deleted_at: now, updated_at: now })
+        .eq("item_id", body.itemId).eq("user_id", session.user_id).is("deleted_at", null),
+      sb.from("item_shares").update({ deleted_at: now, updated_at: now })
+        .eq("item_id", body.itemId).eq("user_id", session.user_id).is("deleted_at", null),
+    ]);
+    if (claimRes.error) return err("BACKEND", 500, claimRes.error.message);
+    if (shareRes.error) return err("BACKEND", 500, shareRes.error.message);
     return json({ ok: true });
   });
 }
@@ -488,8 +666,8 @@ async function actionJoin(
   const ctx = await resolveLink(sb, body.token);
   if (ctx instanceof Response) return ctx;
   return withWriteGuard(sb, ctx, async () => {
-    const session = await resolveSession(sb, ctx.link.group_id, body.sessionToken);
-    if (!session) return err("SESSION_REQUIRED", 401);
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
     if (!body.itemId) return err("BAD_REQUEST", 400, "itemId required");
     const { data: item } = await sb.from("expense_items").select("id").eq("id", body.itemId).eq("expense_id", ctx.link.expense_id).is("deleted_at", null).maybeSingle();
     if (!item) return err("BAD_REQUEST", 400, "item not on this bill");
@@ -522,8 +700,8 @@ async function actionEdit(
   const ctx = await resolveLink(sb, body.token);
   if (ctx instanceof Response) return ctx;
   return withWriteGuard(sb, ctx, async () => {
-    const session = await resolveSession(sb, ctx.link.group_id, body.sessionToken);
-    if (!session) return err("SESSION_REQUIRED", 401);
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
     const kind = body.kind;
     if (!kind || !["ADD", "RELABEL", "REPRICE", "REQUANTITY", "REMOVE"].includes(kind)) return err("BAD_REQUEST", 400, "invalid kind");
 
@@ -559,13 +737,34 @@ async function actionDone(sb: SupabaseClient, body: { token?: string; sessionTok
   const ctx = await resolveLink(sb, body.token);
   if (ctx instanceof Response) return ctx;
   return withWriteGuard(sb, ctx, async () => {
-    const session = await resolveSession(sb, ctx.link.group_id, body.sessionToken);
-    if (!session) return err("SESSION_REQUIRED", 401);
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
     const now = Date.now();
-    await sb.from("bill_participants")
+    const { error } = await sb.from("bill_participants")
       .update({ done_at: body.done ? now : null, updated_at: now })
       .eq("expense_id", ctx.link.expense_id).eq("user_id", session.user_id).is("deleted_at", null);
+    if (error) return err("BACKEND", 500, error.message);
     return json({ ok: true });
+  });
+}
+
+/** POST /web-claim/release — "Not Purity? Use a different name" (spec E4, E5). Revokes this browser's
+ *  session and hands back the landing branch, so the guest lands on the evidence list as an unknown
+ *  visitor again. Spec E4 puts this on EVERY screen, and E5 (one phone passed around a table) calls it
+ *  the most likely real failure — so it must be available whether or not the session is still writable,
+ *  which is why it takes `resolveSession` directly rather than the writable gate.
+ *
+ *  It never touches the placeholder itself: identity is durable (§2.2), and her claims stay hers. All
+ *  that ends is this browser's binding to her. */
+async function actionRelease(sb: SupabaseClient, body: { token?: string; sessionToken?: string }): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withWriteGuard(sb, ctx, async () => {
+    const session = await resolveSession(sb, ctx.link.group_id, body.sessionToken);
+    if (!session) return json({ ok: true, released: false }); // already nobody — the desired end state
+    const { error } = await sb.from("web_sessions").update({ revoked_at: Date.now() }).eq("id", session.id);
+    if (error) return err("BACKEND", 500, error.message);
+    return json({ ok: true, released: true });
   });
 }
 
@@ -579,8 +778,11 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any) => Promise<Respons
   bill: actionBill,
   claim: actionClaim,
   join: actionJoin,
+  share: actionShare,
+  leave: actionLeave,
   edit: actionEdit,
   done: actionDone,
+  release: actionRelease,
 };
 
 Deno.serve(async (req) => {
