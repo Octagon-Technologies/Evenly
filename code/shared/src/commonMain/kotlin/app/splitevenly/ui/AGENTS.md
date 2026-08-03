@@ -118,6 +118,9 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   approval gate. **No "undo all"** either, and no rights hierarchy: anyone on the bill may undo, an undo
   is itself an attributed entry, and the log is the tiebreak. The banner clears by being **read** (a
   device-local marker in `SecureStorage`, `changesSeenKey` in `WebClaimRoutes.kt`), not by deciding.
+  **A notification that clears itself needs a durable door beside it** — the "What changed" row in
+  `WebClaimActions` is that door. Without it, reading the banner once puts the record of who changed
+  what, and the undo with it, permanently out of reach. Found by walking the screen, not by reading it.
 - **The bill QR and the group invite are different links and stay apart.** Per-expense, 72 hours,
   no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button.
   The scope reassurance under it ("this bill only") is not decoration: the payer is deciding whether to

@@ -161,7 +161,9 @@ private fun headline(liveCount: Int): String = when (liveCount) {
 @Composable
 private fun EditCard(edit: ReviewEditUi, currency: String, onUndo: () -> Unit) {
     val c = EvenlyTheme.colors
-    EvCard(padded = true) {
+    // fillMaxWidth, or the card sizes to its widest line and the column of cards comes out ragged
+    // against the full-width note below it. Only visible once the two decision chips became one Undo.
+    EvCard(Modifier.fillMaxWidth(), padded = true) {
         Text(
             buildAnnotatedString {
                 append("${edit.proposerName} ${verb(edit.kind)} ")
@@ -274,7 +276,7 @@ private fun UndoChip(onClick: () -> Unit) {
 @Composable
 private fun UndoneCard(edit: ReviewEditUi) {
     val c = EvenlyTheme.colors
-    EvCard(fill = true, bordered = true, padded = true) {
+    EvCard(Modifier.fillMaxWidth(), fill = true, bordered = true, padded = true) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             EvIcon(EvIcons.Undo, size = 16.dp, tint = c.ink3)
             Column(Modifier.fillMaxWidth()) {

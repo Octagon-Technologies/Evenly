@@ -132,10 +132,12 @@ fun BillReviewEditsRoute(groupId: String, expenseId: String, onBack: () -> Unit)
                 deltaSubunits = edit.totalDeltaSubunits,
                 decision = edit.decision,
                 // `decided_by` is set on an APPLIED row too (it is the guest who made the change), so
-                // this is gated on the decision rather than on the column being present.
+                // this is gated on the decision rather than on the column being present. Resolved to
+                // "you" for the reader, because the payer undoing their own change and reading their own
+                // name back is the kind of small wrongness that makes a screen feel like a database.
                 undoneByName = edit.decidedBy
                     ?.takeIf { edit.decision == PendingEditDecision.UNDONE }
-                    ?.let { nameByUser[it.value] },
+                    ?.let { if (it == userId) "you" else nameByUser[it.value] },
             )
         },
     )

@@ -65,7 +65,10 @@ internal fun PendingEditsBanner(unseenCount: Int, onReviewEdits: () -> Unit) {
 internal fun WebClaimActions(
     onShareLink: () -> Unit,
     onWhoIsLeft: () -> Unit,
+    onReviewEdits: () -> Unit,
     stillToClaimCount: Int,
+    /** Every change ever made to this bill from the web, seen or not. */
+    changeCount: Int,
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
@@ -86,6 +89,18 @@ internal fun WebClaimActions(
                 title = "Who's still to claim",
                 sub = if (stillToClaimCount == 1) "1 person hasn't claimed yet" else "$stillToClaimCount people haven't claimed yet",
                 onClick = onWhoIsLeft,
+                first = false,
+            )
+        }
+        // The durable door to the bill's history. The banner above is a notification and clears once
+        // read; without this row, reading it once would put the record of who changed what permanently
+        // out of reach, and an undo with it.
+        if (changeCount > 0) {
+            WebClaimRow(
+                icon = EvIcons.Edit,
+                title = "What changed",
+                sub = if (changeCount == 1) "1 change people made from the web" else "$changeCount changes people made from the web",
+                onClick = onReviewEdits,
                 first = false,
             )
         }

@@ -140,8 +140,12 @@ fun BillClaimScreen(
     onShareLink: () -> Unit = {},
     onWhoIsLeft: () -> Unit = {},
     onReviewEdits: () -> Unit = {},
-    /// Changes this device has not opened the "What changed" screen for yet. They have already applied.
+    /// Changes this device has not opened the "What changed" screen for yet. They have already applied,
+    /// so this drives a notification banner that clears by being read.
     unseenChangeCount: Int = 0,
+    /// Every change ever made to this bill from the web. Drives the durable "What changed" row, which
+    /// must outlive the banner or the history becomes unreachable once read.
+    changeCount: Int = 0,
     stillToClaimCount: Int = 0,
     // True on a user's first couple of visits — auto-expands the numbered how-to. Reopenable anytime.
     guideAutoOpen: Boolean = false,
@@ -189,7 +193,7 @@ fun BillClaimScreen(
                 // its own. Same failure the group feed had.
                 item(key = "claim-header") {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        WebClaimActions(onShareLink, onWhoIsLeft, stillToClaimCount)
+                        WebClaimActions(onShareLink, onWhoIsLeft, onReviewEdits, stillToClaimCount, changeCount)
                         ClaimGuide(
                             open = guideOpen,
                             onExpand = { guideOpen = true },

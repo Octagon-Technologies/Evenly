@@ -398,6 +398,7 @@ fun BillClaimRoute(
         onWhoIsLeft = onWhoIsLeft,
         onReviewEdits = onReviewEdits,
         unseenChangeCount = pendingEdits.count { it.proposedAt > changesSeenAt },
+        changeCount = pendingEdits.size,
         // "Claiming" here means a claim or a portion membership exists, NOT that they tapped "I'm done":
         // done is a nudge-silencer, not a resolution (data/AGENTS.md), and a payer looking for who still
         // owes them an answer wants the people with nothing on the bill.
