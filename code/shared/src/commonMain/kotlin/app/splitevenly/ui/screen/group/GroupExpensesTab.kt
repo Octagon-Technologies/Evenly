@@ -159,9 +159,9 @@ fun GroupExpensesTab(
                 EvIconButton(EvIcons.Gear, onOpenSettings)
             },
         )
-        if (offline) EvBanner("Offline. Your changes will sync.")
         // Tab island: a segmented pill below the title (not an underline bar in the app bar), with the
-        // advanced-filter funnel beside it so the bar stays uncluttered.
+        // advanced-filter funnel beside it so the bar stays uncluttered. This and the top bar are the
+        // *only* fixed chrome on the page; see the scroll surface below.
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -175,25 +175,6 @@ fun GroupExpensesTab(
             )
             FilterFunnel(active = filterActive, onClick = onFilter)
         }
-        if (filterActive) FilterChipRow(onClearFilter)
-        if (unresolvedBills.isNotEmpty()) {
-            UnresolvedBillsSection(unresolvedBills, claimsExpanded, { claimsExpanded = !claimsExpanded }, onOpenBill)
-        }
-        // Outside the feed's LazyColumn on purpose: the question has to be there on every sub-tab, with
-        // a filter on, and in the empty states too, which are exactly the moments a scrolling item
-        // wouldn't render.
-        if (identityNames.isNotEmpty()) {
-            IdentityClaimCard(
-                names = identityNames,
-                onThatsMe = onIdentityThatsMe,
-                onNotMe = onIdentityNotMe,
-                onNoneOfThese = onIdentityNoneOfThese,
-                onLater = onIdentityLater,
-                onSeeAll = onIdentitySeeAll,
-            )
-        } else if (identityFinished) {
-            IdentityClaimDoneNote()
-        }
 
         // The sub-tab narrows by settlement status; drop days that have nothing under the active view.
         val visibleDays = days.mapNotNull { day ->
@@ -201,40 +182,45 @@ fun GroupExpensesTab(
             val settled = if (sub == "Active") emptyList() else day.items.filter { it.settled }
             if (active.isEmpty() && settled.isEmpty()) null else VisibleDay(day.label, active, settled)
         }
+        val populated = state == ExpensesState.Populated && visibleDays.isNotEmpty()
 
-        when {
-            state == ExpensesState.Loading -> Column(Modifier.padding(top = 8.dp)) { repeat(5) { EvSkeletonRow() } }
-            filterActive && visibleDays.isEmpty() -> EvEmptyState(
-                icon = EvIcons.Filter,
-                title = "No matching expenses",
-                text = "No expenses match the current filter. Clear it to see everything.",
-                ctaText = "Clear filters",
-                onCta = onClearFilter,
-            )
-
-            state == ExpensesState.Empty -> EvEmptyState(
-                icon = EvIcons.Receipt,
-                title = "No expenses yet",
-                text = "Add the first expense and Evenly tracks who owes whom.",
-                ctaText = "Add expense",
-                onCta = onAdd,
-            )
-
-            visibleDays.isEmpty() -> EvEmptyState(
-                icon = EvIcons.Receipt,
-                title = "Nothing here",
-                text = "No ${sub.lowercase()} expenses in this group yet.",
-                ctaText = "Add expense",
-                onCta = onAdd,
-            )
-
-            else -> Box(Modifier.weight(1f)) {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    // One prompt at a time, identity first: this strip already stacks the offline
-                    // banner, the filter chips, and the unresolved-bills section, and a fifth
-                    // interstitial buries the feed.
-                    if (drafts > 0 && !filterActive && sub != "Settled" && identityNames.isEmpty()) {
-                        item {
+        // One scroll surface for everything under the tabs. The offline banner, the claim card and the
+        // "Is this you?" card used to be fixed rows above the feed, so with two of them showing the
+        // expense list was left scrolling inside a sliver. They are list items now, and the empty states
+        // are items too rather than a branch that replaces the list: that is what keeps the identity
+        // question present on every sub-tab, under a filter, and when the feed has nothing in it, which
+        // was the reason those cards sat outside the feed in the first place.
+        Box(Modifier.weight(1f)) {
+            LazyColumn(Modifier.fillMaxSize()) {
+                // Every prompt above the feed is *one* item under a fixed key, not one item each. The
+                // bills and the unclaimed names arrive from their own flows a beat after the expenses,
+                // and a LazyColumn anchors on the first visible item's key: as separate items they
+                // prepend, pushing themselves above the viewport, so the group opened part-scrolled with
+                // the claim card already off-screen. A stable first key grows downward instead.
+                item(key = "feed-header") {
+                    Column {
+                        if (offline) EvBanner("Offline. Your changes will sync.")
+                        if (filterActive) FilterChipRow(onClearFilter)
+                        if (unresolvedBills.isNotEmpty()) {
+                            UnresolvedBillsSection(unresolvedBills, claimsExpanded, { claimsExpanded = !claimsExpanded }, onOpenBill)
+                        }
+                        if (identityNames.isNotEmpty()) {
+                            IdentityClaimCard(
+                                names = identityNames,
+                                onThatsMe = onIdentityThatsMe,
+                                onNotMe = onIdentityNotMe,
+                                onNoneOfThese = onIdentityNoneOfThese,
+                                onLater = onIdentityLater,
+                                onSeeAll = onIdentitySeeAll,
+                            )
+                        } else if (identityFinished) {
+                            IdentityClaimDoneNote()
+                        }
+                        // One prompt at a time, identity first: this strip already stacks the offline
+                        // banner, the filter chips, and the unresolved-bills section, and a fifth
+                        // interstitial pushes the first expense off the screen even though the page
+                        // now scrolls.
+                        if (drafts > 0 && !filterActive && sub != "Settled" && identityNames.isEmpty()) {
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)
                                     .clip(RoundedCornerShape(12.dp)).background(c.blueTint).clickable { onOpenDrafts() }
@@ -249,11 +235,51 @@ fun GroupExpensesTab(
                             }
                         }
                     }
-                    visibleDays.forEach { day ->
+                }
+
+                when {
+                    state == ExpensesState.Loading -> item(key = "loading") {
+                        Column(Modifier.padding(top = 8.dp)) { repeat(5) { EvSkeletonRow() } }
+                    }
+
+                    filterActive && visibleDays.isEmpty() -> item(key = "empty-filtered") {
+                        EvEmptyState(
+                            icon = EvIcons.Filter,
+                            title = "No matching expenses",
+                            text = "No expenses match the current filter. Clear it to see everything.",
+                            ctaText = "Clear filters",
+                            onCta = onClearFilter,
+                        )
+                    }
+
+                    state == ExpensesState.Empty -> item(key = "empty") {
+                        EvEmptyState(
+                            icon = EvIcons.Receipt,
+                            title = "No expenses yet",
+                            text = "Add the first expense and Evenly tracks who owes whom.",
+                            ctaText = "Add expense",
+                            onCta = onAdd,
+                        )
+                    }
+
+                    visibleDays.isEmpty() -> item(key = "empty-sub") {
+                        EvEmptyState(
+                            icon = EvIcons.Receipt,
+                            title = "Nothing here",
+                            text = "No ${sub.lowercase()} expenses in this group yet.",
+                            ctaText = "Add expense",
+                            onCta = onAdd,
+                        )
+                    }
+
+                    else -> visibleDays.forEachIndexed { i, day ->
                         // A plain item, not a stickyHeader: pinned it overlapped the rows it scrolled
                         // over (its surface band is a near-transparent wash in dark mode). Scrolling with
                         // the content is the familiar pattern and sidesteps the bleed-through entirely.
-                        item(key = day.label) { EvDayHeader(day.label) }
+                        // Keyed by position, not by the label: `dayLabel` prints no year, so two expenses
+                        // the same weekday/month/day in different years render the identical string and a
+                        // repeated key is an immediate LazyColumn crash, not a cosmetic clash.
+                        item(key = "day-$i-${day.label}") { EvDayHeader(day.label) }
                         // Each expense is its own card (side margins + small gap, no hairlines).
                         itemsIndexed(day.active, key = { _, it -> it.id }) { _, it ->
                             ExpenseRowFrom(it, onOpenExpense)
@@ -264,14 +290,16 @@ fun GroupExpensesTab(
                                     ExpenseRowFrom(it, onOpenExpense)
                                 }
                             } else {
-                                item(key = "settled-${day.label}") { SettledTray(day.settled, onOpenExpense) }
+                                item(key = "settled-$i-${day.label}") { SettledTray(day.settled, onOpenExpense) }
                             }
                         }
                     }
-                    item { Spacer(Modifier.height(150.dp)) }
                 }
-                EvFab(onAdd, Modifier.align(Alignment.BottomEnd).padding(16.dp))
+                item(key = "tail") { Spacer(Modifier.height(150.dp)) }
             }
+            // Hidden behind an empty state, which carries its own "Add expense" button: two primary
+            // add affordances on one screen read as two different actions.
+            if (populated) EvFab(onAdd, Modifier.align(Alignment.BottomEnd).padding(16.dp))
         }
     }
     // Sits above the FAB, over whatever branch rendered. Swiping it away is deliberately not a cancel:
