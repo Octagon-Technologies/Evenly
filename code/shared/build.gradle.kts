@@ -170,6 +170,22 @@ kotlin {
     }
 }
 
+// The money CI gate (WEB_CLAIM_SPEC.md §7): `test-vectors/bill-split.json` runs against BOTH this
+// engine (BillSplitVectorsTest) and the hand-ported TS one in `web/`. Declaring the file as a test
+// input is what makes that a gate — without it Gradle sees no Kotlin change, calls the task
+// UP-TO-DATE, and a vectors-only edit sails through green. `EVENLY_VECTORS_RECORD=true` re-records
+// the expectations from Kotlin (the authority) and deliberately fails the run.
+val moneyVectors = rootProject.layout.projectDirectory.file("../test-vectors/bill-split.json")
+tasks.withType<Test>().configureEach {
+    inputs.file(moneyVectors)
+        .withPropertyName("moneyVectors")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty(
+        "evenly.vectors.record",
+        providers.environmentVariable("EVENLY_VECTORS_RECORD").getOrElse("false"),
+    )
+}
+
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
 

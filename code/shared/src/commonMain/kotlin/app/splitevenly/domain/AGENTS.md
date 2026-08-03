@@ -54,6 +54,23 @@ is always 0. An expense is settled iff every share's derived remaining is 0. All
 within whatever set the payment is scoped to. There is no stored "settled" flag to go stale — do not add one.
 The persistence consequences are in `../data/AGENTS.md`.
 
+## This math is implemented twice. Changing it here is half the job.
+
+`Allocator.kt`, `BillSplit.kt` and `ItemizedAllocator.kt` are hand-ported to TypeScript in
+`web/src/lib/money/` so a web guest's total is instant on a restaurant connection
+(`WEB_CLAIM_SPEC.md` §2.10). **Kotlin is the authority** — it is what the ledger records; the port is
+only what the guest sees, and is allowed to be stale by one poll, never to disagree.
+
+`test-vectors/bill-split.json` runs against both engines and a divergence is a red build
+(`.github/workflows/money-vectors.yml`). So a rule change here is not done until:
+
+1. the TS port changes with it, in the **same commit**;
+2. a vector that would have caught the old behaviour is added and recorded from Kotlin —
+   `cd code && EVENLY_VECTORS_RECORD=true ./gradlew :shared:testAndroidHostTest --tests '*BillSplitVectorsTest*'`.
+
+Never record to turn a red build green; see `test-vectors/README.md`. The vectors file is declared as
+a test input in `shared/build.gradle.kts` precisely so a vectors-only edit cannot pass as UP-TO-DATE.
+
 ## Categories
 
 `CategoryDefaults` holds the built-in set in app code and mirrors the legacy `ExpenseCategory` ids and

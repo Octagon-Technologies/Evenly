@@ -40,6 +40,7 @@ Paths below are under `code/shared/src/commonMain/kotlin/app/splitevenly/` unles
 | `platform/**` — `expect`/`actual`, permissions | `platform/AGENTS.md`     |
 | `supabase/**` — schema, RLS, edge functions   | `supabase/AGENTS.md`     |
 | `code/iosApp/**` — Xcode host, Kotlin/Native  | `code/iosApp/AGENTS.md`  |
+| `web/**` — the web claim surface + TS money port | `web/AGENTS.md`       |
 
 If you are about to touch one of those trees and have not read its file, read it first. It exists
 because someone already made the mistake you are about to make.
@@ -157,7 +158,7 @@ failure in the last 10% never threatens work that already passed.
 
 ## 8. Maintaining this file
 
-- **Ceiling: 170 lines.** It currently sits at 163. Something must leave before something enters. Do
+- **Ceiling: 170 lines.** It currently sits at 169. Something must leave before something enters. Do
   not raise the number — a ceiling with room to spare is not a constraint.
 - **The test for a new line:** would removing this cause a mistake in a session that is **not** about
   this feature? If no, it belongs in a nested `AGENTS.md`, a skill, or a hook.

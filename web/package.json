@@ -1,0 +1,17 @@
+{
+  "name": "evenly-web-claim",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Evenly's web claim surface — claim your items from a QR, no app and no account (WEB_CLAIM_SPEC.md).",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/vectors.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

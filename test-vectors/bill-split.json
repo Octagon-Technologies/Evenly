@@ -1,0 +1,2256 @@
+{
+  "version": 1,
+  "note": "Shared money vectors. Kotlin is the authority; the TS port must match it exactly (WEB_CLAIM_SPEC.md §7). See test-vectors/README.md before editing.",
+  "allocate": [
+    {
+      "name": "evenSplitThreeWayExact",
+      "source": "AllocatorTest.kt::evenSplitThreeWayExact",
+      "totalSubunits": 3000,
+      "weights": [
+        {
+          "userId": "user-a",
+          "weight": 1
+        },
+        {
+          "userId": "user-b",
+          "weight": 1
+        },
+        {
+          "userId": "user-c",
+          "weight": 1
+        }
+      ],
+      "expect": {
+        "user-a": 1000,
+        "user-b": 1000,
+        "user-c": 1000
+      }
+    },
+    {
+      "name": "evenSplitRemainder_longestTenuredGetsExtraCent",
+      "source": "AllocatorTest.kt::evenSplitRemainder_longestTenuredGetsExtraCent",
+      "totalSubunits": 1000,
+      "weights": [
+        {
+          "userId": "user-a",
+          "weight": 1
+        },
+        {
+          "userId": "user-b",
+          "weight": 1
+        },
+        {
+          "userId": "user-c",
+          "weight": 1
+        }
+      ],
+      "expect": {
+        "user-a": 334,
+        "user-b": 333,
+        "user-c": 333
+      }
+    },
+    {
+      "name": "byShareSplitNoRemainder",
+      "source": "AllocatorTest.kt::byShareSplitNoRemainder",
+      "totalSubunits": 10000,
+      "weights": [
+        {
+          "userId": "user-a",
+          "weight": 1
+        },
+        {
+          "userId": "user-b",
+          "weight": 2
+        },
+        {
+          "userId": "user-c",
+          "weight": 2
+        }
+      ],
+      "expect": {
+        "user-a": 2000,
+        "user-b": 4000,
+        "user-c": 4000
+      }
+    },
+    {
+      "name": "byPercentageFourDecimalPrecision",
+      "source": "AllocatorTest.kt::byPercentageFourDecimalPrecision",
+      "totalSubunits": 10000,
+      "weights": [
+        {
+          "userId": "user-a",
+          "weight": 333333
+        },
+        {
+          "userId": "user-b",
+          "weight": 333334
+        },
+        {
+          "userId": "user-c",
+          "weight": 333333
+        }
+      ],
+      "expect": {
+        "user-b": 3334,
+        "user-a": 3333,
+        "user-c": 3333
+      }
+    },
+    {
+      "name": "orderIndependence_shuffledInput",
+      "source": "AllocatorTest.kt::orderIndependence_shuffledInputProducesSameMap",
+      "totalSubunits": 1000,
+      "weights": [
+        {
+          "userId": "user-c",
+          "weight": 1
+        },
+        {
+          "userId": "user-a",
+          "weight": 1
+        },
+        {
+          "userId": "user-b",
+          "weight": 1
+        }
+      ],
+      "expect": {
+        "user-a": 334,
+        "user-b": 333,
+        "user-c": 333
+      }
+    },
+    {
+      "name": "unequalWeights_remainderByFractionThenId",
+      "source": "Allocator.kt — largest-remainder tiebreak, D-28",
+      "totalSubunits": 1000,
+      "weights": [
+        {
+          "userId": "a",
+          "weight": 1
+        },
+        {
+          "userId": "b",
+          "weight": 1
+        },
+        {
+          "userId": "c",
+          "weight": 1
+        },
+        {
+          "userId": "d",
+          "weight": 1
+        },
+        {
+          "userId": "e",
+          "weight": 1
+        },
+        {
+          "userId": "f",
+          "weight": 1
+        },
+        {
+          "userId": "g",
+          "weight": 1
+        }
+      ],
+      "expect": {
+        "a": 143,
+        "b": 143,
+        "c": 143,
+        "d": 143,
+        "e": 143,
+        "f": 143,
+        "g": 142
+      }
+    },
+    {
+      "name": "largeIntermediate_doesNotLosePrecision",
+      "source": "Allocator.kt — total × weight must not round (BigInt on the TS side)",
+      "totalSubunits": 999999999,
+      "weights": [
+        {
+          "userId": "a",
+          "weight": 333333331
+        },
+        {
+          "userId": "b",
+          "weight": 333333333
+        },
+        {
+          "userId": "c",
+          "weight": 333333335
+        }
+      ],
+      "expect": {
+        "a": 333333331,
+        "b": 333333333,
+        "c": 333333335
+      }
+    }
+  ],
+  "itemizedShares": [
+    {
+      "name": "proportionalTip_noTax_sharesMatchSubtotalRatio",
+      "source": "ItemizedAllocatorTest.kt::proportionalTip_noTax_sharesMatchSubtotalRatio",
+      "subtotals": [
+        {
+          "userId": "a",
+          "subtotal": 6000
+        },
+        {
+          "userId": "b",
+          "subtotal": 4000
+        }
+      ],
+      "taxSubunits": 0,
+      "tipSubunits": 2000,
+      "tipSplitMode": "PROPORTIONAL",
+      "expect": {
+        "a": 7200,
+        "b": 4800
+      }
+    },
+    {
+      "name": "evenTip_noTax_tipSplitEqually",
+      "source": "ItemizedAllocatorTest.kt::evenTip_noTax_tipSplitEqually",
+      "subtotals": [
+        {
+          "userId": "a",
+          "subtotal": 6000
+        },
+        {
+          "userId": "b",
+          "subtotal": 4000
+        }
+      ],
+      "taxSubunits": 0,
+      "tipSubunits": 2000,
+      "tipSplitMode": "EVEN",
+      "expect": {
+        "a": 7000,
+        "b": 5000
+      }
+    },
+    {
+      "name": "proportionalTax_evenTip_finalSharesCorrect",
+      "source": "ItemizedAllocatorTest.kt::proportionalTax_evenTip_finalSharesCorrect",
+      "subtotals": [
+        {
+          "userId": "a",
+          "subtotal": 6000
+        },
+        {
+          "userId": "b",
+          "subtotal": 4000
+        }
+      ],
+      "taxSubunits": 1000,
+      "tipSubunits": 1500,
+      "tipSplitMode": "EVEN",
+      "expect": {
+        "a": 7350,
+        "b": 5150
+      }
+    },
+    {
+      "name": "zeroTaxAndZeroTip_outputMatchesSubtotalsExactly",
+      "source": "ItemizedAllocatorTest.kt::zeroTaxAndZeroTip_outputMatchesSubtotalsExactly",
+      "subtotals": [
+        {
+          "userId": "a",
+          "subtotal": 6000
+        },
+        {
+          "userId": "b",
+          "subtotal": 4000
+        }
+      ],
+      "taxSubunits": 0,
+      "tipSubunits": 0,
+      "tipSplitMode": "PROPORTIONAL",
+      "expect": {
+        "a": 6000,
+        "b": 4000
+      }
+    },
+    {
+      "name": "oddTax_pennyRemainderStaysExact",
+      "source": "ItemizedAllocatorTest.kt AC-INV-012 — sum(out) == sum(subtotals) + tax + tip",
+      "subtotals": [
+        {
+          "userId": "a",
+          "subtotal": 1000
+        },
+        {
+          "userId": "b",
+          "subtotal": 1000
+        },
+        {
+          "userId": "c",
+          "subtotal": 1000
+        }
+      ],
+      "taxSubunits": 100,
+      "tipSubunits": 100,
+      "tipSplitMode": "EVEN",
+      "expect": {
+        "a": 1068,
+        "b": 1066,
+        "c": 1066
+      }
+    }
+  ],
+  "splitBill": [
+    {
+      "name": "individualUnits_exact_andResolved",
+      "source": "BillSplitTest.kt::individualUnits_exact_andResolved",
+      "items": [
+        {
+          "itemId": "pizza",
+          "lineTotalSubunits": 7200,
+          "quantity": 4
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "pizza",
+          "userId": "a",
+          "units": 2
+        },
+        {
+          "itemId": "pizza",
+          "userId": "b",
+          "units": 1
+        },
+        {
+          "itemId": "pizza",
+          "userId": "c",
+          "units": 1
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 3600,
+          "b": 1800,
+          "c": 1800
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 3600,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 1800,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 1800,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "pizza": {
+            "a": 3600,
+            "b": 1800,
+            "c": 1800
+          }
+        },
+        "items": [
+          {
+            "itemId": "pizza",
+            "quantity": 4,
+            "individualUnits": 4,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "leftoverUnits_noSharers_unclaimed",
+      "source": "BillSplitTest.kt::leftoverUnits_noSharers_unclaimed",
+      "items": [
+        {
+          "itemId": "pizza",
+          "lineTotalSubunits": 4000,
+          "quantity": 4
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "pizza",
+          "userId": "a",
+          "units": 2
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 2000
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 2000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "pizza": {
+            "a": 2000
+          }
+        },
+        "items": [
+          {
+            "itemId": "pizza",
+            "quantity": 4,
+            "individualUnits": 2,
+            "hasSharers": false,
+            "status": "UNCLAIMED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sharedSet_absorbsLeftover",
+      "source": "BillSplitTest.kt::sharedSet_absorbsLeftover",
+      "items": [
+        {
+          "itemId": "pizza",
+          "lineTotalSubunits": 4000,
+          "quantity": 4
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "pizza",
+          "userId": "a",
+          "units": 2
+        }
+      ],
+      "sharedMembers": [
+        {
+          "itemId": "pizza",
+          "userId": "b"
+        },
+        {
+          "itemId": "pizza",
+          "userId": "c"
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 2000,
+          "b": 1000,
+          "c": 1000
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 2000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 1000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 1000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "pizza": {
+            "a": 2000,
+            "b": 1000,
+            "c": 1000
+          }
+        },
+        "items": [
+          {
+            "itemId": "pizza",
+            "quantity": 4,
+            "individualUnits": 2,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "perItemByUser_splitsALineByPerson",
+      "source": "BillSplitTest.kt::perItemByUser_splitsALineByPerson",
+      "items": [
+        {
+          "itemId": "fish",
+          "lineTotalSubunits": 4800,
+          "quantity": 2
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "fish",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "sharedMembers": [
+        {
+          "itemId": "fish",
+          "userId": "a"
+        },
+        {
+          "itemId": "fish",
+          "userId": "b"
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 3600,
+          "b": 1200
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 3600,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 1200,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "fish": {
+            "a": 3600,
+            "b": 1200
+          }
+        },
+        "items": [
+          {
+            "itemId": "fish",
+            "quantity": 2,
+            "individualUnits": 1,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "portions_mixedCountsPlusSharedSlice_andLeftover",
+      "source": "BillSplitTest.kt::portions_mixedCountsPlusSharedSlice_andLeftover",
+      "items": [
+        {
+          "itemId": "nachos",
+          "lineTotalSubunits": 3200,
+          "quantity": 8
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "nachos",
+          "userId": "a",
+          "units": 2
+        },
+        {
+          "itemId": "nachos",
+          "userId": "b",
+          "units": 3
+        }
+      ],
+      "sharedPortions": [
+        {
+          "itemId": "nachos",
+          "portionId": "p1",
+          "quantity": 1,
+          "members": [
+            "b",
+            "c"
+          ]
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 800,
+          "b": 1400,
+          "c": 200
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 800,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 1400,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 200,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "nachos": {
+            "a": 800,
+            "b": 1400,
+            "c": 200
+          }
+        },
+        "items": [
+          {
+            "itemId": "nachos",
+            "quantity": 8,
+            "individualUnits": 5,
+            "hasSharers": true,
+            "status": "UNCLAIMED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "portions_multipleSharedSlices_resolve",
+      "source": "BillSplitTest.kt::portions_multipleSharedSlices_resolve",
+      "items": [
+        {
+          "itemId": "wings",
+          "lineTotalSubunits": 1200,
+          "quantity": 4
+        }
+      ],
+      "sharedPortions": [
+        {
+          "itemId": "wings",
+          "portionId": "p1",
+          "quantity": 2,
+          "members": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "itemId": "wings",
+          "portionId": "p2",
+          "quantity": 2,
+          "members": [
+            "c",
+            "d"
+          ]
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 300,
+          "b": 300,
+          "c": 300,
+          "d": 300
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 300,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 300,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 300,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "d": {
+            "itemsSubunits": 300,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "wings": {
+            "a": 300,
+            "b": 300,
+            "c": 300,
+            "d": 300
+          }
+        },
+        "items": [
+          {
+            "itemId": "wings",
+            "quantity": 4,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sharedByEveryone_wholeLine",
+      "source": "BillSplitTest.kt::sharedByEveryone_wholeLine",
+      "items": [
+        {
+          "itemId": "naan",
+          "lineTotalSubunits": 1500,
+          "quantity": 3
+        }
+      ],
+      "sharedMembers": [
+        {
+          "itemId": "naan",
+          "userId": "a"
+        },
+        {
+          "itemId": "naan",
+          "userId": "b"
+        },
+        {
+          "itemId": "naan",
+          "userId": "c"
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 500,
+          "b": 500,
+          "c": 500
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 500,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 500,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 500,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "naan": {
+            "a": 500,
+            "b": 500,
+            "c": 500
+          }
+        },
+        "items": [
+          {
+            "itemId": "naan",
+            "quantity": 3,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixedIndividualAndShared_theNotesMakhani",
+      "source": "BillSplitTest.kt::mixedIndividualAndShared_theNotesMakhani",
+      "items": [
+        {
+          "itemId": "makhani",
+          "lineTotalSubunits": 9600,
+          "quantity": 4
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "makhani",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "makhani",
+          "userId": "b",
+          "units": 1
+        },
+        {
+          "itemId": "makhani",
+          "userId": "c",
+          "units": 1
+        }
+      ],
+      "sharedMembers": [
+        {
+          "itemId": "makhani",
+          "userId": "a"
+        },
+        {
+          "itemId": "makhani",
+          "userId": "b"
+        },
+        {
+          "itemId": "makhani",
+          "userId": "c"
+        },
+        {
+          "itemId": "makhani",
+          "userId": "d"
+        },
+        {
+          "itemId": "makhani",
+          "userId": "e"
+        },
+        {
+          "itemId": "makhani",
+          "userId": "f"
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 2800,
+          "b": 2800,
+          "c": 2800,
+          "d": 400,
+          "e": 400,
+          "f": 400
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 2800,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 2800,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 2800,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "d": {
+            "itemsSubunits": 400,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "e": {
+            "itemsSubunits": 400,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "f": {
+            "itemsSubunits": 400,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "makhani": {
+            "a": 2800,
+            "b": 2800,
+            "c": 2800,
+            "d": 400,
+            "e": 400,
+            "f": 400
+          }
+        },
+        "items": [
+          {
+            "itemId": "makhani",
+            "quantity": 4,
+            "individualUnits": 3,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sharedSplit_indivisible_isPennyExact",
+      "source": "BillSplitTest.kt::sharedSplit_indivisible_isPennyExact",
+      "items": [
+        {
+          "itemId": "nachos",
+          "lineTotalSubunits": 1000,
+          "quantity": 1
+        }
+      ],
+      "sharedMembers": [
+        {
+          "itemId": "nachos",
+          "userId": "a"
+        },
+        {
+          "itemId": "nachos",
+          "userId": "b"
+        },
+        {
+          "itemId": "nachos",
+          "userId": "c"
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 334,
+          "b": 333,
+          "c": 333
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 334,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 333,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 333,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "nachos": {
+            "a": 334,
+            "b": 333,
+            "c": 333
+          }
+        },
+        "items": [
+          {
+            "itemId": "nachos",
+            "quantity": 1,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lineTotalIndivisibleByUnits_isPennyExact",
+      "source": "BillSplitTest.kt::lineTotalIndivisibleByUnits_isPennyExact",
+      "items": [
+        {
+          "itemId": "dosa",
+          "lineTotalSubunits": 1000,
+          "quantity": 3
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "dosa",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "dosa",
+          "userId": "b",
+          "units": 1
+        },
+        {
+          "itemId": "dosa",
+          "userId": "c",
+          "units": 1
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 334,
+          "b": 333,
+          "c": 333
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 334,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 333,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 333,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "dosa": {
+            "a": 334,
+            "b": 333,
+            "c": 333
+          }
+        },
+        "items": [
+          {
+            "itemId": "dosa",
+            "quantity": 3,
+            "individualUnits": 3,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "overClaim_flagged",
+      "source": "BillSplitTest.kt::overClaim_flagged",
+      "items": [
+        {
+          "itemId": "beer",
+          "lineTotalSubunits": 1800,
+          "quantity": 2
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "beer",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "beer",
+          "userId": "b",
+          "units": 1
+        },
+        {
+          "itemId": "beer",
+          "userId": "c",
+          "units": 1
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 900,
+          "b": 900,
+          "c": 900
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 900,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 900,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 900,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "beer": {
+            "a": 900,
+            "b": 900,
+            "c": 900
+          }
+        },
+        "items": [
+          {
+            "itemId": "beer",
+            "quantity": 2,
+            "individualUnits": 3,
+            "hasSharers": false,
+            "status": "OVERCLAIMED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "overClaim_withSharedPortion_costsEveryUnit",
+      "source": "BillSplit.kt over-assignment branch — a portion pushes the line past its quantity",
+      "items": [
+        {
+          "itemId": "sides",
+          "lineTotalSubunits": 1000,
+          "quantity": 2
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "sides",
+          "userId": "c",
+          "units": 1
+        }
+      ],
+      "sharedPortions": [
+        {
+          "itemId": "sides",
+          "portionId": "p1",
+          "quantity": 2,
+          "members": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "c": 500,
+          "a": 500,
+          "b": 500
+        },
+        "breakdownByUser": {
+          "c": {
+            "itemsSubunits": 500,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "a": {
+            "itemsSubunits": 500,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 500,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "sides": {
+            "c": 500,
+            "a": 500,
+            "b": 500
+          }
+        },
+        "items": [
+          {
+            "itemId": "sides",
+            "quantity": 2,
+            "individualUnits": 1,
+            "hasSharers": true,
+            "status": "OVERCLAIMED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "singleUnit_claimedThenShared_isFullyShared",
+      "source": "BillSplitTest.kt::singleUnit_claimedThenShared_isFullyShared",
+      "items": [
+        {
+          "itemId": "juice",
+          "lineTotalSubunits": 500,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "juice",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "sharedMembers": [
+        {
+          "itemId": "juice",
+          "userId": "a"
+        },
+        {
+          "itemId": "juice",
+          "userId": "b"
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 250,
+          "b": 250
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 250,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 250,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "juice": {
+            "a": 250,
+            "b": 250
+          }
+        },
+        "items": [
+          {
+            "itemId": "juice",
+            "quantity": 1,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "explicitPortions_beatLegacySharedSet",
+      "source": "BillSplit.kt — explicit portions win; the legacy all-leftover set is ignored on that line",
+      "items": [
+        {
+          "itemId": "curry",
+          "lineTotalSubunits": 4000,
+          "quantity": 4
+        }
+      ],
+      "sharedMembers": [
+        {
+          "itemId": "curry",
+          "userId": "c"
+        }
+      ],
+      "sharedPortions": [
+        {
+          "itemId": "curry",
+          "portionId": "p1",
+          "quantity": 4,
+          "members": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 2000,
+          "b": 2000
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 2000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 2000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "curry": {
+            "a": 2000,
+            "b": 2000
+          }
+        },
+        "items": [
+          {
+            "itemId": "curry",
+            "quantity": 4,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "taxGratuityProportional_tipEven",
+      "source": "BillSplitTest.kt::taxGratuityProportional_tipEven",
+      "items": [
+        {
+          "itemId": "a-meal",
+          "lineTotalSubunits": 6000,
+          "quantity": 1
+        },
+        {
+          "itemId": "b-meal",
+          "lineTotalSubunits": 4000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "a-meal",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "b-meal",
+          "userId": "b",
+          "units": 1
+        }
+      ],
+      "extras": {
+        "taxSubunits": 800,
+        "gratuitySubunits": 1200,
+        "tipSubunits": 1000,
+        "tipSplitMode": "EVEN"
+      },
+      "expect": {
+        "owedByUser": {
+          "a": 7700,
+          "b": 5300
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 6000,
+            "taxSubunits": 1200,
+            "tipSubunits": 500,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 4000,
+            "taxSubunits": 800,
+            "tipSubunits": 500,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "a-meal": {
+            "a": 6000
+          },
+          "b-meal": {
+            "b": 4000
+          }
+        },
+        "items": [
+          {
+            "itemId": "a-meal",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "b-meal",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "tipProportional",
+      "source": "BillSplitTest.kt::tipProportional_andDiscount",
+      "items": [
+        {
+          "itemId": "a-meal",
+          "lineTotalSubunits": 6000,
+          "quantity": 1
+        },
+        {
+          "itemId": "b-meal",
+          "lineTotalSubunits": 4000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "a-meal",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "b-meal",
+          "userId": "b",
+          "units": 1
+        }
+      ],
+      "extras": {
+        "tipSubunits": 2000,
+        "tipSplitMode": "PROPORTIONAL"
+      },
+      "expect": {
+        "owedByUser": {
+          "a": 7200,
+          "b": 4800
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 6000,
+            "taxSubunits": 0,
+            "tipSubunits": 1200,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 4000,
+            "taxSubunits": 0,
+            "tipSubunits": 800,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "a-meal": {
+            "a": 6000
+          },
+          "b-meal": {
+            "b": 4000
+          }
+        },
+        "items": [
+          {
+            "itemId": "a-meal",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "b-meal",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "discount_negativeProportional",
+      "source": "BillSplitTest.kt::tipProportional_andDiscount",
+      "items": [
+        {
+          "itemId": "a-meal",
+          "lineTotalSubunits": 6000,
+          "quantity": 1
+        },
+        {
+          "itemId": "b-meal",
+          "lineTotalSubunits": 4000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "a-meal",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "b-meal",
+          "userId": "b",
+          "units": 1
+        }
+      ],
+      "extras": {
+        "discountSubunits": 1000
+      },
+      "expect": {
+        "owedByUser": {
+          "a": 5400,
+          "b": 3600
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 6000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 600
+          },
+          "b": {
+            "itemsSubunits": 4000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 400
+          }
+        },
+        "perItemByUser": {
+          "a-meal": {
+            "a": 6000
+          },
+          "b-meal": {
+            "b": 4000
+          }
+        },
+        "items": [
+          {
+            "itemId": "a-meal",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "b-meal",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "earlyClaimant_doesNotAbsorbAllExtras",
+      "source": "BillSplitTest.kt::earlyClaimant_doesNotAbsorbAllExtras",
+      "items": [
+        {
+          "itemId": "juice",
+          "lineTotalSubunits": 500,
+          "quantity": 1
+        },
+        {
+          "itemId": "mains",
+          "lineTotalSubunits": 25100,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "juice",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "extras": {
+        "taxSubunits": 2068,
+        "gratuitySubunits": 5292,
+        "tipSubunits": 2400,
+        "tipSplitMode": "PROPORTIONAL"
+      },
+      "participants": [
+        "a",
+        "b",
+        "c"
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 691
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 500,
+            "taxSubunits": 144,
+            "tipSubunits": 47,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "juice": {
+            "a": 500
+          }
+        },
+        "items": [
+          {
+            "itemId": "juice",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "mains",
+            "quantity": 1,
+            "individualUnits": 0,
+            "hasSharers": false,
+            "status": "UNCLAIMED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "evenTip_perParticipant_notJustClaimants",
+      "source": "BillSplitTest.kt::evenTip_perParticipant_notJustClaimants",
+      "items": [
+        {
+          "itemId": "a",
+          "lineTotalSubunits": 1000,
+          "quantity": 1
+        },
+        {
+          "itemId": "b",
+          "lineTotalSubunits": 1000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "a",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "extras": {
+        "tipSubunits": 3000,
+        "tipSplitMode": "EVEN"
+      },
+      "participants": [
+        "a",
+        "b",
+        "c"
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 2000
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 1000,
+            "taxSubunits": 0,
+            "tipSubunits": 1000,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "a": {
+            "a": 1000
+          }
+        },
+        "items": [
+          {
+            "itemId": "a",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "b",
+            "quantity": 1,
+            "individualUnits": 0,
+            "hasSharers": false,
+            "status": "UNCLAIMED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "breakdown_partsSumToTab_taxFoldsGratuity",
+      "source": "BillSplitTest.kt::breakdown_partsSumToTab_taxFoldsGratuity",
+      "items": [
+        {
+          "itemId": "a",
+          "lineTotalSubunits": 6000,
+          "quantity": 1
+        },
+        {
+          "itemId": "b",
+          "lineTotalSubunits": 4000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "a",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "b",
+          "userId": "b",
+          "units": 1
+        }
+      ],
+      "extras": {
+        "taxSubunits": 800,
+        "gratuitySubunits": 1200,
+        "tipSubunits": 1000,
+        "tipSplitMode": "EVEN"
+      },
+      "participants": [
+        "a",
+        "b"
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 7700,
+          "b": 5300
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 6000,
+            "taxSubunits": 1200,
+            "tipSubunits": 500,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 4000,
+            "taxSubunits": 800,
+            "tipSubunits": 500,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "a": {
+            "a": 6000
+          },
+          "b": {
+            "b": 4000
+          }
+        },
+        "items": [
+          {
+            "itemId": "a",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "b",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nothingClaimed_empty_allUnclaimed",
+      "source": "BillSplitTest.kt::nothingClaimed_empty_allUnclaimed",
+      "items": [
+        {
+          "itemId": "x",
+          "lineTotalSubunits": 1000,
+          "quantity": 1
+        },
+        {
+          "itemId": "y",
+          "lineTotalSubunits": 1000,
+          "quantity": 2
+        }
+      ],
+      "extras": {
+        "taxSubunits": 100
+      },
+      "expect": {
+        "owedByUser": {},
+        "breakdownByUser": {},
+        "perItemByUser": {},
+        "items": [
+          {
+            "itemId": "x",
+            "quantity": 1,
+            "individualUnits": 0,
+            "hasSharers": false,
+            "status": "UNCLAIMED"
+          },
+          {
+            "itemId": "y",
+            "quantity": 2,
+            "individualUnits": 0,
+            "hasSharers": false,
+            "status": "UNCLAIMED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "zeroQuantityLine_resolvesAndChargesNobody",
+      "source": "BillSplit.kt — a scanned line with quantity 0 must not divide by zero",
+      "items": [
+        {
+          "itemId": "ghost",
+          "lineTotalSubunits": 0,
+          "quantity": 0
+        },
+        {
+          "itemId": "real",
+          "lineTotalSubunits": 1000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "real",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 1000
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 1000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "real": {
+            "a": 1000
+          }
+        },
+        "items": [
+          {
+            "itemId": "ghost",
+            "quantity": 0,
+            "individualUnits": 0,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "real",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "allFreeBill_extrasSplitEvenlyAmongClaimants",
+      "source": "BillSplit.kt — fullSubtotal <= 0 falls back to an even split, never divide-by-zero",
+      "items": [
+        {
+          "itemId": "comped-a",
+          "lineTotalSubunits": 0,
+          "quantity": 1
+        },
+        {
+          "itemId": "comped-b",
+          "lineTotalSubunits": 0,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "comped-a",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "comped-b",
+          "userId": "b",
+          "units": 1
+        }
+      ],
+      "extras": {
+        "taxSubunits": 101,
+        "tipSubunits": 0
+      },
+      "expect": {
+        "owedByUser": {
+          "a": 51,
+          "b": 50
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 0,
+            "taxSubunits": 51,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 0,
+            "taxSubunits": 50,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "comped-a": {
+            "a": 0
+          },
+          "comped-b": {
+            "b": 0
+          }
+        },
+        "items": [
+          {
+            "itemId": "comped-a",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "comped-b",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "twelvePersonDinner_theSpecScenario",
+      "source": "WEB_CLAIM_SPEC.md §1 — twelve people, one app, everything claimed",
+      "items": [
+        {
+          "itemId": "i01-katsu",
+          "lineTotalSubunits": 5400,
+          "quantity": 3
+        },
+        {
+          "itemId": "i02-ramen",
+          "lineTotalSubunits": 3800,
+          "quantity": 2
+        },
+        {
+          "itemId": "i03-gyoza",
+          "lineTotalSubunits": 2500,
+          "quantity": 4
+        },
+        {
+          "itemId": "i04-wine",
+          "lineTotalSubunits": 6700,
+          "quantity": 1
+        },
+        {
+          "itemId": "i05-rice",
+          "lineTotalSubunits": 900,
+          "quantity": 3
+        },
+        {
+          "itemId": "i06-beer",
+          "lineTotalSubunits": 4200,
+          "quantity": 6
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "i01-katsu",
+          "userId": "u01",
+          "units": 1
+        },
+        {
+          "itemId": "i01-katsu",
+          "userId": "u02",
+          "units": 1
+        },
+        {
+          "itemId": "i01-katsu",
+          "userId": "u03",
+          "units": 1
+        },
+        {
+          "itemId": "i02-ramen",
+          "userId": "u04",
+          "units": 1
+        },
+        {
+          "itemId": "i02-ramen",
+          "userId": "u05",
+          "units": 1
+        },
+        {
+          "itemId": "i06-beer",
+          "userId": "u01",
+          "units": 2
+        },
+        {
+          "itemId": "i06-beer",
+          "userId": "u07",
+          "units": 1
+        },
+        {
+          "itemId": "i06-beer",
+          "userId": "u09",
+          "units": 1
+        }
+      ],
+      "sharedPortions": [
+        {
+          "itemId": "i03-gyoza",
+          "portionId": "p-gyoza-1",
+          "quantity": 2,
+          "members": [
+            "u06",
+            "u07",
+            "u08"
+          ]
+        },
+        {
+          "itemId": "i03-gyoza",
+          "portionId": "p-gyoza-2",
+          "quantity": 2,
+          "members": [
+            "u09",
+            "u10"
+          ]
+        },
+        {
+          "itemId": "i04-wine",
+          "portionId": "p-wine",
+          "quantity": 1,
+          "members": [
+            "u01",
+            "u02",
+            "u03",
+            "u04",
+            "u11",
+            "u12"
+          ]
+        },
+        {
+          "itemId": "i05-rice",
+          "portionId": "p-rice",
+          "quantity": 3,
+          "members": [
+            "u05",
+            "u06",
+            "u11"
+          ]
+        },
+        {
+          "itemId": "i06-beer",
+          "portionId": "p-beer",
+          "quantity": 2,
+          "members": [
+            "u10",
+            "u12"
+          ]
+        }
+      ],
+      "extras": {
+        "taxSubunits": 1957,
+        "gratuitySubunits": 0,
+        "tipSubunits": 4300,
+        "tipSplitMode": "EVEN",
+        "discountSubunits": 500
+      },
+      "participants": [
+        "u01",
+        "u02",
+        "u03",
+        "u04",
+        "u05",
+        "u06",
+        "u07",
+        "u08",
+        "u09",
+        "u10",
+        "u11",
+        "u12"
+      ],
+      "expect": {
+        "owedByUser": {
+          "u01": 4944,
+          "u02": 3457,
+          "u03": 3457,
+          "u04": 3563,
+          "u05": 2694,
+          "u06": 1120,
+          "u07": 1544,
+          "u08": 800,
+          "u09": 1765,
+          "u10": 1765,
+          "u11": 1862,
+          "u12": 2286
+        },
+        "breakdownByUser": {
+          "u01": {
+            "itemsSubunits": 4317,
+            "taxSubunits": 360,
+            "tipSubunits": 359,
+            "discountSubunits": 92
+          },
+          "u02": {
+            "itemsSubunits": 2917,
+            "taxSubunits": 243,
+            "tipSubunits": 359,
+            "discountSubunits": 62
+          },
+          "u03": {
+            "itemsSubunits": 2917,
+            "taxSubunits": 243,
+            "tipSubunits": 359,
+            "discountSubunits": 62
+          },
+          "u04": {
+            "itemsSubunits": 3017,
+            "taxSubunits": 251,
+            "tipSubunits": 359,
+            "discountSubunits": 64
+          },
+          "u05": {
+            "itemsSubunits": 2200,
+            "taxSubunits": 183,
+            "tipSubunits": 358,
+            "discountSubunits": 47
+          },
+          "u06": {
+            "itemsSubunits": 717,
+            "taxSubunits": 60,
+            "tipSubunits": 358,
+            "discountSubunits": 15
+          },
+          "u07": {
+            "itemsSubunits": 1117,
+            "taxSubunits": 93,
+            "tipSubunits": 358,
+            "discountSubunits": 24
+          },
+          "u08": {
+            "itemsSubunits": 416,
+            "taxSubunits": 35,
+            "tipSubunits": 358,
+            "discountSubunits": 9
+          },
+          "u09": {
+            "itemsSubunits": 1325,
+            "taxSubunits": 110,
+            "tipSubunits": 358,
+            "discountSubunits": 28
+          },
+          "u10": {
+            "itemsSubunits": 1325,
+            "taxSubunits": 110,
+            "tipSubunits": 358,
+            "discountSubunits": 28
+          },
+          "u11": {
+            "itemsSubunits": 1416,
+            "taxSubunits": 118,
+            "tipSubunits": 358,
+            "discountSubunits": 30
+          },
+          "u12": {
+            "itemsSubunits": 1816,
+            "taxSubunits": 151,
+            "tipSubunits": 358,
+            "discountSubunits": 39
+          }
+        },
+        "perItemByUser": {
+          "i01-katsu": {
+            "u01": 1800,
+            "u02": 1800,
+            "u03": 1800
+          },
+          "i02-ramen": {
+            "u04": 1900,
+            "u05": 1900
+          },
+          "i03-gyoza": {
+            "u06": 417,
+            "u07": 417,
+            "u08": 416,
+            "u09": 625,
+            "u10": 625
+          },
+          "i04-wine": {
+            "u01": 1117,
+            "u02": 1117,
+            "u03": 1117,
+            "u04": 1117,
+            "u11": 1116,
+            "u12": 1116
+          },
+          "i05-rice": {
+            "u05": 300,
+            "u06": 300,
+            "u11": 300
+          },
+          "i06-beer": {
+            "u01": 1400,
+            "u07": 700,
+            "u09": 700,
+            "u10": 700,
+            "u12": 700
+          }
+        },
+        "items": [
+          {
+            "itemId": "i01-katsu",
+            "quantity": 3,
+            "individualUnits": 3,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i02-ramen",
+            "quantity": 2,
+            "individualUnits": 2,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i03-gyoza",
+            "quantity": 4,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i04-wine",
+            "quantity": 1,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i05-rice",
+            "quantity": 3,
+            "individualUnits": 0,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i06-beer",
+            "quantity": 6,
+            "individualUnits": 4,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    }
+  ]
+}
