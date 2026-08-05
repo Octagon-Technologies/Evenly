@@ -9,12 +9,13 @@
 # Used by the Android Studio "iOS App (Simulator)" run configuration, and runnable on its own:
 #     ./run-ios-sim.sh                       # preferred simulator (see SIM_NAME)
 #     SIM_NAME="iPhone 15 Pro" ./run-ios-sim.sh
+#     CONFIG=Release ./run-ios-sim.sh        # Release build instead of Debug
 #
 set -euo pipefail
 
 PROJECT="iosApp.xcodeproj"
 SCHEME="iosApp"
-CONFIG="Debug"
+CONFIG="${CONFIG:-Debug}"
 BUNDLE_ID="app.splitevenly"   # PRODUCT_BUNDLE_IDENTIFIER (TEAM_ID empty → no suffix)
 SIM_NAME="${SIM_NAME:-iPhone 16}"            # override via env var
 DERIVED="build/dd"

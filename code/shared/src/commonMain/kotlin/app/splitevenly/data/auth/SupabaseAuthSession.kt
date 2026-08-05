@@ -15,6 +15,7 @@ import app.splitevenly.domain.auth.OAuthProvider
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.EvAnalytics
+import app.splitevenly.platform.isDebugBuild
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
@@ -131,7 +132,12 @@ class SupabaseAuthSession(
         AppResult.Ok(UserId(user.id))
     }.getOrElse { AppError.Unexpected(it).asErr() }
 
-    override suspend fun signInWithPassword(email: String, password: String): AppResult<UserId> = runCatching {
+    override suspend fun signInWithPassword(email: String, password: String): AppResult<UserId> {
+        if (!isDebugBuild()) return AppError.NotAuthorized.asErr()
+        return signInWithPasswordUnguarded(email, password)
+    }
+
+    private suspend fun signInWithPasswordUnguarded(email: String, password: String): AppResult<UserId> = runCatching {
         client.auth.signInWith(Email) { this.email = email.trim(); this.password = password }
         val user = client.auth.currentUserOrNull() ?: return AppError.SessionExpired.asErr()
         mirrorCurrentUser()

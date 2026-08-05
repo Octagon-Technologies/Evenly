@@ -34,6 +34,10 @@ interface AuthSession {
     /**
      * Email + password sign-in. Used for seeded test accounts (no email round-trip), so QA can switch
      * between users without burning the OTP rate limit. On success [currentUserId] becomes non-null.
+     * **Debug builds only** ([app.splitevenly.platform.isDebugBuild]) — a release binary can only prove
+     * email ownership via OTP/magic-link, never a password for an email it doesn't own.
+     * [app.splitevenly.data.auth.SupabaseAuthSession] fails closed with [app.splitevenly.core.error.AppError.NotAuthorized]
+     * in release.
      */
     suspend fun signInWithPassword(email: String, password: String): AppResult<UserId>
 

@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.theme.EvenlyTheme
+import evenly.shared.generated.resources.Res
+import evenly.shared.generated.resources.app_name
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * The Evenly feather, traced from `design/logo-inspo/Evenly Logo.png`.
@@ -67,7 +70,7 @@ fun EvWordmark(
             modifier = Modifier.size(size * 1.12f),
         )
         Text(
-            text = "Evenly",
+            text = stringResource(Res.string.app_name),
             color = textColor,
             fontSize = size.value.sp,
             fontWeight = FontWeight.Bold,

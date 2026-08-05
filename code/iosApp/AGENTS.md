@@ -12,7 +12,9 @@ code/iosApp/run-ios-sim.sh
 Mirrors the Android Studio "iOS App (Simulator)" run config: boots or reuses a simulator, builds via
 `xcodebuild` (which also compiles the shared Kotlin/Native framework), then installs and launches. **This is
 the default surface for manual verification** — the owner usually has the simulator open, and running a
-simulator and an Android emulator at once burns CPU/RAM for nothing.
+simulator and an Android emulator at once burns CPU/RAM for nothing. Defaults to the Debug configuration;
+`CONFIG=Release ./run-ios-sim.sh` runs Release instead. Both point at the same cloud Supabase project —
+`SupabaseConfig.USE_LOCAL` is a manual flag for local destructive QA, not tied to Debug/Release.
 
 Compile-only check, much faster than a full Xcode build:
 

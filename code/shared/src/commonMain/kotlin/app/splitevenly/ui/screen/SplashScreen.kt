@@ -22,6 +22,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.EvenlyMark
+import evenly.shared.generated.resources.Res
+import evenly.shared.generated.resources.app_name
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * The brand blue the splash paints, on both platforms and in both themes.
@@ -67,7 +70,7 @@ fun SplashScreen(modifier: Modifier = Modifier) {
             modifier = Modifier.size(MarkSize),
         )
         Text(
-            text = "Evenly",
+            text = stringResource(Res.string.app_name),
             color = Color.White,
             fontSize = 34.sp,
             fontWeight = FontWeight.Bold,
