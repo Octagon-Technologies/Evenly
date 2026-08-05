@@ -59,7 +59,7 @@ data class WebBillLinkState(
  * does not hold that, so `.github/workflows/release-guards.yml` fails the build on `main` and on any PR
  * targeting it while this is true. Feature branches are unaffected, which is the point.
  */
-private const val USE_LOCAL_WEB_CLAIM_HOST: Boolean = true
+private const val USE_LOCAL_WEB_CLAIM_HOST: Boolean = false
 private const val LOCAL_WEB_CLAIM_HOST: String = "http://127.0.0.1:5177"
 private const val PROD_WEB_CLAIM_HOST: String = "split-evenly.app"
 
