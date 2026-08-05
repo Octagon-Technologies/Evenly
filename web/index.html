@@ -7,10 +7,12 @@
          footer above the home indicator, which is where "I'm done" lives. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#FFFFFF" />
-    <meta name="robots" content="noindex, nofollow" />
-    <!-- A bill link in a chat thread must not render a preview of someone's dinner. -->
+    <!-- Indexable by default: this file also serves the marketing site (home, privacy, terms).
+         The claim route (`/b/:token`) is bill-scoped and sensitive, so `App.svelte` adds `noindex`
+         back at runtime for that route only, and only there — a bill link in a chat thread must not
+         render a preview of someone's dinner. -->
     <meta name="referrer" content="no-referrer" />
-    <title>Claim your items · Evenly</title>
+    <title>Evenly — Split the bill, not the friendship.</title>
   </head>
   <body>
     <div id="app"></div>

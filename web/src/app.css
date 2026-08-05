@@ -60,7 +60,12 @@ body {
  * inside them — the footer lands below the fold on a long bill, which is every real bill.
  * `dvh` so mobile browser chrome collapsing doesn't clip it.
  */
-#app {
+/*
+ * Was `#app` directly: the mount point now also hosts the marketing site (home, privacy, terms),
+ * which needs the full viewport width, not a mobile column. `App.svelte` wraps just the claim-flow
+ * branch in this class instead, so the constraint applies only where it always meant to.
+ */
+.claim-shell {
   height: 100vh;
   height: 100dvh;
   max-width: 480px;

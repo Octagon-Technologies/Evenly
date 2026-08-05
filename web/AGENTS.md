@@ -1,14 +1,27 @@
 # `web/` — the claim surface
 
-Governs `web/**`. The browser half of `WEB_CLAIM_SPEC.md`: a guest scans the payer's QR, claims what
-they actually ate, and leaves as a real person in the group. No app, no account, no password.
+Governs `web/**`. Two surfaces share this one Vite/Svelte bundle: the claim flow (the browser half
+of `WEB_CLAIM_SPEC.md` — a guest scans the payer's QR, claims what they actually ate, and leaves as a
+real person in the group, no app, no account, no password) and, as of 2026-08-04, the marketing site
+(`src/marketing/` — home, privacy, terms) that lives at the same domain. `src/lib/router.ts`'s
+`resolveRoute` is what decides which one a given URL gets.
 
-This is **not** a web version of Evenly. One bill, one job, 72 hours. Spec §9 lists what that
-deliberately excludes — no group view, no balances, no settle-up, no expense creation, no offline.
-If you are adding a second screen that is not in `design/web-claim-mockup.html`, stop and re-read it.
+**The claim flow is still not a web version of Evenly.** One bill, one job, 72 hours. Spec §9 lists
+what that deliberately excludes — no group view, no balances, no settle-up, no expense creation, no
+offline. If you are adding a second *claim* screen that is not in `design/web-claim-mockup.html`,
+stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
+mockup (the "Finy-inspired" home/privacy/terms artifact) — a new marketing page is in scope there.
 
-`src/lib/money/` is the ported split math (step 4); `src/screens/` is the Svelte surface, frames 1-9
-(step 5). `src/lib/mock.ts` is the walkthrough fixture behind `?mock` and is dead code in a build.
+`src/lib/money/` is the ported split math; `src/screens/` is the claim flow's Svelte surface, frames
+1-9. `src/marketing/` is the home/privacy/terms pages, styled by `src/marketing.css` (`site-`-prefixed
+selectors, tokens scoped under `.site-root` — never `:root` — so they can never collide with
+`app.css`'s claim-flow tokens in the same bundle). `src/lib/mock.ts` is the claim flow's walkthrough
+fixture behind `?mock` and is dead code in a build.
+
+**The two surfaces do not share `#app`'s box model.** `app.css`'s old `#app` rule (fixed height,
+480px mobile column) is now `.claim-shell`, applied only around the claim-flow branch in
+`App.svelte`. Putting it back on `#app` itself reintroduces a 480px cap on the marketing pages —
+found once already; don't reintroduce it.
 
 ## The money port is a copy, and the copy is gated
 

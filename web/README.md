@@ -1,9 +1,10 @@
-# `web/` — the claim surface
+# `web/` — the claim surface, and the marketing site
 
-The browser half of `WEB_CLAIM_SPEC.md`: a guest scans the payer's QR, claims what they actually ate,
-and leaves as a real person in the group. No app, no account, no password.
-
-**Right now this holds only the money engine** (build-order step 4). The Svelte surface is step 5.
+One Vite/Svelte bundle, two surfaces. The claim flow is the browser half of `WEB_CLAIM_SPEC.md`: a
+guest scans the payer's QR, claims what they actually ate, and leaves as a real person in the group.
+No app, no account, no password. Alongside it, at the same domain, `src/marketing/` is the home page
+plus Privacy Policy and Terms of Service. `src/lib/router.ts`'s `resolveRoute` picks between them from
+the URL — a bill token (`/b/:token` or `?b=`) always wins; everything else is the marketing site.
 
 ```
 src/lib/money/
@@ -11,7 +12,9 @@ src/lib/money/
   billSplit.ts       the itemized engine                    ← BillSplit.kt
   itemizedShares.ts  extras on per-person subtotals         ← ItemizedAllocator.kt
   fromApi.ts         POST /web-claim/bill payload → engine  ← BillMaterializer.kt
-test/vectors.test.ts the CI gate's TS half
+src/screens/          the claim flow's Svelte screens, frames 1-9
+src/marketing/         home, privacy, terms — styled by src/marketing.css, not app.css
+test/vectors.test.ts  the CI gate's TS half
 ```
 
 ```bash

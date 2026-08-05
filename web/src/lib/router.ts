@@ -20,3 +20,24 @@ export function billTokenFromLocation(loc: { pathname: string; search: string } 
 export function billUrl(token: string): string {
   return `${window.location.origin}/b/${token}`;
 }
+
+/**
+ * The site's whole route table, now that it also carries the marketing pages (home, privacy,
+ * terms) alongside the claim flow. A bill token, wherever it's found, always wins — a malformed
+ * `/b/:token` still isn't a route this table knows, so it falls through to `home` rather than a
+ * broken claim screen.
+ */
+export type Route =
+  | { kind: 'bill'; token: string }
+  | { kind: 'home' }
+  | { kind: 'privacy' }
+  | { kind: 'terms' };
+
+export function resolveRoute(loc: { pathname: string; search: string } = window.location): Route {
+  const token = billTokenFromLocation(loc);
+  if (token) return { kind: 'bill', token };
+  const path = loc.pathname.replace(/\/$/, '') || '/';
+  if (path === '/privacy') return { kind: 'privacy' };
+  if (path === '/terms') return { kind: 'terms' };
+  return { kind: 'home' };
+}

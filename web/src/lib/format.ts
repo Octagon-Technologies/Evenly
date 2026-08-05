@@ -84,10 +84,14 @@ export function paymentAppName(app: string | null): string {
   return PAYMENT_APPS[app.toLowerCase()] ?? app;
 }
 
+/** The two store listings, named once so the claim footnote and the marketing site can't drift apart. */
+export const APP_STORE_URL = 'https://apps.apple.com/app/evenly';
+export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=app.splitevenly';
+
 /** Routes the install footnote to the right store, by user agent (spec §2.8). */
 export function storeUrl(): string {
   const ua = navigator.userAgent ?? '';
-  if (/iPhone|iPad|iPod/i.test(ua)) return 'https://apps.apple.com/app/evenly';
-  if (/Android/i.test(ua)) return 'https://play.google.com/store/apps/details?id=app.splitevenly';
+  if (/iPhone|iPad|iPod/i.test(ua)) return APP_STORE_URL;
+  if (/Android/i.test(ua)) return PLAY_STORE_URL;
   return 'https://split-evenly.app';
 }
