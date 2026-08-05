@@ -158,7 +158,7 @@
     <div class="site-band-in">
       <h2>Split the bill.<br />Not the <em>friendship</em>.</h2>
       <p>Free for every group, every bill.</p>
-      <StoreBadges />
+      <StoreBadges variant="dark" />
     </div>
   </section>
 
