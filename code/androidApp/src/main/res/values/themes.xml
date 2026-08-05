@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The launch theme. core-splashscreen renders this identically from API 24 up, so the branded
+         launch is not a 31+ luxury. White mark on brand blue is deliberately theme-independent: the
+         same asset is correct in light and dark mode, which is why no -night variant exists. -->
+    <style name="Theme.Evenly.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/evenly_blue</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_mark</item>
+        <item name="postSplashScreenTheme">@style/Theme.Evenly</item>
+    </style>
+
+    <!-- The app theme proper. Compose paints everything, so this only has to be a bar-free surface
+         that does not flash white before the first frame. -->
+    <style name="Theme.Evenly" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/evenly_blue</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="s">@color/evenly_blue</item>
+    </style>
+
+</resources>

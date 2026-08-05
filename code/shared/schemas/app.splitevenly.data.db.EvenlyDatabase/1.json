@@ -1,0 +1,902 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "70028ff851b6c8c3ea0a65680ad99d66",
+    "entities": [
+      {
+        "tableName": "users",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `is_placeholder` INTEGER NOT NULL, `display_name` TEXT NOT NULL, `email` TEXT COLLATE NOCASE, `avatar_url` TEXT, `base_currency` TEXT, `placeholder_group_id` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPlaceholder",
+            "columnName": "is_placeholder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "display_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "email",
+            "columnName": "email",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "avatarUrl",
+            "columnName": "avatar_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "baseCurrency",
+            "columnName": "base_currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "placeholderGroupId",
+            "columnName": "placeholder_group_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowVersion",
+            "columnName": "row_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_users_email",
+            "unique": true,
+            "columnNames": [
+              "email"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_users_email` ON `${TABLE_NAME}` (`email`)"
+          },
+          {
+            "name": "index_users_placeholder_group_id",
+            "unique": false,
+            "columnNames": [
+              "placeholder_group_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_users_placeholder_group_id` ON `${TABLE_NAME}` (`placeholder_group_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "groups",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `emoji` TEXT NOT NULL, `base_currency` TEXT NOT NULL, `admin_user_id` TEXT, `invite_token` TEXT NOT NULL, `invite_token_rotated_at` INTEGER, `reminder_cadence` TEXT NOT NULL, `last_conflict_reminder_at` INTEGER, `storage_bytes_used` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `created_by` TEXT NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, `deleted_at` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emoji",
+            "columnName": "emoji",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseCurrency",
+            "columnName": "base_currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "adminUserId",
+            "columnName": "admin_user_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inviteToken",
+            "columnName": "invite_token",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inviteTokenRotatedAt",
+            "columnName": "invite_token_rotated_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "reminderCadence",
+            "columnName": "reminder_cadence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastConflictReminderAt",
+            "columnName": "last_conflict_reminder_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "storageBytesUsed",
+            "columnName": "storage_bytes_used",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdBy",
+            "columnName": "created_by",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowVersion",
+            "columnName": "row_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAt",
+            "columnName": "deleted_at",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_groups_invite_token",
+            "unique": true,
+            "columnNames": [
+              "invite_token"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_groups_invite_token` ON `${TABLE_NAME}` (`invite_token`)"
+          }
+        ]
+      },
+      {
+        "tableName": "members",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `status` TEXT NOT NULL, `is_admin` INTEGER NOT NULL, `joined_at` INTEGER NOT NULL, `left_at` INTEGER, `archived_at` INTEGER, `placeholder_claim_completed_at` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "group_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAdmin",
+            "columnName": "is_admin",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "joinedAt",
+            "columnName": "joined_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "leftAt",
+            "columnName": "left_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "archivedAt",
+            "columnName": "archived_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "placeholderClaimCompletedAt",
+            "columnName": "placeholder_claim_completed_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowVersion",
+            "columnName": "row_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_members_group_id_user_id",
+            "unique": true,
+            "columnNames": [
+              "group_id",
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_members_group_id_user_id` ON `${TABLE_NAME}` (`group_id`, `user_id`)"
+          },
+          {
+            "name": "index_members_group_id",
+            "unique": false,
+            "columnNames": [
+              "group_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_members_group_id` ON `${TABLE_NAME}` (`group_id`)"
+          },
+          {
+            "name": "index_members_user_id",
+            "unique": false,
+            "columnNames": [
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_members_user_id` ON `${TABLE_NAME}` (`user_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "expenses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `kind` TEXT NOT NULL, `title` TEXT NOT NULL, `notes` TEXT, `amount_subunits` INTEGER NOT NULL, `currency` TEXT NOT NULL, `expense_date` TEXT NOT NULL, `payer_user_id` TEXT, `payer_outside_name` TEXT, `split_mode` TEXT NOT NULL, `has_tax_row` INTEGER NOT NULL, `tax_subunits` INTEGER NOT NULL, `tip_subunits` INTEGER NOT NULL, `tip_split_mode` TEXT NOT NULL, `category_id` TEXT, `subcategory_id` TEXT, `refund_of_expense_id` TEXT, `is_auto_refund` INTEGER NOT NULL, `status` TEXT NOT NULL, `created_by` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, `deleted_at` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "group_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "amountSubunits",
+            "columnName": "amount_subunits",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expenseDate",
+            "columnName": "expense_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payerUserId",
+            "columnName": "payer_user_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "payerOutsideName",
+            "columnName": "payer_outside_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "splitMode",
+            "columnName": "split_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasTaxRow",
+            "columnName": "has_tax_row",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taxSubunits",
+            "columnName": "tax_subunits",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tipSubunits",
+            "columnName": "tip_subunits",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tipSplitMode",
+            "columnName": "tip_split_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "category_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "subcategoryId",
+            "columnName": "subcategory_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "refundOfExpenseId",
+            "columnName": "refund_of_expense_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isAutoRefund",
+            "columnName": "is_auto_refund",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdBy",
+            "columnName": "created_by",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowVersion",
+            "columnName": "row_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAt",
+            "columnName": "deleted_at",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_expenses_group_id_expense_date",
+            "unique": false,
+            "columnNames": [
+              "group_id",
+              "expense_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_expenses_group_id_expense_date` ON `${TABLE_NAME}` (`group_id`, `expense_date`)"
+          },
+          {
+            "name": "index_expenses_status_group_id_expense_date",
+            "unique": false,
+            "columnNames": [
+              "status",
+              "group_id",
+              "expense_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_expenses_status_group_id_expense_date` ON `${TABLE_NAME}` (`status`, `group_id`, `expense_date`)"
+          },
+          {
+            "name": "index_expenses_payer_user_id",
+            "unique": false,
+            "columnNames": [
+              "payer_user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_expenses_payer_user_id` ON `${TABLE_NAME}` (`payer_user_id`)"
+          },
+          {
+            "name": "index_expenses_refund_of_expense_id",
+            "unique": false,
+            "columnNames": [
+              "refund_of_expense_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_expenses_refund_of_expense_id` ON `${TABLE_NAME}` (`refund_of_expense_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "shares",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `expense_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `share_owed_subunits` INTEGER NOT NULL, `remaining_subunits` INTEGER NOT NULL, `share_units` INTEGER, `share_percentage` REAL, `share_exact_subunits` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expenseId",
+            "columnName": "expense_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shareOwedSubunits",
+            "columnName": "share_owed_subunits",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remainingSubunits",
+            "columnName": "remaining_subunits",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shareUnits",
+            "columnName": "share_units",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sharePercentage",
+            "columnName": "share_percentage",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "shareExactSubunits",
+            "columnName": "share_exact_subunits",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowVersion",
+            "columnName": "row_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_shares_expense_id_user_id",
+            "unique": true,
+            "columnNames": [
+              "expense_id",
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_shares_expense_id_user_id` ON `${TABLE_NAME}` (`expense_id`, `user_id`)"
+          },
+          {
+            "name": "index_shares_expense_id",
+            "unique": false,
+            "columnNames": [
+              "expense_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_shares_expense_id` ON `${TABLE_NAME}` (`expense_id`)"
+          },
+          {
+            "name": "index_shares_user_id",
+            "unique": false,
+            "columnNames": [
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_shares_user_id` ON `${TABLE_NAME}` (`user_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "settlements",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `from_user_id` TEXT NOT NULL, `to_user_id` TEXT NOT NULL, `payment_currency` TEXT NOT NULL, `payment_amount_subunits` INTEGER NOT NULL, `payment_app` TEXT, `deep_link_attempted` INTEGER NOT NULL, `deep_link_succeeded` INTEGER, `settled_at` INTEGER NOT NULL, `notes` TEXT, `created_by` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `row_version` INTEGER NOT NULL, `deleted_at` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "group_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fromUserId",
+            "columnName": "from_user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "toUserId",
+            "columnName": "to_user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentCurrency",
+            "columnName": "payment_currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentAmountSubunits",
+            "columnName": "payment_amount_subunits",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentApp",
+            "columnName": "payment_app",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "deepLinkAttempted",
+            "columnName": "deep_link_attempted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deepLinkSucceeded",
+            "columnName": "deep_link_succeeded",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "settledAt",
+            "columnName": "settled_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdBy",
+            "columnName": "created_by",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowVersion",
+            "columnName": "row_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAt",
+            "columnName": "deleted_at",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_settlements_group_id_settled_at",
+            "unique": false,
+            "columnNames": [
+              "group_id",
+              "settled_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_settlements_group_id_settled_at` ON `${TABLE_NAME}` (`group_id`, `settled_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "settlement_allocations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `settlement_id` TEXT NOT NULL, `share_id` TEXT NOT NULL, `applied_amount_subunits` INTEGER NOT NULL, `applied_currency` TEXT NOT NULL, `fx_rate_used` REAL, `fx_rate_date` TEXT, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "settlementId",
+            "columnName": "settlement_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shareId",
+            "columnName": "share_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appliedAmountSubunits",
+            "columnName": "applied_amount_subunits",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "appliedCurrency",
+            "columnName": "applied_currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fxRateUsed",
+            "columnName": "fx_rate_used",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "fxRateDate",
+            "columnName": "fx_rate_date",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_settlement_allocations_settlement_id_share_id",
+            "unique": true,
+            "columnNames": [
+              "settlement_id",
+              "share_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_settlement_allocations_settlement_id_share_id` ON `${TABLE_NAME}` (`settlement_id`, `share_id`)"
+          },
+          {
+            "name": "index_settlement_allocations_share_id",
+            "unique": false,
+            "columnNames": [
+              "share_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_settlement_allocations_share_id` ON `${TABLE_NAME}` (`share_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "fx_rates",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rate_date` TEXT NOT NULL, `quote_currency` TEXT NOT NULL, `rate_per_usd` REAL NOT NULL, `source` TEXT NOT NULL, `fetched_at` INTEGER NOT NULL, PRIMARY KEY(`rate_date`, `quote_currency`))",
+        "fields": [
+          {
+            "fieldPath": "rateDate",
+            "columnName": "rate_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quoteCurrency",
+            "columnName": "quote_currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ratePerUsd",
+            "columnName": "rate_per_usd",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetched_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "rate_date",
+            "quote_currency"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_fx_rates_quote_currency_rate_date",
+            "unique": false,
+            "columnNames": [
+              "quote_currency",
+              "rate_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_fx_rates_quote_currency_rate_date` ON `${TABLE_NAME}` (`quote_currency`, `rate_date`)"
+          }
+        ]
+      },
+      {
+        "tableName": "fx_baked",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`quote_currency` TEXT NOT NULL, `rate_per_usd` REAL NOT NULL, `snapshot_date` TEXT NOT NULL, PRIMARY KEY(`quote_currency`))",
+        "fields": [
+          {
+            "fieldPath": "quoteCurrency",
+            "columnName": "quote_currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ratePerUsd",
+            "columnName": "rate_per_usd",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotDate",
+            "columnName": "snapshot_date",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "quote_currency"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '70028ff851b6c8c3ea0a65680ad99d66')"
+    ]
+  }
+}

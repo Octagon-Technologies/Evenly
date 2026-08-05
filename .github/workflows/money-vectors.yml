@@ -1,0 +1,77 @@
+# The money CI gate (WEB_CLAIM_SPEC.md §7).
+#
+# `test-vectors/bill-split.json` is run against BOTH implementations of the split math: the Kotlin
+# engine the ledger records from, and the hand-ported TS engine the web guest sees. Two copies of the
+# most dangerous code in the app can drift apart silently — this is the thing that makes the drift a
+# red build instead of a wrong dinner bill. Neither job is allowed to be optional.
+#
+# The two `paths:` lists must stay identical. GitHub Actions does not support YAML anchors, so they
+# are written out twice on purpose.
+name: money vectors
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'test-vectors/**'
+      - 'web/**'
+      - 'code/shared/src/commonMain/kotlin/app/splitevenly/domain/**'
+      - 'code/shared/src/commonMain/kotlin/app/splitevenly/core/Allocator.kt'
+      - 'code/shared/src/androidHostTest/**'
+      - 'code/shared/build.gradle.kts'
+      - 'code/gradle/libs.versions.toml'
+      - '.github/workflows/money-vectors.yml'
+  pull_request:
+    paths:
+      - 'test-vectors/**'
+      - 'web/**'
+      - 'code/shared/src/commonMain/kotlin/app/splitevenly/domain/**'
+      - 'code/shared/src/commonMain/kotlin/app/splitevenly/core/Allocator.kt'
+      - 'code/shared/src/androidHostTest/**'
+      - 'code/shared/build.gradle.kts'
+      - 'code/gradle/libs.versions.toml'
+      - '.github/workflows/money-vectors.yml'
+
+concurrency:
+  group: money-vectors-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: TS port
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  kotlin:
+    name: Kotlin engine
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: code
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      # `code/shared/build.gradle.kts` declares the vectors file as a test input, so a
+      # vectors-only edit cannot be skipped here as UP-TO-DATE.
+      - run: ./gradlew :shared:testAndroidHostTest --tests '*BillSplitVectorsTest*'
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-test-report
+          path: code/shared/build/reports/tests/testAndroidHostTest

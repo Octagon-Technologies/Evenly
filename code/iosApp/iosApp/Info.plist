@@ -4,5 +4,48 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Home-screen name. The bundle is app.splitevenly; the product the user sees is "Evenly". -->
+	<key>CFBundleDisplayName</key>
+	<string>Evenly</string>
+	<!-- Receipt capture (D-22). iOS shows these strings in its own permission prompt (this IS the
+	     "explain why" step). WITHOUT NSCameraUsageDescription the app HARD-CRASHES (SIGABRT) the moment
+	     the camera opens on a real device — the simulator is guarded out, which is why it only surfaced
+	     on a physical device. Photos go through PHPicker (out-of-process, no auth), but the library
+	     string is declared defensively for any direct-library path. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Evenly uses your camera to snap receipts, so you can split a bill by scanning it. Photos stay on your device and are only attached to the expense you add them to.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Evenly accesses the photos you choose so you can attach receipts to an expense. Only the photos you pick are used.</string>
+	<!-- OAuth / magic-link redirect target (splitevenly://login-callback). Must match the Auth deep
+	     link in SupabaseClientFactory + the Supabase Auth URL allow-list. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.splitevenly.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>splitevenly</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Payment-app deep links the settle flow opens (iOS requires apps to declare schemes it queries). -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>venmo</string>
+		<string>cashapp</string>
+	</array>
+	<!-- Branded launch screen: the white feather on brand blue, matching Theme.Evenly.Splash on
+	     Android and EvenlySplashBlue in Compose. White-on-blue needs no dark-mode variant, and the
+	     Compose SplashScreen picks up the same blue so the hand-off is one continuous screen. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchMark</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<false/>
+	</dict>
 </dict>
 </plist>

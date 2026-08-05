@@ -9,9 +9,16 @@ per-project config files. Until they are added, `:androidApp:assembleDebug` fail
 In the [Firebase console](https://console.firebase.google.com/):
 
 1. Create (or open) a Firebase project.
-2. **Add an Android app** with package name **`da.chelimo.sharecost`**.
-3. **Add an iOS app** with bundle ID **`da.chelimo.sharecost.ShareCost`**
+2. **Add an Android app** with package name **`app.splitevenly`**.
+3. **Add an iOS app** with bundle ID **`app.splitevenly`**
    (match whatever `PRODUCT_BUNDLE_IDENTIFIER` resolves to in `iosApp/Configuration/Config.xcconfig`).
+
+> **Renamed from ShareCost.** The old Firebase apps were registered under `da.chelimo.sharecost`, so
+> the tracked config files no longer match the build. Register the two apps above in the *existing*
+> project and re-download both files: the checked-in ones were rewritten by hand during the rename so
+> the build would stay green, which means FCM registration will fail at runtime until they are
+> replaced. The Firebase **project ID stays `sharecost-98e79`** (Google does not allow renaming it);
+> only its display name is cosmetic.
 
 ## 2. Download and place the config files
 

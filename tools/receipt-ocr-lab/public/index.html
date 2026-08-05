@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Receipt OCR Lab</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Receipt OCR Lab</h1>
+    <p class="subtitle">Batch-test receipt extraction against real photos — cost, latency, and accuracy side by side.</p>
+  </header>
+
+  <section class="controls">
+    <label class="model-picker">
+      Model
+      <select id="model-select"></select>
+    </label>
+
+    <label class="dropzone" id="dropzone">
+      <input type="file" id="file-input" accept="image/*,application/pdf" multiple hidden />
+      <span id="dropzone-label">Click or drop receipt photos here</span>
+    </label>
+
+    <div class="summary" id="summary" hidden>
+      <span id="summary-count"></span>
+      <span id="summary-cost"></span>
+      <span id="summary-time"></span>
+    </div>
+  </section>
+
+  <main id="grid"></main>
+
+  <template id="card-template">
+    <article class="card">
+      <div class="card-image-wrap">
+        <img class="card-image" alt="Receipt" />
+        <div class="card-status">
+          <div class="spinner"></div>
+          <span class="status-text">Queued</span>
+        </div>
+      </div>
+      <div class="card-body" hidden>
+        <div class="card-metrics">
+          <span class="metric time"></span>
+          <span class="metric cost"></span>
+        </div>
+        <div class="card-extract"></div>
+      </div>
+      <div class="card-error" hidden></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

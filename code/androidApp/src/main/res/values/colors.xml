@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand blue. Must stay in step with EvenlySplashBlue in ui/screen/SplashScreen.kt and with
+         the LaunchBackground colorset on iOS, or the launch-to-Compose hand-off flickers. -->
+    <color name="evenly_blue">#3762E3</color>
+</resources>
