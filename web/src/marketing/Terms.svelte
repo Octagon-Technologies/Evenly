@@ -116,7 +116,7 @@
     <section class="site-doc-section">
       <span class="site-sn">11</span>
       <h2>Contact</h2>
-      <p>Reach the Evenly team at <a href="mailto:support@split-evenly.app">support@split-evenly.app</a>.</p>
+      <p>Reach the Evenly team at <a href="mailto:tech.octagontechnologies@gmail.com">tech.octagontechnologies@gmail.com</a>.</p>
     </section>
   </LegalDoc>
 
