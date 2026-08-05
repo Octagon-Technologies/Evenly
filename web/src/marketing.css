@@ -91,15 +91,10 @@
 .site-hero-foot { margin-top: 20px; font-size: 13px; color: var(--site-ink-faint); }
 .site-hero-foot a { color: var(--site-accent); font-weight: 650; text-decoration: none; }
 
-/* ── store badges ── */
-.site-badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-a.site-badge {
-  display: inline-flex; align-items: center; gap: 9px;
-  background: var(--site-ink); color: var(--site-paper); border-radius: 12px; padding: 9px 16px;
-  text-decoration: none; border: 1px solid var(--site-ink);
-}
-.site-badge .si { font-size: 9.5px; line-height: 1.2; opacity: 0.75; font-weight: 600; letter-spacing: 0.01em; }
-.site-badge .st { font-size: 15px; font-weight: 650; font-family: var(--site-sans); letter-spacing: -0.005em; }
+/* ── store badges: official Apple/Google artwork, no custom chrome around it ── */
+.site-badges { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: center; }
+a.site-badge { display: inline-flex; line-height: 0; }
+.site-badge img { height: 40px; width: auto; display: block; }
 
 /* ── phone mock used across the feature rows: the app's own UI, not stock art ── */
 .site-phone {
@@ -165,7 +160,6 @@ a.site-badge {
 .site-band h2 { font-size: 44px; line-height: 1.12; color: var(--site-band-ink); margin: 0 0 20px; }
 .site-band h2 em { font-style: italic; color: #93a9ff; }
 .site-band p { font-size: 16px; color: #aeb6dd; margin: 0 0 34px; }
-.site-band .site-badge { background: var(--site-band-ink); color: var(--site-band); border-color: var(--site-band-ink); }
 
 /* ── footer ── */
 .site-footer { padding: 46px 24px 60px; }
