@@ -81,6 +81,29 @@ interface SettlementDao {
     )
     fun observeCoveredTitlesByGroup(groupId: String): Flow<List<SettlementCoveredTitleRow>>
 
+    /**
+     * The two most recent non-voided payment amounts from [fromUserId] to [toUserId] in [currency],
+     * newest first — the input to the double-payment amount-equality gate (P1 #9). A duplicate is
+     * almost always the exact same amount logged twice (both sides enter it, or one enters it twice
+     * offline); two *different* amounts summing past what was owed is just two real payments, not a
+     * double payment, so the caller must not flag on sum alone.
+     */
+    @Query(
+        """
+        SELECT payment_amount_subunits FROM settlements
+        WHERE group_id = :groupId AND deleted_at IS NULL
+          AND from_user_id = :fromUserId AND to_user_id = :toUserId AND payment_currency = :currency
+        ORDER BY settled_at DESC
+        LIMIT 2
+        """
+    )
+    suspend fun lastTwoPaymentAmounts(
+        groupId: String,
+        fromUserId: String,
+        toUserId: String,
+        currency: String,
+    ): List<Long>
+
     @Query("SELECT * FROM settlement_allocations WHERE settlement_id = :settlementId")
     suspend fun allocationsForSettlement(settlementId: String): List<SettlementAllocationEntity>
 

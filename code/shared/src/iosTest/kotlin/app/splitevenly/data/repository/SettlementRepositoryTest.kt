@@ -39,7 +39,7 @@ class SettlementRepositoryTest {
     fun setUp() {
         db = inMemoryTestDatabase()
         val clock = clockAt("2026-06-12")
-        expenses = ExpenseRepositoryImpl(db.expenseDao(), db.shareDao(), clock)
+        expenses = ExpenseRepositoryImpl(db.expenseDao(), db.shareDao(), clock, settlementDao = db.settlementDao())
         settlements = SettlementRepositoryImpl(db.settlementDao(), db.shareDao(), clock)
     }
 
@@ -224,6 +224,34 @@ class SettlementRepositoryTest {
             "removing the duplicate clears the signal (remaining back to 0)",
         )
         assertEquals(0, remaining(e.id))
+    }
+
+    /**
+     * P1 #9 false-positive guard: two DIFFERENT payments (a $20 one and a separate $25 one) can also push
+     * the derived remaining negative, but that's just two real payments adding up past what was owed, not
+     * the same payment logged twice. `observeOverpayments` must require the last two payments to be the
+     * exact same amount before surfacing the banner, so this pair must NOT appear.
+     */
+    @Test
+    fun overpayment_notSurfaced_whenLastTwoPaymentsDiffer() = runTest {
+        val e = owedExpense("2026-06-01", 3000, payer = "u1", debtor = "u2") // u2 owes u1 $30
+        val shareId = db.shareDao().getByExpense(e.id.value).first { it.userId == "u2" }.id
+        fun settle(id: String, amount: Long, settledAt: Long) = SettlementEntity(
+            id = id, groupId = "g1", fromUserId = "u2", toUserId = "u1",
+            paymentCurrency = "USD", paymentAmountSubunits = amount, settledAt = settledAt,
+            createdBy = "u2", createdAt = settledAt, updatedAt = settledAt,
+        )
+        fun alloc(id: String, sid: String, amount: Long) = SettlementAllocationEntity(
+            id = id, settlementId = sid, groupId = "g1", shareId = shareId,
+            appliedAmountSubunits = amount, appliedCurrency = "USD", createdAt = 1,
+        )
+        db.settlementDao().upsert(settle("s1", 2000, 1)); db.settlementDao().upsertAllocations(listOf(alloc("a1", "s1", 2000)))
+        db.settlementDao().upsert(settle("s2", 2500, 2)); db.settlementDao().upsertAllocations(listOf(alloc("a2", "s2", 2500)))
+
+        assertTrue(
+            expenses.observeOverpayments(GroupId("g1"), UserId("u1")).first().isEmpty(),
+            "two different payment amounts must never surface as a double payment, even summing past what was owed",
+        )
     }
 
     /** P1 #9b: once a debt is fully paid, a second same-device payment is refused (not silently over-applied). */

@@ -14,6 +14,7 @@ import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.ExpenseEditConflictDao
 import app.splitevenly.data.db.dao.GroupDao
 import app.splitevenly.data.db.dao.HistoryEventDao
+import app.splitevenly.data.db.dao.SettlementDao
 import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.db.dao.SupersededNoticeDao
 import app.splitevenly.data.db.entity.HistoryEventEntity
@@ -72,6 +73,9 @@ class ExpenseRepositoryImpl(
     private val supersededNoticeDao: SupersededNoticeDao? = null,
     // Analytics: null in unit tests; production DI passes AndroidAnalytics.
     private val analytics: EvAnalytics? = null,
+    // Gates the double-payment banner on amount equality (see observeOverpayments). Null in unit tests
+    // that don't exercise it => legacy sum-only behaviour, matching the optional-ctor-dep pattern.
+    private val settlementDao: SettlementDao? = null,
 ) : ExpenseRepository {
 
     override fun observeSupersededNotice(expenseId: ExpenseId): Flow<Boolean> =
@@ -155,6 +159,12 @@ class ExpenseRepositoryImpl(
                 // The banner is about payments the viewer can act on — pairs they're a party to (they
                 // overpaid someone, or someone overpaid them). A null viewer surfaces every over-paid pair.
                 .filter { viewer == null || it.debtorUserId == viewer.value || it.creditorUserId == viewer.value }
+                // The negative-remaining aggregate only says the pair paid past what was owed overall — two
+                // genuinely different payments (a $20 expense and a separate $25 one) can add up to that same
+                // signal and are NOT a double payment. The tell is the last two payments being the exact same
+                // amount (both sides logging the one payment, or one side logging it twice); require that
+                // before surfacing the banner.
+                .filter { lastTwoPaymentsMatch(groupId.value, it.debtorUserId, it.creditorUserId, it.currency) }
                 .map {
                     Overpayment(
                         debtorUserId = UserId(it.debtorUserId),
@@ -164,6 +174,18 @@ class ExpenseRepositoryImpl(
                     )
                 }
         }
+
+    /** No [settlementDao] (unit tests that don't wire it) keeps legacy sum-only behaviour. */
+    private suspend fun lastTwoPaymentsMatch(
+        groupId: String,
+        debtorUserId: String,
+        creditorUserId: String,
+        currency: String,
+    ): Boolean {
+        val dao = settlementDao ?: return true
+        val lastTwo = dao.lastTwoPaymentAmounts(groupId, debtorUserId, creditorUserId, currency)
+        return lastTwo.size == 2 && lastTwo[0] == lastTwo[1]
+    }
 
     private fun OutstandingShareRow.toBalanceShare(currency: String, remaining: Long): BalanceShare? {
         val payer = payerUserId ?: return null
