@@ -2199,3 +2199,173 @@ alter table public.apple_oauth_tokens enable row level security;
 -- service-role key ever touches this table (matching web_sessions/web_bill_links). A refresh token is
 -- a bearer credential for the user's Apple account; any policy here would let an authenticated caller
 -- read another user's row via the permissive for-all-tables loop this table deliberately sits outside.
+
+-- ── Evenly Pro: group passes (PRO_PASS_SPEC.md §5) ───────────────────────────────────────────────
+-- The entitlement behind "this group has unlimited receipt scans". RevenueCat tells us a purchase
+-- happened; THIS TABLE decides who is Pro. It has to work that way: the other five people in the group
+-- bought nothing, so the buyer's device-side CustomerInfo cannot be the source of truth for them.
+--
+-- A pass is bound to ONE group at purchase and is not transferable — that is what is being sold, and
+-- the paywall says so before the charge. Synced (Room mirrors it, SyncEngine pulls it, the doorbell
+-- wakes it) so every member's device learns the group went Pro through the normal pull, with no push
+-- and no special-casing.
+create table if not exists public.group_passes (
+  id             text primary key,
+  group_id       text not null,
+  -- users.id (text), not auth.users(id) — synced tables carry no FKs, since rows arrive in
+  -- dependency-arbitrary order (data/AGENTS.md).
+  purchased_by   text not null,
+  tier           text not null,
+  store          text not null,
+  -- RevenueCat's store transaction id. (store, store_txn_id) is the IDEMPOTENCY KEY: the client's
+  -- activate call, a webhook retry, and the reconciliation sweep all race to insert the same purchase,
+  -- and exactly one may win. Without it one $0.99 charge becomes three stacked passes.
+  store_txn_id   text not null,
+  rc_app_user_id text not null,
+  -- Epoch millis on the SERVER clock, never the device's. A phone with its clock wound back would
+  -- otherwise buy a week and get a decade.
+  starts_at      bigint not null,
+  expires_at     bigint not null,
+  -- Refund / chargeback (revenuecat-webhook). The group drops back to free at the next pull; nothing
+  -- already scanned is ever taken away.
+  revoked_at     bigint,
+  deleted_at     bigint,
+  deleted_by     text,
+  created_at     bigint not null,
+  updated_at     bigint not null,
+  row_version    bigint not null default 1
+);
+
+do $$
+begin
+  alter table public.group_passes drop constraint if exists group_passes_tier_check;
+  alter table public.group_passes add constraint group_passes_tier_check
+    check (tier in ('week_1', 'week_2', 'month_1'));
+  alter table public.group_passes drop constraint if exists group_passes_store_check;
+  alter table public.group_passes add constraint group_passes_store_check
+    check (store in ('app_store', 'play_store', 'promo'));
+end $$;
+
+create unique index if not exists group_passes_txn_idx on public.group_passes (store, store_txn_id);
+create index if not exists group_passes_group_idx on public.group_passes (group_id, expires_at desc);
+
+-- ⚠️ DELIBERATELY OUTSIDE the permissive `_rw` loop above, and it must stay outside even after that
+-- loop is tightened. Under `for all to authenticated using (true) with check (true)` any authenticated
+-- user — including an anonymous one — could insert themselves a pass expiring in 2099. That is free
+-- unlimited paid Claude-vision calls for anyone who reads the anon key out of the APK, so this is the
+-- one table that could not wait for the pre-prod RLS work.
+alter table public.group_passes enable row level security;
+
+-- Read: members of the group only. Members need this to render the Pro badge and to know who paid.
+drop policy if exists group_passes_member_read on public.group_passes;
+create policy group_passes_member_read on public.group_passes
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.members m
+      where m.group_id = group_passes.group_id
+        and m.user_id = (select auth.uid())::text
+        and m.status = 'ACTIVE'
+    )
+  );
+
+-- No insert/update/delete policy, ever. Only activate-pass and revenuecat-webhook (service key) write
+-- here, and the service role bypasses RLS. The client's SyncEngine must PULL this table and never push
+-- it; a push would fail silently against this policy set, which is the intended outcome.
+revoke insert, update, delete on public.group_passes from anon, authenticated;
+-- TRUNCATE is revoked SEPARATELY and deliberately: Supabase grants ALL on a new public table to
+-- anon/authenticated, and **RLS does not apply to TRUNCATE**. Revoking insert/update/delete alone
+-- therefore still leaves any signed-in user able to wipe the entire table in one statement, read-policy
+-- or not. Verified against a live grants query, not assumed.
+--
+-- ⚠️ This is true of EVERY table in this schema right now, including the zero-policy ones
+-- (superseded_split_edits, web_bill_links, web_sessions, apple_oauth_tokens). That is a project-wide
+-- P0 for the pre-prod RLS work, not something this table's migration should fix behind everyone's back:
+--   revoke truncate on all tables in schema public from anon, authenticated;
+revoke truncate, references, trigger on public.group_passes from anon, authenticated;
+
+-- Doorbell, so the buyer's purchase wakes the other five phones (same statement-level AFTER
+-- INSERT/UPDATE pattern as every other synced table).
+drop trigger if exists bump_activity_ins on public.group_passes;
+drop trigger if exists bump_activity_upd on public.group_passes;
+create trigger bump_activity_ins after insert on public.group_passes
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity();
+create trigger bump_activity_upd after update on public.group_passes
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity();
+
+-- The single definition of "is this group Pro right now", used by extract-receipt's enforcement check.
+-- The client mirrors this in Kotlin over its local rows so the badge works offline; two implementations
+-- of one rule is a real wart, accepted so that rendering a badge costs no round trip. Pin both with the
+-- same vectors.
+--
+-- Returns AT MOST ONE ROW, and NO ROW means "not Pro" — there is no `is_pro = false` row to read. A
+-- caller that forgets this reads an empty result as an error instead of as the free tier.
+--
+-- Returns the LATEST-EXPIRING live pass, which is what makes stacking fall out for free: buying while a
+-- pass is live inserts a row starting at the current expiry (PRO_PASS_SPEC.md §5.3), so two friends who
+-- each buy a week give the group two weeks and neither feels robbed.
+--
+-- `expires_at > p_now` is strict: a pass whose expiry equals now has expired. Pinned by the boundary
+-- test rather than left to whichever comparison the caller happened to write.
+create or replace function public.group_pro_status(p_group_id text, p_now bigint)
+returns table (is_pro boolean, expires_at bigint, purchased_by text, tier text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    true,
+    p.expires_at,
+    p.purchased_by,
+    p.tier
+  from public.group_passes p
+  where p.group_id = p_group_id
+    and p.deleted_at is null
+    and p.revoked_at is null
+    and p.expires_at > p_now
+  order by p.expires_at desc
+  limit 1;
+$$;
+
+-- security definer so the edge function's enforcement check reads the same rows regardless of caller,
+-- but that means the membership scoping in the read policy above does NOT apply here — hence the
+-- explicit revoke. `anon` and `authenticated` get EXECUTE automatically at creation time no matter what
+-- `revoke ... from public` says (see join_item_portion's note), and this function would otherwise let
+-- any caller probe any group's pass state by id.
+revoke execute on function public.group_pro_status(text, bigint) from public, anon, authenticated;
+
+-- extract-receipt logs a refused scan BEFORE any paid call, and "you have no scans left" must be
+-- distinguishable from "you are going too fast" (rate_limited) in the cost ledger — they lead to
+-- different screens and, later, different pricing decisions.
+do $$
+begin
+  alter table public.receipt_scan_log drop constraint if exists receipt_scan_log_outcome_check;
+  alter table public.receipt_scan_log add constraint receipt_scan_log_outcome_check
+    check (outcome is null or outcome in ('ok', 'not_receipt', 'invalid_draft', 'failed', 'rate_limited', 'breaker_open', 'quota_exhausted'));
+end $$;
+
+-- The free allowance (PRO_PASS_SPEC.md §4): 5 successful scans per group, for the life of the group,
+-- never reset. No new counting table — receipt_scan_log already carries group_id (the Plan A cost
+-- ledger columns above), which is exactly this count.
+--
+-- Only `outcome = 'ok'` counts. A blurry photo, a non-receipt, a server failure or a refused attempt
+-- must never burn someone's free scan: being charged for our own failure is a support ticket and a bad
+-- review. The gap that leaves (garbage photos cost us money without costing the user an allowance) is
+-- bounded by the per-user hourly rate limit and the Opus circuit breaker, which already exist.
+create or replace function public.group_free_scans_used(p_group_id text)
+returns integer
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)::integer
+  from public.receipt_scan_log l
+  where l.group_id = p_group_id
+    and l.outcome = 'ok';
+$$;
+
+revoke execute on function public.group_free_scans_used(text) from public, anon, authenticated;

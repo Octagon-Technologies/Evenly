@@ -166,9 +166,39 @@ at function-creation time, independent of `revoke ... from public` — confirmed
 (`anon_security_definer_function_executable`). Any new `security definer` function needs an *explicit*
 `revoke ... from anon` (and `from authenticated` if it's edge-function-only), not just `from public`.
 
+## `group_passes` — the Pro entitlement, server-owned (`PRO_PASS_SPEC.md`)
+
+RevenueCat says a purchase happened; **this table decides who is Pro**. It cannot be the buyer's
+device-side `CustomerInfo`: the other five people in the group bought nothing and still need Pro.
+
+Synced (Room mirror, `SyncEngine` pull, doorbell trigger) but **pull-only** — the client has SELECT and
+nothing else. Writes come from `activate-pass` / `revenuecat-webhook` (service key) only. It is
+deliberately **outside the permissive `_rw` loop** and must stay outside: under `using (true)` any
+authenticated user could insert themselves a pass expiring in 2099, which is free unlimited paid
+Claude-vision calls for anyone who reads the anon key out of the APK.
+
+`(store, store_txn_id)` is unique — the **idempotency key**. The client's activate call, a webhook
+retry, and the reconciliation sweep all race to insert the same purchase; one wins, the rest no-op.
+Without it one $0.99 charge becomes three stacked passes.
+
+`group_pro_status(group_id, now)` returns **at most one row, and no row means not Pro** — there is no
+`is_pro = false` row. It returns the latest-expiring live pass, which is what makes stacking work:
+buying while Pro inserts a row starting at the current expiry, so two friends who each buy a week give
+the group two weeks. `expires_at > now` is strict. `group_free_scans_used(group_id)` counts
+`receipt_scan_log` rows with `outcome = 'ok'` — the free allowance needed no new table. Both are
+`security definer` and **revoked from `anon` and `authenticated`**: the app uses a Kotlin mirror of the
+status rule so a badge costs no round trip, and only `extract-receipt` enforces.
+
+**`revoke insert, update, delete` is not enough — RLS does not apply to TRUNCATE.** Supabase grants ALL
+on a new public table to `anon`/`authenticated`, so a signed-in user could wipe the table in one
+statement regardless of policies. `group_passes` revokes TRUNCATE explicitly. **Every other table in
+this schema still grants it** (verified by a live grants query, 32 tables including the zero-policy
+`web_bill_links` / `apple_oauth_tokens`) — fold `revoke truncate on all tables in schema public from
+anon, authenticated;` into the RLS tightening below.
+
 ## RLS — currently permissive, and that is a P0 before prod
 
-The loop at `schema.sql:455` generates `for all to authenticated using (true) with check (true)` for every
+The loop at `schema.sql:591` generates `for all to authenticated using (true) with check (true)` for every
 table. That means **any authenticated user, including an anonymous one, can read, overwrite, or delete every
 row in the database.** It is deliberate for testing and it is a one-account mass-data-loss vector.
 

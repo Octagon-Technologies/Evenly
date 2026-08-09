@@ -317,8 +317,14 @@ None of these may ship to a real user. Refuse to mark the app prod-ready while a
    local table and every unsynced offline write with it. Replace with hand-written, tested `Migration`
    objects for every version step, keep `exportSchema = true`, and test each against a *populated* DB.
 2. **Tighten RLS to membership-scoped.** `supabase/schema.sql` generates `for all to authenticated using
-   (true) with check (true)` for every table via the loop at `schema.sql:455` — any authenticated (incl.
+   (true) with check (true)` for every table via the loop at `schema.sql:591` — any authenticated (incl.
    anonymous) user can read, overwrite, **or delete every row**. See `supabase/AGENTS.md`.
+   **Policies alone will not close this: RLS does not apply to TRUNCATE.** Supabase grants ALL on a new
+   public table to `anon`/`authenticated`, and a live grants query (2026-08-09) shows all 32 tables still
+   granting TRUNCATE to `authenticated` — including the zero-policy ones (`web_bill_links`,
+   `web_sessions`, `apple_oauth_tokens`), whose "no policies" is not the protection it reads as. Any
+   signed-in user can empty any table in one statement. `group_passes` revokes it; the sweep is
+   `revoke truncate on all tables in schema public from anon, authenticated;`.
 3. **Add the audit log + triggers** (Rule 4) — there is none today. `expense_history` logs *events*, not
    before-images, so a bad mutation is currently unrecoverable from app data alone.
 4. **Close the soft-delete gaps** (Rule 1): `conflicts` has no `deleted_at`. (`shares` and `users` now
