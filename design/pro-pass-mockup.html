@@ -1,0 +1,501 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evenly Pro — group passes mockup</title>
+<style>
+  :root{
+    --blue:#2563EB; --blue-press:#1E40AF; --blue-text:#2563EB;
+    --blue-tint:#EFF4FF; --blue-tint-2:#DBE6FF;
+    --page:#FFFFFF; --surface:#F6F8FB; --border:#E6EAF0; --border-strong:#D6DCE6;
+    --ink:#0B1220; --ink-2:#5B6577; --ink-3:#9AA3B2;
+    --green:#16A34A; --green-tint:#E7F4EC;
+    --credit:#C2410C; --credit-tint:#FFF1E6;
+    --amber:#687590; --amber-tint:#EEF1F8;
+    --on-accent:#FFFFFF;
+    --shell:#eef1f6; --shell-ink:#0B1220; --shell-ink-2:#5B6577; --shell-card:#ffffff;
+  }
+  body.dark{
+    --blue:#3A52D6; --blue-press:#2C3FA8; --blue-text:#7AA6FF;
+    --blue-tint:rgba(110,155,255,.10); --blue-tint-2:rgba(110,155,255,.16);
+    --page:#000000; --surface:rgba(110,155,255,.06);
+    --border:rgba(110,155,255,.16); --border-strong:rgba(110,155,255,.26);
+    --ink:#E7ECF3; --ink-2:#9BA6B8; --ink-3:#67738A;
+    --green:#4ADE80; --green-tint:#13271B;
+    --credit:#FB923C; --credit-tint:#2A1810;
+    --amber:#8A95AD; --amber-tint:#1B2230;
+  }
+  body.dark{ --shell:#101318; --shell-ink:#E7ECF3; --shell-ink-2:#9BA6B8; --shell-card:#171b22; }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--shell); color:var(--shell-ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{padding:32px 24px 8px; max-width:1180px; margin:0 auto}
+  h1{font-size:26px; margin:0 0 6px; letter-spacing:-.02em}
+  .sub{color:var(--shell-ink-2); margin:0 0 18px; max-width:70ch}
+  .toggle{
+    display:inline-flex; gap:2px; padding:3px; border-radius:99px;
+    background:var(--shell-card); border:1px solid var(--border);
+  }
+  .toggle button{
+    font:600 13px/1 inherit; padding:8px 16px; border-radius:99px; border:0;
+    background:transparent; color:var(--shell-ink-2); cursor:pointer;
+  }
+  .toggle button[aria-pressed=true]{background:var(--blue); color:#fff}
+
+  .grid{
+    max-width:1180px; margin:0 auto; padding:20px 24px 80px;
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:34px 28px;
+  }
+  .cell{min-width:0}
+  .cap{font:700 13px/1.4 inherit; margin:0 0 3px; letter-spacing:.01em}
+  .cap span{color:var(--shell-ink-2); font-weight:500}
+  .note{color:var(--shell-ink-2); font-size:13px; margin:8px 2px 0}
+  .note b{color:var(--shell-ink); font-weight:600}
+
+  /* phone */
+  .phone{
+    width:100%; max-width:340px; aspect-ratio:402/812; margin:10px auto 0;
+    background:var(--page); border-radius:34px; border:1px solid var(--border-strong);
+    overflow:hidden; position:relative; color:var(--ink);
+    box-shadow:0 10px 30px rgba(11,18,32,.09);
+  }
+  body.dark .phone{box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .status{
+    height:34px; display:flex; align-items:center; justify-content:space-between;
+    padding:0 18px 0 20px; font:600 12px/1 inherit; color:var(--ink);
+  }
+  .notch{width:74px; height:20px; border-radius:99px; background:var(--ink); opacity:.92}
+  .scr{padding:0 14px; height:calc(100% - 34px); overflow:hidden; position:relative}
+
+  .navbar{display:flex; align-items:center; gap:10px; padding:6px 2px 12px}
+  .navbar .t{font:700 17px/1.2 inherit; letter-spacing:-.01em}
+  .navbar .sp{margin-left:auto; display:flex; gap:12px; color:var(--ink-2)}
+
+  .card{background:var(--page); border:1px solid var(--border); border-radius:14px; padding:12px}
+  .lbl{font:600 12px/1 inherit; color:var(--ink-2); margin:12px 2px 6px}
+  .field{
+    border:1px solid var(--border); border-radius:12px; padding:11px 12px;
+    color:var(--ink-3); font-size:14px; background:var(--page);
+  }
+
+  /* scan card */
+  .scan{
+    display:flex; align-items:center; gap:12px; padding:13px;
+    border:1.5px solid var(--blue); border-radius:16px; background:var(--page);
+  }
+  .scan .ic{
+    width:44px; height:44px; border-radius:12px; background:var(--blue);
+    display:grid; place-items:center; flex:none;
+  }
+  .scan .h{font:700 15px/1.25 inherit}
+  .scan .s{font-size:12.5px; color:var(--ink-2); margin-top:2px}
+  .chev{margin-left:auto; color:var(--blue-text); flex:none}
+
+  .meter{
+    display:flex; align-items:center; gap:8px; margin:9px 4px 0;
+    font-size:12.5px; color:var(--ink-2);
+  }
+  .meter .bar{
+    flex:1; height:4px; border-radius:99px; background:var(--border); overflow:hidden; max-width:96px;
+  }
+  .meter .bar i{display:block; height:100%; background:var(--blue-text); border-radius:99px}
+  .meter.zero{color:var(--credit)}
+  .meter.zero .bar i{background:var(--credit)}
+
+  .divider{display:flex; align-items:center; gap:10px; margin:14px 0 6px; color:var(--ink-3); font-size:12.5px}
+  .divider:before,.divider:after{content:""; flex:1; height:1px; background:var(--border)}
+
+  /* sheet */
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; background:var(--page);
+    border-radius:24px 24px 0 0; padding:16px 18px 22px;
+    box-shadow:0 -14px 40px rgba(11,18,32,.16);
+  }
+  body.dark .sheet{box-shadow:0 -14px 40px rgba(0,0,0,.6); border-top:1px solid var(--border)}
+  .scrim{position:absolute; inset:0; background:rgba(11,18,32,.34)}
+  .x{
+    width:32px; height:32px; border-radius:99px; background:var(--surface);
+    display:grid; place-items:center; color:var(--ink-2); font-size:15px;
+  }
+  .sheet h2{font:700 19px/1.25 inherit; margin:12px 0 6px; letter-spacing:-.01em}
+  .sheet p{margin:0; color:var(--ink-2); font-size:13.5px}
+  .center{text-align:center}
+  .badgeic{
+    width:52px; height:52px; border-radius:99px; margin:2px auto 0;
+    display:grid; place-items:center; background:var(--surface);
+  }
+
+  .btn{
+    display:block; width:100%; text-align:center; padding:14px; border-radius:14px;
+    background:var(--blue); color:var(--on-accent); font:700 15px/1 inherit; border:0;
+  }
+  .btn.ghost{background:transparent; color:var(--blue-text); border:1px solid var(--border)}
+  .btn.text{background:transparent; color:var(--blue-text); border:0; padding:12px}
+
+  /* tiers */
+  .tiers{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:16px 0 6px}
+  .tier{
+    border:1.5px solid var(--border); border-radius:14px; padding:12px 6px 11px;
+    text-align:center; position:relative; background:var(--page);
+  }
+  .tier.sel{border-color:var(--blue); background:var(--blue-tint)}
+  .tier .d{font:600 12.5px/1 inherit; color:var(--ink-2)}
+  .tier .p{font:800 17px/1 inherit; margin-top:7px; letter-spacing:-.02em;
+           font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .tier.sel .p{color:var(--blue-text)}
+  .flag{
+    position:absolute; top:-8px; left:50%; transform:translateX(-50%);
+    background:var(--green-tint); color:var(--green); border-radius:99px;
+    font:700 9.5px/1 inherit; padding:4px 7px; white-space:nowrap; letter-spacing:.02em;
+  }
+  .onetime{
+    margin:12px 0 0; text-align:center; font:600 12.5px/1.5 inherit; color:var(--ink);
+  }
+  .fine{margin:6px 0 0; text-align:center; font-size:11.5px; color:var(--ink-3); line-height:1.45}
+
+  /* pro badge */
+  .prorow{display:flex; align-items:center; gap:11px; padding:13px 12px; border:1px solid var(--border); border-radius:14px}
+  .pill{
+    display:inline-flex; align-items:center; gap:5px; padding:4px 9px; border-radius:99px;
+    background:var(--blue); color:#fff; font:800 10.5px/1 inherit; letter-spacing:.04em;
+  }
+  .pill.off{background:var(--surface); color:var(--ink-2)}
+  .rowmain{font:600 14.5px/1.3 inherit}
+  .rowsub{font-size:12.5px; color:var(--ink-2); margin-top:2px}
+
+  .grouphdr{display:flex; align-items:center; gap:9px; padding:4px 2px 10px}
+  .emoji{width:34px; height:34px; border-radius:10px; background:var(--surface); display:grid; place-items:center; font-size:17px}
+
+  .listrow{display:flex; align-items:center; gap:11px; padding:13px 2px; border-bottom:1px solid var(--border)}
+  .listrow .ic2{width:32px; height:32px; border-radius:9px; background:var(--surface); display:grid; place-items:center; color:var(--ink-2)}
+  svg{display:block}
+</style>
+
+<header>
+  <h1>Evenly Pro — group passes</h1>
+  <p class="sub">
+    Mockup for <b>PRO_PASS_SPEC.md</b> steps 4 and 5, before any Compose gets written. Colours, radii and
+    type are the real <code>ExtendedColors</code> tokens, so what you see is what the app can render.
+    Prices shown are placeholders: the real ones come from RevenueCat, localized.
+  </p>
+  <div class="toggle" role="group" aria-label="Theme">
+    <button id="lt" aria-pressed="true">Light</button>
+    <button id="dk" aria-pressed="false">Dark</button>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- 1. METER -->
+  <div class="cell">
+    <p class="cap">1. The meter <span>· free group, bill editor</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Restaurant bill</div>
+        </div>
+        <div class="lbl">Title</div>
+        <div class="field">What was it for?</div>
+        <div class="lbl">Who's splitting this?</div>
+        <div class="field">3 of 8 selected</div>
+        <div class="lbl" style="margin-top:14px">&nbsp;</div>
+        <div class="scan">
+          <div class="ic">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <div>
+            <div class="h">Scan the receipt</div>
+            <div class="s">Snap a photo or PDF and we'll fill in the items.</div>
+          </div>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="meter">
+          <div class="bar"><i style="width:40%"></i></div>
+          <span>2 of 5 free scans left</span>
+        </div>
+        <div class="divider">or add items by hand</div>
+        <div class="lbl">Items</div>
+        <div class="card" style="padding:14px 12px">
+          <div class="field" style="color:var(--ink-3)">Item</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      Appears <b>only from the 3rd scan on</b>. A group that has scanned once should not be counting
+      anything yet. The bar is 96px and sits under the card, not on it, so it reads as a fact rather
+      than a warning.
+    </p>
+  </div>
+
+  <!-- 2. LAST ONE -->
+  <div class="cell">
+    <p class="cap">2. Last free scan <span>· same row, 1 left</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Restaurant bill</div>
+        </div>
+        <div class="lbl">Title</div>
+        <div class="field">Dinner at Pax Mall</div>
+        <div class="lbl">Who's splitting this?</div>
+        <div class="field">3 of 8 selected</div>
+        <div class="lbl" style="margin-top:14px">&nbsp;</div>
+        <div class="scan">
+          <div class="ic">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <div>
+            <div class="h">Scan the receipt</div>
+            <div class="s">Snap a photo or PDF and we'll fill in the items.</div>
+          </div>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="meter zero">
+          <div class="bar"><i style="width:20%"></i></div>
+          <span>1 of 5 free scans left</span>
+        </div>
+        <div class="divider">or add items by hand</div>
+        <div class="lbl">Items</div>
+        <div class="card" style="padding:14px 12px">
+          <div class="field" style="color:var(--ink-3)">Item</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      At 1 left the row turns <b>credit</b> (the burnt amber already used for "in credit"), not red.
+      Nothing has gone wrong. The scan card itself never changes, and at 0 it stays fully live: tapping
+      it opens the paywall rather than doing nothing.
+    </p>
+  </div>
+
+  <!-- 3. PAYWALL -->
+  <div class="cell">
+    <p class="cap">3. The paywall <span>· tapped scan at 0 left</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Restaurant bill</div>
+        </div>
+        <div class="lbl">Title</div>
+        <div class="field">Dinner at Pax Mall</div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="x">✕</div>
+          <h2>Unlimited scans for Penn Engineers</h2>
+          <p>This group has used all 5 free scans. Get a pass and everyone in the group can scan as many receipts as they want.</p>
+          <div class="tiers">
+            <div class="tier">
+              <div class="d">1 week</div>
+              <div class="p">$0.99</div>
+            </div>
+            <div class="tier">
+              <div class="d">2 weeks</div>
+              <div class="p">$1.99</div>
+            </div>
+            <div class="tier sel">
+              <div class="flag">BEST VALUE</div>
+              <div class="d">1 month</div>
+              <div class="p">$3.99</div>
+            </div>
+          </div>
+          <button class="btn" style="margin-top:12px">Get Pro for Penn Engineers</button>
+          <p class="onetime">One time. It does not renew. Nothing to cancel.</p>
+          <p class="fine">Covers everyone in this group. You can still add bills by hand for free.</p>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      The group name is in the headline <i>and</i> on the button, because buying for the wrong group is
+      the one mistake this design can produce. <b>"One time. It does not renew."</b> sits above the fold
+      in ink, not grey fine print: it is the whole differentiator and burying it wastes it.
+      <b>"Best value" is arithmetic</b> ($0.13/day vs $0.14), not invented popularity.
+    </p>
+  </div>
+
+  <!-- 4. ALREADY PRO -->
+  <div class="cell">
+    <p class="cap">4. Buying while already Pro <span>· stacking</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar"><div class="t">Group settings</div></div>
+        <div class="lbl">Receipts</div>
+        <div class="field">&nbsp;</div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="x">✕</div>
+          <h2>Add to Penn Engineers' pass</h2>
+          <p>Penn Engineers is Pro until Aug 16. Buying now adds to the end, it does not start over.</p>
+          <div class="tiers">
+            <div class="tier sel">
+              <div class="d">1 week</div>
+              <div class="p">$0.99</div>
+            </div>
+            <div class="tier">
+              <div class="d">2 weeks</div>
+              <div class="p">$1.99</div>
+            </div>
+            <div class="tier">
+              <div class="d">1 month</div>
+              <div class="p">$3.99</div>
+            </div>
+          </div>
+          <button class="btn" style="margin-top:12px">Extend to Aug 23</button>
+          <p class="onetime">One time. It does not renew. Nothing to cancel.</p>
+          <p class="fine">Andrew's pass runs to Aug 16. Yours picks up from there.</p>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      Said <b>before</b> the charge, not after. The button names the resulting date, so "what am I
+      actually buying" needs no arithmetic. No BEST VALUE flag here: the honest recommendation when you
+      are already covered is the smallest one.
+    </p>
+  </div>
+
+  <!-- 5. PRO BADGE -->
+  <div class="cell">
+    <p class="cap">5. The group is Pro <span>· settings + home</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="grouphdr">
+          <div class="emoji">🏠</div>
+          <div>
+            <div style="font:700 17px/1.2 inherit">Penn Engineers</div>
+            <div style="font-size:12px; color:var(--ink-2); margin-top:3px">8 members</div>
+          </div>
+          <div style="margin-left:auto"><span class="pill">PRO</span></div>
+        </div>
+
+        <div class="prorow" style="margin-top:6px">
+          <div class="ic2" style="width:36px;height:36px;border-radius:10px;background:var(--blue-tint);display:grid;place-items:center">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--blue-text)" stroke-width="2"><path d="M12 2l2.4 6.9H22l-6 4.4 2.3 7-6.3-4.6L5.7 20l2.3-7-6-4.4h7.6z"/></svg>
+          </div>
+          <div>
+            <div class="rowmain">Pro until Aug 16</div>
+            <div class="rowsub">Andrew got this for the group</div>
+          </div>
+        </div>
+
+        <div class="lbl" style="margin-top:16px">This group</div>
+        <div class="listrow">
+          <div class="ic2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></div>
+          <div class="rowmain" style="font-weight:500">Members</div>
+        </div>
+        <div class="listrow">
+          <div class="ic2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></div>
+          <div>
+            <div class="rowmain" style="font-weight:500">Export this group</div>
+            <div class="rowsub">CSV or PDF</div>
+          </div>
+          <div style="margin-left:auto; color:var(--ink-3)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+          </div>
+        </div>
+        <div class="listrow" style="border-bottom:0">
+          <div class="ic2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/></svg></div>
+          <div class="rowmain" style="font-weight:500">Categories</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      <b>Naming the buyer is the point.</b> It turns the purchase into a small favour to friends instead
+      of an invisible tax, and answers "wait, who paid for this?" before anyone asks. The PRO pill on the
+      header is the only always-visible trace; there is no upsell surface anywhere while a pass is live.
+    </p>
+  </div>
+
+  <!-- 6. EXPIRED -->
+  <div class="cell">
+    <p class="cap">6. The pass ended <span>· no pressure</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="grouphdr">
+          <div class="emoji">🏠</div>
+          <div>
+            <div style="font:700 17px/1.2 inherit">Penn Engineers</div>
+            <div style="font-size:12px; color:var(--ink-2); margin-top:3px">8 members</div>
+          </div>
+        </div>
+
+        <div class="prorow" style="margin-top:6px; background:var(--surface); border-color:transparent">
+          <div class="ic2" style="width:36px;height:36px;border-radius:10px;background:var(--page);display:grid;place-items:center">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><path d="M12 2l2.4 6.9H22l-6 4.4 2.3 7-6.3-4.6L5.7 20l2.3-7-6-4.4h7.6z"/></svg>
+          </div>
+          <div>
+            <div class="rowmain">Pro ended</div>
+            <div class="rowsub">Your bills and receipts are all still here.</div>
+          </div>
+        </div>
+        <button class="btn ghost" style="margin-top:10px">Get another pass</button>
+
+        <div class="lbl" style="margin-top:20px">&nbsp;</div>
+        <div class="scan" style="border-color:var(--border)">
+          <div class="ic" style="background:var(--surface)">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <div>
+            <div class="h">Scan the receipt</div>
+            <div class="s">Needs a pass. You can still add bills by hand.</div>
+          </div>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      Said <b>once</b>, on the day, with no countdown beforehand and no interstitial. "Your bills and
+      receipts are all still here" is the first line because in a money app the difference between
+      "expired" and "we took your data" has to be stated, not assumed. The scan card stays tappable.
+    </p>
+  </div>
+
+  <!-- 7. OUT OF SCANS (shipped today) -->
+  <div class="cell">
+    <p class="cap">7. Today's refusal <span>· step 2, already shipped</span></p>
+    <div class="phone">
+      <div class="status"><span>17:13</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Restaurant bill</div>
+        </div>
+        <div class="lbl">Title</div>
+        <div class="field">What was it for?</div>
+        <div class="scrim"></div>
+        <div class="sheet center">
+          <div class="x" style="margin:0 0 4px">✕</div>
+          <div class="badgeic">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="2"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>
+          </div>
+          <h2 style="margin-top:12px">Out of free scans</h2>
+          <p>This group has used its free scans. You can still type the bill in.</p>
+          <button class="btn" style="margin-top:18px">Get Pro for Penn Engineers</button>
+          <button class="btn text" style="margin-top:4px">Enter manually</button>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      This sheet is <b>live in the app today</b> minus the blue button, which step 5 adds. No Retry:
+      waiting fixes the hourly rate limit and never fixes this, so offering one would be a control that
+      cannot do what it says. Manual entry stays reachable, which is what lets the paywall be a choice
+      rather than a wall.
+    </p>
+  </div>
+
+</div>
+
+<script>
+  const b=document.body, lt=document.getElementById('lt'), dk=document.getElementById('dk');
+  const set=d=>{b.classList.toggle('dark',d); lt.setAttribute('aria-pressed',!d); dk.setAttribute('aria-pressed',d)};
+  lt.onclick=()=>set(false); dk.onclick=()=>set(true);
+  if (matchMedia('(prefers-color-scheme: dark)').matches) set(true);
+</script>
