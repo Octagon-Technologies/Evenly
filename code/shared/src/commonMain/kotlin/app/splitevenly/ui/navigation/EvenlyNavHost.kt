@@ -114,7 +114,6 @@ fun EvenlyNavHost(
                 onIncludeNav = { conflictId, expenseId, memberUserId ->
                     navController.navigate(Route.IncludeMember(r.groupId, conflictId, expenseId, memberUserId))
                 },
-                onExport = {},
                 onClaimNames = { navController.navigate(Route.Reconcile(r.groupId)) },
             )
         }

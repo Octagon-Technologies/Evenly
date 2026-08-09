@@ -156,6 +156,11 @@ hidden while more than 3 remain: a new group counting down from 5 reads as a tri
 `ScanQuotaMeter` renders whatever it is handed and decides nothing. **The scan card stays enabled at
 zero** so tapping it explains rather than doing nothing.
 
+**Export lives in Group settings and nowhere else.** The Overview tab used to carry an "Export as
+image" button wired to an empty lambda and an "Export" chip in its app bar that `EvChip` gives no
+`onClick` at all, so neither could ever do anything. Both are gone. If export returns to Overview it
+ships with a working callback, or it does not ship.
+
 **There is deliberately no Pro badge in the group top bar.** It was in the approved mock and was removed
 after building it: that bar already carries three actions, and a pill wraps the group's own name onto two
 lines. The Pro fact lives in the Group settings row, which names the buyer. Do not re-add it without

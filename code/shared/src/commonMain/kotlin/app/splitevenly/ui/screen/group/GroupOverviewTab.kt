@@ -31,10 +31,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.ExpenseCategory
-import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.ui.components.DonutSlice
-import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvDebtRow
@@ -79,7 +77,6 @@ fun GroupOverviewTab(
         Triple("Tyler", "You", 3100L),
     ),
     onBack: () -> Unit = {},
-    onExport: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var mode by remember { mutableStateOf("Personal") }
@@ -90,7 +87,7 @@ fun GroupOverviewTab(
     val maxM = (byMember.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
 
     Column(Modifier.fillMaxSize().background(c.page)) {
-        EvTopBar("Overview", navIcon = { EvIconButton(EvIcons.Back, onBack) }, actions = { EvChip("Export", variant = ChipVariant.Ghost, leadingIcon = EvIcons.Download) })
+        EvTopBar("Overview", navIcon = { EvIconButton(EvIcons.Back, onBack) })
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             // header
             EvCard(padded = true) {
@@ -213,7 +210,6 @@ fun GroupOverviewTab(
                 }
             }
 
-            EvButton("Export as image", onExport, variant = ButtonVariant.Secondary, leadingIcon = EvIcons.Image)
         }
     }
 }

@@ -48,7 +48,6 @@ fun GroupHomeScreen(
     onOpenSettings: () -> Unit = {},
     onSettlePeer: (String) -> Unit = {},
     onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit = { _, _, _ -> },
-    onExport: () -> Unit = {},
     /** "See all N" on the identity card, and the settings row, both open the full-screen list. */
     onClaimNames: () -> Unit = {},
 ) {
@@ -73,7 +72,7 @@ fun GroupHomeScreen(
                     GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onOpenBill, onSearch, onClaimNames)
                     GroupTab.Balances -> GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
                     GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
-                    GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack, onExport = onExport)
+                    GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack)
                 }
             }
         }
