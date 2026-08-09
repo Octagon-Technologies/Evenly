@@ -11,6 +11,7 @@ import app.splitevenly.data.db.entity.ExpenseEditConflictEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ExpenseSyncStateEntity
 import app.splitevenly.data.db.entity.GroupEntity
+import app.splitevenly.data.db.entity.GroupPassEntity
 import app.splitevenly.data.db.entity.BillParticipantEntity
 import app.splitevenly.data.db.entity.ExpenseItemEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
@@ -146,6 +147,10 @@ class SyncEngine(
         // Web guests' proposed menu edits, awaiting the payer's individual approval (WEB_CLAIM_SPEC.md
         // §2.7). Pull-heavy by nature: the guests write them from the browser, the app only decides.
         val pendingItemEdits = if (expenseIds.isEmpty()) emptyList() else selectIn<PendingItemEditEntity>("pending_item_edits", "expense_id", expenseIds)
+        // Evenly Pro passes (PRO_PASS_SPEC.md). Group-scoped and PULL-ONLY: the server is the only
+        // writer, RLS grants the client select alone, and there is deliberately no matching entry in
+        // push() below. A client that could write this table could grant itself unlimited paid scans.
+        val groupPasses = selectIn<GroupPassEntity>("group_passes", "group_id", groupIds)
         val userIds = (members.map { it.userId } + expenses.mapNotNull { it.payerUserId } + shares.map { it.userId }).distinct()
         val users = if (userIds.isEmpty()) emptyList() else selectIn<UserEntity>("users", "id", userIds)
 
@@ -203,6 +208,9 @@ class SyncEngine(
         // Pending edits carry updated_at, so the same last-write-wins guard applies: a stale server copy
         // must not un-decide a verdict this device just stamped and hasn't pushed yet.
         land("pending_item_edits", pendingItemEdits, db.pendingItemEditDao().allForSync(), { it.id }, { it.updatedAt }) { db.pendingItemEditDao().upsertAll(it) }
+        // Blind upsert, no keepNewer guard: there is no local write to protect, since nothing in the app
+        // ever creates or edits a pass. The server row is the only version that has ever existed.
+        if (groupPasses.isNotEmpty()) db.groupPassDao().upsertAll(groupPasses)
         land("placeholder_claim_answers", claimAnswers, db.placeholderClaimAnswerDao().allForSync(), { it.id }, { it.updatedAt }) { db.placeholderClaimAnswerDao().upsertAll(it) }
         // Allocations are append-only ground truth (no updated_at); blind upsert is correct.
         if (allocations.isNotEmpty()) {

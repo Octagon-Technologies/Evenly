@@ -7,6 +7,7 @@ import androidx.room.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.Dispatchers
 import app.splitevenly.data.db.dao.BillParticipantDao
+import app.splitevenly.data.db.dao.GroupPassDao
 import app.splitevenly.data.db.dao.CategoryDao
 import app.splitevenly.data.db.dao.CommentDao
 import app.splitevenly.data.db.dao.ConflictDao
@@ -49,6 +50,7 @@ import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.GroupPassEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
@@ -101,10 +103,11 @@ import app.splitevenly.data.db.entity.UserEntity
         ItemShareEntity::class,
         BillParticipantEntity::class,
         PendingItemEditEntity::class,
+        GroupPassEntity::class,
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -133,6 +136,8 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun itemShareDao(): ItemShareDao
     abstract fun billParticipantDao(): BillParticipantDao
     abstract fun pendingItemEditDao(): PendingItemEditDao
+
+    abstract fun groupPassDao(): GroupPassDao
     abstract fun rowSyncStateDao(): RowSyncStateDao
     abstract fun supersededNoticeDao(): SupersededNoticeDao
 }

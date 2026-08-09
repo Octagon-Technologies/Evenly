@@ -58,6 +58,20 @@ server rehydrates. Fine for now — see the prod gate at the bottom of this file
 *not* in `SyncEngine`'s table list, never pushed. They are also the only legitimate hard deletes in the
 codebase (`ReceiptUploadDao.kt:45`, `ExpenseSyncStateDao.kt:21`) — they hold no user data.
 
+**`group_passes` is the one PULL-ONLY synced table.** Evenly Pro (`PRO_PASS_SPEC.md`): the server is the
+only writer, so the client pulls it and never pushes. Three things enforce that, deliberately
+redundantly, because a client that could write this table could grant itself unlimited paid
+Claude-vision calls: server RLS grants `select` only, there is no entry in `SyncEngine.push`, and
+**`GroupPassDao` has no `allForSync`** — `push()` consumes exactly that method, so its absence makes
+pull-only a fact of the type system rather than a comment. Do not add one. It also lands with a blind
+upsert and no `keepNewer` guard, which is correct here and nowhere else: the guard protects local edits,
+and nothing in the app ever writes a pass.
+
+`domain/pro/proStatusOf` mirrors the server's `group_pro_status` so the Pro badge renders offline. Two
+implementations of one rule, accepted so a badge costs no round trip; `ProStatusTest` pins it against
+the same cases the SQL side was verified with. **Enforcement is always the server's copy** — this one
+only ever decides what to draw.
+
 ## Expenses sync through a ZONE-AWARE MERGE RPC
 
 Not a blind upsert, and not a whole-expense CAS. An expense splits into concurrency zones by *invariant
