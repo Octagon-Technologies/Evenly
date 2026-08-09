@@ -198,4 +198,76 @@ class BillRepositoryTest {
         bills.setServings(bill, pizza, listOf(listOf(me, bob), listOf(cara)), addedBy = me)
         assertEquals(mapOf("a" to 900L, "b" to 900L, "c" to 1800L), owed(bill), "reslice replaces cleanly")
     }
+
+    /**
+     * Taking someone off the bill has to take their money with them. A bill's owed amounts derive from
+     * claims, so tombstoning the roster row alone left the person off the list and still paying for their
+     * dishes — the "we added them by mistake" case.
+     */
+    @Test
+    fun takingSomeoneOffTheBill_clearsTheirClaimsAndTheirMoney() = runTest {
+        val bill = newBill()
+        val pizza = itemId(bill, "Margherita pizza")
+        val salad = itemId(bill, "Caesar salad")
+        bills.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob, cara)))
+        bills.setClaim(bill, pizza, me, 1)
+        bills.setClaim(bill, pizza, cara, 1)
+        bills.setClaim(bill, salad, cara, 1)
+        assertEquals(mapOf("a" to 1800L, "c" to 3000L), owed(bill), "Cara is on a pizza and the salad")
+
+        bills.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob)))
+
+        assertEquals(mapOf("a" to 1800L), owed(bill), "Cara owes nothing once she is off the bill")
+        assertNull(db.itemClaimDao().getActiveClaim(pizza, cara.value), "her pizza claim is tombstoned")
+        assertNull(db.itemClaimDao().getActiveClaim(salad, cara.value), "her salad claim is tombstoned")
+        val view = bills.observeBill(bill).first()!!
+        assertEquals(1, view.assignedQuantityByItem[pizza], "the unit she held needs someone again")
+    }
+
+    /** A slice she shared survives with its remaining member; a slice she held alone frees its units. */
+    @Test
+    fun takingSomeoneOffTheBill_leavesTheRestOfASharedSlice() = runTest {
+        val bill = newBill()
+        val pizza = itemId(bill, "Margherita pizza") // qty 2, $18/unit
+        val salad = itemId(bill, "Caesar salad")
+        bills.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob, cara)))
+        bills.setPortion(bill, pizza, portionId = "p1", memberIds = listOf(bob, cara), quantity = 1, addedBy = me)
+        bills.setPortion(bill, pizza, portionId = "p2", memberIds = listOf(cara), quantity = 1, addedBy = me)
+        assertEquals(mapOf("b" to 900L, "c" to 2700L), owed(bill))
+
+        bills.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob)))
+
+        assertEquals(mapOf("b" to 1800L), owed(bill), "Bob now has the shared unit to himself")
+        val view = bills.observeBill(bill).first()!!
+        assertEquals(1, view.assignedQuantityByItem[pizza], "the unit Cara held alone is back to needing someone")
+    }
+
+    /** Off then back on: the deterministic row id means the tombstone must be revived, not re-inserted. */
+    @Test
+    fun puttingSomeoneBackOnTheBill_restoresThem() = runTest {
+        val bill = newBill()
+        val pizza = itemId(bill, "Margherita pizza")
+        val salad = itemId(bill, "Caesar salad")
+        bills.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob, cara)))
+        bills.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob)))
+        bills.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob, cara)))
+
+        val active = db.billParticipantDao().getByExpense(bill.value).filter { it.deletedAt == null }
+        assertEquals(setOf("a", "b", "c"), active.mapTo(HashSet()) { it.userId }, "Cara is back on the bill")
+        assertEquals(3, active.size, "revived, not duplicated")
+    }
+
+    /** The bill's own items and extras, unchanged — only the roster varies across the participant tests. */
+    private fun editWith(pizza: String, salad: String, participants: List<UserId>) = EditBill(
+        title = "Dinner at Tavolo",
+        expenseDate = "2026-06-28",
+        payerUserId = me,
+        items = listOf(
+            EditBillItem(id = pizza, label = "Margherita pizza", quantity = 2, lineTotalSubunits = 3600),
+            EditBillItem(id = salad, label = "Caesar salad", quantity = 1, lineTotalSubunits = 1200),
+        ),
+        extras = BillExtrasInput(),
+        participantUserIds = participants,
+        editedBy = me,
+    )
 }

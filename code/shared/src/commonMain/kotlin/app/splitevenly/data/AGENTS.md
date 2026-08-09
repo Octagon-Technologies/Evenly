@@ -140,6 +140,13 @@ set, but an empty selection must never silently wipe it. Each participant carrie
 treats a bill as unresolved when a line still needs someone *or* a participant hasn't marked done, because
 claiming ≠ paying.
 
+**Taking someone off a bill must take their claims with them.** The roster row carries no money — owed
+amounts derive from `item_claims`/`item_shares` — so tombstoning it alone leaves the person off the bill and
+still paying for their dishes. `editBill` soft-deletes their claims and portion memberships in the same
+write (units they held return to UNCLAIMED; a slice they shared survives for its remaining members). The
+reverse case is the deterministic row id: putting the same person back **revives their tombstoned row**, it
+does not insert a second one. `BillRepositoryTest` pins both directions.
+
 Don't reintroduce stored itemized share input, a stored per-unit truth, or a blind items/shares push.
 
 **Joining someone else's claim goes through `join_item_portion`, never a local cross-user write.**

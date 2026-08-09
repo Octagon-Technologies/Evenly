@@ -48,6 +48,15 @@ interface ItemShareDao {
     @Query("UPDATE item_shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE item_id IN (:itemIds) AND deleted_at IS NULL")
     suspend fun softDeleteByItems(itemIds: List<String>, ts: Long)
 
+    /** Tombstone these users' active portion memberships on one bill — taking someone off the bill.
+     *  A slice they were sharing survives with its remaining members; a slice they alone held frees its
+     *  units back to UNCLAIMED. */
+    @Query(
+        "UPDATE item_shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 " +
+            "WHERE expense_id = :expenseId AND user_id IN (:userIds) AND deleted_at IS NULL",
+    )
+    suspend fun softDeleteByExpenseAndUsers(expenseId: String, userIds: List<String>, ts: Long)
+
     /** Zero every active CLAIM on an item — the claims half of the atomic servings rebuild (#15). */
     @Query("UPDATE item_claims SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 WHERE item_id = :itemId AND deleted_at IS NULL")
     suspend fun clearClaimsForItem(itemId: String, now: Long)

@@ -47,4 +47,15 @@ interface ItemClaimDao {
     /** Tombstone every active claim on an item — used when the item itself is removed from the bill. */
     @Query("UPDATE item_claims SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE item_id IN (:itemIds) AND deleted_at IS NULL")
     suspend fun softDeleteByItems(itemIds: List<String>, ts: Long)
+
+    /**
+     * Tombstone every active claim these users hold on one bill — taking someone off the bill. A bill's
+     * money derives from claims, not from the participant roster, so dropping the roster row alone would
+     * leave them owing for their dishes while no longer appearing on it.
+     */
+    @Query(
+        "UPDATE item_claims SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 " +
+            "WHERE expense_id = :expenseId AND user_id IN (:userIds) AND deleted_at IS NULL",
+    )
+    suspend fun softDeleteByExpenseAndUsers(expenseId: String, userIds: List<String>, ts: Long)
 }

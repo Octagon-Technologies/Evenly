@@ -166,6 +166,7 @@ class BillRepositoryImpl(
             payerOutsideName = input.payerOutsideName,
             splitMode = SPLIT_MODE_ITEMIZED,
             taxSubunits = input.extras.taxSubunits,
+            otherChargesSubunits = input.extras.otherChargesSubunits,
             tipSubunits = input.extras.tipSubunits,
             tipSplitMode = input.extras.tipSplitMode.name,
             gratuitySubunits = input.extras.gratuitySubunits,
@@ -286,7 +287,8 @@ class BillRepositoryImpl(
             input.extras.gratuitySubunits != existing.gratuitySubunits ||
             input.extras.tipSubunits != existing.tipSubunits ||
             input.extras.tipSplitMode.name != existing.tipSplitMode ||
-            input.extras.discountSubunits != existing.discountSubunits
+            input.extras.discountSubunits != existing.discountSubunits ||
+            input.extras.otherChargesSubunits != existing.otherChargesSubunits
         val participantsChanged = input.participantUserIds.isNotEmpty() && run {
             val desired = input.participantUserIds.mapTo(HashSet()) { it.value }
             desired != billParticipantDao.getByExpense(expenseId.value)
@@ -300,6 +302,7 @@ class BillRepositoryImpl(
             payerUserId = input.payerUserId?.value,
             payerOutsideName = input.payerOutsideName,
             taxSubunits = input.extras.taxSubunits,
+            otherChargesSubunits = input.extras.otherChargesSubunits,
             tipSubunits = input.extras.tipSubunits,
             tipSplitMode = input.extras.tipSplitMode.name,
             gratuitySubunits = input.extras.gratuitySubunits,
@@ -324,9 +327,16 @@ class BillRepositoryImpl(
         if (input.participantUserIds.isNotEmpty()) {
             val desired = input.participantUserIds.mapTo(HashSet()) { it.value }
             val existingParts = billParticipantDao.getByExpense(expenseId.value)
-            val existingUsers = existingParts.mapTo(HashSet()) { it.userId }
-            val added = desired.filter { it !in existingUsers }.map { uid ->
-                BillParticipantEntity(
+            val activeParts = existingParts.filter { it.deletedAt == null }
+            val activeUsers = activeParts.mapTo(HashSet()) { it.userId }
+            val tombstoned = existingParts.filter { it.deletedAt != null }.associateBy { it.userId }
+            // Someone taken off the bill and then put back gets their EXISTING row revived rather than a
+            // second one: the id is deterministic, so a fresh insert would collide with the tombstone and
+            // leave them off the bill. Their done stamp is cleared, since they have nothing claimed now.
+            val added = desired.filter { it !in activeUsers }.map { uid ->
+                tombstoned[uid]?.let { prior ->
+                    prior.copy(deletedAt = null, doneAt = null, updatedAt = now, rowVersion = prior.rowVersion + 1)
+                } ?: BillParticipantEntity(
                     id = participantId(expenseId.value, uid),
                     expenseId = expenseId.value,
                     groupId = existing.groupId,
@@ -336,8 +346,16 @@ class BillRepositoryImpl(
                 )
             }
             if (added.isNotEmpty()) billParticipantDao.upsertAll(added)
-            val removedParts = existingParts.filter { it.userId !in desired }.map { it.id }
-            if (removedParts.isNotEmpty()) billParticipantDao.softDeleteByIds(removedParts, now)
+            val removedParts = activeParts.filter { it.userId !in desired }
+            if (removedParts.isNotEmpty()) {
+                billParticipantDao.softDeleteByIds(removedParts.map { it.id }, now)
+                // Their claims and portion slices go with them. The roster row alone does not carry money
+                // (splitBill derives owed from claims), so tombstoning only that would take someone off the
+                // bill while they kept paying for their dishes. Units they held come back as UNCLAIMED.
+                val removedUsers = removedParts.map { it.userId }
+                itemClaimDao.softDeleteByExpenseAndUsers(expenseId.value, removedUsers, now)
+                itemShareDao.softDeleteByExpenseAndUsers(expenseId.value, removedUsers, now)
+            }
         }
         materializeShares(updated, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
@@ -783,7 +801,8 @@ class BillRepositoryImpl(
     /** Bill total = Σ(line totals) + tax + gratuity + tip − discount. Each line's total is entered directly. */
     private fun total(lines: List<Pair<Int, Long>>, extras: BillExtrasInput): Long =
         lines.sumOf { (_, lineTotal) -> lineTotal } +
-            extras.taxSubunits + extras.gratuitySubunits + extras.tipSubunits - extras.discountSubunits
+            extras.taxSubunits + extras.gratuitySubunits + extras.otherChargesSubunits +
+                extras.tipSubunits - extras.discountSubunits
 }
 
 private fun ExpenseItemEntity.toView() = BillItemView(id, label, quantity, lineTotalSubunits, sortOrder)
