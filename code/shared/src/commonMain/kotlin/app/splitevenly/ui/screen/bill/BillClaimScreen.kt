@@ -230,7 +230,9 @@ fun BillClaimScreen(
                 if (state.unassignedCount > 0) {
                     PendingPill(state.unassignedCount)
                 }
-                EvButton("Edit menu & prices", onEditBill, variant = ButtonVariant.Secondary, leadingIcon = EvIcons.Edit)
+                // Not "Edit menu & prices" any more: the same editor now also changes who paid and who's
+                // on the bill, so the narrower label sent people looking for those elsewhere.
+                EvButton("Edit bill", onEditBill, variant = ButtonVariant.Secondary, leadingIcon = EvIcons.Edit)
                 EvButton("Done", onDone, variant = ButtonVariant.Primary)
             }
         }

@@ -164,7 +164,7 @@ filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer`
 
 | File                                        | Lines |
 | ------------------------------------------- | ----- |
-| `ui/screen/bill/BillEditScreen.kt`          | 1046  |
+| `ui/screen/bill/BillEditScreen.kt`          | 916   |
 | `ui/screen/expense/ExpenseDetailScreen.kt`  | 850   |
 | `ui/navigation/LedgerRoutes.kt`             | 662   |
 | `ui/screen/auth/WelcomeScreen.kt`           | 639   |
@@ -177,6 +177,14 @@ next to the `ItemEditorRow`/`ExtrasCard` it already borrowed. Each body owns its
 the participant `ids` as an argument, so selection stays owned by the screen. Both bodies emit their rows
 straight into the caller's `Column`, so the caller's `spacedBy` still spaces them. **`BillEditScreen` still
 has its own copy of the item-list body** — unifying the two was deliberately out of scope, not overlooked.
+
+**The bill editor owns the payer and the roster too** (2026-08-08): "Paid by" (`bill/BillPayerRow.kt`,
+reusing the add-expense `PayerSheet`) sits *below* the people, same order as the add-expense editor, and
+the roster moved to `bill/BillPeopleSection.kt`. **A sheet must be rendered outside the editor's scrolling
+`Column`** — inside it, the sheet's own scroller is measured with an unbounded height and Compose throws
+on Native. That is why both files export a row and its sheet separately instead of one self-contained
+component. Taking someone off the bill discards their claims, so that case confirms first; changing the
+payer never does.
 
 The rule for the offenders above is **do not grow them.** When you make a substantial change inside one,
 extract the section you touched on your way out. Do not propose a big speculative rewrite — report the delta, not the

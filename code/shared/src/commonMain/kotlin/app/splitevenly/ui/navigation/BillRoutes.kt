@@ -187,6 +187,10 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         attachedReceiptCount = attachedReceipts.size,
         participants = members.map { ParticipantChipUi(it.userId.value, if (it.userId == userId) "You" else (it.displayName ?: "Someone"), it.userId == userId) },
         initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
+        // A new bill is paid by whoever is entering it, which is who is holding the receipt.
+        initialPayerId = existing?.expense?.payerUserId?.value ?: userId?.value.orEmpty(),
+        initialOutsidePayerName = existing?.expense?.payerOutsideName,
+        claimedItemsByUser = existing?.claimedItemsByUser().orEmpty(),
         onBack = onBack,
         onScanReceipt = { source ->
             // Fires before any cost is incurred — even if the user backs out of the file picker next.
@@ -226,7 +230,12 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                     tipSubunits = submit.tipSubunits,
                     tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
                     discountSubunits = submit.discountSubunits,
+                    otherChargesSubunits = submit.otherChargesSubunits,
                 )
+                val outsidePayer = submit.payerOutsideName?.takeIf { it.isNotBlank() }
+                val payer = if (outsidePayer != null) null else submit.payerUserId?.let { UserId(it) }
+                // Neither set means the editor had no "Paid by" row at all, so the bill keeps its payer.
+                val keepPayer = outsidePayer == null && payer == null
                 if (expenseId == null) {
                     val result = bills.createBill(
                         NewBill(
@@ -234,7 +243,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             title = submit.title,
                             currency = currency,
                             expenseDate = Clock.System.todayUtc(),
-                            payerUserId = me,
+                            payerUserId = if (outsidePayer != null) null else (payer ?: me),
+                            payerOutsideName = outsidePayer,
                             createdBy = me,
                             items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
@@ -256,7 +266,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                         EditBill(
                             title = submit.title,
                             expenseDate = existing?.expense?.expenseDate ?: Clock.System.todayUtc(),
-                            payerUserId = existing?.expense?.payerUserId ?: me,
+                            payerUserId = if (keepPayer) (existing?.expense?.payerUserId ?: me) else payer,
+                            payerOutsideName = if (keepPayer) existing?.expense?.payerOutsideName else outsidePayer,
                             items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
                             participantUserIds = submit.participantIds.map { UserId(it) },
@@ -420,6 +431,7 @@ private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
     gratuityText = subunitsToText(gratuitySubunits),
     tipText = subunitsToText(tipSubunits),
     discountText = subunitsToText(discountSubunits),
+    otherChargesText = subunitsToText(otherChargesSubunits),
     verified = verified,
 )
 
@@ -431,4 +443,14 @@ private fun BillView.toEditState(): EditBillState = EditBillState(
     gratuityText = subunitsToText(extras.gratuitySubunits),
     tipText = subunitsToText(extras.tipSubunits),
     discountText = subunitsToText(extras.discountSubunits),
+    otherChargesText = subunitsToText(extras.otherChargesSubunits),
 )
+
+/** How many distinct lines each person holds, counting a solo claim and a shared slice the same. It
+ *  answers one question for the editor: does taking this person off the bill throw anything away? */
+private fun BillView.claimedItemsByUser(): Map<String, Int> {
+    val lines = HashMap<String, MutableSet<String>>()
+    claims.forEach { lines.getOrPut(it.userId.value) { HashSet() }.add(it.itemId) }
+    shares.forEach { lines.getOrPut(it.userId.value) { HashSet() }.add(it.itemId) }
+    return lines.mapValues { (_, items) -> items.size }
+}

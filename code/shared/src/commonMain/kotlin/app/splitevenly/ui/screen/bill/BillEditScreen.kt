@@ -12,13 +12,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,13 +47,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.platform.PickSource
-import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ButtonVariant
-import app.splitevenly.ui.components.EvAvatar
-import app.splitevenly.ui.components.EvAvatarStack
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
-import app.splitevenly.ui.components.EvCheck
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
@@ -113,6 +106,8 @@ data class EditBillState(
     val items: List<EditBillItemUi>,
     val taxText: String,
     val gratuityText: String,
+    // Delivery fee, bottle deposit, card surcharge. Splits proportionally like tax (domain/AGENTS.md).
+    val otherChargesText: String = "",
     val tipText: String,
     val discountText: String,
     // False when the OCR scan that produced this state exhausted the server's Haiku->Sonnet->Opus
@@ -130,12 +125,15 @@ data class EditBillSubmit(
     val items: List<EditBillItemUi>,
     val taxSubunits: Long,
     val gratuitySubunits: Long,
+    val otherChargesSubunits: Long,
     val tipSubunits: Long,
     val discountSubunits: Long,
     val participantIds: Set<String>,
-    // Who paid — set by the unified add-expense editor's shared header; null when the bill editor (which
-    // has no payer picker) is used for editing, in which case the wrapper keeps the existing payer.
+    // Who paid. Either the add-expense editor's shared header or the bill editor's own "Paid by" row sets
+    // it; null only if neither ran, in which case the wrapper keeps the existing payer.
     val payerUserId: String? = null,
+    /** Non-blank when someone outside the group paid. They are not part of the split. */
+    val payerOutsideName: String? = null,
 )
 
 /** Parse a "18.50" style string to integer minor units; blank/garbage → 0. */
@@ -149,7 +147,6 @@ fun priceToSubunits(text: String): Long {
  * after — saving re-derives shares without disturbing claims. DI-free; the wrapper supplies state and
  * handles persistence + the optional receipt scan.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BillEditScreen(
     editing: Boolean,
@@ -161,6 +158,11 @@ fun BillEditScreen(
     attachedReceiptCount: Int = 0,
     participants: List<ParticipantChipUi> = emptyList(),
     initialSelectedIds: Set<String> = emptySet(),
+    initialPayerId: String = "",
+    initialOutsidePayerName: String? = null,
+    // How many lines each person currently holds. Only used to decide whether taking them off the bill
+    // needs confirming, since that discards their claims.
+    claimedItemsByUser: Map<String, Int> = emptyMap(),
     onBack: () -> Unit = {},
     onScanReceipt: (PickSource) -> Unit = {},
     onCancelScan: () -> Unit = {},
@@ -182,6 +184,7 @@ fun BillEditScreen(
     var items by remember { mutableStateOf(initial?.items ?: listOf(editBillItemUi(null, "", 1, 0L))) }
     var taxText by remember { mutableStateOf(initial?.taxText ?: "") }
     var gratuityText by remember { mutableStateOf(initial?.gratuityText ?: "") }
+    var otherChargesText by remember { mutableStateOf(initial?.otherChargesText ?: "") }
     var tipText by remember { mutableStateOf(initial?.tipText ?: "") }
     var discountText by remember { mutableStateOf(initial?.discountText ?: "") }
     // Shows the "couldn't verify" banner after a scan that didn't reconcile; dismissible for this
@@ -192,9 +195,20 @@ fun BillEditScreen(
     var selected by remember { mutableStateOf(initialSelectedIds.takeIf { it.isNotEmpty() }) }
     val allIds = participants.mapTo(LinkedHashSet()) { it.userId }
     val effectiveSelected: Set<String> = selected ?: allIds
+    var showAddDialog by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
     var pickerQuery by remember { mutableStateOf("") }
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showPayerSheet by remember { mutableStateOf(false) }
+    var payerId by remember { mutableStateOf(initialPayerId) }
+    var outsidePayerName by remember { mutableStateOf(initialOutsidePayerName) }
+    // Set while a removal that would discard someone's claims waits on the confirm sheet.
+    var pendingRemoval by remember { mutableStateOf<PendingRemoval?>(null) }
+
+    /** Apply a new roster, or park it on the confirm sheet when it would throw claims away. */
+    fun selectTo(next: Set<String>) {
+        val gate = pendingRemovalFor(participants, effectiveSelected, next, claimedItemsByUser)
+        if (gate == null) selected = next else pendingRemoval = gate
+    }
     // Auto-select a person added mid-edit (a placeholder), without disturbing the current selection. The
     // baseline is set on the FIRST non-empty member load so a pared-down [initialSelectedIds] survives the
     // async load; only members that appear *after* that (i.e. just added) are folded into an explicit set.
@@ -220,6 +234,7 @@ fun BillEditScreen(
             items = s.items
             taxText = s.taxText
             gratuityText = s.gratuityText
+            otherChargesText = s.otherChargesText
             tipText = s.tipText
             discountText = s.discountText
             showUnverifiedNotice = !s.verified
@@ -229,6 +244,7 @@ fun BillEditScreen(
     val symbol = currencySymbol(currencyCode)
     val subtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
     val total = subtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
+        priceToSubunits(otherChargesText) +
         priceToSubunits(tipText) - priceToSubunits(discountText)
     val nameValid = title.trim().isNotEmpty()
     val hasItem = items.any { it.label.trim().isNotEmpty() }
@@ -287,27 +303,29 @@ fun BillEditScreen(
                 }
             }
 
-            // Who's on this bill — defaults to everyone; deselect anyone who wasn't there. Small groups
-            // fit as inline chips; larger ones collapse to a summary that opens a searchable picker.
+            // Who's on this bill — defaults to everyone; take off anyone who wasn't there. Taking off
+            // someone who has claimed goes through the confirm sheet, since it discards their claims.
+            BillPeopleRow(
+                participants = participants,
+                selected = effectiveSelected,
+                allIds = allIds,
+                onToggle = { id -> selectTo(if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id) },
+                onSelectAll = { selected = allIds },
+                onDeselectAll = { selectTo(emptySet()) },
+                onAddPersonClick = { showAddDialog = true },
+                onOpenPicker = { showPicker = true },
+            )
+
+            // Paid by comes AFTER the people, like the add-expense editor: pick who was there, then who
+            // covered it. Asked the other way round, the payer picker reads as "who's in the split".
             if (participants.isNotEmpty()) {
-                if (participants.size <= 6) {
-                    ParticipantChips(
-                        participants = participants,
-                        selected = effectiveSelected,
-                        allIds = allIds,
-                        onToggle = { id -> selected = if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id },
-                        onSelectAll = { selected = allIds },
-                        onDeselectAll = { selected = emptySet() },
-                        onAddClick = { showAddDialog = true },
-                    )
-                } else {
-                    ParticipantSummary(
-                        participants = participants,
-                        selected = effectiveSelected,
-                        allCount = allIds.size,
-                        onEdit = { showPicker = true },
-                    )
-                }
+                BillPaidByRow(
+                    participants = participants,
+                    selected = effectiveSelected,
+                    payerUserId = if (outsidePayerName.isNullOrBlank()) payerId else "",
+                    outsidePayerName = outsidePayerName,
+                    onOpenSheet = { showPayerSheet = true },
+                )
             }
 
             // Items
@@ -349,6 +367,7 @@ fun BillEditScreen(
                 currencyCode = currencyCode,
                 taxText = taxText, onTax = { taxText = it },
                 gratuityText = gratuityText, onGratuity = { gratuityText = it },
+                otherChargesText = otherChargesText, onOtherCharges = { otherChargesText = it },
                 tipText = tipText, onTip = { tipText = it },
                 discountText = discountText, onDiscount = { discountText = it },
             )
@@ -369,9 +388,12 @@ fun BillEditScreen(
                                     items = items.filter { it.label.trim().isNotEmpty() },
                                     taxSubunits = priceToSubunits(taxText),
                                     gratuitySubunits = priceToSubunits(gratuityText),
+                        otherChargesSubunits = priceToSubunits(otherChargesText),
                                     tipSubunits = priceToSubunits(tipText),
                                     discountSubunits = priceToSubunits(discountText),
                                     participantIds = effectiveSelected,
+                                    payerUserId = payerId.takeIf { it.isNotBlank() },
+                                    payerOutsideName = outsidePayerName?.takeIf { it.isNotBlank() },
                                 ),
                             )
                         }
@@ -399,11 +421,31 @@ fun BillEditScreen(
                 allCount = allIds.size,
                 query = pickerQuery,
                 onQuery = { pickerQuery = it },
-                onToggle = { id -> selected = if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id },
+                onToggle = { id -> selectTo(if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id) },
                 onSelectAll = { selected = allIds },
-                onDeselectAll = { selected = emptySet() },
+                onDeselectAll = { selectTo(emptySet()) },
                 onAddPerson = { showPicker = false; pickerQuery = ""; showAddDialog = true },
                 onDone = { showPicker = false; pickerQuery = "" },
+            )
+        }
+
+        pendingRemoval?.let { removal ->
+            RemoveParticipantSheet(
+                removal = removal,
+                onConfirm = { selected = removal.next; pendingRemoval = null },
+                onCancel = { pendingRemoval = null },
+            )
+        }
+
+        if (showPayerSheet) {
+            BillPayerSheet(
+                participants = participants,
+                payerUserId = if (outsidePayerName.isNullOrBlank()) payerId else "",
+                outsidePayerName = outsidePayerName,
+                onPickMember = { id -> payerId = id; outsidePayerName = null },
+                onPickOutside = { name -> outsidePayerName = name },
+                onAddSomeoneNew = { showAddDialog = true },
+                onDismiss = { showPayerSheet = false },
             )
         }
 
@@ -760,6 +802,7 @@ internal fun ExtrasCard(
     currencyCode: String,
     taxText: String, onTax: (String) -> Unit,
     gratuityText: String, onGratuity: (String) -> Unit,
+    otherChargesText: String, onOtherCharges: (String) -> Unit,
     tipText: String, onTip: (String) -> Unit,
     discountText: String, onDiscount: (String) -> Unit,
 ) {
@@ -771,6 +814,11 @@ internal fun ExtrasCard(
             }
             ExtraRow("Tax") { PriceField(taxText, onTax, symbol) }
             ExtraRow("Gratuity") { PriceField(gratuityText, onGratuity, symbol) }
+            // Anything the receipt charges that isn't tax, gratuity, a tip, or a discount. The caption
+            // names examples because "Other charges" alone doesn't tell you what belongs in it.
+            ExtraRow("Other charges", "Delivery, deposits, card fees") {
+                PriceField(otherChargesText, onOtherCharges, symbol)
+            }
             // Tip is firmly an even split now — no per-bill toggle; the caption just states it.
             ExtraRow("Tip", "Split evenly") { PriceField(tipText, onTip, symbol) }
             // Discount is the one line that *reduces* the total — a green field + leading "−" make that
@@ -800,184 +848,6 @@ private fun ExtraRow(label: String, hint: String? = null, trailing: @Composable 
     }
 }
 
-/** Small-group "who's on this bill": every member as an inline toggle chip, plus select/deselect all. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ParticipantChips(
-    participants: List<ParticipantChipUi>,
-    selected: Set<String>,
-    allIds: Set<String>,
-    onToggle: (String) -> Unit,
-    onSelectAll: () -> Unit,
-    onDeselectAll: () -> Unit,
-    onAddClick: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Who's on this bill", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            val allOn = selected.size >= allIds.size
-            Text(
-                if (allOn) "Deselect all" else "Select all",
-                color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                    .clickable { if (allOn) onDeselectAll() else onSelectAll() }
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            )
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            participants.forEach { p ->
-                val on = p.userId in selected
-                val shape = RoundedCornerShape(999.dp)
-                Row(
-                    Modifier.clip(shape)
-                        .background(if (on) c.blue else c.page)
-                        .then(if (on) Modifier else Modifier.border(1.dp, c.borderStrong, shape))
-                        .clickable { onToggle(p.userId) }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (on) EvIcon(EvIcons.Check, size = 14.dp, tint = c.onAccent)
-                    Text(if (p.isMe) "You" else p.name, color = if (on) c.onAccent else c.ink, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
-                }
-            }
-            // Add a person who isn't in the group yet, right from the roster — mirrors the add-expense editor.
-            val addShape = RoundedCornerShape(999.dp)
-            Row(
-                Modifier.clip(addShape).border(1.dp, c.borderStrong, addShape)
-                    .clickable(onClick = onAddClick)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                EvIcon(EvIcons.Plus, size = 14.dp, tint = c.blueText)
-                Text("Add", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
-/** Large-group "who's on this bill": a compact summary (avatars + count) that opens the picker sheet. */
-@Composable
-private fun ParticipantSummary(
-    participants: List<ParticipantChipUi>,
-    selected: Set<String>,
-    allCount: Int,
-    onEdit: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    val chosen = participants.filter { it.userId in selected }
-    val count = chosen.size
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Who's on this bill", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        EvCard {
-            Row(
-                Modifier.fillMaxWidth().clickable(onClick = onEdit).padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (count > 0) {
-                    EvAvatarStack(names = chosen.take(4).map { if (it.isMe) "You" else it.name }, size = AvatarSize.Sm)
-                    if (count > 4) Text("+${count - 4}", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Box(Modifier.weight(1f))
-                Text(
-                    when {
-                        count == 0 -> "Add people"
-                        count >= allCount -> "Everyone · $allCount"
-                        else -> "$count of $allCount"
-                    },
-                    color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                )
-                EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.blueText)
-            }
-        }
-    }
-}
-
-/** The searchable member picker for larger groups — one tappable row each, with select/deselect all. */
-@Composable
-private fun ParticipantPickerSheet(
-    participants: List<ParticipantChipUi>,
-    selected: Set<String>,
-    allCount: Int,
-    query: String,
-    onQuery: (String) -> Unit,
-    onToggle: (String) -> Unit,
-    onSelectAll: () -> Unit,
-    onDeselectAll: () -> Unit,
-    onAddPerson: () -> Unit,
-    onDone: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    val allOn = selected.size >= allCount
-    val filtered = participants.filter {
-        val label = if (it.isMe) "You" else it.name
-        query.isBlank() || label.contains(query.trim(), ignoreCase = true)
-    }
-    EvSheetScaffold(
-        onDismiss = onDone,
-        title = "Who's on this bill",
-        sub = "${selected.size} of $allCount selected",
-    ) {
-        EvTextField(
-            value = query,
-            onValueChange = onQuery,
-            placeholder = "Search members",
-            leading = { EvIcon(EvIcons.Search, size = 18.dp, tint = c.ink3) },
-            minHeight = 44.dp,
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "${filtered.size} ${if (filtered.size == 1) "member" else "members"}",
-                color = c.ink3, fontSize = 12.sp, modifier = Modifier.weight(1f),
-            )
-            Text(
-                if (allOn) "Deselect all" else "Select all",
-                color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                    .clickable { if (allOn) onDeselectAll() else onSelectAll() }
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            )
-        }
-        Column(Modifier.fillMaxWidth().heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
-            // Add a person who isn't in the group yet (a placeholder) — they'll be added and put on the bill.
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onAddPerson)
-                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(Modifier.size(32.dp).clip(RoundedCornerShape(999.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                    EvIcon(EvIcons.Plus, size = 16.dp, tint = c.blueText)
-                }
-                Text("Add a person", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            }
-            filtered.forEach { p ->
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onToggle(p.userId) }
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    EvAvatar(name = if (p.isMe) "You" else p.name, me = p.isMe, size = AvatarSize.Sm)
-                    Text(if (p.isMe) "You" else p.name, color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                    EvCheck(checked = p.userId in selected, onCheckedChange = { onToggle(p.userId) })
-                }
-            }
-            if (filtered.isEmpty()) {
-                Text("No one matches your search", color = c.ink3, fontSize = 13.sp, modifier = Modifier.padding(vertical = 16.dp))
-            }
-        }
-        Box(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-            EvButton(text = "Done", onClick = onDone)
-        }
-    }
-}
 
 /**
  * A compact right-aligned price input ("$ 0.00") used for item prices and extras. [sign] is an optional
