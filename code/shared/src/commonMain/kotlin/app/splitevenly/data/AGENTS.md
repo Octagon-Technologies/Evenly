@@ -266,9 +266,26 @@ plumbing. The synced `receipts` row is created only once the bytes land in Stora
 `AppDelegate` still needs `handleEventsForBackgroundURLSession` for suspended-app completion (session id
 `app.splitevenly.receiptUpload`).
 
+**A picked receipt is staged before it has an expense to belong to.** `enqueue` is `stage` + `attach`:
+`stage` compresses and writes the bytes to the sandbox (on `Dispatchers.Default` — every caller invokes it
+from a UI scope) and records *nothing*; `attach` writes the outbox rows once an expense id exists. That
+split is what lets the add-expense editor show the real photo while the user is still typing, instead of a
+placeholder and a promise. Do not re-merge them, and do not pre-generate an expense id to enqueue early:
+an abandoned editor would leave a Storage object pointing at an expense that never existed.
+
+Staged bytes are the editor's to clean up until `attach` runs. **These editors have no `BackHandler`,** so
+system back and swipe-back never reach `onBack` — cleanup hangs off `DisposableEffect`/`onDispose` and
+calls `discardStagedDetached`, which runs on the manager's app-lifetime scope because the editor's own
+scope is already cancelled by then.
+
 Receipt OCR is the `extract-receipt` edge function (Claude vision → structured draft) reached via the
 `ReceiptOcr` gateway. It accepts **multiple pages (images and/or PDFs) read as one bill** and only ever
 *pre-fills* the editable item list — a human verifies before any money is computed.
+
+**The pages someone scanned are a receipt no matter what the OCR returns.** Stage them when they are
+picked, not inside the `ScanOutcome.Success` branch, and on a job separate from `scanJob` — cancelling the
+scan must not cancel the staging. Attaching only on success silently threw the photo away on every
+failed, blocked, offline or cancelled scan.
 
 ## Supabase client wiring
 
