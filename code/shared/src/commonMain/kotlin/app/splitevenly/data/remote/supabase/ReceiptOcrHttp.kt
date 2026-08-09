@@ -84,6 +84,11 @@ class ReceiptOcrHttp(
             // fields silently default to a fake "no receipt found" success shape.
             if (!response.status.isSuccess()) {
                 if (response.status == HttpStatusCode.TooManyRequests) return ScanOutcome.Blocked(reason = "rate_limited")
+                // 402: the group is out of free scans and holds no Pro pass (PRO_PASS_SPEC.md §7). A
+                // refusal, not a failure — nothing went wrong and retrying changes nothing, so it must
+                // not read as an error the user could fix by trying again. Kept distinct from
+                // "rate_limited" because that one resolves by waiting and this one does not.
+                if (response.status == HttpStatusCode.PaymentRequired) return ScanOutcome.Blocked(reason = "quota_exhausted")
                 val message = runCatching { json.decodeFromString<ErrorResp>(raw).error }.getOrNull()
                 return ScanOutcome.Failed(message)
             }

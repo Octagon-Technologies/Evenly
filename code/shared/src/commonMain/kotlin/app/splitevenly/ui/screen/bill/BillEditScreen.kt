@@ -583,6 +583,7 @@ internal fun ScanErrorSheet(
         ScanErrorKind.Unavailable -> EvIcons.Info
         ScanErrorKind.Error -> EvIcons.Alert
         ScanErrorKind.Blocked -> EvIcons.Info
+        ScanErrorKind.OutOfScans -> EvIcons.Receipt
     }
     val tint = when (kind) {
         ScanErrorKind.Offline -> c.warning
@@ -595,6 +596,7 @@ internal fun ScanErrorSheet(
         ScanErrorKind.Unavailable -> "Scanning isn't available"
         ScanErrorKind.Error -> "Something went wrong"
         ScanErrorKind.Blocked -> "Too many scans"
+        ScanErrorKind.OutOfScans -> "Out of free scans"
     }
     val body = when (kind) {
         ScanErrorKind.Offline -> "Scanning needs a connection. You can still type the bill in now."
@@ -602,6 +604,9 @@ internal fun ScanErrorSheet(
         ScanErrorKind.Unavailable -> "Receipt scanning isn't set up here. Add the bill by hand."
         ScanErrorKind.Error -> "The scan failed. Give it another try, or type it in."
         ScanErrorKind.Blocked -> "You've hit the scan limit for now. Try again in a bit, or type it in."
+        // No "buy a pass" action yet (step 5). Until then this says what happened and keeps the free
+        // path in front of the user, rather than naming a door that isn't built.
+        ScanErrorKind.OutOfScans -> "This group has used its free scans. You can still type the bill in."
     }
     EvSheetScaffold(onDismiss = onManual) {
         Box(
@@ -625,7 +630,9 @@ internal fun ScanErrorSheet(
                     EvButton(text = "Enter manually", onClick = onManual, variant = ButtonVariant.Text)
                 }
             }
-            ScanErrorKind.Unavailable -> {
+            // Neither of these offers Retry: scanning is not coming back on this tap, so a Retry button
+            // would be a control that cannot do what it says.
+            ScanErrorKind.Unavailable, ScanErrorKind.OutOfScans -> {
                 EvButton(text = "Enter manually", onClick = onManual)
             }
             else -> {

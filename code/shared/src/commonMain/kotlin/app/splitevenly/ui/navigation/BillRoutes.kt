@@ -170,7 +170,12 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                         AnalyticsEvents.SCAN_BLOCKED,
                         mapOf("reason" to outcome.reason, "group_id" to gid.value),
                     )
-                    ScanUiState.Failed(ScanErrorKind.Blocked)
+                    // The group is out of free scans and holds no pass, which no amount of waiting
+                    // fixes. Every other Blocked reason (the hourly rate limit today) does.
+                    val blockedKind =
+                        if (outcome.reason == "quota_exhausted") ScanErrorKind.OutOfScans
+                        else ScanErrorKind.Blocked
+                    ScanUiState.Failed(blockedKind)
                 }
                 else -> {
                     val kind = when (outcome) {

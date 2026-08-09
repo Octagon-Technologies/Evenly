@@ -17,6 +17,12 @@
 // `files` may mix several photos and/or PDFs — they're read together as ONE bill, so a multi-page
 // receipt yields a single item list. PDFs go in as document blocks; images as image blocks.
 //
+// `groupId` is REQUIRED (400 without it). It is the Evenly Pro quota key, not just analytics: a group
+// gets 5 successful scans free for its lifetime, after which any member can buy it a pass and the whole
+// group scans without limit until that pass expires. Over the allowance and not Pro returns **402** with
+// `reason: "quota_exhausted"` — deliberately not the 429 below, because "no scans left" opens a paywall
+// and "too fast" opens a wait. Both refusals happen before any paid call. See PRO_PASS_SPEC.md §7.
+//
 // Auth: send the signed-in user's access token as the Bearer (the client does), with the anon key in the
 // `apikey` header. The function REQUIRES a resolvable user (401 otherwise) so the per-user rate limit on
 // this paid endpoint actually engages — an anon-key-only caller used to bypass it entirely (P1 #11).
@@ -174,6 +180,12 @@ function tokenCostMicros(model: string, inputTokens: number, outputTokens: numbe
 // environments don't need reconfiguring); 200/day is a starting default, not a measured number.
 const ESCALATION_DAILY_CAP = Number(Deno.env.get("OPUS_DAILY_CAP") ?? "200");
 
+// Evenly Pro's free allowance: successful scans a group gets before someone has to buy it a pass
+// (PRO_PASS_SPEC.md §4). Per GROUP and for the life of the group, never reset. Env-overridable so the
+// number can be A/B'd from the dashboard without a redeploy, which is the whole reason the cost ledger
+// exists — 5 is a judgement call and the ledger is what will correct it.
+const FREE_SCANS_PER_GROUP = Number(Deno.env.get("FREE_SCANS_PER_GROUP") ?? "5");
+
 // A label a model reaches for when it gives up and lumps the whole bill into one generic line instead
 // of actually itemizing — the exact "receipt: $47.32" degenerate failure.
 //
@@ -287,9 +299,12 @@ Deno.serve(async (req) => {
   // rate limit was skipped, so anyone with the shipped anon key got unlimited paid calls (P1 #11).
   if (!callerId) return json({ error: "unauthorized" }, 401);
 
-  // Cross-session contract with the client's group-scoped analytics work: an optional groupId the
-  // caller may attach to the scan for cost-per-group breakdowns. Absent is fine — stored as null.
+  // groupId is REQUIRED as of Evenly Pro (PRO_PASS_SPEC.md §7). It began as an optional analytics
+  // attribution field, but it is now the quota key: a nullable quota key is simply a bypass, since
+  // omitting one field would buy unlimited scans. Both in-app call sites already send a real group id
+  // (LedgerRoutes.kt, BillRoutes.kt), so requiring it breaks no shipped client.
   const groupId = payload.groupId ?? null;
+  if (!groupId) return json({ error: "groupId required" }, 400);
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { count, error: countError } = await callerClient
@@ -309,6 +324,63 @@ Deno.serve(async (req) => {
     // Best-effort only (a logging hiccup must not change the 429 the caller already earned).
     await logImmediateOutcome(callerClient, callerId, groupId, pages.length, "rate_limited");
     return json({ error: "Too many scans — try again in a bit." }, 429);
+  }
+
+  // ── Evenly Pro quota (PRO_PASS_SPEC.md §7) ────────────────────────────────────────────────────
+  // Runs AFTER the rate limit and BEFORE the pre-call log insert, so a refused scan neither consumes a
+  // rate-limit slot nor a free scan.
+  //
+  // SERVICE ROLE, not callerClient, and that is not a shortcut: `receipt_scan_log`'s RLS policy is
+  // `user_id = auth.uid()`, so the caller's own client can only ever see the scans THEY did. The
+  // allowance is per GROUP across all its members, so counting through callerClient would give every
+  // member their own private 5 and a six-person group 30 free scans. `group_pro_status` and
+  // `group_free_scans_used` are both revoked from anon/authenticated for the same reason.
+  const serviceClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  // The caller must actually be in the group they are spending its allowance on. Without this, anyone
+  // could pass a Pro group's id and scan on its pass, and the cost ledger would blame that group.
+  const { data: membership, error: memberError } = await serviceClient
+    .from("members")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("user_id", callerId)
+    .eq("status", "ACTIVE")
+    .maybeSingle();
+  // Fail closed, same reasoning as the rate-limit read: an unreadable membership means we cannot say
+  // this scan is allowed, and this endpoint costs real money.
+  if (memberError) return json({ error: "membership check unavailable — try again shortly." }, 503);
+  if (!membership) return json({ error: "not a member of this group" }, 403);
+
+  // No row means not Pro — group_pro_status has no `is_pro = false` row to return.
+  const { data: proRows, error: proError } = await serviceClient
+    .rpc("group_pro_status", { p_group_id: groupId, p_now: Date.now() });
+  if (proError) return json({ error: "pass check unavailable — try again shortly." }, 503);
+  const isPro = Array.isArray(proRows) ? proRows.length > 0 : !!proRows;
+
+  if (!isPro) {
+    const { data: usedRaw, error: usedError } = await serviceClient
+      .rpc("group_free_scans_used", { p_group_id: groupId });
+    if (usedError) return json({ error: "scan count unavailable — try again shortly." }, 503);
+    const used = Number(usedRaw ?? 0);
+    if (used >= FREE_SCANS_PER_GROUP) {
+      // Logged before returning so refused scans are visible in the ledger — we are turning paying-
+      // intent users away and should know how often, and by how much they overshoot.
+      await logImmediateOutcome(callerClient, callerId, groupId, pages.length, "quota_exhausted");
+      // 402, deliberately NOT the 429 above: "you have no scans left" and "you are going too fast" lead
+      // to different screens (a paywall vs a wait), so the client must be able to tell them apart.
+      return json(
+        {
+          error: "This group has used its free scans.",
+          reason: "quota_exhausted",
+          scansUsed: used,
+          freeLimit: FREE_SCANS_PER_GROUP,
+        },
+        402,
+      );
+    }
   }
 
   // Log the scan BEFORE the paid call so the slot is consumed immediately — two concurrent requests can't
