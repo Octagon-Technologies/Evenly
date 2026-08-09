@@ -15,9 +15,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.ui.components.EvAppleSignInButton
+import app.splitevenly.ui.components.EvGoogleSignInButton
 import app.splitevenly.ui.components.EvOAuthButton
 import app.splitevenly.ui.components.EvWordmark
 import app.splitevenly.ui.components.icon.EvIcons
@@ -28,6 +31,7 @@ import app.splitevenly.ui.theme.EvenlyTheme
 fun SignInScreen(
     onProvider: (String) -> Unit = {},
     onLegal: (String) -> Unit = {},
+    error: String? = null,
 ) {
     val c = EvenlyTheme.colors
     Column(
@@ -49,10 +53,10 @@ fun SignInScreen(
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-            EvOAuthButton("Continue with Google", EvIcons.Google, { onProvider("google") }, iconTint = c.ink)
-            // Apple sign-in needs an Apple Developer account to configure; greyed out until that's set up.
-            EvOAuthButton("Continue with Apple", EvIcons.Apple, {}, iconTint = c.ink, enabled = false)
             EvOAuthButton("Continue with Email", EvIcons.Mail, { onProvider("mail") }, iconTint = c.ink)
+            EvGoogleSignInButton({ onProvider("google") })
+            EvAppleSignInButton({ onProvider("apple") })
+            error?.let { Text(it, color = c.danger, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
         }
         Row(
             Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 12.dp),

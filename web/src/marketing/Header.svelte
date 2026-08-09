@@ -6,7 +6,7 @@
    */
   import { storeUrl } from '../lib/format.ts';
 
-  const { current }: { current: 'home' | 'privacy' | 'terms' } = $props();
+  const { current }: { current: 'home' | 'privacy' | 'terms' | 'delete-account' | 'support' } = $props();
 </script>
 
 <div class="site-header-bar">
@@ -21,6 +21,7 @@
     </a>
     <nav class="site-nav">
       <a href="/#site-features">How it works</a>
+      <a href="/support" class={current === 'support' ? 'site-current' : ''}>Support</a>
       <a href="/privacy" class={current === 'privacy' ? 'site-current' : ''}>Privacy</a>
       <a href="/terms" class={current === 'terms' ? 'site-current' : ''}>Terms</a>
       <a class="site-nav-cta" href={storeUrl()}>Get the app</a>

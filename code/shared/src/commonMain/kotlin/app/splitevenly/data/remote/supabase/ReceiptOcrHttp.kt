@@ -116,8 +116,8 @@ private class ExtractReq(val files: List<ExtractPart>, val groupId: String? = nu
 private class ExtractResp(
     val configured: Boolean = true,
     val receipt: RcptDto? = null,
-    // True unless every tier of the server's Haiku->Sonnet->Opus cascade failed to reconcile the draft
-    // against the printed total — absent (defaults true) on a normal single-tier success response.
+    // True unless no tier produced a draft whose server-side sum matched the receipt's printed total —
+    // absent (defaults true) on a normal single-tier success response.
     val verified: Boolean = true,
     // The server's is_receipt classifier decided this isn't a receipt photo at all — short-circuited
     // before any escalation, so `receipt` is absent on this response.
@@ -139,6 +139,7 @@ private class RcptDto(
     @SerialName("gratuity_subunits") val gratuity: Long = 0,
     @SerialName("tip_subunits") val tip: Long = 0,
     @SerialName("discount_subunits") val discount: Long = 0,
+    @SerialName("other_charges_subunits") val otherCharges: Long = 0,
     @SerialName("detected_total_subunits") val detectedTotal: Long = 0,
 ) {
     fun toDraft(verified: Boolean) = ReceiptDraft(
@@ -148,6 +149,7 @@ private class RcptDto(
         gratuitySubunits = gratuity,
         tipSubunits = tip,
         discountSubunits = discount,
+        otherChargesSubunits = otherCharges,
         detectedTotalSubunits = detectedTotal,
         verified = verified,
     )

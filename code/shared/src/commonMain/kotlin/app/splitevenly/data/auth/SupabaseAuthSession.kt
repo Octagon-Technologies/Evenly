@@ -3,6 +3,7 @@ package app.splitevenly.data.auth
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.error.asErr
+import app.splitevenly.core.error.asOk
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.dao.UserDao
@@ -12,6 +13,8 @@ import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.OAuthProvider
+import app.splitevenly.domain.auth.PLAY_REVIEW_DEMO_EMAIL
+import app.splitevenly.data.remote.supabase.SupabaseConfig
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.EvAnalytics
@@ -23,11 +26,18 @@ import io.github.jan.supabase.auth.providers.Apple
 import io.github.jan.supabase.auth.providers.Facebook
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.auth.user.UserInfo
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.ktor.client.HttpClient
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +46,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlin.time.Clock
@@ -62,6 +75,9 @@ class SupabaseAuthSession(
     private val clock: Clock = Clock.System,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val analytics: EvAnalytics? = null,
+    // Calls the apple-link-token / apple-revoke-token edge functions (Apple Sign In native plan §5 P4).
+    // Optional-ctor-dep: unwired (tests) just skips both calls, same as no [analytics].
+    private val httpClient: HttpClient? = null,
 ) : AuthSession {
 
     private val _currentUserId = MutableStateFlow(client.auth.currentUserOrNull()?.id?.let(::UserId))
@@ -104,6 +120,52 @@ class SupabaseAuthSession(
         AppResult.Ok(Unit)
     }.getOrElse { AppError.Unexpected(it).asErr() }
 
+    override suspend fun signInWithAppleIdToken(
+        idToken: String,
+        rawNonce: String,
+        fullName: String?,
+        authorizationCode: String?,
+    ): AppResult<Unit> =
+        runCatching {
+            client.auth.signInWith(IDToken) {
+                this.idToken = idToken
+                this.provider = Apple
+                this.nonce = rawNonce
+            }
+            // The ID token flow is synchronous (unlike the browser redirect), so mirror right away
+            // rather than waiting on the sessionStatus collector — same as verifyEmailOtp. fullName only
+            // ever arrives here, never in Apple's JWT, so it must ride through as the seed fallback now.
+            mirrorCurrentUser(fallbackName = fullName)
+            // Best-effort (Apple Sign In native plan §5 P4): links this Apple grant server-side so
+            // account deletion can later revoke it via apple-revoke-token. Deliberately swallowed inside
+            // linkAppleToken — a missing code, a down function, or no httpClient wired must never turn a
+            // successful sign-in into a failure; the only consequence is a later revoke being a no-op.
+            if (authorizationCode != null) linkAppleToken(authorizationCode)
+            AppResult.Ok(Unit)
+        }.getOrElse { AppError.Unexpected(it).asErr() }
+
+    private suspend fun linkAppleToken(authorizationCode: String) {
+        runCatching { callAppleEdgeFunction("apple-link-token", Json.encodeToString(LinkAppleTokenReq(authorizationCode))) }
+    }
+
+    /**
+     * POSTs to an `apple-link-token`/`apple-revoke-token` edge function as the signed-in user (same
+     * Bearer-user-token + anon-apikey shape as [app.splitevenly.data.remote.supabase.ReceiptOcrHttp]).
+     * No [httpClient] wired or no live session both silently skip the call — both functions are already
+     * best-effort on the server side too (Guideline 5.1.1(v) revocation must never block sign-in or
+     * account deletion).
+     */
+    private suspend fun callAppleEdgeFunction(function: String, body: String) {
+        val http = httpClient ?: return
+        val token = client.auth.currentSessionOrNull()?.accessToken ?: return
+        http.post("${SupabaseConfig.URL}/functions/v1/$function") {
+            header("Authorization", "Bearer $token")
+            header("apikey", SupabaseConfig.ANON_KEY)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+    }
+
     override suspend fun sendEmailOtp(email: String): AppResult<Unit> = runCatching {
         client.auth.signInWith(OTP) { this.email = email.trim() }
         AppResult.Ok(Unit)
@@ -133,7 +195,8 @@ class SupabaseAuthSession(
     }.getOrElse { AppError.Unexpected(it).asErr() }
 
     override suspend fun signInWithPassword(email: String, password: String): AppResult<UserId> {
-        if (!isDebugBuild()) return AppError.NotAuthorized.asErr()
+        val isPlayReviewDemo = email.trim().equals(PLAY_REVIEW_DEMO_EMAIL, ignoreCase = true)
+        if (!isDebugBuild() && !isPlayReviewDemo) return AppError.NotAuthorized.asErr()
         return signInWithPasswordUnguarded(email, password)
     }
 
@@ -167,21 +230,49 @@ class SupabaseAuthSession(
         _currentUserId.value = null
     }
 
-    override suspend fun deleteAccount(): AppResult<Unit> {
-        // Server-side delete via a security-definer RPC (removes the caller's profile + device tokens +
-        // auth.users row). Then drop the local account row + sign out regardless, so the device is clean.
-        // (Shared group/expense rows are keyed by user and never shown to a different signed-in account.)
-        val uid = client.auth.currentUserOrNull()?.id
-        val server = runCatching { client.postgrest.rpc("delete_my_account") }
-        runCatching { client.auth.signOut() }
-        uid?.let { runCatching { userDao.delete(it) } }
-        _currentUserId.value = null
-        return server.fold(
-            onSuccess = {
-                analytics?.capture(AnalyticsEvents.ACCOUNT_DELETED)
-                analytics?.reset()
-                AppResult.Ok(Unit)
+    override suspend fun requestAccountDeletion(): AppResult<Long> {
+        // Server-side: starts the 30-day countdown only (security-definer RPC), nothing is deleted yet.
+        // Only sign out once the server confirms (data/AGENTS.md Rule 9: never wipe local state ahead of
+        // the server) — a network failure here must surface as an error with the account still live and
+        // the user still signed in, not a silent sign-out with the deletion never actually requested.
+        // Local Room state is otherwise left intact: the request may still be cancelled within the grace
+        // period, and a same-device cancel-then-sign-back-in should resync cheaply, not from empty.
+        val result = runCatching { client.postgrest.rpc("request_account_deletion").decodeAs<Long>() }
+        return result.fold(
+            onSuccess = { purgeAt ->
+                analytics?.capture(AnalyticsEvents.ACCOUNT_DELETION_REQUESTED)
+                // Best-effort Apple token revoke (Guideline 5.1.1(v) / Apple Sign In native plan §5
+                // P4), while the session this call authenticates with is still live — must run BEFORE
+                // signOut below. Revoked at request time rather than at the 30-day purge because
+                // purge_deleted_accounts runs on a schedule with no outbound-HTTP path (pg_net isn't
+                // installed on this project); request time is a live, synchronous, already-authenticated
+                // call the client is making anyway. A user who never linked Apple, or a flaky Apple
+                // endpoint, must never block or fail the deletion countdown.
+                runCatching { callAppleEdgeFunction("apple-revoke-token", "{}") }
+                runCatching { client.auth.signOut() }
+                _currentUserId.value = null
+                purgeAt.asOk()
             },
+            onFailure = { AppError.Unexpected(it).asErr() },
+        )
+    }
+
+    override suspend fun cancelAccountDeletion(): AppResult<Unit> = runCatching {
+        client.postgrest.rpc("cancel_account_deletion")
+        analytics?.capture(AnalyticsEvents.ACCOUNT_DELETION_CANCELLED)
+        AppResult.Ok(Unit)
+    }.getOrElse { AppError.Unexpected(it).asErr() }
+
+    override suspend fun pendingDeletionAt(): AppResult<Long?> {
+        val uid = client.auth.currentUserOrNull()?.id ?: return AppResult.Ok(null)
+        return runCatching {
+            client.from("users")
+                .select(Columns.list("deletion_requested_at")) { filter { eq("id", uid) } }
+                .decodeSingleOrNull<PendingDeletionRow>()
+                ?.deletionRequestedAt
+                ?.let { requestedAt -> requestedAt + GRACE_PERIOD_MS }
+        }.fold(
+            onSuccess = { it.asOk() },
             onFailure = { AppError.Unexpected(it).asErr() },
         )
     }
@@ -245,5 +336,18 @@ class SupabaseAuthSession(
     private companion object {
         /** Seeded for a brand-new account that hasn't set a real name yet (also the onboarding sentinel). */
         const val PLACEHOLDER_NAME = "You"
+
+        /** Mirrors the grace period baked into `request_account_deletion`/`purge_deleted_accounts`. */
+        const val GRACE_PERIOD_MS = 30L * 24 * 60 * 60 * 1000
     }
 }
+
+/** Narrow projection of `public.users` for [SupabaseAuthSession.pendingDeletionAt]. */
+@Serializable
+private data class PendingDeletionRow(
+    @SerialName("deletion_requested_at") val deletionRequestedAt: Long? = null,
+)
+
+/** Body for the `apple-link-token` edge function call in [SupabaseAuthSession.linkAppleToken]. */
+@Serializable
+private data class LinkAppleTokenReq(val authorizationCode: String)

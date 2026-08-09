@@ -2251,6 +2251,92 @@
           }
         ]
       }
+    },
+    {
+      "name": "otherCharges_proportional_likeTax",
+      "source": "RECEIPT_OCR_PLAN.md — a delivery fee has no other slot; before this column it was folded into gratuity",
+      "items": [
+        {
+          "itemId": "i1-mains",
+          "lineTotalSubunits": 6000,
+          "quantity": 1
+        },
+        {
+          "itemId": "i2-side",
+          "lineTotalSubunits": 2000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "i1-mains",
+          "userId": "A",
+          "units": 1
+        },
+        {
+          "itemId": "i2-side",
+          "userId": "B",
+          "units": 1
+        }
+      ],
+      "sharedMembers": [],
+      "sharedPortions": [],
+      "participants": [
+        "A",
+        "B"
+      ],
+      "extras": {
+        "taxSubunits": 400,
+        "gratuitySubunits": 0,
+        "tipSubunits": 0,
+        "tipSplitMode": "EVEN",
+        "discountSubunits": 0,
+        "otherChargesSubunits": 500
+      },
+      "expect": {
+        "owedByUser": {
+          "A": 6675,
+          "B": 2225
+        },
+        "breakdownByUser": {
+          "A": {
+            "itemsSubunits": 6000,
+            "taxSubunits": 675,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "B": {
+            "itemsSubunits": 2000,
+            "taxSubunits": 225,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "i1-mains": {
+            "A": 6000
+          },
+          "i2-side": {
+            "B": 2000
+          }
+        },
+        "items": [
+          {
+            "itemId": "i1-mains",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i2-side",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
     }
   ]
 }

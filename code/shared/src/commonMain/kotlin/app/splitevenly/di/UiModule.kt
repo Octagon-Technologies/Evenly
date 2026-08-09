@@ -28,6 +28,7 @@ import app.splitevenly.ui.screen.group.GroupFilterStore
 import app.splitevenly.ui.screen.home.HomeViewModel
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
+import io.ktor.client.HttpClient
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 
@@ -44,7 +45,13 @@ val authModule = module {
         single { SyncManager(get<SupabaseClient>(), get<SyncEngine>(), get<EvenlyDatabase>()) }
         // Push registration + delivery glue (F7): needs the platform PushService (from platformModule).
         single { PushController(get<PushService>(), get<SyncEngine>(), get<SupabaseClient>()) }
-        single<AuthSession> { SupabaseAuthSession(get<SupabaseClient>(), get(), get<SyncEngine>(), get<SyncManager>(), get<PushController>(), get<AppForeground>(), analytics = getOrNull<EvAnalytics>()) }
+        single<AuthSession> {
+            SupabaseAuthSession(
+                get<SupabaseClient>(), get(), get<SyncEngine>(), get<SyncManager>(), get<PushController>(), get<AppForeground>(),
+                analytics = getOrNull<EvAnalytics>(),
+                httpClient = get<HttpClient>(),
+            )
+        }
         // Receipt bytes (F5) go to Supabase Storage; bound only here, so the offline stub build has none.
         single<ReceiptStorage> { SupabaseReceiptStorage(get<SupabaseClient>()) }
         // Resilient receipt upload (D-22): token for the Storage REST PUT + the durable outbox manager.

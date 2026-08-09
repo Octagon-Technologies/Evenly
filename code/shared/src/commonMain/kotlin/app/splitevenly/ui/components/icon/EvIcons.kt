@@ -32,6 +32,15 @@ private fun fillIcon(pathData: String): ImageVector =
         build()
     }
 
+/** Multi-path icon with a fixed color per path, e.g. brand marks that can't be recolored via `currentColor`. */
+private fun brandIcon(viewport: Float, paths: List<Pair<String, Color>>): ImageVector =
+    ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = viewport, viewportHeight = viewport).run {
+        paths.forEach { (pathData, color) ->
+            addPath(pathData = PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(color))
+        }
+        build()
+    }
+
 object EvIcons {
     val Plus: ImageVector by lazy { lineIcon("M12 5v14M5 12h14") }
     val Minus: ImageVector by lazy { lineIcon("M5 12h14") }
@@ -98,6 +107,28 @@ object EvIcons {
     val Mail: ImageVector by lazy { lineIcon("M5.5 5h13a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1 -2.5 2.5h-13a2.5 2.5 0 0 1 -2.5 -2.5v-9a2.5 2.5 0 0 1 2.5 -2.5Z M4 7l8 6 8-6") }
     val Apple: ImageVector by lazy { lineIcon("M16 12c0-2 1.5-3 1.6-3.1A3.7 3.7 0 0014.5 7c-1.3 0-2 .7-2.5.7S10.7 7 9.5 7C7.4 7 6 8.8 6 11.4c0 3 2.2 6.6 3.8 6.6.8 0 1.3-.6 2.2-.6s1.3.6 2.2.6c1.3 0 2.8-2.4 3.3-3.6-1.4-.6-1.5-2.2-1.5-2.4zM13 5.5c.6-.8.5-1.9.5-2-.9 0-1.7.6-2 1-.5.5-.6 1.4-.5 1.9.9.1 1.6-.4 2-.9z") }
     val Google: ImageVector by lazy { fillIcon("M21 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.1a4.4 4.4 0 01-1.9 2.9v2.4h3.1c1.8-1.7 2.7-4.2 2.7-7.1z M12 21c2.4 0 4.5-.8 6-2.2l-3.1-2.4c-.8.6-1.9 1-2.9 1a5 5 0 01-4.8-3.5H4v2.4A9 9 0 0012 21z M7.2 13.9a5.4 5.4 0 010-3.4V8.1H4a9 9 0 000 8.1l3.2-2.3z M12 6.5c1.3 0 2.5.5 3.5 1.4l2.6-2.6A9 9 0 004 8.1l3.2 2.4A5 5 0 0112 6.5z") }
+
+    /** The official Google "G" mark. Per Google's brand guidelines its four colors can never be
+     *  retinted, so this is a fixed-color icon rather than the usual `currentColor` line/fill icon. */
+    val GoogleColored: ImageVector by lazy {
+        brandIcon(
+            viewport = 18f,
+            paths = listOf(
+                "M17.64 9.2045c0-.6381-.0573-1.2518-.1636-1.8409H9v3.4814h4.8436c-.2086 1.125-.8427 2.0782-1.7959 2.7164v2.2581h2.9087c1.7018-1.5668 2.6836-3.874 2.6836-6.615z" to Color(0xFF4285F4),
+                "M9 18c2.43 0 4.4673-.806 5.9564-2.1805l-2.9087-2.2581c-.8059.54-1.8368.8591-3.0477.8591-2.344 0-4.3282-1.5831-5.0359-3.7104H.9573v2.3318C2.4382 15.9832 5.4818 18 9 18z" to Color(0xFF34A853),
+                "M3.9641 10.71c-.18-.54-.2822-1.1168-.2822-1.71s.1022-1.17.2822-1.71V4.9582H.9573A8.9965 8.9965 0 000 9c0 1.4523.3477 2.8268.9573 4.0418L3.9641 10.71z" to Color(0xFFFBBC05),
+                "M9 3.5795c1.3214 0 2.5077.4541 3.4405 1.346l2.5813-2.5814C13.4632.8918 11.426 0 9 0 5.4818 0 2.4382 2.0168.9573 4.9582L3.9641 7.29C4.6718 5.1627 6.656 3.5795 9 3.5795z" to Color(0xFFEA4335),
+            ),
+        )
+    }
+
+    /** The official solid Apple mark (not the outline glyph in [Apple]). Sign in with Apple requires
+     *  this exact silhouette rather than a stylized line-icon version. */
+    val AppleMark: ImageVector by lazy {
+        fillIcon(
+            "M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zm3.415-3.132c.843-1.012 1.4-2.428 1.245-3.842-1.207.052-2.662.805-3.53 1.817-.78.896-1.454 2.338-1.273 3.717 1.338.104 2.715-.688 3.558-1.692z",
+        )
+    }
     val Facebook: ImageVector by lazy { fillIcon("M14 8h2V5h-2a3 3 0 00-3 3v2H9v3h2v6h3v-6h2.2l.8-3H14V8.5c0-.3.2-.5.5-.5z") }
     val Reload: ImageVector by lazy { lineIcon("M20 12a8 8 0 11-2.3-5.6M20 4v4h-4") }
     val Pin: ImageVector by lazy { lineIcon("M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z M9.5 10a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0Z") }

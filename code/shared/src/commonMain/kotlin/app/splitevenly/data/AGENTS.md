@@ -304,8 +304,9 @@ None of these may ship to a real user. Refuse to mark the app prod-ready while a
    anonymous) user can read, overwrite, **or delete every row**. See `supabase/AGENTS.md`.
 3. **Add the audit log + triggers** (Rule 4) — there is none today. `expense_history` logs *events*, not
    before-images, so a bad mutation is currently unrecoverable from app data alone.
-4. **Close the soft-delete gaps** (Rule 1): `users`, `members`, `conflicts`, `device_tokens` have no
-   `deleted_at`. (`shares` now does — done.)
+4. **Close the soft-delete gaps** (Rule 1): `conflicts` has no `deleted_at`. (`shares` and `users` now
+   do — done. `members` uses `status = 'LEFT'` by design; `device_tokens` is intentionally hard-deleted,
+   ephemeral non-financial data.)
 5. **Add concurrency guards to push** (Rule 5). Pull is guarded by `keepNewer`; push is still blind.
 6. **Turn on Supabase PITR + scheduled backups, and rehearse a restore** (Rule 12).
 
@@ -405,15 +406,22 @@ comment: what it does, **pre-checks filled with true answers** (which app versio
 since when unused? is the data in the audit log or a PITR snapshot?), and the **recovery path**. If you
 cannot fill the pre-checks with true statements, **do not write it — ask for the missing facts.**
 
-### 9. Account deletion is reversible and never erases others' financial history.
+### 9. Account deletion is reversible and never erases others' financial history. — Done (2026-08-08)
 
-`SupabaseAuthSession.deleteAccount` (`data/auth/SupabaseAuthSession.kt:163`) calls the server RPC then
-**hard-deletes the local user row even if the RPC failed**; `StubAuthSession` (`StubAuthSession.kt:75`)
-hard-deletes outright. For prod: deleting a user must not vaporize the expenses/shares/settlements other
-members still need to settle up — soft-delete or anonymize the profile and preserve the shared financial
-rows. Honor a **grace period** (mark `deleted_at`, purge later via a server job) so an accidental or rage-tap
-deletion is recoverable. Don't destroy local state until the server confirms; on RPC failure surface the
-error instead of leaving the device wiped but the account live.
+Implemented for the Play Store "Delete account URL" requirement. `AuthSession.requestAccountDeletion()`
+(`SupabaseAuthSession.kt`) calls the `request_account_deletion` RPC, which only stamps
+`users.deletion_requested_at` — nothing is deleted yet. Only signs out and clears `currentUserId` on RPC
+**success**; a network failure surfaces `AppError` with the account and local state untouched. A daily
+pg_cron job (`purge_deleted_accounts`, scheduled in `supabase/schema.sql`) anonymizes any account whose
+30-day grace period has elapsed: profile fields cleared and `deleted_at` stamped (never a row delete),
+every active `members` row soft-left, admin handed off where the deleted user was sole admin, then
+`auth.users` removed (the login credential — not shared data, unlike everything else). Expenses, shares,
+settlements, and receipts are untouched and read as "Deleted user" everywhere.
+
+`AuthSession.cancelAccountDeletion()` clears the pending request within the grace window; a returning
+sign-in is gated behind `ui/screen/auth/PendingDeletionScreen.kt` (via `HomeGateRoute` in
+`ui/navigation/WiredScreens.kt`) until the user cancels or signs out. `StubAuthSession` (offline, no
+server) has no grace period to preserve, so it still deletes the local row immediately on request.
 
 ### 10. Storage: a soft-deleted row must not orphan its file — and never bulk-purge.
 

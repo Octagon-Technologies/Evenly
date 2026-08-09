@@ -10,8 +10,13 @@
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/auth/SupabaseAuthSession.kt"
   },
   {
-    "event_name": "account_deleted",
-    "event_description": "Fires when the user successfully deletes their account.",
+    "event_name": "account_deletion_requested",
+    "event_description": "Fires when the user starts the 30-day account-deletion countdown.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/auth/SupabaseAuthSession.kt"
+  },
+  {
+    "event_name": "account_deletion_cancelled",
+    "event_description": "Fires when the user cancels a pending account deletion within its grace period.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/auth/SupabaseAuthSession.kt"
   },
   {

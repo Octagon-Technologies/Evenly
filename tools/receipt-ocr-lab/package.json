@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node --experimental-strip-types server/index.js",
+    "test:amount": "node --experimental-strip-types --test ../../supabase/functions/extract-receipt/amount.test.ts"
   },
   "dependencies": {
     "express": "^4.19.2",

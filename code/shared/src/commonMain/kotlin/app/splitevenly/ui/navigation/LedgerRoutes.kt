@@ -1,6 +1,8 @@
 package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,6 +19,7 @@ import app.splitevenly.core.time.todayUtc
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.data.upload.ReceiptUploadManager
+import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.activity.HistoryEvent
 import app.splitevenly.domain.activity.HistoryEventType
 import app.splitevenly.domain.activity.ReceiptUploadStatus
@@ -105,6 +108,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     // and when it's null we hide the receipt strip entirely rather than offer an attach that goes nowhere.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
+    val stagedPdf = rememberStagedPdfRenderers(uploadManager)
     val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
@@ -113,13 +117,14 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
-    // Picked before the expense exists; enqueued against the new expense id on save.
-    var pickedReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    // Picked before the expense exists: compressed and written to the sandbox straight away so the editor
+    // can show the real image, then attached to the new expense id on save.
+    var pickedReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     // Itemized scan pipeline (mirrors BillEditRoute) — feeds the "By what each had" body.
     var scanState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
     var scanned by remember { mutableStateOf<EditBillState?>(null) }
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
-    var billReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    var billReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
     // Scan-funnel analytics bookkeeping: the source of the in-flight scan (for scan_started/scan_cancelled)
     // and its start time (for duration_ms). Neither is user-facing state, just event properties.
@@ -127,6 +132,13 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     var scanStartedAt by remember { mutableStateOf(0L) }
     // The group's most recent expense — its participant set seeds a *new* expense's default selection
     // (whoever was actually there last time, not the whole group). null = the flow hasn't emitted yet.
+    // Staged bytes belong to this editor until a save attaches them. There is no BackHandler here, so
+    // system back and swipe-back leave without ever reaching onBack — clean up on dispose instead, or an
+    // abandoned pick sits in the sandbox forever.
+    var attached by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose { if (!attached) uploadManager?.discardStagedDetached(pickedReceipts + billReceipts) }
+    }
     val recentExpenses by remember(gid) { expenses.observeExpensesWithShares(gid) }.collectAsStateWithLifecycle(null)
     // Wait for the group's history to load before rendering — same "gate on first load" convention as
     // BillEditRoute/EditExpenseRoute — so the default participant set is computed exactly once, correctly.
@@ -147,6 +159,14 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
             AnalyticsEvents.SCAN_STARTED,
             mapOf("page_count" to files.size, "source" to source.name.lowercase(), "group_id" to gid.value),
         )
+        // The pages the user just photographed ARE the receipt, whatever the OCR makes of them. Stage them
+        // on a job of their own so a cancelled, failed or blocked scan still leaves the receipt attached —
+        // scanJob gets cancelled, and this must not go with it.
+        scope.launch {
+            val superseded = billReceipts
+            billReceipts = uploadManager?.stage(files).orEmpty()
+            uploadManager?.discardStaged(superseded)
+        }
         scanJob = scope.launch {
             val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
             val outcome = ocr.extract(ocrFiles, groupId = gid.value)
@@ -154,7 +174,6 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
             scanState = when (outcome) {
                 is ScanOutcome.Success -> {
                     scanned = outcome.draft.toAddEditState()
-                    billReceipts = files
                     analytics?.capture(
                         AnalyticsEvents.SCAN_COMPLETED,
                         buildMap {
@@ -203,11 +222,18 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
         currencyCode = currency,
         saving = saving,
         lastExpenseParticipantIds = lastExpenseParticipantIds,
-        receipts = pickedReceipts.map { PickedReceiptUi(it.mimeType.contains("pdf", ignoreCase = true)) },
+        receipts = pickedReceipts.map { it.toUi() },
         receiptsEnabled = uploadManager != null,
         scanState = scanState,
         scanned = scanned,
-        attachedReceiptCount = billReceipts.size,
+        attachedReceipts = billReceipts.map { it.toUi() },
+        onRemoveAttachedReceipt = { i ->
+            val dropped = billReceipts.getOrNull(i)
+            billReceipts = billReceipts.filterIndexed { idx, _ -> idx != i }
+            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+        },
+        loadPdfPageCount = stagedPdf.pageCount,
+        renderPdfPage = stagedPdf.renderPage,
         onBack = onBack,
         onScanReceipt = { source ->
             // Fires before any cost is incurred — even if the user backs out of the file picker next.
@@ -246,10 +272,15 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
         onPickReceipt = { source ->
             scope.launch {
                 val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + picked.value
+                // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
+                if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + uploadManager?.stage(picked.value).orEmpty()
             }
         },
-        onRemoveReceipt = { i -> pickedReceipts = pickedReceipts.filterIndexed { idx, _ -> idx != i } },
+        onRemoveReceipt = { i ->
+            val dropped = pickedReceipts.getOrNull(i)
+            pickedReceipts = pickedReceipts.filterIndexed { idx, _ -> idx != i }
+            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+        },
         onSave = { submit ->
             val me = userId
             if (me != null && submit.shares.isNotEmpty()) {
@@ -280,8 +311,11 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
                     )
                     when (val result = expenses.addExpense(input)) {
                         is AppResult.Ok -> {
-                            // Attach whatever the user picked; the pipeline compresses + uploads in the background.
-                            if (pickedReceipts.isNotEmpty()) uploadManager?.enqueue(result.value.id, gid, pickedReceipts)
+                            // Bytes are already on disk; this only records them against the new expense.
+                            // billReceipts rides along too: scanning and then switching to Divide must not
+                            // throw away the receipt the user already photographed.
+                            attached = true
+                            uploadManager?.attach(result.value.id, gid, pickedReceipts + billReceipts)
                             onSaved()
                         }
                         is AppResult.Err -> saving = false
@@ -299,6 +333,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
                     tipSubunits = submit.tipSubunits,
                     tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
                     discountSubunits = submit.discountSubunits,
+                    otherChargesSubunits = submit.otherChargesSubunits,
                 )
                 val result = bills.createBill(
                     NewBill(
@@ -317,7 +352,8 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
                 when (result) {
                     is AppResult.Ok -> {
                         // The scanned pages ride along as the bill's receipt (background upload).
-                        if (billReceipts.isNotEmpty()) uploadManager?.enqueue(result.value, gid, billReceipts)
+                        attached = true
+                        uploadManager?.attach(result.value, gid, billReceipts + pickedReceipts)
                         // The trust metric: how much of the OCR draft survived to what actually got saved.
                         scanned?.let { s ->
                             val (changed, total) = scanEditStats(s.items, submit.items)
@@ -344,6 +380,7 @@ private fun ReceiptDraft.toAddEditState(): EditBillState = EditBillState(
     gratuityText = if (gratuitySubunits == 0L) "" else format2dp(gratuitySubunits / 100.0),
     tipText = if (tipSubunits == 0L) "" else format2dp(tipSubunits / 100.0),
     discountText = if (discountSubunits == 0L) "" else format2dp(discountSubunits / 100.0),
+    otherChargesText = if (otherChargesSubunits == 0L) "" else format2dp(otherChargesSubunits / 100.0),
     verified = verified,
 )
 

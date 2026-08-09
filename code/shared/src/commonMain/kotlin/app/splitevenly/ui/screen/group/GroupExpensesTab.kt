@@ -140,6 +140,14 @@ fun GroupExpensesTab(
     // Default open; the collapse choice sticks for the whole visit (state lives above the section so it
     // survives the bills momentarily emptying and re-appearing).
     var claimsExpanded by remember { mutableStateOf(true) }
+    // Hoisted above the Column (not just above the scroll Box) so `populated` is still in scope for the
+    // toast padding below, which sits outside the Column but inside the outer fillMaxSize Box.
+    val visibleDays = days.mapNotNull { day ->
+        val active = if (sub == "Settled") emptyList() else day.items.filter { !it.settled }
+        val settled = if (sub == "Active") emptyList() else day.items.filter { it.settled }
+        if (active.isEmpty() && settled.isEmpty()) null else VisibleDay(day.label, active, settled)
+    }
+    val populated = state == ExpensesState.Populated && visibleDays.isNotEmpty()
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(c.page)) {
         EvTopBar(
@@ -175,14 +183,6 @@ fun GroupExpensesTab(
             )
             FilterFunnel(active = filterActive, onClick = onFilter)
         }
-
-        // The sub-tab narrows by settlement status; drop days that have nothing under the active view.
-        val visibleDays = days.mapNotNull { day ->
-            val active = if (sub == "Settled") emptyList() else day.items.filter { !it.settled }
-            val settled = if (sub == "Active") emptyList() else day.items.filter { it.settled }
-            if (active.isEmpty() && settled.isEmpty()) null else VisibleDay(day.label, active, settled)
-        }
-        val populated = state == ExpensesState.Populated && visibleDays.isNotEmpty()
 
         // One scroll surface for everything under the tabs. The offline banner, the claim card and the
         // "Is this you?" card used to be fixed rows above the feed, so with two of them showing the
@@ -302,9 +302,12 @@ fun GroupExpensesTab(
             if (populated) EvFab(onAdd, Modifier.align(Alignment.BottomEnd).padding(16.dp))
         }
     }
-    // Sits above the FAB, over whatever branch rendered. Swiping it away is deliberately not a cancel:
-    // only the Undo button is, so a stray gesture can't quietly decide who someone is.
-    val toastModifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = 92.dp)
+    // Sits above the FAB when it's showing; the FAB is hidden behind the empty state (see `populated`
+    // above), so the 92dp FAB clearance would otherwise leave a large, unexplained gap above the nav bar.
+    // Swiping the toast away is deliberately not a cancel: only the Undo button is, so a stray gesture
+    // can't quietly decide who someone is.
+    val toastBottomPadding = if (populated) 92.dp else 8.dp
+    val toastModifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = toastBottomPadding)
     when {
         undoToastText != null -> EvUndoToast(undoToastText, onUndoClaim, toastModifier)
         // A claim that lost the race or couldn't be confirmed has to say so. Nothing was written either

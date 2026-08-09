@@ -202,6 +202,26 @@ class BillSplitTest {
         assertEquals(13000L, r.owedByUser.values.sum())
     }
 
+    // Other charges (delivery fee, bottle deposit, card surcharge) ride exactly as tax does. Added with the
+    // column (2026-08-08): before it existed the receipt scanner folded these into gratuity to keep the
+    // bill's total honest, so the amount was right and the label on the user's screen was a lie.
+    @Test
+    fun otherCharges_proportional_likeTax() {
+        val items = listOf(item("a-meal", 6000L, 1), item("b-meal", 2000L, 1))
+        val claims = indiv(IndividualClaim("a-meal", A, 1), IndividualClaim("b-meal", B, 1))
+        val r = splitBill(items, claims, shared(), BillExtras(otherChargesSubunits = 500L))
+        // A ordered 3/4 of the food, so A carries 3/4 of the fee. Nothing may leak: the parts sum to 8500.
+        assertEquals(6000L + 375L, r.owedByUser[A])
+        assertEquals(2000L + 125L, r.owedByUser[B])
+        assertEquals(8500L, r.owedByUser.values.sum())
+
+        // It lands in the same proportional bucket as tax and gratuity, which is what TabBreakdown folds.
+        val withTax = splitBill(items, claims, shared(), BillExtras(taxSubunits = 400L, otherChargesSubunits = 500L))
+        assertEquals(675L, withTax.breakdownByUser[A]?.taxSubunits)
+        assertEquals(225L, withTax.breakdownByUser[B]?.taxSubunits)
+        assertEquals(8900L, withTax.owedByUser.values.sum())
+    }
+
     // Tip proportional toggle + discount, both proportional and penny-exact.
     @Test
     fun tipProportional_andDiscount() {

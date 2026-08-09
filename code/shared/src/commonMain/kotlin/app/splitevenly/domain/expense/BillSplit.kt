@@ -18,9 +18,9 @@ import app.splitevenly.core.id.UserId
  *    claimed) units evenly. Because it's a set, overlapping "shared with" declarations merge for free
  *    (Bob adds Mary, Steve adds Bob → {Bob, Mary, Steve}, ÷3) with nothing to confirm or resolve.
  *
- * Bill extras ride on top: tax + gratuity proportional to what each person ordered, tip even by default
- * (toggleable), discount negative-proportional — all penny-exact via the existing largest-remainder
- * [allocate].
+ * Bill extras ride on top: tax + gratuity + other charges proportional to what each person ordered, tip
+ * even by default (toggleable), discount negative-proportional — all penny-exact via the existing
+ * largest-remainder [allocate].
  */
 
 /** A line on the bill: [quantity] units costing [lineTotalSubunits] in total (the truth, as printed). */
@@ -56,13 +56,23 @@ data class SharedPortion(
     val members: List<UserId>,
 )
 
-/** Bill-level surcharges. Tip defaults to an even split (toggleable); tax & gratuity ride proportionally. */
+/**
+ * Bill-level surcharges. Tip defaults to an even split (toggleable); tax, gratuity, and other charges ride
+ * proportionally.
+ *
+ * [otherChargesSubunits] is anything the receipt prints that is none of the others — a delivery fee, a
+ * bottle deposit, a bag fee, a card surcharge. It exists because a real bill has charges our four original
+ * slots could not name, and the receipt scanner had been folding them into gratuity to keep the total
+ * honest. It splits proportionally for the same reason tax does: a fee levied on the whole order belongs
+ * to each person in proportion to what they ordered.
+ */
 data class BillExtras(
     val taxSubunits: Long = 0L,
     val gratuitySubunits: Long = 0L,
     val tipSubunits: Long = 0L,
     val tipSplitMode: TipSplitMode = TipSplitMode.EVEN,
     val discountSubunits: Long = 0L,
+    val otherChargesSubunits: Long = 0L,
 )
 
 /** Per-line claim status — the single signal the UI surfaces (amber for unclaimed / over-claimed). */
@@ -79,8 +89,12 @@ data class ItemReconcile(
 
 /**
  * One person's tab broken into its parts, so the claim screen can *explain* the number instead of a bare
- * total (a $5 juice quietly becoming $6.94 reads as a bug). [taxSubunits] folds gratuity in; the parts sum
- * to the tab: items + tax + tip − discount.
+ * total (a $5 juice quietly becoming $6.94 reads as a bug). [taxSubunits] folds gratuity AND other charges
+ * in; the parts sum to the tab: items + tax + tip − discount.
+ *
+ * The fold is deliberate and stays: this is a per-person explanation of one number, and splitting it four
+ * ways when three of them ride identically (proportional to what you ordered) tells the reader nothing
+ * they can act on. The bill EDITOR keeps them apart, because there the amounts are being entered.
  */
 data class TabBreakdown(
     val itemsSubunits: Long,
@@ -211,7 +225,7 @@ fun splitBill(
     val subtotals = subtotal.toList()
     if (subtotals.isEmpty()) return BillResult(emptyMap(), reconcile, perItemByUser = perItem)
 
-    // Extras (tax/gratuity/discount, and a PROPORTIONAL tip) ride proportional to each person's share of
+    // Extras (tax/gratuity/other charges/discount, and a PROPORTIONAL tip) ride proportional to each person's share of
     // the WHOLE bill's item subtotal — NOT just what's been claimed so far. Otherwise the first person to
     // claim absorbs 100% of tax + tip (a $5 juice showing a $102 tab). The still-unclaimed portion of the
     // bill rides a phantom bucket whose slice is computed then dropped — it gets billed as those items are
@@ -226,7 +240,8 @@ fun splitBill(
         return allocate(amount, subtotals + (UNCLAIMED_BUCKET to unclaimed)) - UNCLAIMED_BUCKET
     }
 
-    val proportionalShares = proportionalToFullBill(extras.taxSubunits + extras.gratuitySubunits)
+    val proportionalShares =
+        proportionalToFullBill(extras.taxSubunits + extras.gratuitySubunits + extras.otherChargesSubunits)
     val discountShares = proportionalToFullBill(extras.discountSubunits)
     val tipShares = when (extras.tipSplitMode) {
         TipSplitMode.PROPORTIONAL -> proportionalToFullBill(extras.tipSubunits)
@@ -239,7 +254,7 @@ fun splitBill(
     val breakdown = subtotals.associate { (id, sub) ->
         id to TabBreakdown(
             itemsSubunits = sub,
-            taxSubunits = proportionalShares[id] ?: 0L, // tax + gratuity
+            taxSubunits = proportionalShares[id] ?: 0L, // tax + gratuity + other charges
             tipSubunits = tipShares[id] ?: 0L,
             discountSubunits = discountShares[id] ?: 0L,
         )

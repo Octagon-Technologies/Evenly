@@ -11,7 +11,8 @@ object AnalyticsEvents {
     // Auth
     const val USER_SIGNED_IN = "user_signed_in"
     const val USER_SIGNED_OUT = "user_signed_out"
-    const val ACCOUNT_DELETED = "account_deleted"
+    const val ACCOUNT_DELETION_REQUESTED = "account_deletion_requested"
+    const val ACCOUNT_DELETION_CANCELLED = "account_deletion_cancelled"
 
     // Groups
     const val GROUP_CREATED = "group_created"

@@ -72,6 +72,7 @@ fun ProfileScreen(
     themeMode: ThemeMode = ThemeMode.System,
     onThemeModeChange: (ThemeMode) -> Unit = {},
     onDeleteAccount: () -> Unit = {},
+    deleteAccountError: String? = null,
 ) {
     val c = EvenlyTheme.colors
     var analytics by remember { mutableStateOf(true) }
@@ -217,12 +218,18 @@ fun ProfileScreen(
         EvModalScaffold(onDismiss = { confirmDelete = false }) {
             Text("Delete account?", color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Text(
-                "This permanently deletes your account and profile. It can't be undone.",
+                "You'll be signed out now, and your account is fully removed in 30 days. Sign back in " +
+                    "before then to cancel. Your name, email, and photo are deleted. Expenses and " +
+                    "payments you were part of stay in your groups' history so balances stay accurate " +
+                    "for everyone else, shown as \"Deleted user.\"",
                 color = c.ink2, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
             )
+            deleteAccountError?.let {
+                Text(it, color = c.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Secondary, modifier = Modifier.weight(1f))
-                EvButton("Delete", { confirmDelete = false; onDeleteAccount() }, modifier = Modifier.weight(1f))
+                EvButton("Delete", onDeleteAccount, modifier = Modifier.weight(1f))
             }
         }
     }

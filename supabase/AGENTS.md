@@ -49,6 +49,20 @@ history across two accounts silently.
 The client calls it at **flush** time (an undone claim never reaches it) and **before** pushing the
 merged rows — a loser then reverses rows no other client has pulled. Don't move it after the push.
 
+## Account deletion — request/cancel/purge, never a direct delete of shared data
+
+Three `security definer` RPCs replace the old hard-delete `delete_my_account()` (Play Store "Delete
+account URL" requirement; full rationale in `data/AGENTS.md` Rule 9). `request_account_deletion()` and
+`cancel_account_deletion()` only stamp/clear `users.deletion_requested_at` — caller-scoped, no other
+table touched. `purge_deleted_accounts()` has no caller context and runs off a daily `pg_cron` job
+(`purge-deleted-accounts`, `0 3 * * *`); it anonymizes any `users` row whose 30-day grace period has
+elapsed (never deletes it), soft-leaves that user's active `members` rows, hands off group admin where
+they were sole admin, hard-deletes their `device_tokens`, then removes the `auth.users` row. Each
+target's purge runs in its own nested `BEGIN...EXCEPTION` block so one bad row can't abort the whole
+nightly batch. All grace-period arithmetic is `bigint` epoch-millis (matching `users.created_at`/
+`updated_at`) — seed the day-count constant as an explicit `::bigint` literal, since
+`30 * 24 * 60 * 60 * 1000` overflows `int4` before Postgres ever promotes it.
+
 ## The guest's Zone-2 write path — the one thing `merge_expense` cannot do
 
 `merge_expense` runs as the authenticated caller. The `web-claim` edge function has a service key and
@@ -194,17 +208,46 @@ tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its S
 | `export_group`              | Group data export                                           |
 | `refresh_fx_rates`          | FX rate refresh                                             |
 | `notify_admin_of_conflicts` | Legacy — tied to the retired conflicts model               |
+| `apple-link-token`          | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
+| `apple-revoke-token`        | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
+
+`apple-link-token`/`apple-revoke-token` (Apple Sign In native plan §5 P4, Guideline 5.1.1(v)) exchange a
+native Apple authorization code for a refresh token on sign-in and revoke it on account deletion, stored
+in `apple_oauth_tokens` (RLS enabled, zero policies — service-role only, matching `web_sessions`). Both
+share `_shared/appleClientSecret.ts`, an ES256 client-secret JWT signer.
+
+`extract-receipt`'s two tiers share one `ANTHROPIC_API_KEY`, so a 401/403 or a credit-exhausted 400 from
+Anthropic fails identically on both — that's not a bad photo, it's the account itself broken, and it
+will stay broken for every user until a human fixes it. That case short-circuits past the escalation
+tier and returns the same `{ configured: false }` shape as the "key not set" path, so the client's
+existing unconfigured-service handling (no retry offered, straight to manual entry) covers it for free.
+It also best-effort-posts to Slack via `SLACK_ALERT_WEBHOOK_URL` (optional; a no-op if unset) — inert
+until configured, same pattern as `APPLE_*` above — so this doesn't go unnoticed until a user complains.
+The cooldown (one post per `kind` per hour, so a burst of failing scans doesn't spam the channel) lives
+in `ops_alerts` (RLS enabled, zero policies — service-role only, same as `receipt_opus_escalations`).
 
 Push targets the `device_tokens` table. `extract-receipt` only ever *pre-fills* an editable item list; a
 human verifies before any money is computed.
+
+**`extract-receipt` asks the model to transcribe and never to compute.** No field in its tool schema holds
+a value the model has to work out, and its prompt contains no instruction to add, check, or balance
+anything: amounts are the digits as printed (`"22.74"`), and every sum lives in `billMath.ts`. Two defects
+on 2026-08-08 came from breaking that — an integer `*_subunits` field the model rescaled by truncation, and
+a `subtotal` field defined as the sum of its own siblings, which made the reconciliation gate a check of the
+model against itself and shipped a $9.50-short bill as `verified: true`. **Never add a gate whose two sides
+both come from the model**; it cannot fail, and it reads like safety in the diff. Full account in
+`RECEIPT_OCR_PLAN.md`.
 
 ## Destructive SQL
 
 `DROP`, `TRUNCATE`, and unscoped `DELETE` are forbidden in any migration, RPC, or edge function. The rule
 is about **rows**: `drop trigger`/`drop policy`/`drop function` on a superseded object destroys no user
 data and is how this file already retires things (a stale overload left callable is worse). Today the
-schema holds no `drop table`/`truncate`; the only `DELETE`s are the per-user `delete_my_account()` RPC
-and `web-claim`'s prune of its own expired `web_claim_write_log` rows, scoped to one token. Keep it that
-way. The full production data-safety ruleset (audit log, soft-delete cascade, PITR, irreversible
+schema holds no `drop table`/`truncate`; the only `DELETE`s are per-user and scoped to one row's own
+data: `purge_deleted_accounts()`'s `device_tokens`/`auth.users` cleanup (30 days after
+`request_account_deletion`, see `data/AGENTS.md` Rule 9 — `expenses`/`shares`/`settlements`/`receipts`
+are never touched, only anonymized in place), and `web-claim`'s prune of its own expired
+`web_claim_write_log` rows, scoped to one token. Keep it that way. The full production data-safety
+ruleset (audit log, soft-delete cascade, PITR, irreversible
 -operation headers) lives in the client-side `data/AGENTS.md`; it is gated on the app going live, but Rule 2
 above applies now.

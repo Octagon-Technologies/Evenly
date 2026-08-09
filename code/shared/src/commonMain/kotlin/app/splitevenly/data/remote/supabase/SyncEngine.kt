@@ -6,6 +6,7 @@ import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.db.entity.CategoryEntity
 import app.splitevenly.data.db.entity.CommentEntity
 import app.splitevenly.data.db.entity.ConflictEntity
+import app.splitevenly.data.db.entity.ExpenseBlockedUserEntity
 import app.splitevenly.data.db.entity.ExpenseEditConflictEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ExpenseSyncStateEntity
@@ -133,6 +134,8 @@ class SyncEngine(
         val editConflicts = selectIn<ExpenseEditConflictEntity>("expense_edit_conflicts", "group_id", groupIds)
         // Expense activity (F5) hangs off the expenses, keyed by expense_id like shares.
         val comments = if (expenseIds.isEmpty()) emptyList() else selectIn<CommentEntity>("comments", "expense_id", expenseIds)
+        // Per-expense chat blocks (CHAT_MODERATION_SPEC.md) hang off the expense, same as comments.
+        val blockedUsers = if (expenseIds.isEmpty()) emptyList() else selectIn<ExpenseBlockedUserEntity>("expense_blocked_users", "expense_id", expenseIds)
         val receipts = if (expenseIds.isEmpty()) emptyList() else selectIn<ReceiptEntity>("receipts", "expense_id", expenseIds)
         val history = if (expenseIds.isEmpty()) emptyList() else selectIn<HistoryEventEntity>("expense_history", "expense_id", expenseIds)
         // "Split the bill" items + claims hang off the expense, keyed by expense_id like shares.
@@ -188,6 +191,7 @@ class SyncEngine(
         if (freshShares.isNotEmpty()) db.shareDao().upsertAll(freshShares) // shares ride with expenses; no independent push to track
         land("settlements", settlements, db.settlementDao().allForSync(), { it.id }, { it.updatedAt }) { db.settlementDao().upsertAll(it) }
         land("comments", comments, db.commentDao().allForSync(), { it.id }, { it.updatedAt }) { db.commentDao().upsertAll(it) }
+        land("expense_blocked_users", blockedUsers, db.expenseBlockedUserDao().allForSync(), { it.id }, { it.updatedAt }) { db.expenseBlockedUserDao().upsertAll(it) }
         land("receipts", receipts, db.receiptDao().allForSync(), { it.id }, { it.updatedAt }) { db.receiptDao().upsertAll(it) }
         land("categories", categories, db.categoryDao().allForSync(), { it.id }, { it.updatedAt }) { db.categoryDao().upsertAll(it) }
         // Bill items + claims carry updated_at → last-write-wins guard (Rule 5). Claims are partitioned by
@@ -305,6 +309,7 @@ class SyncEngine(
         step { pushDirty("conflicts", db.conflictDao().allForSync()) { it.id } }
         step { pushDirty("expense_edit_conflicts", db.expenseEditConflictDao().allForSync()) { it.id } }
         step { pushDirty("comments", db.commentDao().allForSync()) { it.id } }
+        step { pushDirty("expense_blocked_users", db.expenseBlockedUserDao().allForSync()) { it.id } }
         step { pushDirty("receipts", db.receiptDao().allForSync()) { it.id } }
         step { pushDirty("categories", db.categoryDao().allForSync()) { it.id } }
         step { pushDirty("expense_history", db.historyEventDao().allForSync()) { it.id } }

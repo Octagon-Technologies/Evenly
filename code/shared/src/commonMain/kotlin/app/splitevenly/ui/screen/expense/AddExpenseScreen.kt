@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -62,9 +63,6 @@ import kotlinx.coroutines.launch
 /** A participant the expense can be split between (real members are passed by the route). */
 data class AddParticipantUi(val userId: String, val name: String, val isMe: Boolean)
 
-/** A locally-picked receipt held on the editor until the expense exists; uploaded in the background on save. */
-data class PickedReceiptUi(val isPdf: Boolean)
-
 /**
  * 13 · Add / edit expense (design/src/screens-addexpense.jsx) — the full split editor. This file owns the
  * shell: the up-front [SplitApproachChooser], the shared header (title, participants, category, payer,
@@ -95,7 +93,13 @@ fun AddExpenseScreen(
     // completed draft that pre-fills the item list, and the on* callbacks pick/cancel/retry the scan.
     scanState: ScanUiState = ScanUiState.Idle,
     scanned: EditBillState? = null,
-    attachedReceiptCount: Int = 0,
+    // The pages that were scanned. They are a receipt in their own right, kept whatever the OCR made of
+    // them, so they get the same strip (and the same viewer) as a hand-picked one.
+    attachedReceipts: List<PickedReceiptUi> = emptyList(),
+    onRemoveAttachedReceipt: (Int) -> Unit = {},
+    // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
+    loadPdfPageCount: suspend (url: String) -> Int = { 0 },
+    renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     onBack: () -> Unit = {},
     onSave: (AddExpenseSubmit) -> Unit = {},
     onSaveItemized: (EditBillSubmit) -> Unit = {},
@@ -116,6 +120,8 @@ fun AddExpenseScreen(
     // Flips true the first time Save is tapped while incomplete — the gaps then turn red.
     var showErrors by remember { mutableStateOf(false) }
     var showReceiptSource by remember { mutableStateOf(false) }
+    // Which staged receipt the full-screen viewer is open on; null = closed.
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
     // Currency is editable (F2): seed from the group base, let the user pick a foreign currency.
     var currency by remember { mutableStateOf(currencyCode) }
     val symbol = currencySymbol(currency)
@@ -197,6 +203,7 @@ fun AddExpenseScreen(
                     items = itemized.namedItems(),
                     taxSubunits = priceToSubunits(itemized.taxText),
                     gratuitySubunits = priceToSubunits(itemized.gratuityText),
+                    otherChargesSubunits = priceToSubunits(itemized.otherChargesText),
                     tipSubunits = priceToSubunits(itemized.tipText),
                     discountSubunits = priceToSubunits(itemized.discountText),
                     participantIds = selected,
@@ -316,13 +323,16 @@ fun AddExpenseScreen(
                 paidByField()
             }
 
-            // receipt — held locally, uploaded in the background right after the expense is created. Only
-            // in the divide flow; the itemized body attaches the pages you scan instead.
+            // receipt — compressed and on disk the moment it is picked, so it previews here and uploads
+            // once the expense exists. Only in the divide flow; the itemized body shows the scanned pages.
             if (receiptsEnabled && !isItemized) {
                 PickedReceiptStrip(
                     receipts = receipts,
+                    label = "Receipt",
+                    caption = "Uploads when you save.",
                     onAddClick = { showReceiptSource = true },
                     onRemoveReceipt = onRemoveReceipt,
+                    onOpenReceipt = { viewerIndex = it },
                 )
             }
 
@@ -333,7 +343,9 @@ fun AddExpenseScreen(
                         state = itemized,
                         symbol = symbol,
                         currencyCode = currency,
-                        attachedReceiptCount = attachedReceiptCount,
+                        attachedReceipts = attachedReceipts,
+                        onRemoveAttachedReceipt = onRemoveAttachedReceipt,
+                        onOpenAttachedReceipt = { viewerIndex = it },
                         showErrors = showErrors,
                         saving = saving,
                         saveLabel = "Save & assign items",
@@ -396,6 +408,23 @@ fun AddExpenseScreen(
             },
             onAddSomeoneNew = { showAddDialog = true },
             onDismiss = { showPayerDialog = false },
+        )
+    }
+
+    // The staged viewer covers the editor, so it renders last and outside the scrolling Column. Which list
+    // it shows follows the body in view: the divide flow's attachment or the itemized flow's scanned pages.
+    val viewable = if (isItemized) attachedReceipts else receipts
+    // Close it if the receipt it was showing got removed underneath it.
+    LaunchedEffect(viewable.size) {
+        if ((viewerIndex ?: -1) >= viewable.size) viewerIndex = null
+    }
+    viewerIndex?.takeIf { it in viewable.indices }?.let { index ->
+        StagedReceiptViewer(
+            receipts = viewable,
+            initialIndex = index,
+            loadPdfPageCount = loadPdfPageCount,
+            renderPdfPage = renderPdfPage,
+            onClose = { viewerIndex = null },
         )
     }
 

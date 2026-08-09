@@ -15,6 +15,8 @@
   import Home from './marketing/Home.svelte';
   import Privacy from './marketing/Privacy.svelte';
   import Terms from './marketing/Terms.svelte';
+  import DeleteAccount from './marketing/DeleteAccount.svelte';
+  import Support from './marketing/Support.svelte';
   import { store } from './lib/store.svelte.ts';
   import { resolveRoute } from './lib/router.ts';
   import { onMount } from 'svelte';
@@ -25,6 +27,8 @@
     home: 'Evenly — Split the bill, not the friendship.',
     privacy: 'Privacy Policy · Evenly',
     terms: 'Terms of Service · Evenly',
+    'delete-account': 'Delete Your Account · Evenly',
+    support: 'Help & Support · Evenly',
     bill: 'Claim your items · Evenly',
   } as const;
 
@@ -45,6 +49,10 @@
   <Privacy />
 {:else if route.kind === 'terms'}
   <Terms />
+{:else if route.kind === 'delete-account'}
+  <DeleteAccount />
+{:else if route.kind === 'support'}
+  <Support />
 {:else}
   <div class="claim-shell">
     {#if store.phase === 'loading'}

@@ -64,7 +64,7 @@ fun EvenlyNavHost(
 
         // ── Home / root shell (Groups + Settings tabs) ──────────────────
         composable<Route.Home> {
-            MainShell(
+            HomeGateRoute(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
                 onNewGroup = { navController.navigate(Route.NewGroup) },
                 onJoin = { navController.navigate(Route.JoinByLink) },

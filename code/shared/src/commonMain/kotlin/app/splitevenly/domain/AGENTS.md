@@ -42,8 +42,13 @@ OVERCLAIMED and the UI shows the gap rather than silently rounding it away.
 rounded per-unit for backward compat, but read `line_total_subunits` as truth. `splitBill` splits each line
 total across its claimed units via the allocator, so claiming 2 of 4 units pays 2 of the 4 slices.
 
-**Bill extras:** tax and gratuity split **proportionally**, tip **always splits evenly**, discount is
-**negative-proportional** — all penny-exact through `allocate`. The `ItemizedAllocator` still supports
+**Bill extras:** tax, gratuity, and **other charges** split **proportionally**, tip **always splits
+evenly**, discount is **negative-proportional** — all penny-exact through `allocate`.
+`otherChargesSubunits` (added 2026-08-08) is a printed charge that is none of the others: a delivery fee,
+bottle deposit, bag fee, or card surcharge. It shares tax's proportional bucket, and `TabBreakdown.taxSubunits`
+folds all three — the breakdown explains one person's number, and splitting it three ways when they ride
+identically tells the reader nothing they can act on. The bill *editor* keeps them apart, because there the
+amounts are being entered. The `ItemizedAllocator` still supports
 `TipSplitMode.PROPORTIONAL`, but the editor no longer exposes the toggle and always sends `EVEN`; leave the
 domain support in place, just don't wire a new UI to it.
 

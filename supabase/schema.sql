@@ -136,6 +136,7 @@ create table if not exists public.expenses (
   tip_split_mode text not null default 'PROPORTIONAL',
   gratuity_subunits bigint not null default 0,   -- "Split the bill": proportional like tax
   discount_subunits bigint not null default 0,   -- "Split the bill": proportional reduction
+  other_charges_subunits bigint not null default 0, -- delivery fee / bottle deposit / card surcharge; proportional like tax
   category_id text,
   subcategory_id text,
   refund_of_expense_id text,
@@ -385,6 +386,27 @@ create table if not exists public.comments (
 create index if not exists comments_expense_idx on public.comments (expense_id);
 create index if not exists comments_group_idx on public.comments (group_id);
 
+-- Per-expense chat moderation (CHAT_MODERATION_SPEC.md): a blocker's filter over one sender's
+-- messages in one expense's comment thread, not a group- or sender-scoped block. Synced wire-mirror,
+-- same shape as `comments`, soft-delete tombstone doubles as "unblock". `reason` distinguishes a
+-- deliberate Block from a Report (which currently performs the same write) purely for a future
+-- escalation surface -- nothing reads it yet.
+create table if not exists public.expense_blocked_users (
+  id text primary key,                 -- "<expense_id>__<blocker_user_id>__<blocked_user_id>"
+  expense_id text not null,
+  group_id text not null,              -- denormalized, same reason as comments.group_id
+  blocker_user_id text not null,
+  blocked_user_id text not null,
+  reason text not null default 'block',
+  created_at bigint not null,
+  updated_at bigint not null,
+  deleted_at bigint,
+  row_version bigint not null default 1
+);
+create index if not exists expense_blocked_users_expense_idx on public.expense_blocked_users (expense_id);
+create index if not exists expense_blocked_users_group_idx on public.expense_blocked_users (group_id);
+create index if not exists expense_blocked_users_blocker_idx on public.expense_blocked_users (blocker_user_id);
+
 create table if not exists public.receipts (
   id text primary key,
   expense_id text not null,
@@ -493,6 +515,14 @@ alter table public.receipt_scan_log add column if not exists output_tokens int;
 alter table public.receipt_scan_log add column if not exists cost_micros bigint;
 alter table public.receipt_scan_log add column if not exists duration_ms int;
 alter table public.receipt_scan_log add column if not exists completed_at timestamptz;
+-- Diagnostics for a misread (2026-08-08). `raw_draft` is the record_receipt tool input exactly as the
+-- model emitted it, before normalization: without it a postmortem can only infer what the model did, which
+-- is how "why did tax come back as 0" stayed an inference. `residual_subunits` is our computed total minus
+-- the receipt's printed total, so the size and direction of misreads is queryable across scans instead of
+-- one screenshot at a time.
+alter table public.receipt_scan_log add column if not exists raw_draft jsonb;
+alter table public.receipt_scan_log add column if not exists residual_subunits bigint;
+alter table public.receipt_scan_log add column if not exists verified boolean;
 
 do $$
 begin
@@ -536,6 +566,21 @@ create table if not exists public.receipt_opus_escalations (
 alter table public.receipt_opus_escalations enable row level security;
 -- Deliberately no policies: no authenticated/anon client should ever read or write this table.
 
+-- Cooldown log for edge-function-originated ops alerts (Slack today), so a burst of identical
+-- failures (e.g. every scan while ANTHROPIC_API_KEY is broken) posts once per cooldown window per
+-- `kind`, not once per request. Only the edge function (service role) reads/writes this table -- RLS
+-- is enabled with NO policies, so no client role can read or write it at all.
+create table if not exists public.ops_alerts (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null,
+  sent_at timestamptz not null default now()
+);
+
+create index if not exists ops_alerts_kind_sent_at_idx on public.ops_alerts (kind, sent_at desc);
+
+alter table public.ops_alerts enable row level security;
+-- Deliberately no policies: no authenticated/anon client should ever read or write this table.
+
 -- ── Row-Level Security ──────────────────────────────────────────────────────────────────────────
 -- PERMISSIVE policies so sync works immediately for testing: any authenticated (incl. anonymous)
 -- user can read/write every row. NOT safe for real multi-user data — see the membership-scoped sketch
@@ -543,7 +588,7 @@ alter table public.receipt_opus_escalations enable row level security;
 do $$
 declare t text;
 begin
-  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','receipts','categories','expense_history','device_tokens','expense_items','item_claims','item_shares','bill_participants']
+  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','expense_blocked_users','receipts','categories','expense_history','device_tokens','expense_items','item_claims','item_shares','bill_participants']
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists %I on public.%I;', t || '_rw', t);
@@ -980,6 +1025,7 @@ begin
       tip_split_mode     = coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL'),
       gratuity_subunits  = coalesce((p_expense->>'gratuity_subunits')::bigint, 0),
       discount_subunits  = coalesce((p_expense->>'discount_subunits')::bigint, 0),
+      other_charges_subunits = coalesce((p_expense->>'other_charges_subunits')::bigint, 0),
       split_version      = v_cur.split_version + 1,
       split_updated_by   = p_actor
     where id = v_id;
@@ -1004,6 +1050,7 @@ begin
       and v_cur.tip_split_mode     is not distinct from coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL')
       and v_cur.gratuity_subunits  is not distinct from coalesce((p_expense->>'gratuity_subunits')::bigint, 0)
       and v_cur.discount_subunits  is not distinct from coalesce((p_expense->>'discount_subunits')::bigint, 0)
+      and v_cur.other_charges_subunits is not distinct from coalesce((p_expense->>'other_charges_subunits')::bigint, 0)
       and v_current_shares = v_incoming_shares;
     if v_same then
       v_status := 'merged'; -- canonical already equals the incoming split; adopt it, log nothing
@@ -1810,7 +1857,8 @@ begin
   update public.expenses set
     amount_subunits = v_lines
       + coalesce(v_e.tax_subunits, 0) + coalesce(v_e.gratuity_subunits, 0)
-      + coalesce(v_e.tip_subunits, 0) - coalesce(v_e.discount_subunits, 0),
+      + coalesce(v_e.tip_subunits, 0) + coalesce(v_e.other_charges_subunits, 0)
+      - coalesce(v_e.discount_subunits, 0),
     split_version    = v_e.split_version + 1,
     split_updated_by = p_actor,
     updated_at       = greatest(v_e.updated_at, p_now),
@@ -2131,3 +2179,23 @@ revoke all on function public.set_web_bill_payer(text, text, bigint, text, bigin
 -- (see join_item_portion's note); the service key bypasses grants entirely, which is how web-claim
 -- reaches them. Nothing in the app calls these — the payer's own undo is a local-first Room write that
 -- reaches the server through merge_expense like every other in-app money edit.
+
+-- ── Apple Sign In token revocation (APPLE_SIGNIN_NATIVE_PLAN.md §5 P4, Guideline 5.1.1(v)) ────────
+-- Server-side store for the Apple refresh token minted by exchanging a native Sign In with Apple
+-- authorization code (apple-link-token edge function). It exists purely so account deletion can call
+-- Apple's /auth/revoke (apple-revoke-token edge function) — the native flow's identity token alone
+-- cannot be revoked, only a refresh/access token obtained via the code exchange.
+create table if not exists public.apple_oauth_tokens (
+  -- Cascades on auth.users delete like receipt_scan_log: this is ephemeral operational auth data, not
+  -- user-facing financial/profile data, and the row is meaningless once the login credential is gone.
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  refresh_token text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.apple_oauth_tokens enable row level security;
+-- Deliberately no policies, permanently: only the apple-link-token/apple-revoke-token edge functions'
+-- service-role key ever touches this table (matching web_sessions/web_bill_links). A refresh token is
+-- a bearer credential for the user's Apple account; any policy here would let an authenticated caller
+-- read another user's row via the permissive for-all-tables loop this table deliberately sits outside.

@@ -8,9 +8,13 @@ data class ReceiptDraft(
     val gratuitySubunits: Long,
     val tipSubunits: Long,
     val discountSubunits: Long,
+    // Printed charges with no other slot (delivery fee, bottle deposit, card surcharge). Before this
+    // existed the extractor folded them into gratuity to keep the bill's total honest, which mislabelled
+    // the row the user then saw.
+    val otherChargesSubunits: Long = 0,
     val detectedTotalSubunits: Long,
-    // False when every tier of the server's Haiku->Sonnet->Opus cascade still couldn't reconcile this
-    // draft against the receipt's printed total — the draft shown is still the best available guess
+    // False when no tier produced a draft whose sum (computed server-side, never by the model) matched
+    // the receipt's printed total — the draft shown is still the best available guess
     // (never a dead end), but the caller should flag it rather than treat it as a quiet success.
     // Defaults true for manual-entry / non-OCR construction paths, where "verification" doesn't apply.
     val verified: Boolean = true,

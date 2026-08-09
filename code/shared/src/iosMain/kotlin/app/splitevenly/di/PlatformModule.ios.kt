@@ -3,6 +3,7 @@ package app.splitevenly.di
 import app.splitevenly.data.db.getRoomDatabase
 import app.splitevenly.data.db.evenlyDatabaseBuilder
 import app.splitevenly.data.remote.installEvenlyDefaults
+import app.splitevenly.platform.AppleSignIn
 import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.FilePicker
 import app.splitevenly.platform.ImageProcessor
@@ -32,6 +33,7 @@ actual fun platformModule(): Module = module {
     single { PlatformShare() }
     single { PushService() }
     single { FilePicker() }
+    single { AppleSignIn() }
     single { NotificationPermission() }
     single { ImageProcessor() }
     single { ReceiptFileStore() }

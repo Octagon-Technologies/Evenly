@@ -12,6 +12,13 @@ import kotlinx.coroutines.flow.StateFlow
  * OAuth + magic-link sessions arrive **asynchronously** (browser redirect / email tap), so callers
  * react to [currentUserId] rather than awaiting the launch call.
  */
+/**
+ * The Google Play review demo account — the one email allowed to sign in with a password in
+ * release builds (see [AuthSession.signInWithPassword]), since a real reviewer can't complete an
+ * email-OTP round-trip against an inbox that doesn't exist.
+ */
+const val PLAY_REVIEW_DEMO_EMAIL = "trial@split-evenly.app"
+
 interface AuthSession {
     /** The current user's id, or null when signed out. Data screens observe this. */
     val currentUserId: StateFlow<UserId?>
@@ -25,6 +32,24 @@ interface AuthSession {
      */
     suspend fun signInWithProvider(provider: OAuthProvider): AppResult<Unit>
 
+    /**
+     * Native iOS Sign In with Apple: exchanges the ID token from [app.splitevenly.platform.AppleSignIn]
+     * for a Supabase session directly, no browser redirect. [rawNonce] is the un-hashed nonce the
+     * identity token was requested with; Supabase hashes it itself and compares against the token's
+     * `nonce` claim. [fullName] is Apple's `ASAuthorizationAppleIDCredential.fullName`, non-null only on
+     * this Apple ID's very first-ever authorization for this app; pass it through unconditionally so it
+     * gets persisted the one time it's available. [authorizationCode] is exchanged server-side
+     * (`apple-link-token`) for a refresh token, so account deletion can later revoke the grant via
+     * Apple's `/auth/revoke` (Guideline 5.1.1(v)) — best-effort, sign-in never fails because of it. On
+     * success [currentUserId] becomes non-null.
+     */
+    suspend fun signInWithAppleIdToken(
+        idToken: String,
+        rawNonce: String,
+        fullName: String?,
+        authorizationCode: String?,
+    ): AppResult<Unit>
+
     /** Email a magic link + 6-digit OTP to [email] (Supabase email provider). */
     suspend fun sendEmailOtp(email: String): AppResult<Unit>
 
@@ -34,10 +59,11 @@ interface AuthSession {
     /**
      * Email + password sign-in. Used for seeded test accounts (no email round-trip), so QA can switch
      * between users without burning the OTP rate limit. On success [currentUserId] becomes non-null.
-     * **Debug builds only** ([app.splitevenly.platform.isDebugBuild]) — a release binary can only prove
-     * email ownership via OTP/magic-link, never a password for an email it doesn't own.
-     * [app.splitevenly.data.auth.SupabaseAuthSession] fails closed with [app.splitevenly.core.error.AppError.NotAuthorized]
-     * in release.
+     * **Debug builds, plus [PLAY_REVIEW_DEMO_EMAIL] in release** — a release binary can otherwise only
+     * prove email ownership via OTP/magic-link, never a password for an email it doesn't own; the one
+     * exception exists because Play Store reviewers can't complete an OTP round-trip against a demo
+     * inbox that doesn't exist. [app.splitevenly.data.auth.SupabaseAuthSession] fails closed with
+     * [app.splitevenly.core.error.AppError.NotAuthorized] for every other email in release.
      */
     suspend fun signInWithPassword(email: String, password: String): AppResult<UserId>
 
@@ -53,10 +79,21 @@ interface AuthSession {
     fun signOut()
 
     /**
-     * Permanently delete the current account: removes the user's server profile + auth record, then
-     * signs out and wipes the local cache. [currentUserId] becomes null. Irreversible.
+     * Start the 30-day account-deletion countdown server-side (`request_account_deletion` RPC), then
+     * sign out. Returns the epoch-millis purge date. Nothing is deleted yet: the profile stays live and
+     * shared expenses/settlements are untouched until the grace period elapses, so signing back in
+     * before then (via [cancelAccountDeletion]) fully restores the account.
      */
-    suspend fun deleteAccount(): AppResult<Unit>
+    suspend fun requestAccountDeletion(): AppResult<Long>
+
+    /** Cancel a pending deletion still inside its grace period. No-op if none is pending. */
+    suspend fun cancelAccountDeletion(): AppResult<Unit>
+
+    /**
+     * The signed-in user's pending deletion purge date (epoch millis), or null if none is pending.
+     * Checked right after sign-in to gate the app behind a "cancel or sign out" screen.
+     */
+    suspend fun pendingDeletionAt(): AppResult<Long?>
 }
 
 /** OAuth identity providers offered on the sign-in screen. */

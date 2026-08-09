@@ -1,6 +1,7 @@
 package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +16,7 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.upload.ReceiptUploadManager
+import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.BillExtrasInput
 import app.splitevenly.domain.expense.BillView
@@ -95,6 +97,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
+    val stagedPdf = rememberStagedPdfRenderers(uploadManager)
     val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
@@ -103,11 +106,19 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // The exact pages the user picked. Retained so a failed scan can retry, and — on success — handed to
     // the upload pipeline on Save so the scanned receipt becomes a normal attachment on the expense.
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
-    var attachedReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    var attachedReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
     // Scan-funnel analytics bookkeeping — see AddExpenseRoute's twin of this pipeline.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
     var scanStartedAt by remember { mutableStateOf(0L) }
+
+    // Staged bytes belong to this editor until a save attaches them. There is no BackHandler here, so
+    // system back and swipe-back leave without ever reaching onBack — clean up on dispose instead, or an
+    // abandoned scan sits in the sandbox forever.
+    var attached by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose { if (!attached) uploadManager?.discardStagedDetached(attachedReceipts) }
+    }
 
     val existing = if (expenseId != null) {
         remember(expenseId) { bills.observeBill(ExpenseId(expenseId)) }.collectAsStateWithLifecycle(null).value
@@ -127,6 +138,14 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             AnalyticsEvents.SCAN_STARTED,
             mapOf("page_count" to files.size, "source" to source.name.lowercase(), "group_id" to gid.value),
         )
+        // The pages the user just photographed ARE the receipt, whatever the OCR makes of them. Stage them
+        // on a job of their own so a cancelled, failed or blocked scan still leaves the receipt attached —
+        // scanJob gets cancelled, and this must not go with it.
+        scope.launch {
+            val superseded = attachedReceipts
+            attachedReceipts = uploadManager?.stage(files).orEmpty()
+            uploadManager?.discardStaged(superseded)
+        }
         scanJob = scope.launch {
             val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
             val outcome = ocr.extract(ocrFiles, groupId = gid.value)
@@ -134,7 +153,6 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             scanState = when (outcome) {
                 is ScanOutcome.Success -> {
                     scanned = outcome.draft.toEditState()
-                    attachedReceipts = files
                     analytics?.capture(
                         AnalyticsEvents.SCAN_COMPLETED,
                         buildMap {
@@ -184,7 +202,14 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         currencyCode = currency,
         saving = saving,
         scanState = scanState,
-        attachedReceiptCount = attachedReceipts.size,
+        attachedReceipts = attachedReceipts.map { it.toUi() },
+        onRemoveAttachedReceipt = { i ->
+            val dropped = attachedReceipts.getOrNull(i)
+            attachedReceipts = attachedReceipts.filterIndexed { idx, _ -> idx != i }
+            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+        },
+        loadPdfPageCount = stagedPdf.pageCount,
+        renderPdfPage = stagedPdf.renderPage,
         participants = members.map { ParticipantChipUi(it.userId.value, if (it.userId == userId) "You" else (it.displayName ?: "Someone"), it.userId == userId) },
         initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
         // A new bill is paid by whoever is entering it, which is who is holding the receipt.
@@ -254,7 +279,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                     when (result) {
                         is AppResult.Ok -> {
                             // The scanned pages ride along as the expense's receipt (background upload).
-                            if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(result.value, gid, attachedReceipts)
+                            attached = true
+                            uploadManager?.attach(result.value, gid, attachedReceipts)
                             reportScanResultEdited(analytics, scanned, submit.items, gid.value)
                             onCreated(result.value.value)
                         }
@@ -274,7 +300,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             editedBy = me,
                         ),
                     )
-                    if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(ExpenseId(expenseId), gid, attachedReceipts)
+                    attached = true
+                    uploadManager?.attach(ExpenseId(expenseId), gid, attachedReceipts)
                     reportScanResultEdited(analytics, scanned, submit.items, gid.value)
                     onBack()
                 }

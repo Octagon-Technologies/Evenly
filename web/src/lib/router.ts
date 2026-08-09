@@ -31,7 +31,9 @@ export type Route =
   | { kind: 'bill'; token: string }
   | { kind: 'home' }
   | { kind: 'privacy' }
-  | { kind: 'terms' };
+  | { kind: 'terms' }
+  | { kind: 'delete-account' }
+  | { kind: 'support' };
 
 export function resolveRoute(loc: { pathname: string; search: string } = window.location): Route {
   const token = billTokenFromLocation(loc);
@@ -39,5 +41,7 @@ export function resolveRoute(loc: { pathname: string; search: string } = window.
   const path = loc.pathname.replace(/\/$/, '') || '/';
   if (path === '/privacy') return { kind: 'privacy' };
   if (path === '/terms') return { kind: 'terms' };
+  if (path === '/delete-account') return { kind: 'delete-account' };
+  if (path === '/support') return { kind: 'support' };
   return { kind: 'home' };
 }

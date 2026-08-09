@@ -79,6 +79,12 @@ data class ExpenseEntity(
     @ColumnInfo(name = "discount_subunits")
     val discountSubunits: Long = 0,
 
+    // Printed charges with no other slot: a delivery fee, bottle deposit, bag fee, card surcharge. Splits
+    // proportionally like tax. Landed server-side first (2026-08-08) — the full-row upsert sends every
+    // field, so a column the server lacks breaks ALL expense sync, not just this one value.
+    @ColumnInfo(name = "other_charges_subunits", defaultValue = "0")
+    val otherChargesSubunits: Long = 0,
+
     @ColumnInfo(name = "category_id")
     val categoryId: String? = null,
 

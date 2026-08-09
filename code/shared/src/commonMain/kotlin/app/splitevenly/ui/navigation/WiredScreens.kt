@@ -24,15 +24,18 @@ import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.settlement.PaymentApp
+import app.splitevenly.platform.AppleSignIn
 import app.splitevenly.platform.NotificationPermission
 import app.splitevenly.platform.NotificationPermissionStatus
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.platform.UrlOpener
 import app.splitevenly.platform.isDebugBuild
+import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.WelcomeScreen
 import app.splitevenly.ui.screen.auth.MagicLinkState
 import app.splitevenly.ui.screen.auth.OnboardingScreen
+import app.splitevenly.ui.screen.auth.PendingDeletionScreen
 import app.splitevenly.ui.screen.auth.SignInScreen
 import app.splitevenly.ui.screen.home.ArchivedScreen
 import app.splitevenly.ui.screen.home.HomeScreen
@@ -64,14 +67,47 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun SignInRoute(onEmail: () -> Unit, onSignedIn: () -> Unit) {
     val auth = koinInject<AuthSession>()
+    val appleSignIn = koinInject<AppleSignIn>()
     val scope = rememberCoroutineScope()
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
+    var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(userId) { if (userId != null) onSignedIn() }
-    SignInScreen(onProvider = { provider ->
+    SignInScreen(error = error, onProvider = { provider ->
+        error = null
         when (provider) {
             "mail" -> onEmail()
             "google" -> scope.launch { auth.signInWithProvider(OAuthProvider.GOOGLE) }
-            "apple" -> scope.launch { auth.signInWithProvider(OAuthProvider.APPLE) }
+            // iOS: native ASAuthorizationController sheet, no browser redirect. Android has no native
+            // API, so it keeps the browser OAuth path (platform/AGENTS.md's expect/actual boundary).
+            "apple" -> if (isIOS()) {
+                scope.launch {
+                    when (val native = appleSignIn.signIn()) {
+                        is AppResult.Ok -> {
+                            // The native sheet succeeding (Face ID passes) says nothing about whether
+                            // Supabase then accepts the resulting ID token — a server-side provider
+                            // misconfiguration (Apple not enabled for the id_token grant, or app.splitevenly
+                            // missing from Authorized Client IDs) fails here silently otherwise, leaving
+                            // the user staring at a sheet that just closed with no feedback.
+                            when (
+                                val result = auth.signInWithAppleIdToken(
+                                    idToken = native.value.identityToken,
+                                    rawNonce = native.value.rawNonce,
+                                    fullName = native.value.fullName,
+                                    authorizationCode = native.value.authorizationCode,
+                                )
+                            ) {
+                                is AppResult.Ok -> Unit
+                                is AppResult.Err -> error = "Couldn't sign in with Apple. Try again in a moment."
+                            }
+                        }
+                        // The sheet itself failing is almost always the user cancelling (no Apple ID
+                        // signed in, tapped away) — not worth an error message.
+                        is AppResult.Err -> Unit
+                    }
+                }
+            } else {
+                scope.launch { auth.signInWithProvider(OAuthProvider.APPLE) }
+            }
             "facebook" -> scope.launch { auth.signInWithProvider(OAuthProvider.FACEBOOK) }
         }
     })
@@ -283,6 +319,67 @@ fun JoinByLinkRoute(onDismiss: () -> Unit, onResolved: (token: String) -> Unit) 
     JoinByLinkSheet(onDismiss = onDismiss, onSubmit = onResolved)
 }
 
+/**
+ * Gates [MainShell] behind a pending-deletion check on every entry to Home (fresh sign-in, restored
+ * session, or finishing onboarding) — the single choke point all three paths land on. A pending
+ * deletion (from [AuthSession.pendingDeletionAt]) blocks the shell behind [PendingDeletionScreen]
+ * instead: the account just asked to leave, so continuing to add expenses to groups it's about to
+ * leave would be confusing. `checked == false` briefly holds blank rather than flashing Home first.
+ */
+@Composable
+fun HomeGateRoute(
+    onOpenGroup: (String) -> Unit,
+    onNewGroup: () -> Unit,
+    onJoin: () -> Unit,
+    onOpenArchived: () -> Unit,
+    onSignedOut: () -> Unit,
+    onSignIn: () -> Unit,
+    onEditPaymentApps: () -> Unit,
+) {
+    val auth = koinInject<AuthSession>()
+    val scope = rememberCoroutineScope()
+    var checked by remember { mutableStateOf(false) }
+    var purgeAt by remember { mutableStateOf<Long?>(null) }
+    var cancelling by remember { mutableStateOf(false) }
+    var cancelError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        purgeAt = when (val result = auth.pendingDeletionAt()) {
+            is AppResult.Ok -> result.value
+            is AppResult.Err -> null
+        }
+        checked = true
+    }
+    when {
+        !checked -> Unit
+        purgeAt != null -> PendingDeletionScreen(
+            purgeAtMillis = purgeAt!!,
+            cancelling = cancelling,
+            error = cancelError,
+            onCancelDeletion = {
+                cancelling = true
+                cancelError = null
+                scope.launch {
+                    when (auth.cancelAccountDeletion()) {
+                        is AppResult.Ok -> purgeAt = null
+                        is AppResult.Err -> cancelError = "Couldn't cancel deletion. Check your connection and try again."
+                    }
+                    cancelling = false
+                }
+            },
+            onSignOut = { auth.signOut(); onSignedOut() },
+        )
+        else -> MainShell(
+            onOpenGroup = onOpenGroup,
+            onNewGroup = onNewGroup,
+            onJoin = onJoin,
+            onOpenArchived = onOpenArchived,
+            onSignedOut = onSignedOut,
+            onSignIn = onSignIn,
+            onEditPaymentApps = onEditPaymentApps,
+        )
+    }
+}
+
 @Composable
 fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onSignIn: () -> Unit, onEditPaymentApps: () -> Unit) {
     val auth = koinInject<AuthSession>()
@@ -294,6 +391,7 @@ fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onSignIn: () -> Un
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val handles = profile?.paymentHandles ?: emptyMap()
     var notifStatus by remember { mutableStateOf(NotificationPermissionStatus.NotDetermined) }
+    var deleteAccountError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { notifStatus = notificationPermission.status() }
     ProfileScreen(
         displayName = profile?.displayName ?: "You",
@@ -331,7 +429,15 @@ fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onSignIn: () -> Un
         },
         themeMode = profile?.themeMode ?: ThemeMode.System,
         onThemeModeChange = { mode -> scope.launch { profiles.updateThemeMode(mode) } },
-        onDeleteAccount = { scope.launch { auth.deleteAccount(); onSignedOut() } },
+        onDeleteAccount = {
+            scope.launch {
+                when (val result = auth.requestAccountDeletion()) {
+                    is AppResult.Ok -> onSignedOut()
+                    is AppResult.Err -> deleteAccountError = "Couldn't start account deletion. Check your connection and try again."
+                }
+            }
+        },
+        deleteAccountError = deleteAccountError,
     )
 }
 

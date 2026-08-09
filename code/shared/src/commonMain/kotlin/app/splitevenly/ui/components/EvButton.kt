@@ -152,6 +152,58 @@ fun EvOAuthButton(
     }
 }
 
+/** Sign in with Google, per Google's brand guidelines: fixed fill/stroke/text colors per theme (not
+ *  app tokens), the full-color "G" mark, and "Sign in with Google" wording — never tinted or relabeled
+ *  like the generic [EvOAuthButton]. */
+@Composable
+fun EvGoogleSignInButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val isDark = EvenlyTheme.colors.isDark
+    val bg = if (isDark) Color(0xFF131314) else Color(0xFFFFFFFF)
+    val stroke = if (isDark) Color(0xFF8E918F) else Color(0xFF747775)
+    val text = if (isDark) Color(0xFFE3E3E3) else Color(0xFF1F1F1F)
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, stroke, shape)
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        EvIcon(EvIcons.GoogleColored, size = 20.dp, tint = Color.Unspecified)
+        Text(text = "Sign in with Google", color = text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+/** Sign in with Apple, per Apple's Human Interface Guidelines: the solid black/white button pairing
+ *  (black on light surfaces, white on dark, for contrast) with the official Apple mark and "Sign in
+ *  with Apple" wording, never the app's blue/ink palette like the generic [EvOAuthButton]. */
+@Composable
+fun EvAppleSignInButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val isDark = EvenlyTheme.colors.isDark
+    val bg = if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
+    val content = if (isDark) Color(0xFF000000) else Color(0xFFFFFFFF)
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clip(shape)
+            .background(bg)
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        EvIcon(EvIcons.AppleMark, size = 20.dp, tint = content)
+        Text(text = "Sign in with Apple", color = content, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
 /** `.sc-fab` — blue floating action button with the design's colored drop shadow. Position via [modifier]. */
 @Composable
 fun EvFab(

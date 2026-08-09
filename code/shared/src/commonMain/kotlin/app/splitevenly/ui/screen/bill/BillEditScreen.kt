@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +63,9 @@ import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
+import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.ui.screen.expense.PickedReceiptStrip
+import app.splitevenly.ui.screen.expense.StagedReceiptViewer
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.domain.expense.perUnitSubunits
 import app.splitevenly.ui.theme.EvenlyTheme
@@ -155,7 +159,11 @@ fun BillEditScreen(
     currencyCode: String = "USD",
     saving: Boolean = false,
     scanState: ScanUiState = ScanUiState.Idle,
-    attachedReceiptCount: Int = 0,
+    attachedReceipts: List<PickedReceiptUi> = emptyList(),
+    onRemoveAttachedReceipt: (Int) -> Unit = {},
+    // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
+    loadPdfPageCount: suspend (url: String) -> Int = { 0 },
+    renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     participants: List<ParticipantChipUi> = emptyList(),
     initialSelectedIds: Set<String> = emptySet(),
     initialPayerId: String = "",
@@ -178,6 +186,8 @@ fun BillEditScreen(
     val scrollState = rememberScrollState()
     val scanning = scanState is ScanUiState.Working
     var scanSource by remember { mutableStateOf(false) }
+    // Which scanned page the full-screen viewer is open on; null = closed.
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
     // Flips true the first time Save is tapped while incomplete — then the missing fields turn red.
     var showErrors by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf(initial?.title ?: "") }
@@ -278,20 +288,16 @@ fun BillEditScreen(
                 UnverifiedReceiptNotice(onDismiss = { showUnverifiedNotice = false })
             }
 
-            // A scanned receipt rides along as the expense's attachment — tell the user it'll be saved.
-            if (attachedReceiptCount > 0) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.blueTint).padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    EvIcon(EvIcons.Receipt, size = 16.dp, tint = c.blueText)
-                    Text(
-                        if (attachedReceiptCount == 1) "Receipt attached, saves with the bill"
-                        else "$attachedReceiptCount receipt pages attached, save with the bill",
-                        color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                    )
-                }
+            // A scanned receipt rides along as the expense's attachment, previewable before it is saved.
+            if (attachedReceipts.isNotEmpty()) {
+                PickedReceiptStrip(
+                    receipts = attachedReceipts,
+                    label = if (attachedReceipts.size == 1) "Receipt" else "Receipt pages",
+                    caption = "Saves with the bill.",
+                    onAddClick = null,
+                    onRemoveReceipt = onRemoveAttachedReceipt,
+                    onOpenReceipt = { viewerIndex = it },
+                )
             }
 
             EvField("Name") {
@@ -471,6 +477,20 @@ fun BillEditScreen(
                 onPickAgain = { onDismissScan(); scanSource = true },
             )
             ScanUiState.Idle -> {}
+        }
+
+        // Covers the editor, so it renders last and outside the scrolling Column.
+        LaunchedEffect(attachedReceipts.size) {
+            if ((viewerIndex ?: -1) >= attachedReceipts.size) viewerIndex = null
+        }
+        viewerIndex?.takeIf { it in attachedReceipts.indices }?.let { index ->
+            StagedReceiptViewer(
+                receipts = attachedReceipts,
+                initialIndex = index,
+                loadPdfPageCount = loadPdfPageCount,
+                renderPdfPage = renderPdfPage,
+                onClose = { viewerIndex = null },
+            )
         }
     }
 }

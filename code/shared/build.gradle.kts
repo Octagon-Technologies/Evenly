@@ -95,6 +95,7 @@ kotlin {
             implementation(libs.koin.android)
             // Android-only platform libs (actuals land in androidMain/.../platform)
             implementation(libs.androidx.activity) // ComponentActivity + ActivityResult APIs (FilePicker, E-5)
+            implementation(libs.androidx.exifinterface) // receipt orientation (ImageProcessor)
             implementation(libs.androidx.work)
             implementation(libs.androidx.browser)
             implementation(libs.androidx.credentials)

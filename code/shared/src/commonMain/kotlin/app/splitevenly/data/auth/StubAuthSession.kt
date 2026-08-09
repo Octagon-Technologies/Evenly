@@ -53,6 +53,19 @@ class StubAuthSession(
         return AppResult.Ok(Unit)
     }
 
+    // Mirrors signInWithProvider: no network in the stub, so the native ID token/nonce/authorization
+    // code are unused and the flow resolves to the same single local account, seeded from fullName when
+    // Apple supplied one.
+    override suspend fun signInWithAppleIdToken(
+        idToken: String,
+        rawNonce: String,
+        fullName: String?,
+        authorizationCode: String?,
+    ): AppResult<Unit> {
+        signIn(fullName ?: "You")
+        return AppResult.Ok(Unit)
+    }
+
     override suspend fun sendEmailOtp(email: String): AppResult<Unit> = AppResult.Ok(Unit)
 
     override suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId> =
@@ -72,12 +85,18 @@ class StubAuthSession(
         _currentUserId.value = null
     }
 
-    override suspend fun deleteAccount(): AppResult<Unit> {
-        // No server in the stub: drop the local account row and sign out.
+    override suspend fun requestAccountDeletion(): AppResult<Long> {
+        // No server, and no other device/account to preserve a grace period for: drop the local row and
+        // sign out immediately, same as the old deleteAccount behavior. Real (Supabase-backed) accounts
+        // go through the 30-day request/cancel flow instead — see SupabaseAuthSession.
         userDao.findByEmail(STUB_EMAIL)?.let { userDao.delete(it.id) }
         _currentUserId.value = null
-        return AppResult.Ok(Unit)
+        return AppResult.Ok(clock.nowEpochMillis())
     }
+
+    override suspend fun cancelAccountDeletion(): AppResult<Unit> = AppResult.Ok(Unit)
+
+    override suspend fun pendingDeletionAt(): AppResult<Long?> = AppResult.Ok(null)
 
     private companion object {
         const val STUB_EMAIL = "you@evenly.local"

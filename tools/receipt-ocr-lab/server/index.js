@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROVIDERS, getProvider, costUsd } from "./providers.js";
+import { resolveApiKey, SETUP_HINT } from "./apiKey.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -18,10 +19,8 @@ app.get("/api/providers", (_req, res) => {
 // each card gets its own independent progress/result without any batching
 // logic here.
 app.post("/api/extract", upload.single("file"), async (req, res) => {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY is not set. Export it before starting the server." });
-  }
+  const { key: apiKey } = resolveApiKey();
+  if (!apiKey) return res.status(500).json({ error: SETUP_HINT });
   if (!req.file) return res.status(400).json({ error: "no file uploaded" });
 
   const providerId = req.body.provider;
@@ -50,7 +49,8 @@ app.post("/api/extract", upload.single("file"), async (req, res) => {
 const PORT = process.env.PORT || 4173;
 app.listen(PORT, () => {
   console.log(`receipt-ocr-lab running at http://localhost:${PORT}`);
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn("⚠️  ANTHROPIC_API_KEY is not set — extraction calls will fail until you export it.");
-  }
+  // Report only WHERE the key came from, never the key or any prefix of it.
+  const { key, source } = resolveApiKey();
+  if (key) console.log(`Anthropic key loaded from ${source}`);
+  else console.warn(`⚠️  ${SETUP_HINT}`);
 });

@@ -187,7 +187,8 @@ internal class BillPendingEdits(
     /** Bill total = Σ(line totals) + tax + gratuity + tip − discount, same rule as [BillRepositoryImpl]. */
     private fun total(lines: List<Pair<Int, Long>>, extras: BillExtrasInput): Long =
         lines.sumOf { (_, lineTotal) -> lineTotal } +
-            extras.taxSubunits + extras.gratuitySubunits + extras.tipSubunits - extras.discountSubunits
+            extras.taxSubunits + extras.gratuitySubunits + extras.otherChargesSubunits +
+                extras.tipSubunits - extras.discountSubunits
 }
 
 /**

@@ -11,6 +11,7 @@ import app.splitevenly.data.db.dao.CategoryDao
 import app.splitevenly.data.db.dao.CommentDao
 import app.splitevenly.data.db.dao.ConflictDao
 import app.splitevenly.data.db.dao.ExpenseDao
+import app.splitevenly.data.db.dao.ExpenseBlockedUserDao
 import app.splitevenly.data.db.dao.ExpenseEditConflictDao
 import app.splitevenly.data.db.dao.ExpenseItemDao
 import app.splitevenly.data.db.dao.ExpenseSyncStateDao
@@ -35,6 +36,7 @@ import app.splitevenly.data.db.entity.BillParticipantEntity
 import app.splitevenly.data.db.entity.CategoryEntity
 import app.splitevenly.data.db.entity.CommentEntity
 import app.splitevenly.data.db.entity.ConflictEntity
+import app.splitevenly.data.db.entity.ExpenseBlockedUserEntity
 import app.splitevenly.data.db.entity.ExpenseEditConflictEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ExpenseItemEntity
@@ -89,6 +91,7 @@ import app.splitevenly.data.db.entity.UserEntity
         ExpenseEditConflictEntity::class,
         ExpenseSyncStateEntity::class,
         CommentEntity::class,
+        ExpenseBlockedUserEntity::class,
         ReceiptEntity::class,
         ReceiptUploadEntity::class,
         HistoryEventEntity::class,
@@ -101,7 +104,7 @@ import app.splitevenly.data.db.entity.UserEntity
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
     ],
-    version = 23,
+    version = 25,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -120,6 +123,7 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun expenseEditConflictDao(): ExpenseEditConflictDao
     abstract fun expenseSyncStateDao(): ExpenseSyncStateDao
     abstract fun commentDao(): CommentDao
+    abstract fun expenseBlockedUserDao(): ExpenseBlockedUserDao
     abstract fun receiptDao(): ReceiptDao
     abstract fun receiptUploadDao(): ReceiptUploadDao
     abstract fun historyEventDao(): HistoryEventDao

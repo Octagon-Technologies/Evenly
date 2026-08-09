@@ -122,6 +122,7 @@ class BillSplitVectorsTest {
                 tipSubunits = extras.long("tipSubunits"),
                 tipSplitMode = TipSplitMode.valueOf(extras["tipSplitMode"]?.jsonPrimitive?.content ?: "EVEN"),
                 discountSubunits = extras.long("discountSubunits"),
+                otherChargesSubunits = extras.long("otherChargesSubunits"),
             ),
             participants = (case["participants"]?.jsonArray ?: JsonArray(emptyList()))
                 .map { UserId(it.jsonPrimitive.content) },
