@@ -242,10 +242,10 @@ tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its S
 | `extract-receipt`           | Live — Claude vision → structured bill draft (multi-page)  |
 | `web-claim`                 | Live — the web claim security boundary; `verify_jwt = false` (own token auth) |
 | `push-notify`               | Deployed but **inert** until `FCM_SERVICE_ACCOUNT` is set  |
-| `dispatch_push`             | Push fan-out                                                |
-| `export_group`              | Group data export                                           |
-| `refresh_fx_rates`          | FX rate refresh                                             |
-| `notify_admin_of_conflicts` | Legacy — tied to the retired conflicts model               |
+| `dispatch_push`             | **Directory is EMPTY — never written or deployed**          |
+| `export_group`              | Live — group CSV export; Pro-gated server-side              |
+| `refresh_fx_rates`          | **Directory is EMPTY — never written or deployed**          |
+| `notify_admin_of_conflicts` | **Directory is EMPTY**; legacy, tied to the retired conflicts model |
 | `apple-link-token`          | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
 | `apple-revoke-token`        | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
 

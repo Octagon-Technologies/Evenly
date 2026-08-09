@@ -30,6 +30,12 @@ Current boundaries: `ConnectivityObserver`, `CurrentActivity` (Android only), `F
 `ReceiptFileStore`, `ReceiptUploadScheduler`, `SecureStorage`, `UrlOpener`, plus `data/db/DatabaseBuilder`,
 `di/PlatformModule`, and `ui/theme/SystemBars`.
 
+`PlatformShare` shares **text or a file**. `shareFile` writes to the platform cache and shares that
+(Android `cacheDir`, which is exactly what the manifest's FileProvider `<cache-path>` exposes — anywhere
+else throws `IllegalArgumentException` at share time; iOS `NSTemporaryDirectory`, never Documents, which
+is user-visible in Files and iCloud-backed). Used by the group CSV export: sharing a ledger as text
+technically works and no spreadsheet app can open it.
+
 `SecureStorage` is the device-local key/value store and is already registered as a Koin single — use it
 rather than introducing a second local KV mechanism.
 

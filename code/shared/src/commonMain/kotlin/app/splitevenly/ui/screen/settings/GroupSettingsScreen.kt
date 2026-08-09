@@ -89,6 +89,11 @@ fun GroupSettingsScreen(
     // Null until Pro state has loaded, and on a group that has never held a pass: there is nothing
     // truthful to say yet, so the row is absent rather than empty (PRO_PASS_SPEC.md §8.3).
     proStatus: ProStatusUi? = null,
+    // Export (PRO_PASS_SPEC.md §3). The row stays live without Pro and explains on tap; [exportNote]
+    // carries the trailing hint ("Pro") or the outcome of the last attempt.
+    exporting: Boolean = false,
+    exportNote: String? = null,
+    onExportCsv: () -> Unit = {},
     onArchive: () -> Unit = {},
     onLeave: () -> Unit = {},
 ) {
@@ -264,10 +269,18 @@ fun GroupSettingsScreen(
             }
 
             // ── Export ─────────────────────────────────────────
+            // Was three rows (CSV, JSON, PDF), none of which had an onClick: three buttons that did
+            // nothing, which is the dead end AGENTS.md §7 forbids. One row that works replaces them.
+            // The row stays tappable without Pro and explains on tap rather than greying out.
             SettingsGroup("Export") {
-                SettingsRow(icon = EvIcons.Download, label = "Export CSV")
-                SettingsRow(icon = EvIcons.Download, label = "Export JSON")
-                SettingsRow(icon = EvIcons.Download, label = "Export PDF", last = true)
+                SettingsRow(
+                    icon = EvIcons.Download,
+                    label = if (exporting) "Preparing your file…" else "Export CSV",
+                    value = exportNote,
+                    last = true,
+                    // Live while exporting too, so a double tap is a no-op rather than a dead control.
+                    onClick = { if (!exporting) onExportCsv() },
+                )
             }
 
             // ── Danger zone ────────────────────────────────────

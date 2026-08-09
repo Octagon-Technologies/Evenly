@@ -2,6 +2,8 @@ package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -12,6 +14,8 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.core.time.shortDate
+import app.splitevenly.domain.export.ExportOutcome
+import app.splitevenly.domain.export.GroupExporter
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.ui.screen.settings.ProStatusUi
@@ -70,6 +74,14 @@ fun GroupSettingsRoute(
         }
     }
 
+    // Export (PRO_PASS_SPEC.md §3). The gate is the server's; this only reports what it said.
+    val exporter = koinInject<GroupExporter>()
+    var exporting by remember { mutableStateOf(false) }
+    var exportNote by remember { mutableStateOf<String?>(null) }
+    // The trailing hint before anyone taps: says Pro is needed without disabling the row, so the
+    // explanation is available by tapping rather than by guessing (the guide-when-blocked rule).
+    val exportHint = if (proState?.status?.isPro == false) "Pro" else null
+
     val rows = members.map { m ->
         MemberRowUi(
             userId = m.userId.value,
@@ -91,6 +103,35 @@ fun GroupSettingsRoute(
         inviteLink = inviteLink,
         storageUsedBytes = storageUsedBytes,
         proStatus = proUi,
+        exporting = exporting,
+        exportNote = exportNote ?: exportHint,
+        onExportCsv = {
+            exporting = true
+            exportNote = null
+            scope.launch {
+                val name = (group?.name ?: "group").replace(Regex("[^A-Za-z0-9_-]+"), "-").trim('-').ifBlank { "group" }
+                when (val outcome = exporter.exportCsv(gid.value)) {
+                    is ExportOutcome.Success -> {
+                        // Shared as a FILE, not text: a group's ledger pasted into a message body is
+                        // unreadable and no spreadsheet app can open it.
+                        share.shareFile(
+                            fileName = "$name-evenly.csv",
+                            mimeType = "text/csv",
+                            content = outcome.csv,
+                            subject = "${group?.name ?: "Group"} expenses",
+                        )
+                        exportNote = null
+                    }
+                    // No retry offered: waiting does not buy a pass. Step 5 turns this line into the
+                    // paywall; until then it says the true thing instead of naming a door that is not built.
+                    ExportOutcome.NeedsPro -> exportNote = "Needs Pro"
+                    ExportOutcome.Offline -> exportNote = "You're offline"
+                    ExportOutcome.Unavailable -> exportNote = "Not available"
+                    is ExportOutcome.Failed -> exportNote = "Didn't work, try again"
+                }
+                exporting = false
+            }
+        },
         onBack = onBack,
         onAddMember = { name, addToPast ->
             scope.launch {

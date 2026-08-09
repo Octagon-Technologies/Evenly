@@ -3,6 +3,7 @@ package app.splitevenly.di
 import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.remote.fx.FrankfurterFxFetcher
 import app.splitevenly.data.remote.fx.FxRateFetcher
+import app.splitevenly.data.remote.supabase.GroupExportHttp
 import app.splitevenly.data.remote.supabase.ReceiptOcrHttp
 import app.splitevenly.data.remote.supabase.ReceiptStorage
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
@@ -21,6 +22,7 @@ import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.repository.BillRepository
+import app.splitevenly.domain.export.GroupExporter
 import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.WebBillLinkRepository
 import app.splitevenly.data.claim.IdentityPromptSnooze
@@ -81,6 +83,9 @@ val dataModule: Module = module {
     // access-token provider (bound only when Supabase is configured) lets it authenticate as the user so
     // the server-side per-user rate limit engages (P1 #11); getOrNull keeps the offline/stub build working.
     single<ReceiptOcr> { ReceiptOcrHttp(get(), get(), get(), accessTokenProvider = getOrNull()) }
+    // Group CSV export (PRO_PASS_SPEC.md §3). Server-rendered because it reads every member's rows, and
+    // Pro-gated on that same server: a client-side gate on a reachable endpoint is decoration.
+    single<GroupExporter> { GroupExportHttp(get(), get(), accessTokenProvider = getOrNull()) }
 
     // Repositories
     // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).
