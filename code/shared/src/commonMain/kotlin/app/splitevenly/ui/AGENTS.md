@@ -150,6 +150,17 @@ settle screen lists those same lines as checkable targets, and highlights the me
 (the synced `users.preferred_payment_app` column, set in the Payment-apps editor) as the default way to pay
 them.
 
+**The free-scan meter is conditional, and the condition lives in `domain/pro/scanMeterFor`,** not in the
+Composable (`PRO_PASS_SPEC.md` §8.1). Hidden while Pro, hidden until the count is actually known, and
+hidden while more than 3 remain: a new group counting down from 5 reads as a trial with a clock on it.
+`ScanQuotaMeter` renders whatever it is handed and decides nothing. **The scan card stays enabled at
+zero** so tapping it explains rather than doing nothing.
+
+**There is deliberately no Pro badge in the group top bar.** It was in the approved mock and was removed
+after building it: that bar already carries three actions, and a pill wraps the group's own name onto two
+lines. The Pro fact lives in the Group settings row, which names the buyer. Do not re-add it without
+solving the title width first.
+
 **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
 full-screen `ReceiptViewerScreen` — a `HorizontalPager` over the expense's receipts with a bottom thumbnail
 filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer` platform abstraction

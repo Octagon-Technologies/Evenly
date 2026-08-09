@@ -28,7 +28,9 @@ import app.splitevenly.domain.expense.NewBill
 import app.splitevenly.domain.expense.NewBillItem
 import app.splitevenly.domain.expense.TipSplitMode
 import app.splitevenly.domain.receipt.ReceiptDraft
+import app.splitevenly.domain.pro.scanMeterFor
 import app.splitevenly.domain.receipt.ReceiptOcr
+import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
 import app.splitevenly.domain.repository.BillRepository
@@ -89,7 +91,12 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     val auth = koinInject<AuthSession>()
     val filePicker = koinInject<FilePicker>()
     val ocr = koinInject<ReceiptOcr>()
+    val pro = koinInject<ProRepository>()
     val gid = remember(groupId) { GroupId(groupId) }
+    // Free-scan meter (PRO_PASS_SPEC.md §8.1): fetched on open, re-read after each scan below.
+    val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
+    LaunchedEffect(gid) { pro.refresh(gid.value) }
+    val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -197,6 +204,9 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                     ScanUiState.Failed(kind)
                 }
             }
+            // A successful scan is what moves the count, so re-read it rather than decrementing
+            // locally: the server is the only place that knows what actually counted.
+            pro.refresh(gid.value)
         }
     }
 
@@ -206,6 +216,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         scanned = scanned,
         currencyCode = currency,
         saving = saving,
+        scanMeter = scanMeter,
         scanState = scanState,
         attachedReceipts = attachedReceipts.map { it.toUi() },
         onRemoveAttachedReceipt = { i ->

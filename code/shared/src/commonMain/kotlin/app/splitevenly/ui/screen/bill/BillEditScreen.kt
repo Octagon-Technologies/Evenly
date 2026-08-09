@@ -68,6 +68,7 @@ import app.splitevenly.ui.screen.expense.PickedReceiptStrip
 import app.splitevenly.ui.screen.expense.StagedReceiptViewer
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.domain.expense.perUnitSubunits
+import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -158,6 +159,8 @@ fun BillEditScreen(
     scanned: EditBillState? = null,
     currencyCode: String = "USD",
     saving: Boolean = false,
+    // Same meter as the add-expense hero, so a rescan from here counts visibly too (PRO_PASS_SPEC.md §8.1).
+    scanMeter: ScanMeter? = null,
     scanState: ScanUiState = ScanUiState.Idle,
     attachedReceipts: List<PickedReceiptUi> = emptyList(),
     onRemoveAttachedReceipt: (Int) -> Unit = {},
@@ -281,6 +284,7 @@ fun BillEditScreen(
             Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            ScanQuotaMeter(scanMeter)
             // The scan exhausted its passes and still couldn't reconcile the draft against the receipt's
             // printed total. Markup lives in UnverifiedReceiptNotice so AddExpenseScreen shows the same
             // banner from the same state instead of quietly showing none.

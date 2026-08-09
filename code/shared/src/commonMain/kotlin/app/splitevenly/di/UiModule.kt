@@ -11,7 +11,9 @@ import app.splitevenly.data.remote.supabase.SupabaseReceiptStorage
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.SupabasePlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
+import app.splitevenly.data.remote.supabase.ScanUsageGateway
 import app.splitevenly.data.remote.supabase.SupabaseJoinItemPortionGateway
+import app.splitevenly.data.remote.supabase.SupabaseScanUsageGateway
 import app.splitevenly.data.remote.supabase.WebBillLinkGateway
 import app.splitevenly.data.remote.supabase.SupabaseWebBillLinkGateway
 import app.splitevenly.data.remote.supabase.SupabaseRemoteGroupGateway
@@ -82,6 +84,9 @@ val authModule = module {
         // The payer's bill-link lifecycle (WEB_CLAIM_SPEC.md §3.9.3). Reaches `web_bill_links` only via
         // security-definer RPCs, so `token_hash` never becomes readable through a table policy.
         single<WebBillLinkGateway> { SupabaseWebBillLinkGateway(get<SupabaseClient>()) }
+        // The free-scan meter's read path. Unbound offline, where the meter simply doesn't appear:
+        // a group's total can't be counted locally, and guessing it would put a wrong number on screen.
+        single<ScanUsageGateway> { SupabaseScanUsageGateway(get<SupabaseClient>()) }
     } else {
         single<AuthSession> { StubAuthSession(get()) }
     }

@@ -32,6 +32,7 @@ import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.screen.expense.PickedReceiptStrip
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /**
@@ -101,6 +102,8 @@ fun ItemizedExpenseBody(
     saveLabel: String,
     onScanClick: () -> Unit,
     onSave: () -> Unit,
+    // Null on every path that has no group context yet, and on Pro groups — see scanMeterFor.
+    scanMeter: ScanMeter? = null,
 ) {
     val c = EvenlyTheme.colors
     // Scan is the marquee action — a hero card at the top. A whisper-soft neutral shadow
@@ -130,6 +133,8 @@ fun ItemizedExpenseBody(
         }
         EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.blueText)
     }
+    // Under the card, not on it: the count is a fact about the group, not a property of the button.
+    ScanQuotaMeter(scanMeter)
     // Sits directly under the scan card, above the items it is talking about.
     if (state.showUnverifiedNotice) {
         UnverifiedReceiptNotice(onDismiss = { state.showUnverifiedNotice = false })

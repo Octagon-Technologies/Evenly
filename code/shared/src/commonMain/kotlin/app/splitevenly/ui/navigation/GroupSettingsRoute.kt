@@ -11,7 +11,10 @@ import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.auth.AuthSession
+import app.splitevenly.core.time.shortDate
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.domain.repository.ProRepository
+import app.splitevenly.ui.screen.settings.ProStatusUi
 import app.splitevenly.platform.PlatformShare
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
 import app.splitevenly.ui.screen.settings.MemberRowUi
@@ -29,6 +32,7 @@ fun GroupSettingsRoute(
     onEditCategories: () -> Unit = {},
 ) {
     val groups = koinInject<GroupRepository>()
+    val pro = koinInject<ProRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
@@ -46,6 +50,25 @@ fun GroupSettingsRoute(
     val unclaimed by remember(gid, userId) {
         userId?.let { groups.observeUnclaimedNames(gid, it) } ?: flowOf(emptyList())
     }.collectAsStateWithLifecycle(emptyList())
+
+    // Evenly Pro (PRO_PASS_SPEC.md §8.3). The buyer's name is resolved from the roster the screen already
+    // streams, so a pass bought by someone who has since left the group simply drops the attribution line
+    // rather than showing a raw id.
+    val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
+    val proUi = proState?.let { state ->
+        when {
+            state.status.isPro -> ProStatusUi(
+                isPro = true,
+                expiresOn = state.status.expiresAt?.let { shortDate(it) },
+                purchasedByName = members.firstOrNull { it.userId.value == state.status.purchasedBy }?.displayName,
+            )
+            // Only say "Pro ended" to a group that actually had one. A group that never bought a pass is
+            // not in an ended state, it is just a normal free group, and telling it otherwise invents a
+            // loss that never happened.
+            state.everHadPass -> ProStatusUi(isPro = false)
+            else -> null
+        }
+    }
 
     val rows = members.map { m ->
         MemberRowUi(
@@ -67,6 +90,7 @@ fun GroupSettingsRoute(
         members = rows,
         inviteLink = inviteLink,
         storageUsedBytes = storageUsedBytes,
+        proStatus = proUi,
         onBack = onBack,
         onAddMember = { name, addToPast ->
             scope.launch {

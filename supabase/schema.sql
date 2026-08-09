@@ -2369,3 +2369,39 @@ as $$
 $$;
 
 revoke execute on function public.group_free_scans_used(text) from public, anon, authenticated;
+
+-- The meter's read path ("2 of 5 free scans left"). The count itself lives in `receipt_scan_log`, whose
+-- RLS scopes a client to its OWN rows, so a member cannot see their group's total by querying it — hence
+-- a membership-checked `security definer` wrapper rather than a policy change.
+--
+-- Caller-scoped on purpose: it answers only for a group the CALLER is an active member of, so it cannot
+-- be used to probe any group's usage by id. `group_free_scans_used` stays revoked; this is the only door.
+create or replace function public.my_group_scan_usage(p_group_id text)
+returns table (free_used integer, free_limit integer)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.members m
+    where m.group_id = p_group_id
+      and m.user_id = (select auth.uid())::text
+      and m.status = 'ACTIVE'
+  ) then
+    raise exception 'not a member of this group';
+  end if;
+
+  return query
+    select
+      public.group_free_scans_used(p_group_id),
+      -- Mirrors extract-receipt's FREE_SCANS_PER_GROUP default. The server env var is the enforcing
+      -- copy; this one only feeds the meter, so a divergence miscounts a label and never a refusal.
+      -- If the allowance is ever tuned from the dashboard, change it here too.
+      5;
+end;
+$$;
+
+revoke execute on function public.my_group_scan_usage(text) from public, anon;
+grant execute on function public.my_group_scan_usage(text) to authenticated;

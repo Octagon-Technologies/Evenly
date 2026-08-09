@@ -196,6 +196,14 @@ this schema still grants it** (verified by a live grants query, 32 tables includ
 `web_bill_links` / `apple_oauth_tokens`) — fold `revoke truncate on all tables in schema public from
 anon, authenticated;` into the RLS tightening below.
 
+**`my_group_scan_usage(group_id)` is the only way a client learns its group's scan count.**
+`receipt_scan_log`'s RLS is `user_id = auth.uid()`, so a member querying the table sees only the scans
+*they* did; the group's total would come out wrong, not denied, which is the dangerous shape of failure.
+The RPC is `security definer`, re-derives the caller's ACTIVE membership, and is granted to
+`authenticated` only. `group_free_scans_used` stays revoked from every client role. Its `free_limit`
+mirrors `extract-receipt`'s `FREE_SCANS_PER_GROUP`; the env var is the enforcing copy, so a divergence
+mislabels a meter and never changes a refusal.
+
 ## RLS — currently permissive, and that is a P0 before prod
 
 The loop at `schema.sql:591` generates `for all to authenticated using (true) with check (true)` for every

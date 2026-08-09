@@ -37,7 +37,9 @@ import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.pro.scanMeterFor
 import app.splitevenly.domain.repository.ActivityRepository
+import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.repository.ExpenseRepository
@@ -104,6 +106,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     val auth = koinInject<AuthSession>()
     val filePicker = koinInject<FilePicker>()
     val ocr = koinInject<ReceiptOcr>()
+    val pro = koinInject<ProRepository>()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build —
     // and when it's null we hide the receipt strip entirely rather than offer an attach that goes nowhere.
     val koin = getKoin()
@@ -126,6 +129,11 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var billReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
+    // Evenly Pro: the free-scan meter under the scan hero (PRO_PASS_SPEC.md §8.1). Refreshed when the
+    // editor opens and again after every scan attempt, since a successful scan is what moves the count.
+    val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
+    LaunchedEffect(gid) { pro.refresh(gid.value) }
+    val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
     // Scan-funnel analytics bookkeeping: the source of the in-flight scan (for scan_started/scan_cancelled)
     // and its start time (for duration_ms). Neither is user-facing state, just event properties.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
@@ -218,6 +226,9 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
                     ScanUiState.Failed(kind)
                 }
             }
+            // A successful scan is what moves the count, so re-read it rather than decrementing
+            // locally: the server is the only place that knows what actually counted.
+            pro.refresh(gid.value)
         }
     }
 
@@ -229,6 +240,7 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
         lastExpenseParticipantIds = lastExpenseParticipantIds,
         receipts = pickedReceipts.map { it.toUi() },
         receiptsEnabled = uploadManager != null,
+        scanMeter = scanMeter,
         scanState = scanState,
         scanned = scanned,
         attachedReceipts = billReceipts.map { it.toUi() },

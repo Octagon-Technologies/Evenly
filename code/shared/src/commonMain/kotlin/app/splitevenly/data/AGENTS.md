@@ -54,8 +54,9 @@ server rehydrates. Fine for now — see the prod gate at the bottom of this file
 `code/shared/schemas/`; commit them.
 
 **Device-local tables stay out of sync.** Not every Room table is a wire mirror. The receipt-upload outbox
-(`receipt_uploads`) and the per-expense `expense_sync_state` tracker are local-only: *not* `@Serializable`,
-*not* in `SyncEngine`'s table list, never pushed. They are also the only legitimate hard deletes in the
+(`receipt_uploads`), the per-expense `expense_sync_state` tracker, and `group_scan_usage` (a cache of the
+`my_group_scan_usage` RPC, so the free-scan meter is instant and works offline) are local-only: *not*
+`@Serializable`, *not* in `SyncEngine`'s table list, never pushed. They are also the only legitimate hard deletes in the
 codebase (`ReceiptUploadDao.kt:45`, `ExpenseSyncStateDao.kt:21`) — they hold no user data.
 
 **`group_passes` is the one PULL-ONLY synced table.** Evenly Pro (`PRO_PASS_SPEC.md`): the server is the

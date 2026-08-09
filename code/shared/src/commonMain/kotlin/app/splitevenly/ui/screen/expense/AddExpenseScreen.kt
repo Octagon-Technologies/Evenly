@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.domain.expense.CategoryDefaults
 import app.splitevenly.domain.expense.GroupCategory
 import app.splitevenly.platform.PickSource
@@ -91,6 +92,9 @@ fun AddExpenseScreen(
     // ── itemized ("By what each had") body — only used when creating (editing keeps its single mode) ──
     // The scan pipeline is driven by the route: [scanState] shows progress/errors, [scanned] delivers a
     // completed draft that pre-fills the item list, and the on* callbacks pick/cancel/retry the scan.
+    // Free-scan meter under the scan hero. Null on a Pro group, and until the count is known
+    // (PRO_PASS_SPEC.md §8.1) — the screen never invents one.
+    scanMeter: ScanMeter? = null,
     scanState: ScanUiState = ScanUiState.Idle,
     scanned: EditBillState? = null,
     // The pages that were scanned. They are a receipt in their own right, kept whatever the OCR made of
@@ -351,6 +355,7 @@ fun AddExpenseScreen(
                         saveLabel = "Save & assign items",
                         onScanClick = { showScanSource = true },
                         onSave = { submit() },
+                        scanMeter = scanMeter,
                     )
                 } else {
                     DivideSplitBody(

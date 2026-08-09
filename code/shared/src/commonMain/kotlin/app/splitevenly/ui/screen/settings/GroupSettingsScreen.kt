@@ -86,6 +86,9 @@ fun GroupSettingsScreen(
     /** Names in this group with no account that the viewer hasn't answered. 0 hides the claim row. */
     unclaimedNameCount: Int = 0,
     onEditCategories: () -> Unit = {},
+    // Null until Pro state has loaded, and on a group that has never held a pass: there is nothing
+    // truthful to say yet, so the row is absent rather than empty (PRO_PASS_SPEC.md §8.3).
+    proStatus: ProStatusUi? = null,
     onArchive: () -> Unit = {},
     onLeave: () -> Unit = {},
 ) {
@@ -104,6 +107,10 @@ fun GroupSettingsScreen(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // Above "About": who paid for this group's Pro is a fact about the group, and burying it
+            // under the settings list would defeat the point of naming them at all.
+            proStatus?.let { ProStatusRow(status = it) }
+
             // ── About ──────────────────────────────────────────
             SettingsGroup("About") {
                 SettingsRow(icon = EvIcons.Sparkle, label = "Emoji & name", value = "$groupEmoji $groupName", onClick = { showRename = true })
