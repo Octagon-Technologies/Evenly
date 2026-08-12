@@ -581,6 +581,38 @@ create index if not exists ops_alerts_kind_sent_at_idx on public.ops_alerts (kin
 alter table public.ops_alerts enable row level security;
 -- Deliberately no policies: no authenticated/anon client should ever read or write this table.
 
+-- ── Evenly Pro: purchases the webhook could not attribute (PRO_PASS_SPEC.md §6.3) ───────────────
+-- A NON_RENEWING_PURCHASE arrives with no `evenly_group_id` subscriber attribute, so nothing on the
+-- server can say which group the money was for. The group binding exists nowhere in the store's data
+-- model, so there is nothing to derive it from and **guessing is not an option** — picking a group for
+-- someone would hand a different set of people a paid entitlement.
+--
+-- Parked here for a human instead, with the whole event body kept: a support conversation needs the
+-- receipt, not our summary of it. Resolved by hand (activate for the right group, or refund), then
+-- stamped. Service-role only, like every other ops table here.
+create table if not exists public.pro_orphan_purchases (
+  id            uuid primary key default gen_random_uuid(),
+  store         text not null,
+  store_txn_id  text not null,
+  app_user_id   text not null,
+  product_id    text,
+  reason        text not null,
+  payload       jsonb not null,
+  created_at    bigint not null,
+  resolved_at   bigint
+);
+
+-- The same idempotency key as group_passes, for the same reason: RevenueCat retries a webhook it did
+-- not get a 2xx for, and one unattributable charge must not become five rows for a human to read.
+create unique index if not exists pro_orphan_purchases_txn_idx
+  on public.pro_orphan_purchases (store, store_txn_id);
+create index if not exists pro_orphan_purchases_open_idx
+  on public.pro_orphan_purchases (created_at desc) where resolved_at is null;
+
+alter table public.pro_orphan_purchases enable row level security;
+-- Deliberately no policies: it holds a stranger's purchase record and no client has business reading it.
+revoke all on public.pro_orphan_purchases from anon, authenticated;
+
 -- ── Row-Level Security ──────────────────────────────────────────────────────────────────────────
 -- PERMISSIVE policies so sync works immediately for testing: any authenticated (incl. anonymous)
 -- user can read/write every row. NOT safe for real multi-user data — see the membership-scoped sketch

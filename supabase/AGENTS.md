@@ -216,9 +216,11 @@ The RPC is `security definer`, re-derives the caller's ACTIVE membership, and is
 mirrors `extract-receipt`'s `FREE_SCANS_PER_GROUP`; the env var is the enforcing copy, so a divergence
 mislabels a meter and never changes a refusal.
 
-## The two Evenly Pro purchase functions (`PRO_PASS_SPEC.md` §6)
+## The three Evenly Pro functions (`PRO_PASS_SPEC.md` §6)
 
-Both share `_shared/revenuecat.ts`, which reads **v1 `/subscribers/{app_user_id}`** rather than the v2
+All three are **thin HTTP shells over `_shared/revenuecat.ts`**, which holds `syncSubscription` and
+`activatePass`. That is deliberate: the webhook has to re-run the *same* logic as the client-facing
+calls, and a second copy would drift. It reads **v1 `/subscribers/{app_user_id}`** rather than the v2
 customer endpoints the spec names: v2 returns subscriptions and entitlements only, and `activate-pass`
 has to verify a **consumable**, which appears only in v1's `non_subscriptions`. The **secret** key lives
 only in edge-function env; the apps carry the public SDK keys.
@@ -238,6 +240,18 @@ only in edge-function env; the apps carry the public SDK keys.
   how long it lasts and a wound-back device clock would otherwise be a free month. Stacking starts at the
   group's current pass expiry, not at now. A unique-violation on `(store, store_txn_id)` is re-read and
   returned as **success** — that is the idempotency key doing its job, not a failure.
+- **`revenuecat-webhook`** (`verify_jwt = false`, shared secret in the Authorization header, same pattern
+  as `web-claim`). **It is not a switch over event types.** Every subscription lifecycle event resolves to
+  one call to `syncSubscription`, driven by RevenueCat's *answer* rather than the event name, so an event
+  type we have never seen cannot corrupt state. Refunds need no branch of their own: `refunded_at` comes
+  back on the subscriber document and becomes `revoked_at`. `NON_RENEWING_PURCHASE` is the **pass
+  backstop** for a client that died between the charge and its activate call; the group id rides on the
+  `evenly_group_id` subscriber attribute and, when it is absent, the event is parked in
+  `pro_orphan_purchases` and alerted, **never guessed** — picking a group would hand a paid entitlement to
+  a different set of people. It answers **200 for anything understood and handled, including "nothing to
+  do"**, because RevenueCat retries non-2xx for hours; 5xx is reserved for "we could not do the work and
+  want the retry". Unconfigured means **refusing**, not accepting: an unauthenticated writer here could
+  hand any account a subscription.
 
 ## RLS — currently permissive, and that is a P0 before prod
 
@@ -285,6 +299,7 @@ tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its S
 | `apple-revoke-token`        | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
 | `sync-subscriber`           | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
 | `activate-pass`             | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
+| `revenuecat-webhook`        | Deployed; **refuses every request** until `REVENUECAT_WEBHOOK_SECRET` is set; `verify_jwt = false` |
 
 `apple-link-token`/`apple-revoke-token` (Apple Sign In native plan §5 P4, Guideline 5.1.1(v)) exchange a
 native Apple authorization code for a refresh token on sign-in and revoke it on account deletion, stored

@@ -378,6 +378,12 @@ allow_dynamic_registration = false
 [functions.web-claim]
 verify_jwt = false
 
+# RevenueCat calls this one; it holds no Supabase JWT. Authenticated by REVENUECAT_WEBHOOK_SECRET in the
+# Authorization header instead, and it refuses every request until that secret is set (PRO_PASS_SPEC.md
+# §6.3). `sync-subscriber` and `activate-pass` keep verify_jwt on: both act as the signed-in caller.
+[functions.revenuecat-webhook]
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.
