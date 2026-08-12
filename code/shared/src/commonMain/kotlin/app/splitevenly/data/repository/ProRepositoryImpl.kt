@@ -3,10 +3,13 @@ package app.splitevenly.data.repository
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.dao.GroupPassDao
 import app.splitevenly.data.db.dao.GroupScanUsageDao
+import app.splitevenly.data.db.dao.UserSubscriptionDao
 import app.splitevenly.data.db.entity.GroupPassEntity
 import app.splitevenly.data.db.entity.GroupScanUsageEntity
+import app.splitevenly.data.db.entity.UserSubscriptionEntity
 import app.splitevenly.data.remote.supabase.ScanUsageGateway
-import app.splitevenly.domain.pro.ProPass
+import app.splitevenly.domain.pro.ProCandidate
+import app.splitevenly.domain.pro.ProSource
 import app.splitevenly.domain.pro.ProStatus
 import app.splitevenly.domain.pro.proStatusOf
 import app.splitevenly.domain.repository.GroupProState
@@ -33,6 +36,7 @@ import kotlin.time.ExperimentalTime
 class ProRepositoryImpl(
     private val groupPassDao: GroupPassDao,
     private val scanUsageDao: GroupScanUsageDao,
+    private val subscriptionDao: UserSubscriptionDao,
     private val scanUsageGateway: ScanUsageGateway? = null,
     private val freeLimitFallback: Int = DEFAULT_FREE_LIMIT,
 ) : ProRepository {
@@ -40,17 +44,21 @@ class ProRepositoryImpl(
     override fun observe(groupId: String): Flow<GroupProState> =
         combine(
             groupPassDao.observeForGroup(groupId),
+            // Already joined against the ACTIVE roster in SQL, mirroring the server's own join, so a
+            // subscriber leaving the group drops it back to free with nothing else to keep in step.
+            subscriptionDao.observeForGroup(groupId),
             scanUsageDao.observe(groupId),
-        ) { passes, usage ->
+        ) { passes, subscriptions, usage ->
+            val candidates = passes.map { it.toCandidate() } + subscriptions.map { it.toCandidate() }
             GroupProState(
                 // Evaluated against the clock at emission rather than filtered in SQL, so a screen left
                 // open across an expiry re-decides instead of holding a `true` a query settled earlier.
-                status = proStatusOf(passes.map { it.toProPass() }, now = Clock.System.nowEpochMillis()),
+                status = proStatusOf(candidates, now = Clock.System.nowEpochMillis()),
                 freeUsed = usage?.freeUsed,
                 freeLimit = usage?.freeLimit ?: freeLimitFallback,
                 // Includes revoked and expired rows: the question is "has this group ever been Pro",
                 // not "is it now".
-                everHadPass = passes.isNotEmpty(),
+                everHadPro = candidates.isNotEmpty(),
             )
         }
 
@@ -73,9 +81,20 @@ class ProRepositoryImpl(
     }
 }
 
-private fun GroupPassEntity.toProPass() = ProPass(
+private fun GroupPassEntity.toCandidate() = ProCandidate(
     expiresAt = expiresAt,
     purchasedBy = purchasedBy,
     tier = tier,
+    source = ProSource.Pass,
+    revokedAt = revokedAt,
+)
+
+/** `period` doubles as the tier label: "Pro because Sam subscribes" needs monthly-vs-annual nowhere on
+ *  screen, but the badge and analytics both want one field that says what was bought. */
+private fun UserSubscriptionEntity.toCandidate() = ProCandidate(
+    expiresAt = expiresAt,
+    purchasedBy = userId,
+    tier = period,
+    source = ProSource.Subscription,
     revokedAt = revokedAt,
 )

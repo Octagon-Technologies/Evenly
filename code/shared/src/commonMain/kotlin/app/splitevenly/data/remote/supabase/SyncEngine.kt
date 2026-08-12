@@ -27,6 +27,7 @@ import app.splitevenly.data.db.entity.SettlementEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.SupersededNoticeEntity
 import app.splitevenly.data.db.entity.UserEntity
+import app.splitevenly.data.db.entity.UserSubscriptionEntity
 import app.splitevenly.data.repository.BillMaterializer
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.core.time.nowEpochMillis
@@ -153,6 +154,12 @@ class SyncEngine(
         val groupPasses = selectIn<GroupPassEntity>("group_passes", "group_id", groupIds)
         val userIds = (members.map { it.userId } + expenses.mapNotNull { it.payerUserId } + shares.map { it.userId }).distinct()
         val users = if (userIds.isEmpty()) emptyList() else selectIn<UserEntity>("users", "id", userIds)
+        // The second route to Pro (PRO_PASS_SPEC.md §5.5). Keyed by user rather than group, so it is
+        // pulled for the roster rather than for the group ids; RLS narrows it to people we share a group
+        // with anyway. Pull-only for exactly the same reason as group_passes.
+        val memberIds = members.map { it.userId }.distinct()
+        val subscriptions = if (memberIds.isEmpty()) emptyList()
+            else selectIn<UserSubscriptionEntity>("user_subscriptions", "user_id", memberIds)
 
         // 3. Land them in Room (parents before children isn't required — there are no FK constraints).
         //    Every synced table that carries updated_at gets a last-write-wins guard (Rule 5): never let an
@@ -211,6 +218,9 @@ class SyncEngine(
         // Blind upsert, no keepNewer guard: there is no local write to protect, since nothing in the app
         // ever creates or edits a pass. The server row is the only version that has ever existed.
         if (groupPasses.isNotEmpty()) db.groupPassDao().upsertAll(groupPasses)
+        // Same blind upsert, same reason: nothing in the app ever writes a subscription row, so there is
+        // no local edit for a keepNewer guard to protect.
+        if (subscriptions.isNotEmpty()) db.userSubscriptionDao().upsertAll(subscriptions)
         land("placeholder_claim_answers", claimAnswers, db.placeholderClaimAnswerDao().allForSync(), { it.id }, { it.updatedAt }) { db.placeholderClaimAnswerDao().upsertAll(it) }
         // Allocations are append-only ground truth (no updated_at); blind upsert is correct.
         if (allocations.isNotEmpty()) {

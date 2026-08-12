@@ -59,19 +59,25 @@ server rehydrates. Fine for now — see the prod gate at the bottom of this file
 `@Serializable`, *not* in `SyncEngine`'s table list, never pushed. They are also the only legitimate hard deletes in the
 codebase (`ReceiptUploadDao.kt:45`, `ExpenseSyncStateDao.kt:21`) — they hold no user data.
 
-**`group_passes` is the one PULL-ONLY synced table.** Evenly Pro (`PRO_PASS_SPEC.md`): the server is the
-only writer, so the client pulls it and never pushes. Three things enforce that, deliberately
-redundantly, because a client that could write this table could grant itself unlimited paid
-Claude-vision calls: server RLS grants `select` only, there is no entry in `SyncEngine.push`, and
-**`GroupPassDao` has no `allForSync`** — `push()` consumes exactly that method, so its absence makes
-pull-only a fact of the type system rather than a comment. Do not add one. It also lands with a blind
-upsert and no `keepNewer` guard, which is correct here and nowhere else: the guard protects local edits,
-and nothing in the app ever writes a pass.
+**`group_passes` and `user_subscriptions` are the PULL-ONLY synced tables.** Evenly Pro
+(`PRO_PASS_SPEC.md`) has two routes and the server is the only writer of both, so the client pulls them
+and never pushes. Three things enforce that, deliberately redundantly, because a client that could write
+either table could grant itself unlimited paid Claude-vision calls: server RLS grants `select` only,
+there is no entry in `SyncEngine.push`, and **neither DAO has an `allForSync`** — `push()` consumes
+exactly that method, so its absence makes pull-only a fact of the type system rather than a comment. Do
+not add one. Both land with a blind upsert and no `keepNewer` guard, which is correct here and nowhere
+else: the guard protects local edits, and nothing in the app ever writes a pass or a subscription.
 
-`domain/pro/proStatusOf` mirrors the server's `group_pro_status` so the Pro badge renders offline. Two
-implementations of one rule, accepted so a badge costs no round trip; `ProStatusTest` pins it against
-the same cases the SQL side was verified with. **Enforcement is always the server's copy** — this one
-only ever decides what to draw.
+`user_subscriptions` is keyed by **user**, not group, so it is pulled for the roster rather than for the
+group ids, and `UserSubscriptionDao.observeForGroup` joins it against the local ACTIVE `members` roster
+exactly as the server's `group_pro_status` does. That join is what makes a subscriber leaving a group
+drop it back to free at the next pull with no second table to keep in step.
+
+`domain/pro/proStatusOf` mirrors the server's `group_pro_status` so the Pro badge renders offline: both
+routes flatten into one `ProCandidate` list and the latest-expiring live one wins, with `source` saying
+which door answered. Two implementations of one rule, accepted so a badge costs no round trip;
+`ProStatusTest` pins it against the same cases the SQL side was verified with. **Enforcement is always
+the server's copy** — this one only ever decides what to draw.
 
 ## Expenses sync through a ZONE-AWARE MERGE RPC
 

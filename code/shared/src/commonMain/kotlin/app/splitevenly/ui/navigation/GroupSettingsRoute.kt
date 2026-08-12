@@ -69,7 +69,7 @@ fun GroupSettingsRoute(
             // Only say "Pro ended" to a group that actually had one. A group that never bought a pass is
             // not in an ended state, it is just a normal free group, and telling it otherwise invents a
             // loss that never happened.
-            state.everHadPass -> ProStatusUi(isPro = false)
+            state.everHadPro -> ProStatusUi(isPro = false)
             else -> null
         }
     }

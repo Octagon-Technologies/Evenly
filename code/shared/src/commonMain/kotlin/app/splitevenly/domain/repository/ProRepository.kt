@@ -16,11 +16,11 @@ data class GroupProState(
     val freeUsed: Int?,
     val freeLimit: Int,
     /**
-     * This group has held a pass at some point, live or not. Distinct from `!status.isPro`, and the
-     * distinction matters on screen: only a group that once had Pro can be told "Pro ended". Saying it
-     * to a group that never bought one invents a loss that never happened.
+     * This group has been Pro at some point through either route, live or not. Distinct from
+     * `!status.isPro`, and the distinction matters on screen: only a group that once had Pro can be told
+     * "Pro ended". Saying it to a group that never had it invents a loss that never happened.
      */
-    val everHadPass: Boolean = false,
+    val everHadPro: Boolean = false,
 )
 
 interface ProRepository {

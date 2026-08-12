@@ -8,12 +8,15 @@ import kotlin.test.assertTrue
 /**
  * Pins the client mirror of the server's `group_pro_status` against the same cases the SQL side was
  * verified with. The two implementations exist so a Pro badge costs no round trip
- * (`PRO_PASS_SPEC.md` §5.2); these cases are what keeps them from drifting apart.
+ * (`PRO_PASS_SPEC.md` §5.3); these cases are what keeps them from drifting apart.
  */
 class ProStatusTest {
 
     private fun pass(expiresAt: Long, by: String = "u_sam", tier: String = "week_1", revokedAt: Long? = null) =
-        ProPass(expiresAt = expiresAt, purchasedBy = by, tier = tier, revokedAt = revokedAt)
+        ProCandidate(expiresAt, purchasedBy = by, tier = tier, source = ProSource.Pass, revokedAt = revokedAt)
+
+    private fun subscription(expiresAt: Long, by: String = "u_sam", period: String = "monthly", revokedAt: Long? = null) =
+        ProCandidate(expiresAt, purchasedBy = by, tier = period, source = ProSource.Subscription, revokedAt = revokedAt)
 
     @Test
     fun noPassesIsFree() {
@@ -21,7 +24,7 @@ class ProStatusTest {
     }
 
     @Test
-    fun latestExpiringPassWins() {
+    fun latestExpiringCandidateWins() {
         // Three live passes: the answer must be the one that expires LAST, not the newest or the
         // priciest. This is what makes stacking work without any stacking code.
         val status = proStatusOf(
@@ -36,6 +39,7 @@ class ProStatusTest {
         assertEquals(9000, status.expiresAt)
         assertEquals("u_bob", status.purchasedBy)
         assertEquals("month_1", status.tier)
+        assertEquals(ProSource.Pass, status.source)
     }
 
     @Test
@@ -70,5 +74,50 @@ class ProStatusTest {
     fun allPassesExpiredIsFree() {
         val status = proStatusOf(listOf(pass(100), pass(200)), now = 5000)
         assertEquals(ProStatus.Free, status)
+    }
+
+    @Test
+    fun laterSubscriptionBeatsALivePass() {
+        // Both routes live at once. The later expiry wins and `source` says which one the group is
+        // riding on, which is what lets the badge read "Pro because Sam subscribes" rather than
+        // crediting a pass that is no longer the reason.
+        val status = proStatusOf(
+            listOf(pass(3000, by = "u_ada"), subscription(9000, by = "u_sam", period = "annual")),
+            now = 500,
+        )
+        assertTrue(status.isPro)
+        assertEquals(9000, status.expiresAt)
+        assertEquals("u_sam", status.purchasedBy)
+        assertEquals("annual", status.tier)
+        assertEquals(ProSource.Subscription, status.source)
+    }
+
+    @Test
+    fun laterPassBeatsALiveSubscription() {
+        // The reverse, so the ordering is not accidentally reading the list order.
+        val status = proStatusOf(
+            listOf(subscription(3000, by = "u_sam"), pass(9000, by = "u_ada", tier = "month_1")),
+            now = 500,
+        )
+        assertEquals("u_ada", status.purchasedBy)
+        assertEquals(ProSource.Pass, status.source)
+    }
+
+    @Test
+    fun revokedSubscriptionIsIgnored() {
+        // A refunded or charged-back subscription, still inside its paid period. Not Pro.
+        assertFalse(proStatusOf(listOf(subscription(9000, revokedAt = 10)), now = 500).isPro)
+    }
+
+    @Test
+    fun expiredSubscriptionFallsBackToALivePass() {
+        // The lapse case: the subscriber stopped paying, the group keeps whatever the pass covers.
+        val status = proStatusOf(
+            listOf(subscription(400, by = "u_sam"), pass(3000, by = "u_ada")),
+            now = 500,
+        )
+        assertTrue(status.isPro)
+        assertEquals(ProSource.Pass, status.source)
+        assertEquals("u_ada", status.purchasedBy)
     }
 }

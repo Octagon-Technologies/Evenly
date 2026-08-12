@@ -70,6 +70,7 @@ val dataModule: Module = module {
     single { get<EvenlyDatabase>().billParticipantDao() }
     single { get<EvenlyDatabase>().pendingItemEditDao() }
     single { get<EvenlyDatabase>().groupPassDao() }
+    single { get<EvenlyDatabase>().userSubscriptionDao() }
     single { get<EvenlyDatabase>().groupScanUsageDao() }
     single { get<EvenlyDatabase>().supersededNoticeDao() }
     single { get<EvenlyDatabase>().placeholderMergeDao() }
@@ -108,7 +109,7 @@ val dataModule: Module = module {
     single<WebBillLinkRepository> { WebBillLinkRepositoryImpl(getOrNull<WebBillLinkGateway>(), get()) }
     // Evenly Pro, read-only: the Pro badge and the free-scan meter (PRO_PASS_SPEC.md). No write path
     // exists here by design, and the gateway is optional so the offline build simply shows no meter.
-    single<ProRepository> { ProRepositoryImpl(get(), get(), scanUsageGateway = getOrNull<ScanUsageGateway>()) }
+    single<ProRepository> { ProRepositoryImpl(get(), get(), get(), scanUsageGateway = getOrNull<ScanUsageGateway>()) }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get(), analytics = getOrNull<EvAnalytics>()) }
     single<FxRepository> { FxRepositoryImpl(get(), get(), get()) }
     // "Is this you?" claims: schedules the merge behind a 5-second undo window and runs the

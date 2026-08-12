@@ -34,6 +34,7 @@ import app.splitevenly.data.db.dao.SupersededNoticeDao
 import app.splitevenly.data.db.dao.SettlementDao
 import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.db.dao.UserDao
+import app.splitevenly.data.db.dao.UserSubscriptionDao
 import app.splitevenly.data.db.entity.BillParticipantEntity
 import app.splitevenly.data.db.entity.CategoryEntity
 import app.splitevenly.data.db.entity.CommentEntity
@@ -63,6 +64,7 @@ import app.splitevenly.data.db.entity.SettlementAllocationEntity
 import app.splitevenly.data.db.entity.SettlementEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.UserEntity
+import app.splitevenly.data.db.entity.UserSubscriptionEntity
 
 /**
  * Room KMP database (02 §7). The local schema mirrors the Supabase Postgres schema 1:1, with the
@@ -106,11 +108,12 @@ import app.splitevenly.data.db.entity.UserEntity
         BillParticipantEntity::class,
         PendingItemEditEntity::class,
         GroupPassEntity::class,
+        UserSubscriptionEntity::class,
         GroupScanUsageEntity::class,
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -141,6 +144,8 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun pendingItemEditDao(): PendingItemEditDao
 
     abstract fun groupPassDao(): GroupPassDao
+
+    abstract fun userSubscriptionDao(): UserSubscriptionDao
 
     abstract fun groupScanUsageDao(): GroupScanUsageDao
     abstract fun rowSyncStateDao(): RowSyncStateDao
