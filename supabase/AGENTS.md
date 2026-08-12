@@ -181,10 +181,22 @@ Claude-vision calls for anyone who reads the anon key out of the APK.
 retry, and the reconciliation sweep all race to insert the same purchase; one wins, the rest no-op.
 Without it one $0.99 charge becomes three stacked passes.
 
+**`user_subscriptions` is the second route to Pro** (`PRO_PASS_SPEC.md` §5.2): a personal, auto-renewing
+subscription, one row per *person* (renewals update it; billing history stays in RevenueCat). Same
+server-owned, pull-only, outside-the-`_rw`-loop shape as `group_passes`, but read is scoped to *people you
+share a group with* — the badge names whoever is paying, and that must not leak a stranger's billing state.
+Its doorbell is `bump_group_activity_subscriber`, which wakes **every** group the subscriber is active in,
+because one renewal changes the badge in all of them.
+
 `group_pro_status(group_id, now)` returns **at most one row, and no row means not Pro** — there is no
-`is_pro = false` row. It returns the latest-expiring live pass, which is what makes stacking work:
-buying while Pro inserts a row starting at the current expiry, so two friends who each buy a week give
-the group two weeks. `expires_at > now` is strict. `group_free_scans_used(group_id)` counts
+`is_pro = false` row. It is the **only** place that knows there are two routes: it unions the group's live
+passes with the live subscriptions of its ACTIVE members and returns the latest-expiring candidate, with
+`source` saying which answered. That ordering is also what makes stacking work: buying while Pro inserts a
+row starting at the current expiry, so two friends who each buy a week give the group two weeks.
+Membership is *joined*, never materialised into a grant row, so leaving a group drops it back to free at
+the next pull. `expires_at > now` is strict. Adding `source` was a breaking signature change (drop +
+create, not `create or replace`); it shipped alone safely only because both callers test whether a row came
+back and never read a column. `group_free_scans_used(group_id)` counts
 `receipt_scan_log` rows with `outcome = 'ok'` — the free allowance needed no new table. Both are
 `security definer` and **revoked from `anon` and `authenticated`**: the app uses a Kotlin mirror of the
 status rule so a badge costs no round trip, and only `extract-receipt` enforces.

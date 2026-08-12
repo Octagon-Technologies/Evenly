@@ -2295,6 +2295,107 @@ create trigger bump_activity_upd after update on public.group_passes
   referencing new table as new_rows for each statement
   execute function public.bump_group_activity();
 
+-- ── Evenly Pro, route 2: the personal subscription (PRO_PASS_SPEC.md §5.2) ────────────────────────
+-- RevenueCat renders the paywall for THIS product and not for passes, because its paywall editor
+-- cannot display consumables. That is the whole reason the subscription exists: a remotely designed,
+-- A/B-testable paywall. The pass survives alongside it as the door that cannot bill you twice.
+--
+-- One row per PERSON, not per purchase: a store account holds at most one live subscription at a time,
+-- so a renewal UPDATES this row rather than appending. Billing history stays in RevenueCat, which is
+-- better at it than we are.
+create table if not exists public.user_subscriptions (
+  user_id        text primary key,
+  product_id     text not null,
+  store          text not null,
+  rc_app_user_id text not null,
+  period         text not null,
+  started_at     bigint not null,
+  -- The paid-through date on the SERVER clock. Someone who cancels stays Pro until the end of the
+  -- period they already paid for, which is both correct and the difference between a lapsed
+  -- subscription and a support ticket.
+  expires_at     bigint not null,
+  -- Renders "renews 16 Aug" vs "ends 16 Aug". It NEVER decides entitlement — expires_at alone does.
+  will_renew     boolean not null default true,
+  revoked_at     bigint,
+  updated_at     bigint not null,
+  row_version    bigint not null default 1
+);
+
+do $$
+begin
+  alter table public.user_subscriptions drop constraint if exists user_subscriptions_store_check;
+  alter table public.user_subscriptions add constraint user_subscriptions_store_check
+    check (store in ('app_store', 'play_store', 'promo'));
+  alter table public.user_subscriptions drop constraint if exists user_subscriptions_period_check;
+  alter table public.user_subscriptions add constraint user_subscriptions_period_check
+    check (period in ('monthly', 'annual'));
+end $$;
+
+create index if not exists user_subscriptions_live_idx on public.user_subscriptions (expires_at desc);
+
+-- ⚠️ Same exemption from the permissive `_rw` loop as group_passes, for the same reason: under
+-- `using (true)` any authenticated user could insert themselves a subscription expiring in 2099 and
+-- hand every group they join unlimited paid Claude-vision calls.
+alter table public.user_subscriptions enable row level security;
+
+-- Read is scoped to people you actually share a group with. The badge names whoever is paying
+-- (PRO_PASS_SPEC.md §8.5), which is the social half of the design, but one stranger's billing state
+-- must not be readable by another. Note what is NOT in this table and so can never leak: price, store
+-- receipt, or anything a support conversation would need. That lives in RevenueCat.
+drop policy if exists user_subscriptions_shared_group_read on public.user_subscriptions;
+create policy user_subscriptions_shared_group_read on public.user_subscriptions
+  for select to authenticated
+  using (
+    exists (
+      select 1
+      from public.members me
+      join public.members them on them.group_id = me.group_id
+      where me.user_id = (select auth.uid())::text
+        and me.status = 'ACTIVE'
+        and them.user_id = user_subscriptions.user_id
+        and them.status = 'ACTIVE'
+    )
+  );
+
+-- Only sync-subscriber and revenuecat-webhook (service key) write here. TRUNCATE is revoked separately
+-- because RLS does not apply to it and Supabase grants ALL on a new public table by default — see the
+-- longer note on group_passes above.
+revoke insert, update, delete on public.user_subscriptions from anon, authenticated;
+revoke truncate, references, trigger on public.user_subscriptions from anon, authenticated;
+
+-- The doorbell for a subscription has to wake EVERY group the subscriber is in, not one: a single
+-- renewal changes the badge in all of them. This is why it cannot reuse bump_group_activity, which
+-- reads a group_id off the changed row and there is no group_id on this table by design.
+create or replace function public.bump_group_activity_subscriber()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    insert into public.group_activity (group_id, bumped_at)
+    select distinct m.group_id, now()
+    from new_rows n
+    join public.members m on m.user_id = n.user_id and m.status = 'ACTIVE'
+    on conflict (group_id) do update set bumped_at = excluded.bumped_at
+      where group_activity.bumped_at is distinct from excluded.bumped_at;
+  exception when others then
+    null;
+  end;
+  return null;
+end;
+$$;
+
+drop trigger if exists bump_activity_ins on public.user_subscriptions;
+drop trigger if exists bump_activity_upd on public.user_subscriptions;
+create trigger bump_activity_ins after insert on public.user_subscriptions
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity_subscriber();
+create trigger bump_activity_upd after update on public.user_subscriptions
+  referencing new table as new_rows for each statement
+  execute function public.bump_group_activity_subscriber();
+
 -- The single definition of "is this group Pro right now", used by extract-receipt's enforcement check.
 -- The client mirrors this in Kotlin over its local rows so the badge works offline; two implementations
 -- of one rule is a real wart, accepted so that rendering a badge costs no round trip. Pin both with the
@@ -2303,30 +2404,63 @@ create trigger bump_activity_upd after update on public.group_passes
 -- Returns AT MOST ONE ROW, and NO ROW means "not Pro" — there is no `is_pro = false` row to read. A
 -- caller that forgets this reads an empty result as an error instead of as the free tier.
 --
--- Returns the LATEST-EXPIRING live pass, which is what makes stacking fall out for free: buying while a
--- pass is live inserts a row starting at the current expiry (PRO_PASS_SPEC.md §5.3), so two friends who
--- each buy a week give the group two weeks and neither feels robbed.
+-- Returns the LATEST-EXPIRING live candidate, which is what makes stacking fall out for free: buying
+-- while a pass is live inserts a row starting at the current expiry (PRO_PASS_SPEC.md §5.4), so two
+-- friends who each buy a week give the group two weeks and neither feels robbed. The same ordering is
+-- what settles a pass and a subscription overlapping.
 --
--- `expires_at > p_now` is strict: a pass whose expiry equals now has expired. Pinned by the boundary
--- test rather than left to whichever comparison the caller happened to write.
-create or replace function public.group_pro_status(p_group_id text, p_now bigint)
-returns table (is_pro boolean, expires_at bigint, purchased_by text, tier text)
+-- `expires_at > p_now` is strict: an entitlement whose expiry equals now has expired. Pinned by the
+-- boundary test rather than left to whichever comparison the caller happened to write.
+--
+-- There are now TWO routes to Pro and this function is the ONLY place that knows it. extract-receipt
+-- and export_group both call it and neither had to change when the subscription was added, which is
+-- the entire reason enforcement was funnelled through one function in the first place.
+--
+-- `source` says which route answered, so "who paid for this?" stays answerable without the caller
+-- knowing anything about passes or subscriptions. `tier` carries the pass tier or the subscription
+-- period; overloading one column is a small wart, taken deliberately so that adding the second route
+-- was not a breaking change for every caller's column mapping.
+--
+-- Adding that column IS a breaking signature change, though: Postgres refuses to alter a function's
+-- return type through `create or replace`, so it is dropped and recreated. Safe to run alone, and
+-- verified rather than assumed: both callers test only whether a ROW CAME BACK
+-- (`extract-receipt:361`, `export_group:110`), never a column, so neither needs redeploying for this.
+-- A caller that ever starts destructuring columns loses that property and would then have to ship in
+-- the same migration.
+drop function if exists public.group_pro_status(text, bigint);
+
+create function public.group_pro_status(p_group_id text, p_now bigint)
+returns table (is_pro boolean, expires_at bigint, purchased_by text, tier text, source text)
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  select
-    true,
-    p.expires_at,
-    p.purchased_by,
-    p.tier
-  from public.group_passes p
-  where p.group_id = p_group_id
-    and p.deleted_at is null
-    and p.revoked_at is null
-    and p.expires_at > p_now
-  order by p.expires_at desc
+  select true, c.expires_at, c.purchased_by, c.tier, c.source
+  from (
+    -- Route 1: a pass bought FOR this group, by anyone.
+    select p.expires_at, p.purchased_by, p.tier, 'pass'::text as source
+    from public.group_passes p
+    where p.group_id = p_group_id
+      and p.deleted_at is null
+      and p.revoked_at is null
+      and p.expires_at > p_now
+    union all
+    -- Route 2: any ACTIVE member of this group holding a live personal subscription.
+    --
+    -- Membership is JOINED here rather than materialised into a per-group grant row, so that leaving a
+    -- group drops it back to free at the next pull with no second table to keep in step. The cost is
+    -- this join on the scan path; the alternative is a grant table that can silently disagree with the
+    -- roster, which in a money app is the worse trade.
+    select s.expires_at, s.user_id, s.period, 'subscription'::text
+    from public.user_subscriptions s
+    join public.members m on m.user_id = s.user_id
+    where m.group_id = p_group_id
+      and m.status = 'ACTIVE'
+      and s.revoked_at is null
+      and s.expires_at > p_now
+  ) c
+  order by c.expires_at desc
   limit 1;
 $$;
 
