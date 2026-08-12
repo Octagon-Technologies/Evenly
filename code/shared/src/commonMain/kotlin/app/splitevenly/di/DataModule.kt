@@ -10,6 +10,9 @@ import app.splitevenly.data.remote.supabase.RemoteGroupGateway
 import app.splitevenly.data.upload.ReceiptUploadHttp
 import app.splitevenly.data.repository.ActivityRepositoryImpl
 import app.splitevenly.data.repository.BillRepositoryImpl
+import app.splitevenly.data.remote.revenuecat.PassActivationGateway
+import app.splitevenly.data.remote.revenuecat.SubscriberSyncGateway
+import app.splitevenly.data.repository.ProPurchaseCoordinator
 import app.splitevenly.data.repository.ProRepositoryImpl
 import app.splitevenly.data.repository.WebBillLinkRepositoryImpl
 import app.splitevenly.data.repository.CategoryRepositoryImpl
@@ -23,6 +26,7 @@ import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.export.GroupExporter
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.WebBillLinkRepository
 import app.splitevenly.data.claim.IdentityPromptSnooze
@@ -110,6 +114,17 @@ val dataModule: Module = module {
     // Evenly Pro, read-only: the Pro badge and the free-scan meter (PRO_PASS_SPEC.md). No write path
     // exists here by design, and the gateway is optional so the offline build simply shows no meter.
     single<ProRepository> { ProRepositoryImpl(get(), get(), get(), scanUsageGateway = getOrNull<ScanUsageGateway>()) }
+    // Buy-then-activate for a group pass (PRO_PASS_SPEC.md §6.2). A single, because the in-flight
+    // purchase it parks has to outlive the sheet that started it: the failure it exists for is the store
+    // charging and our activate call dying, and that must survive the screen going away.
+    single {
+        ProPurchaseCoordinator(
+            billing = get<ProBilling>(),
+            storage = get(),
+            activation = getOrNull<PassActivationGateway>(),
+            subscriberSync = getOrNull<SubscriberSyncGateway>(),
+        )
+    }
     single<SettlementRepository> { SettlementRepositoryImpl(get(), get(), historyEventDao = get(), analytics = getOrNull<EvAnalytics>()) }
     single<FxRepository> { FxRepositoryImpl(get(), get(), get()) }
     // "Is this you?" claims: schedules the merge behind a 5-second undo window and runs the

@@ -2,6 +2,7 @@ package app.splitevenly.ui.screen.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,22 +23,39 @@ import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
 
-/** What the Pro row says, resolved by the caller so this stays DI-free and previewable. */
-data class ProStatusUi(
-    val isPro: Boolean,
-    /** Already formatted ("Aug 16"). Null while Pro state is still loading, or when never Pro. */
-    val expiresOn: String? = null,
-    /** Display name of whoever paid. Null if they have since left the group or are not resolvable. */
-    val purchasedByName: String? = null,
-)
+/**
+ * What the group's Pro row says, resolved by the caller so this stays DI-free and previewable.
+ *
+ * There is deliberately **no null state**: a free group used to render nothing here, which meant a group
+ * that had never bought a pass saw no Pro surface at all and had no door to one. That was a bug in its
+ * own right, separate from the missing paywall (`PRO_PASS_SPEC.md` §8.1).
+ */
+sealed interface ProStatusUi {
+
+    /** Pro through a pass bought for this group. Names the buyer and the date it runs to. */
+    data class ViaPass(val expiresOn: String, val purchasedByName: String?) : ProStatusUi
+
+    /**
+     * Pro because an active member subscribes. **No date is shown**, unlike [ViaPass]: their renewal
+     * date is their business, and putting it on everyone else's screen invites the group to plan around
+     * a charge they have no control over.
+     */
+    data class ViaSubscription(val subscriberName: String?, val isMe: Boolean) : ProStatusUi
+
+    /** Never been Pro. The row is the door, and the subtitle is the reason to care, not a slogan. */
+    data class Free(val groupName: String, val scansLeft: Int?, val freeLimit: Int) : ProStatusUi
+
+    /** Was Pro, isn't now. Leads with the fact that nothing was taken away. */
+    data object Ended : ProStatusUi
+}
 
 /**
- * "Pro until Aug 16 / Andrew got this for the group" (`PRO_PASS_SPEC.md` §8.3).
+ * The group's Evenly Pro row (`PRO_PASS_SPEC.md` §8.5).
  *
- * **Naming the buyer is the feature, not decoration.** It turns a $0.99 charge into a visible favour to
- * the group instead of an invisible tax, and answers "who paid for this?" before anyone has to ask. When
- * the name cannot be resolved the line is dropped rather than replaced with "someone", which would read
- * as the app having lost track of a payment.
+ * **Naming the buyer is the feature, not decoration.** It turns a charge into a visible favour to the
+ * group instead of an invisible tax, and answers "who paid for this?" before anyone has to ask. When the
+ * name cannot be resolved the line degrades rather than saying "someone", which would read as the app
+ * having lost track of a payment.
  *
  * The expired state leads with the fact that nothing was taken away. In a money app the gap between
  * "your pass ended" and "your data is gone" is the whole difference between a lapsed purchase and a
@@ -46,41 +64,62 @@ data class ProStatusUi(
 @Composable
 fun ProStatusRow(
     status: ProStatusUi,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(14.dp)
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            Modifier.fillMaxWidth()
-                .clip(shape)
-                .background(if (status.isPro) c.page else c.surface)
-                .then(if (status.isPro) Modifier.border(1.dp, c.border, shape) else Modifier)
-                .padding(13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(11.dp),
+    val isPro = status is ProStatusUi.ViaPass || status is ProStatusUi.ViaSubscription
+    val title = when (status) {
+        is ProStatusUi.ViaPass -> "Pro until ${status.expiresOn}"
+        is ProStatusUi.ViaSubscription -> "Pro, unlimited scans"
+        is ProStatusUi.Free -> "Get Pro for ${status.groupName}"
+        ProStatusUi.Ended -> "Pro ended"
+    }
+    val sub = when (status) {
+        is ProStatusUi.ViaPass ->
+            status.purchasedByName?.let { "$it got this for the group" } ?: "Unlimited receipt scans for everyone here"
+        is ProStatusUi.ViaSubscription -> when {
+            status.isMe -> "Your Evenly Pro subscription covers this group"
+            status.subscriberName != null -> "${status.subscriberName} subscribes to Evenly Pro"
+            else -> "Someone here subscribes to Evenly Pro"
+        }
+        // The reason to care, said as a fact about this group rather than as a pitch. A group with scans
+        // left is told that instead, because "no free scans left" would be a lie to it.
+        is ProStatusUi.Free -> when {
+            // The count is not known yet (never fetched for this group). Says what the row buys rather
+            // than a number it would then have to correct.
+            status.scansLeft == null -> "Unlimited receipt scans and export"
+            status.scansLeft <= 0 -> "No free scans left"
+            else -> "${status.scansLeft} of ${status.freeLimit} free scans left"
+        }
+        ProStatusUi.Ended -> "Your bills and receipts are all still here."
+    }
+    Row(
+        modifier.fillMaxWidth()
+            .clip(shape)
+            .background(if (isPro) c.page else c.surface)
+            .then(if (isPro) Modifier.border(1.dp, c.blue, shape) else Modifier)
+            .clickable(onClick = onClick)
+            .padding(13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        Box(
+            Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                .background(if (isPro) c.blueTint else c.page),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
-                    .background(if (status.isPro) c.blueTint else c.page),
-                contentAlignment = Alignment.Center,
-            ) {
-                EvIcon(EvIcons.Star, size = 17.dp, tint = if (status.isPro) c.blueText else c.ink3)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    if (status.isPro && status.expiresOn != null) "Pro until ${status.expiresOn}" else "Pro ended",
-                    color = c.ink,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                val sub = when {
-                    status.isPro && status.purchasedByName != null -> "${status.purchasedByName} got this for the group"
-                    status.isPro -> "Unlimited receipt scans for everyone here"
-                    else -> "Your bills and receipts are all still here."
-                }
-                Text(sub, color = c.ink2, fontSize = 12.5.sp)
-            }
+            EvIcon(EvIcons.Star, size = 17.dp, tint = if (isPro) c.blueText else c.ink3)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = c.ink, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
+            Text(sub, color = c.ink2, fontSize = 12.5.sp)
+        }
+        if (isPro) {
+            Text("PRO", color = c.blueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+        } else {
+            EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)
         }
     }
 }

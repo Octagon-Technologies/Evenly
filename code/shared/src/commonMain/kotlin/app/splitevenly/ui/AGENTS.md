@@ -161,6 +161,18 @@ image" button wired to an empty lambda and an "Export" chip in its app bar that 
 `onClick` at all, so neither could ever do anything. Both are gone. If export returns to Overview it
 ships with a working callback, or it does not ship.
 
+**The subscription paywall is RevenueCat's, not ours** (`PRO_PASS_SPEC.md` §8.2). `ProPaywallScreen`
+renders the `Paywall()` composable against the dashboard's current offering, so layout, copy and price
+mix stay a dashboard change and Experiments can run without a release. Do not reimplement it in Compose,
+and do not hardcode a price anywhere: every price on screen is the store's own localized
+`StoreProduct` string, which App Review requires and a non-US buyer needs. The **group-pass sheet**
+(`ui/screen/pro/PassSheet.kt`) is ours only because RevenueCat cannot render consumables.
+
+**Every Pro surface is absent, not disabled, when RevenueCat is unconfigured.** The Profile row, the
+scan sheet's Pro button and the paywall all key off `ProBilling.isAvailable`; a door that cannot open is
+worse than no door. `ProStatusRow` is the one exception and is always shown, because a *free group* used
+to render nothing at all there and so had no Pro surface whatsoever.
+
 **There is deliberately no Pro badge in the group top bar.** It was in the approved mock and was removed
 after building it: that bar already carries three actions, and a pill wraps the group's own name onto two
 lines. The Pro fact lives in the Group settings row, which names the buyer. Do not re-add it without

@@ -23,10 +23,31 @@ data class GroupProState(
     val everHadPro: Boolean = false,
 )
 
+/**
+ * The signed-in user's OWN subscription, for the Profile row and the manage/restore controls.
+ *
+ * [willRenew] exists only to render "renews 16 Aug" against "ends 16 Aug". It never decides entitlement:
+ * [expiresAt] alone does, so someone who cancels stays Pro to the end of the period they paid for.
+ */
+data class MySubscription(
+    val period: String,
+    val expiresAt: Long,
+    val willRenew: Boolean,
+)
+
 interface ProRepository {
 
     /** Live Pro state for a group. Reads only local rows, so it works offline and costs no round trip. */
     fun observe(groupId: String): Flow<GroupProState>
+
+    /**
+     * Pro state for several groups at once, keyed by group id, for the pass group picker (§8.4).
+     * A group with no rows yet simply reads as free, same as [observe].
+     */
+    fun observeAll(groupIds: List<String>): Flow<Map<String, GroupProState>>
+
+    /** The viewer's own subscription, or null. Null is also what an unconfigured build always sees. */
+    fun observeMySubscription(userId: String): Flow<MySubscription?>
 
     /**
      * Re-read the group's free-scan count from the server and cache it.

@@ -96,6 +96,10 @@ fun AddExpenseScreen(
     // (PRO_PASS_SPEC.md §8.1) — the screen never invents one.
     scanMeter: ScanMeter? = null,
     scanState: ScanUiState = ScanUiState.Idle,
+    // Evenly Pro (PRO_PASS_SPEC.md §8.1): at zero free scans the refusal sheet grows a door. Both are
+    // null in the unconfigured build, and the sheet then reads exactly as it did before.
+    groupName: String? = null,
+    onGetPro: (() -> Unit)? = null,
     scanned: EditBillState? = null,
     // The pages that were scanned. They are a receipt in their own right, kept whatever the OCR made of
     // them, so they get the same strip (and the same viewer) as a hand-picked one.
@@ -444,6 +448,8 @@ fun AddExpenseScreen(
             onManual = onDismissScan,
             onRetry = onRetryScan,
             onPickAgain = { onDismissScan(); showScanSource = true },
+            groupName = groupName,
+            onGetPro = onGetPro,
         )
         ScanUiState.Idle -> {}
     }

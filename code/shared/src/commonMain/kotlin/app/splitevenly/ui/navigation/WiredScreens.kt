@@ -49,6 +49,11 @@ import app.splitevenly.ui.screen.settings.PaymentHandlesScreen
 import app.splitevenly.ui.screen.settings.ProfileScreen
 import app.splitevenly.ui.screen.settle.appLabel
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.produceState
+import app.splitevenly.core.time.shortDate
+import app.splitevenly.domain.pro.ProBilling
+import app.splitevenly.domain.repository.ProRepository
+import app.splitevenly.ui.screen.settings.ProEntryUi
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -335,6 +340,7 @@ fun HomeGateRoute(
     onSignedOut: () -> Unit,
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
+    onOpenPro: () -> Unit,
 ) {
     val auth = koinInject<AuthSession>()
     val scope = rememberCoroutineScope()
@@ -376,12 +382,19 @@ fun HomeGateRoute(
             onSignedOut = onSignedOut,
             onSignIn = onSignIn,
             onEditPaymentApps = onEditPaymentApps,
+            onOpenPro = onOpenPro,
         )
     }
 }
 
 @Composable
-fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onSignIn: () -> Unit, onEditPaymentApps: () -> Unit) {
+fun ProfileRoute(
+    onBack: () -> Unit,
+    onSignedOut: () -> Unit,
+    onSignIn: () -> Unit,
+    onEditPaymentApps: () -> Unit,
+    onOpenPro: () -> Unit = {},
+) {
     val auth = koinInject<AuthSession>()
     val profiles = koinInject<ProfileRepository>()
     val urlOpener = koinInject<UrlOpener>()
@@ -393,7 +406,33 @@ fun ProfileRoute(onBack: () -> Unit, onSignedOut: () -> Unit, onSignIn: () -> Un
     var notifStatus by remember { mutableStateOf(NotificationPermissionStatus.NotDetermined) }
     var deleteAccountError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { notifStatus = notificationPermission.status() }
+
+    // Evenly Pro (PRO_PASS_SPEC.md §8.1). The row states the PRICE, taken from the store's own localized
+    // string: a Pro entry that makes you tap to find out what it costs reads as a trap. With RevenueCat
+    // unconfigured the whole row is absent rather than leading somewhere that cannot sell anything.
+    val billing = koinInject<ProBilling>()
+    val pro = koinInject<ProRepository>()
+    val subscription by remember(userId) {
+        userId?.let { pro.observeMySubscription(it.value) } ?: flowOf(null)
+    }.collectAsStateWithLifecycle(null)
+    val cheapestPrice by produceState<String?>(null, billing) {
+        value = billing.subscriptionPriceLabel()
+    }
+    val proEntry = when {
+        !billing.isAvailable -> null
+        subscription != null -> ProEntryUi(
+            subtitle = if (subscription!!.willRenew) "Renews ${shortDate(subscription!!.expiresAt)}"
+            else "Ends ${shortDate(subscription!!.expiresAt)}",
+            isSubscribed = true,
+        )
+        // No price yet is not a reason to invent one, so the row says what Pro does instead.
+        cheapestPrice == null -> ProEntryUi("Unlimited receipt scans in every group", isSubscribed = false)
+        else -> ProEntryUi("Unlimited receipt scans, from $cheapestPrice", isSubscribed = false)
+    }
+
     ProfileScreen(
+        proEntry = proEntry,
+        onOpenPro = onOpenPro,
         displayName = profile?.displayName ?: "You",
         email = profile?.email ?: "",
         baseCurrency = profile?.baseCurrency ?: "USD",

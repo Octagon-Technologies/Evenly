@@ -81,8 +81,23 @@ class RevenueCatBilling : ProBilling {
                 title = pkg.storeProduct.title,
                 // The store's own formatted string, never assembled here.
                 price = pkg.storeProduct.price.formatted,
+                priceMicros = pkg.storeProduct.price.amountMicros,
             )
         }
+
+    override suspend fun subscriptionPriceLabel(): String? {
+        if (!ProConfig.isConfigured) return null
+        configure()
+        val offering = runCatching {
+            Purchases.sharedInstance.awaitOfferings().get(ProConfig.SUBSCRIPTION_OFFERING)
+        }.getOrNull() ?: return null
+        // Monthly first because it is the smaller number, and "from" is only honest about the smallest
+        // one. The period word is ours; the price itself is always the store's own formatted string.
+        offering.monthly?.let { return "${it.storeProduct.price.formatted} a month" }
+        offering.annual?.let { return "${it.storeProduct.price.formatted} a year" }
+        return offering.availablePackages.minByOrNull { it.storeProduct.price.amountMicros }
+            ?.storeProduct?.price?.formatted
+    }
 
     override suspend fun buyPass(packageId: String, groupId: String): PassPurchaseOutcome {
         val pkg = passOffering()?.availablePackages?.firstOrNull { it.identifier == packageId }
@@ -121,6 +136,7 @@ object NoProBilling : ProBilling {
     override val isAvailable: Boolean get() = false
     override fun bind(scope: CoroutineScope, userId: StateFlow<UserId?>) = Unit
     override suspend fun passOffers(): List<PassOffer> = emptyList()
+    override suspend fun subscriptionPriceLabel(): String? = null
     override suspend fun buyPass(packageId: String, groupId: String) = PassPurchaseOutcome.Failed(null)
     override suspend fun restore(): Boolean = false
 }

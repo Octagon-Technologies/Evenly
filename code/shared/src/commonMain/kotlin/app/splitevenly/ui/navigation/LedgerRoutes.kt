@@ -12,6 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
@@ -232,7 +233,14 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
         }
     }
 
+    // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
+    // navigating away: the person is mid-expense, and leaving this screen to buy would lose the draft.
+    val proBilling = koinInject<ProBilling>()
+    var showPassSheet by remember { mutableStateOf(false) }
+
     AddExpenseScreen(
+        groupName = group?.name,
+        onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
         participants = participants,
         categories = categories,
         currencyCode = currency,
@@ -386,6 +394,15 @@ fun AddExpenseRoute(groupId: String, onBack: () -> Unit, onSaved: () -> Unit, on
             }
         },
     )
+
+    if (showPassSheet) {
+        PassSheetHost(
+            groupId = gid.value,
+            groupName = group?.name ?: "this group",
+            onDismiss = { showPassSheet = false },
+        )
+    }
+
 }
 
 /** OCR draft → the itemized editor's initial items + extras (never a name — the shared header owns that). */
@@ -445,7 +462,14 @@ fun EditExpenseRoute(groupId: String, expenseId: String, onBack: () -> Unit, onS
         )
     }
 
+    // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
+    // navigating away: the person is mid-expense, and leaving this screen to buy would lose the draft.
+    val proBilling = koinInject<ProBilling>()
+    var showPassSheet by remember { mutableStateOf(false) }
+
     AddExpenseScreen(
+        groupName = group?.name,
+        onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
         editing = true,
         participants = participants,
         categories = categories,
@@ -489,6 +513,15 @@ fun EditExpenseRoute(groupId: String, expenseId: String, onBack: () -> Unit, onS
             }
         },
     )
+
+    if (showPassSheet) {
+        PassSheetHost(
+            groupId = gid.value,
+            groupName = group?.name ?: "this group",
+            onDismiss = { showPassSheet = false },
+        )
+    }
+
 }
 
 /**

@@ -162,6 +162,10 @@ fun BillEditScreen(
     // Same meter as the add-expense hero, so a rescan from here counts visibly too (PRO_PASS_SPEC.md §8.1).
     scanMeter: ScanMeter? = null,
     scanState: ScanUiState = ScanUiState.Idle,
+    // Evenly Pro (PRO_PASS_SPEC.md §8.1): at zero free scans the refusal sheet grows a door. Both are
+    // null in the unconfigured build, and the sheet then reads exactly as it did before.
+    groupName: String? = null,
+    onGetPro: (() -> Unit)? = null,
     attachedReceipts: List<PickedReceiptUi> = emptyList(),
     onRemoveAttachedReceipt: (Int) -> Unit = {},
     // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
@@ -479,6 +483,8 @@ fun BillEditScreen(
                 onManual = onDismissScan,
                 onRetry = onRetryScan,
                 onPickAgain = { onDismissScan(); scanSource = true },
+                groupName = groupName,
+                onGetPro = onGetPro,
             )
             ScanUiState.Idle -> {}
         }
@@ -579,6 +585,10 @@ internal fun ScanErrorSheet(
     onManual: () -> Unit,
     onRetry: () -> Unit,
     onPickAgain: () -> Unit,
+    // Evenly Pro (PRO_PASS_SPEC.md §8.1). Null keeps the sheet exactly as it was, which is the
+    // unconfigured-RevenueCat build: no door named that cannot open.
+    groupName: String? = null,
+    onGetPro: (() -> Unit)? = null,
 ) {
     val c = EvenlyTheme.colors
     val icon = when (kind) {
@@ -608,8 +618,8 @@ internal fun ScanErrorSheet(
         ScanErrorKind.Unavailable -> "Receipt scanning isn't set up here. Add the bill by hand."
         ScanErrorKind.Error -> "The scan failed. Give it another try, or type it in."
         ScanErrorKind.Blocked -> "You've hit the scan limit for now. Try again in a bit, or type it in."
-        // No "buy a pass" action yet (step 5). Until then this says what happened and keeps the free
-        // path in front of the user, rather than naming a door that isn't built.
+        // Manual entry is named in the same breath as the paywall, deliberately: the refusal has to
+        // read as "want the fast way?" and never as "you cannot use the app".
         ScanErrorKind.OutOfScans -> "This group has used its free scans. You can still type the bill in."
     }
     EvSheetScaffold(onDismiss = onManual) {
@@ -634,9 +644,21 @@ internal fun ScanErrorSheet(
                     EvButton(text = "Enter manually", onClick = onManual, variant = ButtonVariant.Text)
                 }
             }
-            // Neither of these offers Retry: scanning is not coming back on this tap, so a Retry button
-            // would be a control that cannot do what it says.
-            ScanErrorKind.Unavailable, ScanErrorKind.OutOfScans -> {
+            // Out of scans is the one refusal with a door: Pro leads, manual entry stays right under it
+            // as a free exit rather than a consolation prize. Neither of these offers Retry: scanning is
+            // not coming back on this tap, so a Retry button would be a control that cannot do what it
+            // says.
+            ScanErrorKind.OutOfScans -> {
+                if (onGetPro != null) {
+                    EvButton(text = groupName?.let { "Get Pro for $it" } ?: "Get Evenly Pro", onClick = onGetPro)
+                    Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+                        EvButton(text = "Enter manually", onClick = onManual, variant = ButtonVariant.Text)
+                    }
+                } else {
+                    EvButton(text = "Enter manually", onClick = onManual)
+                }
+            }
+            ScanErrorKind.Unavailable -> {
                 EvButton(text = "Enter manually", onClick = onManual)
             }
             else -> {

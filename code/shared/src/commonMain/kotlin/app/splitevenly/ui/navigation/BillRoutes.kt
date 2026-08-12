@@ -12,6 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
@@ -210,8 +211,16 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         }
     }
 
+    // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
+    // navigating away: the person is mid-bill, and taking them off this screen to buy would lose the
+    // photo they just picked.
+    val billing = koinInject<ProBilling>()
+    var showPassSheet by remember { mutableStateOf(false) }
+
     BillEditScreen(
         editing = expenseId != null,
+        groupName = group?.name,
+        onGetPro = if (billing.isAvailable) ({ showPassSheet = true }) else null,
         initial = existing?.toEditState(),
         scanned = scanned,
         currencyCode = currency,
@@ -324,6 +333,15 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             }
         },
     )
+
+    if (showPassSheet) {
+        PassSheetHost(
+            groupId = gid.value,
+            groupName = group?.name ?: "this group",
+            onDismiss = { showPassSheet = false },
+        )
+    }
+
 }
 
 /** The assign screen — "who had what?". Assignments (incl. for people without the app) go through the

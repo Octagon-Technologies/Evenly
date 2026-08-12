@@ -18,6 +18,12 @@ data class PassOffer(
     val title: String,
     /** Localized and store-formatted: "$0.99", "KSh 129", "1,99 €". */
     val price: String,
+    /**
+     * The same price as a number, for arithmetic the label cannot do — the sheet's "best value" flag is
+     * cents per day, not invented popularity, and that has to keep working in every currency and after
+     * any dashboard price change. Never rendered.
+     */
+    val priceMicros: Long,
 )
 
 /** What a pass purchase produced, or why it did not. */
@@ -62,6 +68,13 @@ interface ProBilling {
 
     /** The three passes, in the dashboard's order, with localized prices. Empty if unconfigured. */
     suspend fun passOffers(): List<PassOffer>
+
+    /**
+     * The cheapest subscription price, localized and store-formatted ("$2.99 a month"), for the Profile
+     * row. Null when unconfigured or unreachable, in which case the row says what Pro *does* rather than
+     * inventing a number.
+     */
+    suspend fun subscriptionPriceLabel(): String?
 
     /**
      * Buy [packageId] for [groupId].

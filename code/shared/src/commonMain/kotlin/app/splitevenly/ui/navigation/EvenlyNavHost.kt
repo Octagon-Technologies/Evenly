@@ -72,6 +72,7 @@ fun EvenlyNavHost(
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
+                onOpenPro = { navController.navigate(Route.Pro) },
             )
         }
         composable<Route.NewGroup> {
@@ -254,9 +255,12 @@ fun EvenlyNavHost(
 
         // ── Settings / reconcile ────────────────────────────────────────
         composable<Route.GroupSettings> { entry ->
-            val sgGroupId = entry.toRoute<Route.GroupSettings>().groupId
+            val sgRoute = entry.toRoute<Route.GroupSettings>()
+            val sgGroupId = sgRoute.groupId
             GroupSettingsRoute(
                 groupId = sgGroupId,
+                openPassSheet = sgRoute.openPassSheet,
+                onOpenPro = { navController.navigate(Route.Pro) },
                 onBack = { navController.popBackStack() },
                 onLeft = { navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } } },
                 onReconcile = { navController.navigate(Route.Reconcile(sgGroupId)) },
@@ -272,6 +276,24 @@ fun EvenlyNavHost(
         }
         composable<Route.PaymentHandles> {
             PaymentHandlesRoute(onBack = { navController.popBackStack() })
+        }
+        composable<Route.Pro> {
+            ProRoute(
+                onBack = { navController.popBackStack() },
+                onPickGroupForPass = { navController.navigate(Route.ProGroupPicker) },
+            )
+        }
+        composable<Route.ProGroupPicker> {
+            ProGroupPickerRoute(
+                onBack = { navController.popBackStack() },
+                // Straight to that group's settings, which is where the pass sheet lives. One place owns
+                // the sheet, rather than a second copy of the buy flow hanging off the picker.
+                onPicked = { gid ->
+                    navController.navigate(Route.GroupSettings(gid, openPassSheet = true)) {
+                        popUpTo(Route.ProGroupPicker) { inclusive = true }
+                    }
+                },
+            )
         }
         composable<Route.Reconcile> { entry ->
             val r = entry.toRoute<Route.Reconcile>()

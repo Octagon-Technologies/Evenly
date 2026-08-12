@@ -13,9 +13,12 @@ import app.splitevenly.domain.pro.ProSource
 import app.splitevenly.domain.pro.ProStatus
 import app.splitevenly.domain.pro.proStatusOf
 import app.splitevenly.domain.repository.GroupProState
+import app.splitevenly.domain.repository.MySubscription
 import app.splitevenly.domain.repository.ProRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
@@ -60,6 +63,19 @@ class ProRepositoryImpl(
                 // not "is it now".
                 everHadPro = candidates.isNotEmpty(),
             )
+        }
+
+    override fun observeAll(groupIds: List<String>): Flow<Map<String, GroupProState>> {
+        if (groupIds.isEmpty()) return flowOf(emptyMap())
+        return combine(groupIds.map { id -> observe(id).map { id to it } }) { it.toMap() }
+    }
+
+    override fun observeMySubscription(userId: String): Flow<MySubscription?> =
+        subscriptionDao.observeForUser(userId).map { row ->
+            // Revoked (refund or chargeback) reads as "no subscription" here too, so the Profile row can
+            // never sit on PRO after the money came back.
+            row?.takeIf { it.revokedAt == null }
+                ?.let { MySubscription(period = it.period, expiresAt = it.expiresAt, willRenew = it.willRenew) }
         }
 
     override suspend fun refresh(groupId: String) {

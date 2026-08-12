@@ -6,6 +6,10 @@ import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.remote.supabase.PushController
 import app.splitevenly.data.remote.supabase.ReceiptStorage
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
+import app.splitevenly.data.remote.revenuecat.HttpPassActivationGateway
+import app.splitevenly.data.remote.revenuecat.HttpSubscriberSyncGateway
+import app.splitevenly.data.remote.revenuecat.PassActivationGateway
+import app.splitevenly.data.remote.revenuecat.SubscriberSyncGateway
 import app.splitevenly.data.remote.supabase.SupabaseConfig
 import app.splitevenly.data.remote.supabase.SupabaseReceiptStorage
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
@@ -89,6 +93,11 @@ val authModule = module {
         // The free-scan meter's read path. Unbound offline, where the meter simply doesn't appear:
         // a group's total can't be counted locally, and guessing it would put a wrong number on screen.
         single<ScanUsageGateway> { SupabaseScanUsageGateway(get<SupabaseClient>()) }
+        // Evenly Pro's two server calls (PRO_PASS_SPEC.md §6.1/§6.2). Bound only with Supabase, because
+        // both are edge functions authenticated as the user; without them a purchase is never started
+        // rather than started and silently lost.
+        single<PassActivationGateway> { HttpPassActivationGateway(get<HttpClient>(), accessTokenProvider = getOrNull()) }
+        single<SubscriberSyncGateway> { HttpSubscriberSyncGateway(get<HttpClient>(), accessTokenProvider = getOrNull()) }
     } else {
         single<AuthSession> { StubAuthSession(get()) }
     }

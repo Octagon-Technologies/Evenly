@@ -89,6 +89,7 @@ fun GroupSettingsScreen(
     // Null until Pro state has loaded, and on a group that has never held a pass: there is nothing
     // truthful to say yet, so the row is absent rather than empty (PRO_PASS_SPEC.md §8.3).
     proStatus: ProStatusUi? = null,
+    onProClick: () -> Unit = {},
     // Export (PRO_PASS_SPEC.md §3). The row stays live without Pro and explains on tap; [exportNote]
     // carries the trailing hint ("Pro") or the outcome of the last attempt.
     exporting: Boolean = false,
@@ -114,7 +115,7 @@ fun GroupSettingsScreen(
         ) {
             // Above "About": who paid for this group's Pro is a fact about the group, and burying it
             // under the settings list would defeat the point of naming them at all.
-            proStatus?.let { ProStatusRow(status = it) }
+            proStatus?.let { ProStatusRow(status = it, onClick = onProClick) }
 
             // ── About ──────────────────────────────────────────
             SettingsGroup("About") {
