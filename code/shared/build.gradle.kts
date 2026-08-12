@@ -156,6 +156,12 @@ kotlin {
             // Logging
             implementation(libs.kermit)
 
+            // Evenly Pro (PRO_PASS_SPEC.md §9). The paywall is built in RevenueCat's dashboard and
+            // rendered by `Paywall()` from -ui, which is the whole reason the subscription exists: layout,
+            // copy and price mix stay a dashboard change instead of an app release.
+            implementation(libs.purchases.kmp.core)
+            implementation(libs.purchases.kmp.ui)
+
             // Analytics — common PostHog API; Android/iOS both delegate to the native SDKs underneath.
             // api (not implementation): androidApp/ calls PostHogContext(application) directly from
             // EvenlyApplication.onCreate, before Koin starts, so it needs this on its own classpath.

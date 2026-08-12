@@ -17,6 +17,7 @@ import app.splitevenly.domain.auth.PLAY_REVIEW_DEMO_EMAIL
 import app.splitevenly.data.remote.supabase.SupabaseConfig
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AppForeground
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.isDebugBuild
 import io.github.jan.supabase.SupabaseClient
@@ -78,6 +79,9 @@ class SupabaseAuthSession(
     // Calls the apple-link-token / apple-revoke-token edge functions (Apple Sign In native plan §5 P4).
     // Optional-ctor-dep: unwired (tests) just skips both calls, same as no [analytics].
     private val httpClient: HttpClient? = null,
+    // RevenueCat's subscriber identity (PRO_PASS_SPEC.md §9). Optional-ctor-dep like the rest: tests and
+    // the offline build pass nothing and the SDK is simply never told who is signed in.
+    private val proBilling: ProBilling? = null,
 ) : AuthSession {
 
     private val _currentUserId = MutableStateFlow(client.auth.currentUserOrNull()?.id?.let(::UserId))
@@ -100,6 +104,11 @@ class SupabaseAuthSession(
         syncManager?.bind(scope, currentUserId, appForeground?.state ?: flowOf(true))
         // Push (F7): register the FCM token for the signed-in user + pull on delivered messages.
         pushController?.bind(scope, currentUserId)
+        // Evenly Pro: make the RevenueCat app user id OUR user id, which is what makes webhook
+        // attribution and support lookups possible. Bound here, next to the sync and push binds, rather
+        // than from each of the five sign-in paths — and the sign-out half matters just as much, or one
+        // device's subscription follows the next person who signs in on it.
+        proBilling?.bind(scope, currentUserId)
     }
 
     override suspend fun signIn(displayName: String): UserId {

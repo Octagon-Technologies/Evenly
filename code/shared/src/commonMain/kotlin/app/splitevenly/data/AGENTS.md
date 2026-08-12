@@ -308,6 +308,28 @@ picked, not inside the `ScanOutcome.Success` branch, and on a job separate from 
 scan must not cancel the staging. Attaching only on success silently threw the photo away on every
 failed, blocked, offline or cancelled scan.
 
+## RevenueCat wiring — unconfigured must be INERT
+
+`ProConfig` mirrors `SupabaseConfig`: two **public** SDK keys (one per store) and one `isConfigured`
+flag the whole feature hangs off. The **secret** key lives only in edge-function env and must never
+appear in `shared` or either app target.
+
+`ProBilling` is bound **unconditionally** in `appModule` — `RevenueCatBilling` when configured,
+`NoProBilling` otherwise — so no caller ever asks whether monetization is switched on. That is what
+keeps the promise that with no keys there is no paywall, no pass sheet, no meter change, and scans
+behave exactly as they do today; same contract as the app being fully usable with Supabase
+unconfigured. A `getOrNull` here would move that question into every call site.
+
+`Purchases.logIn` is bound to `currentUserId` in `SupabaseAuthSession.init`, beside the sync and push
+binds, so the RevenueCat app user id **is** our user id — that is what makes webhook attribution and
+support lookups possible. The sign-out half is not optional: without `logOut`, one device's
+subscription follows the next person who signs in on it.
+
+**Never hardcode a price.** Always render the `StoreProduct`'s formatted price; App Review rejects
+hardcoded prices and a non-US buyer must see their own currency. Offerings drive both surfaces, so
+nothing about the package mix belongs in Kotlin beyond a fallback ordering, or a pricing experiment
+stops being a dashboard change.
+
 ## Supabase client wiring
 
 Plugins bind only when `SupabaseConfig.isConfigured` (real creds): Auth + Postgrest + Storage + Realtime.

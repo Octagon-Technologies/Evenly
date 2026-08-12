@@ -23,6 +23,7 @@ import app.splitevenly.data.remote.supabase.createEvenlySupabaseClient
 import app.splitevenly.data.upload.AccessTokenProvider
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.domain.auth.AuthSession
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.PushService
 import app.splitevenly.platform.EvAnalytics
@@ -52,6 +53,7 @@ val authModule = module {
                 get<SupabaseClient>(), get(), get<SyncEngine>(), get<SyncManager>(), get<PushController>(), get<AppForeground>(),
                 analytics = getOrNull<EvAnalytics>(),
                 httpClient = get<HttpClient>(),
+                proBilling = get<ProBilling>(),
             )
         }
         // Receipt bytes (F5) go to Supabase Storage; bound only here, so the offline stub build has none.
