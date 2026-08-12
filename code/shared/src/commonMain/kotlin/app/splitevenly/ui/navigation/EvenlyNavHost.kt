@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
+import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.OnboardingScreen
 import app.splitevenly.ui.screen.expense.AddExpenseScreen
@@ -72,7 +73,7 @@ fun EvenlyNavHost(
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
-                onOpenPro = { navController.navigate(Route.Pro) },
+                onOpenPro = { navController.navigate(Route.Pro(ProTriggers.PROFILE)) },
             )
         }
         composable<Route.NewGroup> {
@@ -260,7 +261,7 @@ fun EvenlyNavHost(
             GroupSettingsRoute(
                 groupId = sgGroupId,
                 openPassSheet = sgRoute.openPassSheet,
-                onOpenPro = { navController.navigate(Route.Pro) },
+                onOpenPro = { trigger -> navController.navigate(Route.Pro(trigger)) },
                 onBack = { navController.popBackStack() },
                 onLeft = { navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } } },
                 onReconcile = { navController.navigate(Route.Reconcile(sgGroupId)) },
@@ -277,8 +278,9 @@ fun EvenlyNavHost(
         composable<Route.PaymentHandles> {
             PaymentHandlesRoute(onBack = { navController.popBackStack() })
         }
-        composable<Route.Pro> {
+        composable<Route.Pro> { entry ->
             ProRoute(
+                trigger = entry.toRoute<Route.Pro>().trigger,
                 onBack = { navController.popBackStack() },
                 onPickGroupForPass = { navController.navigate(Route.ProGroupPicker) },
             )

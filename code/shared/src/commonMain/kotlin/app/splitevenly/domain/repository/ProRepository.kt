@@ -35,6 +35,11 @@ data class MySubscription(
     val willRenew: Boolean,
 )
 
+/** What a group has spent of its free allowance, as the server last answered it. */
+data class FreeScanCount(val used: Int, val limit: Int) {
+    val remaining: Int get() = (limit - used).coerceAtLeast(0)
+}
+
 interface ProRepository {
 
     /** Live Pro state for a group. Reads only local rows, so it works offline and costs no round trip. */
@@ -56,6 +61,10 @@ interface ProRepository {
      * number labels a meter, and there is no version of "we could not load your scan count" worth
      * putting in front of someone who is trying to split a dinner. Enforcement is server-side either
      * way, so a stale label can never let an extra scan through.
+     *
+     * Returns the fresh count when it was read, so a caller that has just spent a scan can report the
+     * number the SERVER settled on rather than one it decremented itself. Null means the refresh did not
+     * happen, which is not the same as "zero used".
      */
-    suspend fun refresh(groupId: String)
+    suspend fun refresh(groupId: String): FreeScanCount?
 }

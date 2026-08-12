@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
@@ -108,6 +109,12 @@ fun ProSubscribedScreen(
             }
 
             EvButton(text = "Manage or cancel", onClick = onManage, variant = ButtonVariant.Secondary)
+            // Says it leaves the app, because it does. Being thrown into a system screen you did not
+            // expect is how someone cancels twice, or believes the cancel did not take.
+            Text(
+                if (isIOS()) "Opens your App Store subscriptions." else "Opens your Google Play subscriptions.",
+                Modifier.fillMaxWidth(), color = c.ink3, fontSize = 12.sp, textAlign = TextAlign.Center,
+            )
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 EvButton(
                     text = if (restoring) "Restoring…" else "Restore purchases",

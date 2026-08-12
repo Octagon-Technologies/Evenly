@@ -19,6 +19,7 @@ import app.splitevenly.domain.export.GroupExporter
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.pro.ProSource
+import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.pro.ExportNeedsProSheet
 import app.splitevenly.ui.screen.settings.ProStatusUi
 import app.splitevenly.platform.PlatformShare
@@ -36,7 +37,7 @@ fun GroupSettingsRoute(
     onLeft: () -> Unit,
     onReconcile: () -> Unit,
     onEditCategories: () -> Unit = {},
-    onOpenPro: () -> Unit = {},
+    onOpenPro: (trigger: String) -> Unit = {},
     /** Set by the pass group picker: that person already chose this group, so do not ask again. */
     openPassSheet: Boolean = false,
 ) {
@@ -129,9 +130,11 @@ fun GroupSettingsRoute(
         exporting = exporting,
         exportNote = exportNote ?: exportHint,
         onProClick = {
-            // A free group's row is the door to the paywall; a Pro group's row opens the pass sheet,
-            // which is where "extend it" lives. Either way the row does something.
-            if (proState?.status?.isPro == true) showPassSheet = true else onOpenPro()
+            // Always the pass sheet, never the subscription paywall. The row says "Get Pro for Ski
+            // Trip", and a group-named action that opens an all-groups recurring subscription is the
+            // pay/renew direction being ambiguous at the exact moment of commitment. The subscription
+            // is one named tap away inside the sheet, the same way the pass is from the paywall.
+            showPassSheet = true
         },
         onExportCsv = {
             // Checked against the local mirror BEFORE spending the round trip. The server gate is
@@ -198,12 +201,14 @@ fun GroupSettingsRoute(
         PassSheetHost(
             groupId = gid.value,
             groupName = group?.name ?: "this group",
+            trigger = ProTriggers.GROUP_SETTINGS,
+            onSeeSubscription = { onOpenPro(ProTriggers.GROUP_SETTINGS) },
             onDismiss = { showPassSheet = false },
         )
     }
     if (showExportPaywall) {
         ExportNeedsProSheet(
-            onSeePro = { showExportPaywall = false; onOpenPro() },
+            onSeePro = { showExportPaywall = false; onOpenPro(ProTriggers.EXPORT) },
             onDismiss = { showExportPaywall = false },
         )
     }

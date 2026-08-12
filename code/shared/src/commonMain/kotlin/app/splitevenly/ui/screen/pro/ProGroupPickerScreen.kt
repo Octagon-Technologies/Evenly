@@ -37,6 +37,14 @@ data class PickableGroupUi(
     /** "No free scans left" | "2 of 5 free scans left" | "Pro until 16 Aug". */
     val state: String,
     val isPro: Boolean,
+    /**
+     * Covered by someone's subscription, so a pass would buy this group nothing.
+     *
+     * Distinct from [isPro]: a group on a *pass* is still worth buying for, because a second pass
+     * extends it from the current expiry. Dimming those out of reach would contradict the extend sheet
+     * that exists for exactly that purchase.
+     */
+    val coveredBySubscription: Boolean = false,
 )
 
 /**
@@ -45,10 +53,12 @@ data class PickableGroupUi(
  * Reached **only** from the Profile entry point, and **only** for a pass: a subscription needs no group,
  * which is the thing that makes it simpler to explain than the pass.
  *
- * A group that is already Pro is **dimmed, not hidden**. Hiding it would read as the group having gone
- * missing; dimming it says "this one is already covered", which is the fact that stops someone buying a
- * second pass for it. It stays tappable, because the sheet behind it has a real thing to say (already
- * covered, or extend from the current expiry) and a dead row would be the silent dead end.
+ * A group covered by someone's **subscription** is dimmed, not hidden. Hiding it would read as the group
+ * having gone missing; dimming says "already covered", which is the fact that stops a wasted purchase.
+ * It stays tappable, because the sheet behind it says so explicitly rather than doing nothing.
+ *
+ * A group on a **pass** is not dimmed: buying again extends it from the current expiry, so it is a real
+ * purchase and dimming it would contradict the sheet that exists to make it.
  */
 @Composable
 fun ProGroupPickerScreen(
@@ -84,7 +94,7 @@ fun ProGroupPickerScreen(
                         .border(1.dp, c.border, shape)
                         .clickable { onPick(g.groupId) }
                         .padding(13.dp)
-                        .alpha(if (g.isPro) 0.55f else 1f),
+                        .alpha(if (g.coveredBySubscription) 0.55f else 1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(11.dp),
                 ) {
@@ -96,7 +106,7 @@ fun ProGroupPickerScreen(
                         Text(g.name, color = c.ink, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
                         Text(g.state, color = c.ink2, fontSize = 12.5.sp)
                     }
-                    if (g.isPro) {
+                    if (g.coveredBySubscription) {
                         Text("PRO", color = c.blueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
                     } else {
                         EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)

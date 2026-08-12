@@ -81,7 +81,10 @@ sealed interface Route {
     // it simpler to explain. The pass SHEET is not a route — it is opened as an overlay by whichever
     // surface asked for it (group settings, the scan sheet, the export sheet, the picker), so it never
     // takes over the back stack from the screen the buyer was actually on.
-    @Serializable data object Pro : Route
+    // [trigger] is analytics only (PRO_PASS_SPEC.md §12): which surface sent the user here is the
+    // difference between "the scan gate converts" and "the profile row converts", and it cannot be
+    // recovered after the fact. String, not an enum — an enum nav arg crashes the NavHost on Native.
+    @Serializable data class Pro(val trigger: String = "profile") : Route
     @Serializable data object ProGroupPicker : Route
     @Serializable data class Reconcile(val groupId: String) : Route
 }

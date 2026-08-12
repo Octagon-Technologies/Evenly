@@ -619,8 +619,11 @@ internal fun ScanErrorSheet(
         ScanErrorKind.Error -> "The scan failed. Give it another try, or type it in."
         ScanErrorKind.Blocked -> "You've hit the scan limit for now. Try again in a bit, or type it in."
         // Manual entry is named in the same breath as the paywall, deliberately: the refusal has to
-        // read as "want the fast way?" and never as "you cannot use the app".
-        ScanErrorKind.OutOfScans -> "This group has used its free scans. You can still type the bill in."
+        // read as "want the fast way?" and never as "you cannot use the app". The photo is named
+        // because it is KEPT either way (pages are staged when picked, not on a successful scan), and
+        // someone who just framed a receipt in a restaurant assumes a refusal threw that work away.
+        ScanErrorKind.OutOfScans ->
+            "This group has used its free scans. Your photo is saved either way, and you can still type the bill in."
     }
     EvSheetScaffold(onDismiss = onManual) {
         Box(

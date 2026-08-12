@@ -40,10 +40,15 @@ sealed interface PassSheetMode {
     data class Extend(val currentExpiresOn: String, val holderName: String?) : PassSheetMode
 
     /**
-     * This group is already Pro because of the viewer's **own** subscription. No purchase is offered at
+     * This group is already Pro because **someone's** subscription covers it. No purchase is offered at
      * all: selling someone something they already have is how a money app loses trust (§5.4).
+     *
+     * It is not only the viewer's own subscription that has to be caught here. A pass bought for a group
+     * a flatmate already covers buys nothing — and unlike a subscription it cannot be cancelled or
+     * refunded on the way out, so nothing later corrects the mistake. [subscriberName] is null when the
+     * payer has left the group or cannot be resolved.
      */
-    data object AlreadySubscribed : PassSheetMode
+    data class AlreadySubscribed(val subscriberName: String?, val isMe: Boolean) : PassSheetMode
 }
 
 /** Where the sheet is in the buy-then-activate round trip. */
@@ -88,12 +93,18 @@ fun PassSheet(
     onSelect: (String) -> Unit,
     onBuy: () -> Unit,
     onRetryActivation: () -> Unit,
+    onRetryOffers: () -> Unit,
+    /** The mirror of the paywall's "Only need it for one trip?": whichever door someone came through,
+     *  the other one is one tap away and named. Null where there is nowhere to send them without
+     *  losing work (mid-bill in an editor), and then the line is absent rather than dead. */
+    onSeeSubscription: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val selectedOffer = offers.firstOrNull { it.packageId == selectedPackageId }
     EvSheetScaffold(onDismiss = onDismiss) {
         if (mode is PassSheetMode.AlreadySubscribed) {
-            AlreadyCoveredBody(groupName, onDismiss)
+            AlreadyCoveredBody(groupName, mode, onDismiss)
             return@EvSheetScaffold
         }
         Text(
@@ -123,7 +134,11 @@ fun PassSheet(
                 Modifier.fillMaxWidth().padding(bottom = 14.dp),
                 color = c.ink2, fontSize = 13.5.sp, textAlign = TextAlign.Center,
             )
-            EvButton(text = "Close", onClick = onDismiss, variant = ButtonVariant.Secondary)
+            // A transient price fetch, so the retry is real rather than a Close dressed up as one.
+            EvButton(text = "Try again", onClick = onRetryOffers, variant = ButtonVariant.Secondary)
+            Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+                EvButton(text = "Close", onClick = onDismiss, variant = ButtonVariant.Text)
+            }
             return@EvSheetScaffold
         }
 
@@ -145,10 +160,14 @@ fun PassSheet(
         Box(Modifier.padding(top = 12.dp)) {
             when (phase) {
                 PassSheetPhase.Charged -> EvButton(text = "Turn on Pro", onClick = onRetryActivation)
+                // The button carries the AMOUNT, not just the verb. Three tiers four times apart, a
+                // noisy restaurant and no confirmation step after this: a verb with no price on it is
+                // the one control here that must not make someone look back up the screen.
                 else -> EvButton(
                     text = when {
                         phase == PassSheetPhase.Working -> "Working…"
                         mode is PassSheetMode.Extend && extendToLabel != null -> "Extend to $extendToLabel"
+                        selectedOffer != null -> "Get ${selectedOffer.title} for ${selectedOffer.price}"
                         else -> "Get Pro for $groupName"
                     },
                     onClick = onBuy,
@@ -162,7 +181,11 @@ fun PassSheet(
         when (phase) {
             // The buyer must never be left wondering whether the money went somewhere. Says the charge
             // landed, and offers the retry that idempotency makes free.
-            PassSheetPhase.Charged -> Note("Payment went through. Turning on Pro didn't finish, tap again.", c.warning)
+            // "You will not be charged again" is the half of this the buyer actually needs. Without it
+            // the sentence creates exactly the fear that stops them tapping, and they end up having paid
+            // for nothing. It is true by construction: activation is idempotent on the transaction id.
+            PassSheetPhase.Charged ->
+                Note("Payment went through. Turning on Pro didn't finish. Tap again, you won't be charged twice.", c.warning)
             is PassSheetPhase.Failed -> Note(phase.message ?: "That didn't go through. Nothing was charged.", c.danger)
             else -> Unit
         }
@@ -177,11 +200,24 @@ fun PassSheet(
                 is PassSheetMode.Extend ->
                     (mode.holderName?.let { "$it's pass runs to ${mode.currentExpiresOn}. Yours picks up from there." }
                         ?: "The current pass runs to ${mode.currentExpiresOn}. Yours picks up from there.")
-                else -> "Covers everyone in this group. You can still add bills by hand for free."
+                // Export is named because a pass DOES cover it: someone who bought a pass and then hit
+                // the export gate would have been sold something they already had.
+                else -> "Covers everyone in this group, scans and export. You can still add bills by hand for free."
             },
             Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp),
             color = c.ink3, fontSize = 12.sp, textAlign = TextAlign.Center,
         )
+        onSeeSubscription?.let { seePro ->
+            Box(
+                Modifier.fillMaxWidth().clickable(onClick = seePro).padding(top = 10.dp, bottom = 2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "In more than one group? See Evenly Pro",
+                    color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
 }
 
@@ -195,7 +231,11 @@ private fun Note(text: String, color: androidx.compose.ui.graphics.Color) {
 }
 
 @Composable
-private fun AlreadyCoveredBody(groupName: String, onDismiss: () -> Unit) {
+private fun AlreadyCoveredBody(
+    groupName: String,
+    mode: PassSheetMode.AlreadySubscribed,
+    onDismiss: () -> Unit,
+) {
     val c = EvenlyTheme.colors
     Text(
         "$groupName is already Pro",
@@ -203,11 +243,16 @@ private fun AlreadyCoveredBody(groupName: String, onDismiss: () -> Unit) {
         color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold,
     )
     Text(
-        "Your Evenly Pro subscription covers this group, so there is nothing to buy here.",
+        when {
+            mode.isMe -> "Your Evenly Pro subscription covers this group, so there is nothing to buy here."
+            mode.subscriberName != null ->
+                "${mode.subscriberName}'s Evenly Pro subscription covers this group, so there is nothing to buy here."
+            else -> "Someone here subscribes to Evenly Pro, so this group is covered and there is nothing to buy."
+        },
         Modifier.fillMaxWidth().padding(bottom = 16.dp),
         color = c.ink2, fontSize = 13.5.sp,
     )
-    EvButton(text = "Got it", onClick = onDismiss, variant = ButtonVariant.Secondary)
+    EvButton(text = "Back to $groupName", onClick = onDismiss, variant = ButtonVariant.Secondary)
 }
 
 @Composable

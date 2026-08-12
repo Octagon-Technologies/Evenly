@@ -37,6 +37,7 @@ import app.splitevenly.domain.receipt.ScanOutcome
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.AnalyticsEvents
+import app.splitevenly.platform.ProTriggers
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
 import app.splitevenly.platform.PickKind
@@ -206,8 +207,19 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                 }
             }
             // A successful scan is what moves the count, so re-read it rather than decrementing
-            // locally: the server is the only place that knows what actually counted.
-            pro.refresh(gid.value)
+            // locally: the server is the only place that knows what actually counted. That refreshed
+            // number is also the only honest source for `free_scan_used` (PRO_PASS_SPEC.md §12) —
+            // computing it from the pre-scan value would report a scan the server may not have counted.
+            pro.refresh(gid.value)?.let { count ->
+                analytics?.capture(
+                    AnalyticsEvents.FREE_SCAN_USED,
+                    mapOf(
+                        "group_id" to gid.value,
+                        "scans_used" to count.used,
+                        "scans_remaining" to count.remaining,
+                    ),
+                )
+            }
         }
     }
 
@@ -268,7 +280,14 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             scanState = ScanUiState.Idle
         },
         onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
-        onDismissScan = { scanState = ScanUiState.Idle },
+        onDismissScan = {
+            // The honest counterpart to conversion rate: how many people the gate pushed onto the slow
+            // path. Only fired for the quota refusal, never for an offline or unreadable-photo dismissal.
+            if ((scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
+                analytics?.capture(AnalyticsEvents.MANUAL_ENTRY_AFTER_PAYWALL, mapOf("group_id" to gid.value))
+            }
+            scanState = ScanUiState.Idle
+        },
         onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
         onSave = { submit ->
             val me = userId ?: return@BillEditScreen
@@ -338,6 +357,11 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         PassSheetHost(
             groupId = gid.value,
             groupName = group?.name ?: "this group",
+            trigger = ProTriggers.SCAN,
+            // No subscription link from inside an editor: leaving a half-typed bill to browse a
+            // recurring plan would lose the draft, and a link that costs someone their work is worse
+            // than one that isn't there. The Profile row is the door for that.
+            onSeeSubscription = null,
             onDismiss = { showPassSheet = false },
         )
     }

@@ -12,6 +12,7 @@ import app.splitevenly.domain.pro.ProCandidate
 import app.splitevenly.domain.pro.ProSource
 import app.splitevenly.domain.pro.ProStatus
 import app.splitevenly.domain.pro.proStatusOf
+import app.splitevenly.domain.repository.FreeScanCount
 import app.splitevenly.domain.repository.GroupProState
 import app.splitevenly.domain.repository.MySubscription
 import app.splitevenly.domain.repository.ProRepository
@@ -78,9 +79,9 @@ class ProRepositoryImpl(
                 ?.let { MySubscription(period = it.period, expiresAt = it.expiresAt, willRenew = it.willRenew) }
         }
 
-    override suspend fun refresh(groupId: String) {
-        val gateway = scanUsageGateway ?: return
-        val fresh = runCatching { gateway.usage(groupId) }.getOrNull() ?: return
+    override suspend fun refresh(groupId: String): FreeScanCount? {
+        val gateway = scanUsageGateway ?: return null
+        val fresh = runCatching { gateway.usage(groupId) }.getOrNull() ?: return null
         scanUsageDao.upsert(
             GroupScanUsageEntity(
                 groupId = groupId,
@@ -89,6 +90,7 @@ class ProRepositoryImpl(
                 fetchedAt = Clock.System.nowEpochMillis(),
             ),
         )
+        return FreeScanCount(used = fresh.freeUsed, limit = fresh.freeLimit)
     }
 
     private companion object {

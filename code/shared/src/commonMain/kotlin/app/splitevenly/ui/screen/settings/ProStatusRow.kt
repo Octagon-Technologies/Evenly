@@ -87,10 +87,13 @@ fun ProStatusRow(
         // The reason to care, said as a fact about this group rather than as a pitch. A group with scans
         // left is told that instead, because "no free scans left" would be a lie to it.
         is ProStatusUi.Free -> when {
-            // The count is not known yet (never fetched for this group). Says what the row buys rather
-            // than a number it would then have to correct.
-            status.scansLeft == null -> "Unlimited receipt scans and export"
-            status.scansLeft <= 0 -> "No free scans left"
+            // The count is not known yet (never fetched for this group). Says so, rather than a benefit
+            // line that reads as if the group already has it.
+            status.scansLeft == null -> "Checking free scans…"
+            // Never "No free scans left" on its own. Standing alone under a buy prompt it reads as the
+            // group having broken, which is exactly the false loss the "Pro ended" line was written to
+            // avoid. Typing a bill in stays free forever and that is the counterweight.
+            status.scansLeft <= 0 -> "No free scans left. You can still type bills in."
             else -> "${status.scansLeft} of ${status.freeLimit} free scans left"
         }
         ProStatusUi.Ended -> "Your bills and receipts are all still here."

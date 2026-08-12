@@ -168,6 +168,24 @@ and do not hardcode a price anywhere: every price on screen is the store's own l
 `StoreProduct` string, which App Review requires and a non-US buyer needs. The **group-pass sheet**
 (`ui/screen/pro/PassSheet.kt`) is ours only because RevenueCat cannot render consumables.
 
+**A door that names a group opens the group-scoped product.** Found by the cold `ux-firsttimer` walk,
+and it is the pay/renew direction being ambiguous at the moment of commitment: "Get Pro for Ski Trip"
+opening an all-groups recurring subscription is the worst mislabel this feature can produce. So the
+group-settings row and the out-of-scans sheet open the **pass sheet**, and each product's sheet names
+the other one exit ("Only need it for one trip?" on the paywall, "In more than one group? See Evenly
+Pro" on the pass sheet). That second link is **null inside an editor** rather than dead: leaving a
+half-typed bill to browse a subscription would lose the draft.
+
+**Never offer a pass for a group a subscription already covers** — anyone's, not just your own. A pass
+cannot be cancelled or refunded, so nothing later corrects the mistake, and extending from a
+subscription's expiry would sell dead time against someone else's private renewal date. A group on a
+*pass* is the opposite case and must stay buyable: a second pass extends it.
+
+**A money button carries the amount, not just the verb.** Three tiers four times apart with no
+confirmation step after them; a button reading only "Get Pro" makes someone look back up the screen in
+a noisy restaurant. Same rule for the half-success line: it must say the charge landed **and** that
+tapping again cannot charge twice, which idempotency makes true.
+
 **Every Pro surface is absent, not disabled, when RevenueCat is unconfigured.** The Profile row, the
 scan sheet's Pro button and the paywall all key off `ProBilling.isAvailable`; a door that cannot open is
 worse than no door. `ProStatusRow` is the one exception and is always shown, because a *free group* used

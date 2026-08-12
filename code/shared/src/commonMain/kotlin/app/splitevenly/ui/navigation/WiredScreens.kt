@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.produceState
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.domain.pro.ProBilling
+import app.splitevenly.domain.repository.MySubscription
 import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.ui.screen.settings.ProEntryUi
 import org.koin.compose.koinInject
@@ -387,6 +388,12 @@ fun HomeGateRoute(
     }
 }
 
+/** "Yearly, renews 11 Aug" — the one phrasing both the Profile row and the Pro screen use. */
+private fun subscriptionLine(sub: MySubscription): String {
+    val period = if (sub.period == "annual") "Yearly" else "Monthly"
+    return "$period, ${if (sub.willRenew) "renews" else "ends"} ${shortDate(sub.expiresAt)}"
+}
+
 @Composable
 fun ProfileRoute(
     onBack: () -> Unit,
@@ -420,9 +427,11 @@ fun ProfileRoute(
     }
     val proEntry = when {
         !billing.isAvailable -> null
+        // The SAME sentence the Pro screen shows, plan word included. Two screens one tap apart
+        // describing one subscription in different words is what makes an anxious subscriber believe
+        // they are paying for two things.
         subscription != null -> ProEntryUi(
-            subtitle = if (subscription!!.willRenew) "Renews ${shortDate(subscription!!.expiresAt)}"
-            else "Ends ${shortDate(subscription!!.expiresAt)}",
+            subtitle = subscriptionLine(subscription!!),
             isSubscribed = true,
         )
         // No price yet is not a reason to invent one, so the row says what Pro does instead.
