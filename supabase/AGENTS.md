@@ -216,6 +216,29 @@ The RPC is `security definer`, re-derives the caller's ACTIVE membership, and is
 mirrors `extract-receipt`'s `FREE_SCANS_PER_GROUP`; the env var is the enforcing copy, so a divergence
 mislabels a meter and never changes a refusal.
 
+## The two Evenly Pro purchase functions (`PRO_PASS_SPEC.md` §6)
+
+Both share `_shared/revenuecat.ts`, which reads **v1 `/subscribers/{app_user_id}`** rather than the v2
+customer endpoints the spec names: v2 returns subscriptions and entitlements only, and `activate-pass`
+has to verify a **consumable**, which appears only in v1's `non_subscriptions`. The **secret** key lives
+only in edge-function env; the apps carry the public SDK keys.
+
+- **`sync-subscriber`** takes **no body**. It resolves the caller from their JWT, asks RevenueCat what
+  that subscriber owns, and upserts `user_subscriptions`. With no client-supplied transaction id there is
+  nothing to forge and nothing to make idempotent, which is what makes it safe on every launch and what
+  lets it double as **Restore** with no separate code path. It **fails closed**: an unreachable
+  RevenueCat is a 503, never "no entitlement found, so expire them", which would un-Pro every paying
+  customer during an outage. A lapsed subscription **expires** the row rather than deleting it, because
+  the row is also how the app says "ended 16 Aug".
+- **`activate-pass`** is the one that must accept a client-supplied `groupId`: the group binding exists
+  nowhere in the store's data model. Everything else is verified. It scopes the transaction lookup to
+  **the caller's own** subscriber document, so a transaction id alone is not proof of ownership; it
+  refuses a product that is not one of the three passes rather than guessing a duration; and the
+  durations are **ours**, stamped on the server clock, because a consumable receipt says nothing about
+  how long it lasts and a wound-back device clock would otherwise be a free month. Stacking starts at the
+  group's current pass expiry, not at now. A unique-violation on `(store, store_txn_id)` is re-read and
+  returned as **success** — that is the idempotency key doing its job, not a failure.
+
 ## RLS — currently permissive, and that is a P0 before prod
 
 The loop at `schema.sql:591` generates `for all to authenticated using (true) with check (true)` for every
@@ -260,6 +283,8 @@ tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its S
 | `notify_admin_of_conflicts` | **Directory is EMPTY**; legacy, tied to the retired conflicts model |
 | `apple-link-token`          | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
 | `apple-revoke-token`        | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
+| `sync-subscriber`           | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
+| `activate-pass`             | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
 
 `apple-link-token`/`apple-revoke-token` (Apple Sign In native plan §5 P4, Guideline 5.1.1(v)) exchange a
 native Apple authorization code for a refresh token on sign-in and revoke it on account deletion, stored
