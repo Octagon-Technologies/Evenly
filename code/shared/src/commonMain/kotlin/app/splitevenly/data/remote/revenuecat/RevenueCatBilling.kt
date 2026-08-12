@@ -82,6 +82,7 @@ class RevenueCatBilling : ProBilling {
                 // The store's own formatted string, never assembled here.
                 price = pkg.storeProduct.price.formatted,
                 priceMicros = pkg.storeProduct.price.amountMicros,
+                currency = pkg.storeProduct.price.currencyCode,
             )
         }
 

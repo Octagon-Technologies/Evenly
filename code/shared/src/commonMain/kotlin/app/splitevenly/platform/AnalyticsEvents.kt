@@ -52,9 +52,17 @@ object AnalyticsEvents {
     // The counts here come from the server's own post-scan answer, never from decrementing a local
     // number: the client cannot tell a scan that counted from one that did not.
     const val FREE_SCAN_USED = "free_scan_used"
-    const val PAYWALL_SHOWN = "paywall_shown"
-    const val PAYWALL_DISMISSED = "paywall_dismissed"
-    const val PASS_SHEET_SHOWN = "pass_sheet_shown"
+
+    // ── The purchase funnel: ONE spine across BOTH doors ──────────────────────────────────────────
+    // §12 named `paywall_shown` and `pass_sheet_shown` separately. They are deliberately collapsed into
+    // `pro_offer_shown` with a `surface` property instead, because the scan gate opens our own pass
+    // sheet rather than RevenueCat's paywall: with two event names, the one question that routing
+    // decision creates — does the pass door convert better than the subscription door? — needs two
+    // reports that cannot be laid over each other. Every property §12 asked for survives as a property.
+    // See `domain/pro/ProFunnel.kt` for the shape.
+    const val PRO_OFFER_SHOWN = "pro_offer_shown"
+    const val PRO_OFFER_SELECTED = "pro_offer_selected"
+    const val PRO_OFFER_DISMISSED = "pro_offer_dismissed"
     const val PURCHASE_STARTED = "purchase_started"
     const val PURCHASE_ACTIVATED = "purchase_activated"
     const val PURCHASE_ACTIVATION_FAILED = "purchase_activation_failed"
@@ -73,6 +81,12 @@ object AnalyticsEvents {
     // `scans_during` property needs a server-side count over `receipt_scan_log` as well. It belongs in a
     // scheduled server job, not in a Composable, and inventing a client approximation of it would put a
     // wrong number in the funnel that reads exactly like a right one.
+}
+
+/** Person-level properties: slow-moving facts a funnel segments by, not repeated on every event. */
+object AnalyticsPerson {
+    const val IS_SUBSCRIBER = "is_pro_subscriber"
+    const val SUBSCRIPTION_PERIOD = "pro_period"
 }
 
 /** Where a paywall or pass sheet was opened from (`trigger` in §12). */

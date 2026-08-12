@@ -186,6 +186,24 @@ confirmation step after them; a button reading only "Get Pro" makes someone look
 a noisy restaurant. Same rule for the half-success line: it must say the charge landed **and** that
 tapping again cannot charge twice, which idempotency makes true.
 
+**Both Pro doors emit ONE event spine, separated only by `surface`.** Because the scan gate opens our
+sheet instead of RevenueCat's paywall, RevenueCat's analytics and Experiments never see the
+highest-intent door, and PostHog carries that load instead. `pro_offer_shown` / `pro_offer_selected` /
+`pro_offer_dismissed` / `purchase_started` / `purchase_activated` are shared by both surfaces, built in
+`domain/pro/ProFunnel.kt` so four call sites cannot drift. **Do not add a surface-specific
+`paywall_shown` back** — two event names make "does the pass door convert better?" two reports that
+cannot be laid over each other, which is the one question the routing decision created. Every new event
+also goes in `.posthog-events.json`; a missing catalogue entry is an incomplete change.
+
+`purchase_activated` fires on **activation, not on the charge**: a purchase the server never turned into
+an entitlement is not a conversion, and counting it as one hides the failure the retry flow exists for.
+
+**The pass sheet is remotely tunable through the `pro_pass_sheet` PostHog flag** (order, preselected
+tier, best-value flag), which is the stand-in for the paywall editor RevenueCat cannot point at a
+consumable. Every field defaults to today's behaviour, so a missing flag or a malformed payload renders
+the sheet we would have rendered anyway — a pricing screen must never fail to draw because an experiment
+did not load.
+
 **Every Pro surface is absent, not disabled, when RevenueCat is unconfigured.** The Profile row, the
 scan sheet's Pro button and the paywall all key off `ProBilling.isAvailable`; a door that cannot open is
 worse than no door. `ProStatusRow` is the one exception and is always shown, because a *free group* used

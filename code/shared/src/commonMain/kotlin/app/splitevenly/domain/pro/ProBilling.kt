@@ -24,6 +24,9 @@ data class PassOffer(
      * any dashboard price change. Never rendered.
      */
     val priceMicros: Long,
+    /** ISO 4217, from the store. Lets the funnel compare a $0.99 pass with a KSh 129 one instead of
+     *  silently averaging two different units into one meaningless number. */
+    val currency: String,
 )
 
 /** What a pass purchase produced, or why it did not. */

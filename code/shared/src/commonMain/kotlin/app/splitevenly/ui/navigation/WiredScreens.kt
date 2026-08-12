@@ -55,6 +55,9 @@ import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.repository.MySubscription
 import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.ui.screen.settings.ProEntryUi
+import app.splitevenly.platform.AnalyticsPerson
+import app.splitevenly.platform.EvAnalytics
+import app.splitevenly.platform.FeatureFlags
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -418,6 +421,7 @@ fun ProfileRoute(
     // string: a Pro entry that makes you tap to find out what it costs reads as a trap. With RevenueCat
     // unconfigured the whole row is absent rather than leading somewhere that cannot sell anything.
     val billing = koinInject<ProBilling>()
+    val analytics = koinInject<EvAnalytics>()
     val pro = koinInject<ProRepository>()
     val subscription by remember(userId) {
         userId?.let { pro.observeMySubscription(it.value) } ?: flowOf(null)
@@ -425,6 +429,21 @@ fun ProfileRoute(
     val cheapestPrice by produceState<String?>(null, billing) {
         value = billing.subscriptionPriceLabel()
     }
+    // Slow-moving facts the funnel segments by, set on the PERSON rather than repeated on every event.
+    // Also the moment to refresh flags: before this, the person's experiment arm was decided against an
+    // anonymous id, so a subscriber could land in the wrong arm of a pricing test.
+    val flags = koinInject<FeatureFlags>()
+    LaunchedEffect(subscription, userId) {
+        if (userId == null) return@LaunchedEffect
+        analytics.setPersonProperties(
+            mapOf(
+                AnalyticsPerson.IS_SUBSCRIBER to (subscription != null),
+                AnalyticsPerson.SUBSCRIPTION_PERIOD to (subscription?.period ?: "none"),
+            ),
+        )
+        flags.reload()
+    }
+
     val proEntry = when {
         !billing.isAvailable -> null
         // The SAME sentence the Pro screen shows, plan word included. Two screens one tap apart
