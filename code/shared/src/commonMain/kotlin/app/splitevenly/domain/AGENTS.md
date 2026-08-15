@@ -28,9 +28,12 @@ source of truth for itemized money; `BillRepositoryImpl.materializeShares` only 
 - a **shared slice** is a set of `item_shares` rows sharing a `portion_id` + `quantity`.
 
 MULTIPLE distinct slices coexist on one line — "Andrew ×2, Bob ×3, {Bob,Mary} ×1, 2 left" — which the old
-single all-leftover set could not express. A person is in at most one shared slice per line (enforced by the
-active `(item_id,user_id)` unique index). A **null `portion_id` is a legacy all-leftover slice** and must
-keep reading byte-identically, so old bills are unchanged.
+single all-leftover set could not express. **A person can hold several slices of the same line at once** —
+solo on one serving, sharing another — because the active unique index is `(item_id, user_id, portion_id)`,
+per-portion and not per-item (`schema.sql`, `ItemShareEntity`). The older "at most one shared slice per
+line, keyed `(item_id, user_id)`" written here described an index that does not exist. A **null
+`portion_id` is a legacy all-leftover slice** and must keep reading byte-identically, so old bills are
+unchanged.
 
 The portions path is penny-exact and returns `perItemByUser` (the per-line "who pays what"). Leftover units
 reconcile as UNCLAIMED. Over-claim is **surfaced, not capped** — `ItemStatus` is RESOLVED / UNCLAIMED /

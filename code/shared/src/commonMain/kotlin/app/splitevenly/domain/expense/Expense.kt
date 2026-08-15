@@ -7,8 +7,8 @@ import app.splitevenly.core.id.UserId
 /**
  * Domain view of an expense (02 §3.7). [amountSubunits] is always positive (a refund's meaning is
  * carried by `kind` + participants, not a sign). [expenseDate] is the local calendar date as an
- * ISO-8601 string ("YYYY-MM-DD"). [status] is the denormalized value owned by
- * [app.splitevenly.data.db.computeExpenseStatus].
+ * ISO-8601 string ("YYYY-MM-DD"). [status] is ACTIVE or DELETED only — settlement state is derived
+ * on read, never stored (see [app.splitevenly.data.db.entity.ExpenseEntity]).
  */
 data class Expense(
     val id: ExpenseId,

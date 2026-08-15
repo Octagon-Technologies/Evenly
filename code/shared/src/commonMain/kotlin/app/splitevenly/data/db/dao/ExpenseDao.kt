@@ -46,10 +46,6 @@ interface ExpenseDao {
     )
     fun observeByGroup(groupId: String): Flow<List<ExpenseEntity>>
 
-    /** Persist the recomputed denormalized status (02 §7.5). */
-    @Query("UPDATE expenses SET status = :status, updated_at = :updatedAt WHERE id = :id")
-    suspend fun updateStatus(id: String, status: String, updatedAt: Long)
-
     // Payer reassignment and the post-merge split_version touch live in [PlaceholderMergeDao]: they are
     // steps of the placeholder merge and have to run inside its transaction, not next to it.
 

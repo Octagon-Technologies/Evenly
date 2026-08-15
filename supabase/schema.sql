@@ -288,6 +288,10 @@ create index if not exists item_shares_expense_idx on public.item_shares (expens
 create index if not exists item_shares_group_idx on public.item_shares (group_id);
 -- A person can be in more than one portion of the same line at once (per-serving assignment: solo on
 -- one serving, shared with someone else on another) — the uniqueness key is per-portion, not per-item.
+-- The per-ITEM index below it replaced is already gone from this file, so a from-scratch apply is clean;
+-- this drop is only for a legacy environment reapplying the file, where the old index would still be
+-- live and would reject exactly the per-serving assignment the new one is here to allow.
+drop index if exists item_shares_item_user_active_uidx;
 create unique index if not exists item_shares_item_user_portion_active_uidx
   on public.item_shares (item_id, user_id, portion_id) where deleted_at is null;
 

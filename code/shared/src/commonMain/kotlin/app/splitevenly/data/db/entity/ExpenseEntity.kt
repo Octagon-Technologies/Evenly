@@ -13,8 +13,10 @@ import kotlinx.serialization.Serializable
  * `expense_date` is the local **calendar** date, stored as an ISO-8601 `TEXT` (e.g. "2026-06-08")
  * so it never drifts across time zones — unlike the epoch-ms `Long` used for true timestamps.
  *
- * `status` is denormalized (02 §6). Postgres maintains it by trigger; locally we recompute it in
- * app code on insert/update (02 §7.5) via [app.splitevenly.data.db.computeExpenseStatus].
+ * `status` only ever holds ACTIVE or DELETED. It is NOT a settlement state: a share's `remaining` is
+ * derived on read from the non-voided settlement allocations, and an expense is settled iff every
+ * share's derived remaining is 0 (`data/AGENTS.md`). There is no stored settled flag to go stale, and
+ * `computeExpenseStatus` — which the old wording here pointed at — has never existed.
  */
 @Entity(
     tableName = "expenses",
