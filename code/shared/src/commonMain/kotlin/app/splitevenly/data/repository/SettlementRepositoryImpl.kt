@@ -11,6 +11,7 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.dao.HistoryEventDao
 import app.splitevenly.data.db.dao.SettlementDao
+import app.splitevenly.data.db.dao.SettlementReplaceRefused
 import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.SettlementAllocationEntity
@@ -200,23 +201,62 @@ class SettlementRepositoryImpl(
         if (newAmountSubunits > outstandingNow + thisApplied) {
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
         }
-        // Correct in place: void the old payment (soft-delete, Rule 1) then re-record the new amount,
+        // Correct in place: void the old payment (soft-delete, Rule 1) and re-record the new amount,
         // preserving the original payer, payee, currency, app, and notes.
+        //
+        // Both halves go through ONE `replaceSettlement` transaction. They used to be two separate
+        // writes, so a crash between them left the payment voided with no replacement: money that was
+        // actually paid silently became owed again, with nothing on either device to say why.
+        //
+        // That means the new allocation has to be computed against the state the void WILL produce,
+        // since we can no longer void first and re-read. `outstandingForPair` drops fully-paid shares
+        // (`remaining_subunits > 0`), so the shares this payment currently covers have to be added back
+        // by hand — omitting them would silently re-allocate the correction onto the wrong lines.
         val now = clock.nowEpochMillis()
-        settlementDao.voidSettlement(settlementId.value, now)
-        val write = writeSettlement(
-            NewSettlement(
-                groupId = GroupId(existing.groupId),
-                fromUserId = UserId(existing.fromUserId),
-                toUserId = UserId(existing.toUserId),
-                paymentCurrency = existing.paymentCurrency,
-                paymentAmountSubunits = newAmountSubunits,
-                createdBy = actor ?: UserId(existing.createdBy),
-                expenseId = ExpenseId(expenseId),
-                notes = existing.notes,
-                paymentApp = existing.paymentApp,
-            ),
+        val freedByShare = allocations.groupBy { it.shareId }
+            .mapValues { (_, rows) -> rows.sumOf { it.appliedAmountSubunits } }
+        val liveByShare = shareDao
+            .outstandingForPair(existing.groupId, existing.fromUserId, existing.toUserId)
+            .filter { it.currency == existing.paymentCurrency && it.expenseId == expenseId }
+            .associate { it.shareId to it.remainingSubunits }
+        val postVoid = (liveByShare.keys + freedByShare.keys).sorted().map { shareId ->
+            ShareBalance(
+                shareId = shareId,
+                currency = existing.paymentCurrency,
+                remainingSubunits = (liveByShare[shareId] ?: 0L) + (freedByShare[shareId] ?: 0L),
+            )
+        }
+        val newSettlementId = newId()
+        val newAllocations = allocateSameCurrency(newAmountSubunits, postVoid).map { a ->
+            SettlementAllocationEntity(
+                id = newId(),
+                settlementId = newSettlementId,
+                groupId = existing.groupId,
+                shareId = a.shareId,
+                appliedAmountSubunits = a.appliedSubunits,
+                appliedCurrency = existing.paymentCurrency,
+                createdAt = now,
+            )
+        }
+        val replacement = existing.copy(
+            id = newSettlementId,
+            paymentAmountSubunits = newAmountSubunits,
+            settledAt = now,
+            createdBy = (actor ?: UserId(existing.createdBy)).value,
+            createdAt = now,
+            updatedAt = now,
+            rowVersion = 1,
+            deletedAt = null,
         )
+        val replaced = try {
+            settlementDao.replaceSettlement(settlementId.value, now, replacement, newAllocations)
+        } catch (e: SettlementReplaceRefused) {
+            // The in-transaction guard tripped, so the void rolled back with it and the original
+            // payment is intact. Same over-allocation error the pre-flight ceiling check reports.
+            false
+        }
+        val write: AppResult<Unit> =
+            if (replaced) AppResult.Ok(Unit) else validationErr("amount", AppError.Validation.Reason.OutOfRange)
         return when (write) {
             is AppResult.Err -> write
             is AppResult.Ok -> {
@@ -232,7 +272,7 @@ class SettlementRepositoryImpl(
                         createdAt = now,
                     ),
                 )
-                write.value.record.asOk()
+                replacement.toDomain().asOk()
             }
         }
     }

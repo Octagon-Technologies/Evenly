@@ -173,4 +173,44 @@ interface SettlementDao {
     suspend fun voidSettlement(settlementId: String, ts: Long) {
         softDelete(settlementId, ts)
     }
+
+    /**
+     * Correct a payment: void [oldSettlementId] and record [settlement] + [allocations] in ONE
+     * transaction.
+     *
+     * `editSettlement` used to do this as two separate writes. A crash between them left the payment
+     * voided with no replacement — money the debtor had actually paid silently became owed again, and
+     * nothing on either device said so.
+     *
+     * **The order matters and must not be flipped.** Voiding first is what frees the old payment's
+     * allocations, so the over-apply guard below sees the same ceiling the caller validated against.
+     * Writing the new payment *before* voiding the old would look safer on a crash but is worse: the
+     * two would both be live and the expense would read as double-paid, which is the harder error to
+     * notice and the one that stops someone chasing a debt they are still owed.
+     *
+     * Returns false with nothing written (the transaction rolls back, so the old payment survives)
+     * when the guard trips.
+     */
+    @Transaction
+    suspend fun replaceSettlement(
+        oldSettlementId: String,
+        voidedAt: Long,
+        settlement: SettlementEntity,
+        allocations: List<SettlementAllocationEntity>,
+    ): Boolean {
+        softDelete(oldSettlementId, voidedAt)
+        for (a in allocations) {
+            if (a.appliedAmountSubunits > (derivedRemainingForShare(a.shareId) ?: 0L)) {
+                // Roll the void back with it. Room only rolls a @Transaction back on a throw, so the
+                // refusal has to be one — caught by the caller's own guard, never surfaced as a crash.
+                throw SettlementReplaceRefused()
+            }
+        }
+        upsert(settlement)
+        upsertAllocations(allocations)
+        return true
+    }
 }
+
+/** Internal control flow for [SettlementDao.replaceSettlement]'s rollback. Never escapes the DAO layer. */
+internal class SettlementReplaceRefused : Exception("settlement replacement would over-apply")
