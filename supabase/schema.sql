@@ -835,6 +835,21 @@ grant execute on function public.delete_my_account() to authenticated;
 -- Outcome is order-independent: swap who commits first and you still get one canonical row + one
 -- parked conflict. Shares are replaced atomically with the expense — removed participants are
 -- soft-deleted (Rule 1), never hard-deleted, so the tombstone propagates on the next pull.
+-- Defaults for `shares`, same contract as _expense_defaults() below: adding a defaulted column to
+-- `shares` means adding it here in the same migration.
+create or replace function public._share_defaults()
+returns public.shares
+language plpgsql
+stable
+as $$
+declare r public.shares;
+begin
+  r.remaining_subunits := 0;
+  r.row_version        := 1;
+  return r;
+end;
+$$;
+
 create or replace function public._replace_expense_shares(p_expense_id text, p_shares jsonb, p_now bigint)
 returns void language plpgsql as $$
 declare
@@ -849,8 +864,10 @@ begin
      and deleted_at is null
      and id <> all(v_ids);
 
+  -- Base row, not null: see _expense_defaults() for why. `shares.row_version` is `not null default 1`,
+  -- so a payload without it becomes an explicit NULL and the whole share set fails to insert.
   insert into public.shares as sh
-    select * from jsonb_populate_recordset(null::public.shares, p_shares)
+    select * from jsonb_populate_recordset(public._share_defaults(), p_shares)
   on conflict (id) do update set
     user_id              = excluded.user_id,
     share_owed_subunits  = excluded.share_owed_subunits,
@@ -860,6 +877,62 @@ begin
     updated_at           = excluded.updated_at,
     deleted_at           = excluded.deleted_at,
     row_version          = sh.row_version + 1;
+end;
+$$;
+
+-- ── Client clocks are UNTRUSTED input ───────────────────────────────────────────────────────────
+-- Every timestamp in `commit_expense` / `merge_expense` arrives inside the client payload, and neither
+-- RPC authenticates `p_actor`. A device with a wound-forward clock (or a crafted payload) that stamps
+-- `title_updated_at = 2099` wins `greatest(...)` forever: the field silently stops accepting any later
+-- edit from anybody, with nothing on screen to say why. Clamping to the SERVER clock is what makes a
+-- bad clock a bounded annoyance instead of permanent damage.
+--
+-- The 60s of slack is deliberate: it absorbs ordinary device skew, and the client's own last-write-wins
+-- guards compare against these values, so clamping to exactly `now()` would make a marginally-fast
+-- phone lose its own writes. Ties still go to whoever the causal `split_version` says, not the clock.
+create or replace function public._clamp_client_ts(p_ts bigint)
+returns bigint
+language sql
+stable  -- NOT immutable: it reads now(), which is fixed per transaction but not across them.
+as $$
+  select least(coalesce(p_ts, 0), (extract(epoch from now()) * 1000)::bigint + 60000);
+$$;
+
+-- ── The base row `jsonb_populate_record` fills in from ──────────────────────────────────────────
+-- `jsonb_populate_record(base, payload)` takes each field from `payload` when the key is PRESENT and
+-- from `base` when it is absent. Both expense RPCs used to pass `null::public.expenses`, so every
+-- column the client did not send became an explicit NULL — the column default never ran.
+--
+-- Every defaulted column on `expenses` is `not null default X`, so that NULL is not a quiet wrong
+-- number: it is a not-null violation that fails the INSERT and takes that expense's sync down
+-- entirely. Which is the additive-migration promise broken exactly where it is relied on most: add a
+-- column server-side first (as the rule requires), and every client that has not shipped the matching
+-- field yet stops being able to create expenses at all. Before finding #25 that surfaced as "you're
+-- offline".
+--
+-- **Adding a column with a default to `expenses` means adding it here, in the same migration.** That
+-- is the whole maintenance burden of this function, and it is why the defaults are spelled out by name
+-- rather than derived positionally from the catalog.
+create or replace function public._expense_defaults()
+returns public.expenses
+language plpgsql
+stable
+as $$
+declare r public.expenses;
+begin
+  r.kind                   := 'EXPENSE';
+  r.has_tax_row            := false;
+  r.tax_subunits           := 0;
+  r.tip_subunits           := 0;
+  r.tip_split_mode         := 'PROPORTIONAL';
+  r.gratuity_subunits      := 0;
+  r.discount_subunits      := 0;
+  r.other_charges_subunits := 0;
+  r.is_auto_refund         := false;
+  r.status                 := 'ACTIVE';
+  r.row_version            := 1;
+  r.split_version          := 1;
+  return r;
 end;
 $$;
 
@@ -877,7 +950,7 @@ as $$
 declare
   v_id text := p_expense->>'id';
   v_group_id text := p_expense->>'group_id';
-  v_now bigint := coalesce((p_expense->>'updated_at')::bigint, 0);
+  v_now bigint := public._clamp_client_ts((p_expense->>'updated_at')::bigint);
   v_current public.expenses%rowtype;
   v_new_version bigint;
   v_conflict_id text;
@@ -889,7 +962,7 @@ begin
 
   if not found then
     insert into public.expenses
-      select * from jsonb_populate_record(null::public.expenses, p_expense);
+      select * from jsonb_populate_record(public._expense_defaults(), p_expense);
     update public.expenses set last_editor = p_actor where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
     return jsonb_build_object('status', 'created', 'version', coalesce((p_expense->>'row_version')::bigint, 1));
@@ -983,7 +1056,7 @@ as $$
 declare
   v_id text := p_expense->>'id';
   v_group_id text := p_expense->>'group_id';
-  v_now bigint := coalesce((p_expense->>'updated_at')::bigint, 0);
+  v_now bigint := public._clamp_client_ts((p_expense->>'updated_at')::bigint);
   v_cur public.expenses%rowtype;
   v_client_split_ver bigint := coalesce((p_expense->>'split_version')::bigint, 1);
   v_client_changed boolean;
@@ -1000,7 +1073,7 @@ begin
   select * into v_cur from public.expenses where id = v_id for update;
 
   if not found then
-    insert into public.expenses select * from jsonb_populate_record(null::public.expenses, p_expense);
+    insert into public.expenses select * from jsonb_populate_record(public._expense_defaults(), p_expense);
     update public.expenses set split_updated_by = p_actor where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
     return jsonb_build_object(
@@ -1013,7 +1086,7 @@ begin
   if (p_expense->>'deleted_at') is not null then
     if v_now >= v_cur.updated_at then
       update public.expenses
-         set deleted_at = (p_expense->>'deleted_at')::bigint, status = 'DELETED',
+         set deleted_at = public._clamp_client_ts((p_expense->>'deleted_at')::bigint), status = 'DELETED',
              updated_at = v_now, row_version = v_cur.row_version + 1
        where id = v_id;
     end if;
@@ -1024,20 +1097,20 @@ begin
       'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id and s.deleted_at is null));
   end if;
 
-  if coalesce((p_expense->>'title_updated_at')::bigint, 0) > coalesce(v_cur.title_updated_at, 0) then
-    v_title := p_expense->>'title'; v_title_at := (p_expense->>'title_updated_at')::bigint;
+  if public._clamp_client_ts((p_expense->>'title_updated_at')::bigint) > coalesce(v_cur.title_updated_at, 0) then
+    v_title := p_expense->>'title'; v_title_at := public._clamp_client_ts((p_expense->>'title_updated_at')::bigint);
   else v_title := v_cur.title; v_title_at := v_cur.title_updated_at; end if;
 
-  if coalesce((p_expense->>'notes_updated_at')::bigint, 0) > coalesce(v_cur.notes_updated_at, 0) then
-    v_notes := p_expense->>'notes'; v_notes_at := (p_expense->>'notes_updated_at')::bigint;
+  if public._clamp_client_ts((p_expense->>'notes_updated_at')::bigint) > coalesce(v_cur.notes_updated_at, 0) then
+    v_notes := p_expense->>'notes'; v_notes_at := public._clamp_client_ts((p_expense->>'notes_updated_at')::bigint);
   else v_notes := v_cur.notes; v_notes_at := v_cur.notes_updated_at; end if;
 
-  if coalesce((p_expense->>'category_updated_at')::bigint, 0) > coalesce(v_cur.category_updated_at, 0) then
-    v_cat := p_expense->>'category_id'; v_subcat := p_expense->>'subcategory_id'; v_cat_at := (p_expense->>'category_updated_at')::bigint;
+  if public._clamp_client_ts((p_expense->>'category_updated_at')::bigint) > coalesce(v_cur.category_updated_at, 0) then
+    v_cat := p_expense->>'category_id'; v_subcat := p_expense->>'subcategory_id'; v_cat_at := public._clamp_client_ts((p_expense->>'category_updated_at')::bigint);
   else v_cat := v_cur.category_id; v_subcat := v_cur.subcategory_id; v_cat_at := v_cur.category_updated_at; end if;
 
-  if coalesce((p_expense->>'date_updated_at')::bigint, 0) > coalesce(v_cur.date_updated_at, 0) then
-    v_date := p_expense->>'expense_date'; v_date_at := (p_expense->>'date_updated_at')::bigint;
+  if public._clamp_client_ts((p_expense->>'date_updated_at')::bigint) > coalesce(v_cur.date_updated_at, 0) then
+    v_date := p_expense->>'expense_date'; v_date_at := public._clamp_client_ts((p_expense->>'date_updated_at')::bigint);
   else v_date := v_cur.expense_date; v_date_at := v_cur.date_updated_at; end if;
 
   v_client_changed := v_client_split_ver > p_base_split_version;
@@ -2571,3 +2644,31 @@ $$;
 
 revoke execute on function public.my_group_scan_usage(text) from public, anon;
 grant execute on function public.my_group_scan_usage(text) to authenticated;
+
+-- ── waitlist_signups ───────────────────────────────────────────────────────────────────────────
+-- Pre-launch email capture for split-evenly.app/waitlist. Deliberately not app data: no group_id, no
+-- user_id, no `updated_at`, and nothing syncs it to a device. It is a list of strangers, so it never
+-- joins the sync tables and must never be added to the `supabase_realtime` publication.
+--
+-- RLS is enabled with NO policies, which denies anon and authenticated outright. The only writer is
+-- the `waitlist` edge function holding the service key. That is the whole authorisation model, and it
+-- is the reason a leaked anon key cannot dump the list -- the same boundary `web-claim` relies on.
+create table if not exists public.waitlist_signups (
+  id            uuid primary key default gen_random_uuid(),
+  -- What they typed, kept for display and for the eventual "Hi Sam" mail merge.
+  email         text not null,
+  -- Lowercased and trimmed. Unique, so a double-tap or a second visit is a no-op rather than a
+  -- duplicate send later. Dedupe lives here rather than in the function so a race can't beat it.
+  email_norm    text not null,
+  -- Which surface sent them, for attribution once ads are running.
+  source        text,
+  created_at    timestamptz not null default now(),
+  constraint waitlist_signups_email_norm_key unique (email_norm)
+);
+
+alter table public.waitlist_signups enable row level security;
+
+-- Belt and braces on top of "no policies": revoke the table grants PostgREST relies on, so a future
+-- permissive policy added by mistake still does not expose the list to the anon key. Verified: anon
+-- gets 42501 permission denied on both select and insert.
+revoke all on public.waitlist_signups from anon, authenticated;

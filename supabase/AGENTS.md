@@ -35,6 +35,24 @@ soft-deletes removed shares server-side.
 Never replace this with a blind upsert or a whole-expense compare-and-swap. The full model and its rationale
 are in the client-side `data/AGENTS.md`.
 
+**A new defaulted column on `expenses` or `shares` must be added to `_expense_defaults()` /
+`_share_defaults()` in the same migration.** Both RPCs insert via `jsonb_populate_record(base, payload)`,
+which takes a field from the payload when the key is present and from `base` when it is absent. Passing
+`null::public.expenses` as that base — which is what they did — turned every column an older client
+doesn't send into an explicit NULL, so the column default never ran. Every defaulted column here is
+`not null default X`, so that is not a quiet wrong number: it is a not-null violation that fails the
+INSERT and takes that expense's sync down completely. It breaks the additive-migration promise at
+exactly the moment it is being relied on — add the column server-side first, as the rule requires, and
+every not-yet-updated client stops being able to create expenses.
+
+**Client timestamps are untrusted; clamp them with `_clamp_client_ts()`.** Every timestamp in
+`commit_expense`/`merge_expense` arrives inside the client payload and neither RPC authenticates
+`p_actor`, so a wound-forward clock or a crafted payload stamping `title_updated_at = 2099` wins
+`greatest(...)` **forever** — that field silently never accepts another edit from anyone. The clamp is
+`min(value, server_now + 60s)`: the 60s absorbs ordinary device skew (clamping to exactly `now()` makes
+a marginally-fast phone lose its own writes), and it turns permanent damage into a 60-second annoyance.
+Any new client-supplied `*_updated_at` goes through it too.
+
 The older `commit_expense` RPC and the `expense_edit_conflicts` parking table are **inert** — nothing
 populates them, and they are slated for removal once the current branch settles. Don't build on them.
 
