@@ -133,6 +133,38 @@ test('splitBill invariants hold for every vector', () => {
 });
 
 /**
+ * The two money invariants, mirroring `BillSplitVectorsTest.assertMoneyInvariants`. A recorded
+ * expectation only pins the case someone thought to write down; these catch the variants nobody
+ * enumerated, which is exactly how findings #20 and #21 survived their own unit tests.
+ *
+ * Both are gated on the bill being fully claimed: mid-claim the unclaimed remainder deliberately
+ * rides a phantom bucket, and an over-claimed line deliberately over-sums.
+ */
+test('a fully-claimed bill always has a positive total its shares sum to', () => {
+  for (const c of vectors.splitBill) {
+    const r = splitBill(c);
+    if (r.items.length === 0 || !r.items.every((i) => i.status === 'RESOLVED')) continue;
+
+    const e = c.extras;
+    const lineTotals = c.items.reduce((s, i) => s + i.lineTotalSubunits, 0);
+    const total =
+      lineTotals +
+      (e?.taxSubunits ?? 0) +
+      (e?.gratuitySubunits ?? 0) +
+      (e?.otherChargesSubunits ?? 0) +
+      (e?.tipSubunits ?? 0) -
+      (e?.discountSubunits ?? 0);
+
+    // An all-free bill (every line 0, no extras) is a legitimate 0 and pins the divide-by-zero path.
+    if (total === 0 && lineTotals === 0) continue;
+
+    assert.ok(total > 0, `${c.name}: a bill's total must be positive, was ${total} (#21)`);
+    const owed = Object.values(r.owedByUser).reduce((s, v) => s + v, 0);
+    assert.equal(owed, total, `${c.name}: a fully-claimed bill's shares must sum to its total (#20)`);
+  }
+});
+
+/**
  * The wire shape → engine adapter (`fromApi.ts`), mirroring the Kotlin adapters in
  * `BillMaterializer.kt`: a null `portion_id` is a legacy all-leftover member, portioned rows group by
  * portion, and the group's denormalised quantity comes from the first row.

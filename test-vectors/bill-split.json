@@ -2337,6 +2337,100 @@
           }
         ]
       }
+    },
+    {
+      "name": "evenTip_participantWithNoItems_stillOwesTheirSlice",
+      "source": "SECURITY_FIX_HANDOFF.md #20 - C is on the bill and claimed nothing; every line is RESOLVED, so her EVEN tip slice is real money and used to be computed then discarded",
+      "items": [
+        {
+          "itemId": "i1",
+          "lineTotalSubunits": 5000,
+          "quantity": 1
+        },
+        {
+          "itemId": "i2",
+          "lineTotalSubunits": 3000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "i1",
+          "userId": "A",
+          "units": 1
+        },
+        {
+          "itemId": "i2",
+          "userId": "B",
+          "units": 1
+        }
+      ],
+      "sharedMembers": [],
+      "sharedPortions": [],
+      "participants": [
+        "A",
+        "B",
+        "C"
+      ],
+      "extras": {
+        "taxSubunits": 0,
+        "gratuitySubunits": 0,
+        "tipSubunits": 900,
+        "tipSplitMode": "EVEN",
+        "discountSubunits": 0,
+        "otherChargesSubunits": 0
+      },
+      "expect": {
+        "owedByUser": {
+          "A": 5300,
+          "B": 3300,
+          "C": 300
+        },
+        "breakdownByUser": {
+          "A": {
+            "itemsSubunits": 5000,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          },
+          "B": {
+            "itemsSubunits": 3000,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          },
+          "C": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "i1": {
+            "A": 5000
+          },
+          "i2": {
+            "B": 3000
+          }
+        },
+        "items": [
+          {
+            "itemId": "i1",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i2",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
     }
   ]
 }
