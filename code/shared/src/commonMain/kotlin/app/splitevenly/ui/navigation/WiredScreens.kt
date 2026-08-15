@@ -4,15 +4,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.flow.flowOf
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.shortDate
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.NotificationPrefs
 import app.splitevenly.domain.auth.OAuthProvider
@@ -20,11 +21,17 @@ import app.splitevenly.domain.auth.ThemeMode
 import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.NewGroup
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.domain.repository.MySubscription
+import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.settlement.PaymentApp
+import app.splitevenly.platform.AnalyticsPerson
 import app.splitevenly.platform.AppleSignIn
+import app.splitevenly.platform.EvAnalytics
+import app.splitevenly.platform.FeatureFlags
 import app.splitevenly.platform.NotificationPermission
 import app.splitevenly.platform.NotificationPermissionStatus
 import app.splitevenly.platform.SecureStorage
@@ -32,11 +39,11 @@ import app.splitevenly.platform.UrlOpener
 import app.splitevenly.platform.isDebugBuild
 import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
-import app.splitevenly.ui.screen.auth.WelcomeScreen
 import app.splitevenly.ui.screen.auth.MagicLinkState
 import app.splitevenly.ui.screen.auth.OnboardingScreen
 import app.splitevenly.ui.screen.auth.PendingDeletionScreen
 import app.splitevenly.ui.screen.auth.SignInScreen
+import app.splitevenly.ui.screen.auth.WelcomeScreen
 import app.splitevenly.ui.screen.home.ArchivedScreen
 import app.splitevenly.ui.screen.home.HomeScreen
 import app.splitevenly.ui.screen.home.HomeUiState
@@ -46,18 +53,11 @@ import app.splitevenly.ui.screen.home.JoinGroupSheet
 import app.splitevenly.ui.screen.home.JoinPlaceholderOption
 import app.splitevenly.ui.screen.home.NewGroupSheet
 import app.splitevenly.ui.screen.settings.PaymentHandlesScreen
+import app.splitevenly.ui.screen.settings.ProEntryUi
 import app.splitevenly.ui.screen.settings.ProfileScreen
 import app.splitevenly.ui.screen.settle.appLabel
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.produceState
-import app.splitevenly.core.time.shortDate
-import app.splitevenly.domain.pro.ProBilling
-import app.splitevenly.domain.repository.MySubscription
-import app.splitevenly.domain.repository.ProRepository
-import app.splitevenly.ui.screen.settings.ProEntryUi
-import app.splitevenly.platform.AnalyticsPerson
-import app.splitevenly.platform.EvAnalytics
-import app.splitevenly.platform.FeatureFlags
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -74,7 +74,10 @@ import org.koin.compose.viewmodel.koinViewModel
  * session on cold start (the user lands straight on Home).
  */
 @Composable
-fun SignInRoute(onEmail: () -> Unit, onSignedIn: () -> Unit) {
+fun SignInRoute(
+    onEmail: () -> Unit,
+    onSignedIn: () -> Unit,
+) {
     val auth = koinInject<AuthSession>()
     val appleSignIn = koinInject<AppleSignIn>()
     val scope = rememberCoroutineScope()
@@ -84,40 +87,55 @@ fun SignInRoute(onEmail: () -> Unit, onSignedIn: () -> Unit) {
     SignInScreen(error = error, onProvider = { provider ->
         error = null
         when (provider) {
-            "mail" -> onEmail()
-            "google" -> scope.launch { auth.signInWithProvider(OAuthProvider.GOOGLE) }
+            "mail" -> {
+                onEmail()
+            }
+
+            "google" -> {
+                scope.launch { auth.signInWithProvider(OAuthProvider.GOOGLE) }
+            }
+
             // iOS: native ASAuthorizationController sheet, no browser redirect. Android has no native
             // API, so it keeps the browser OAuth path (platform/AGENTS.md's expect/actual boundary).
-            "apple" -> if (isIOS()) {
-                scope.launch {
-                    when (val native = appleSignIn.signIn()) {
-                        is AppResult.Ok -> {
-                            // The native sheet succeeding (Face ID passes) says nothing about whether
-                            // Supabase then accepts the resulting ID token — a server-side provider
-                            // misconfiguration (Apple not enabled for the id_token grant, or app.splitevenly
-                            // missing from Authorized Client IDs) fails here silently otherwise, leaving
-                            // the user staring at a sheet that just closed with no feedback.
-                            when (
-                                val result = auth.signInWithAppleIdToken(
-                                    idToken = native.value.identityToken,
-                                    rawNonce = native.value.rawNonce,
-                                    fullName = native.value.fullName,
-                                    authorizationCode = native.value.authorizationCode,
-                                )
-                            ) {
-                                is AppResult.Ok -> Unit
-                                is AppResult.Err -> error = "Couldn't sign in with Apple. Try again in a moment."
+            "apple" -> {
+                if (isIOS()) {
+                    scope.launch {
+                        when (val native = appleSignIn.signIn()) {
+                            is AppResult.Ok -> {
+                                // The native sheet succeeding (Face ID passes) says nothing about whether
+                                // Supabase then accepts the resulting ID token — a server-side provider
+                                // misconfiguration (Apple not enabled for the id_token grant, or app.splitevenly
+                                // missing from Authorized Client IDs) fails here silently otherwise, leaving
+                                // the user staring at a sheet that just closed with no feedback.
+                                when (
+                                    val result =
+                                        auth.signInWithAppleIdToken(
+                                            idToken = native.value.identityToken,
+                                            rawNonce = native.value.rawNonce,
+                                            fullName = native.value.fullName,
+                                            authorizationCode = native.value.authorizationCode,
+                                        )
+                                ) {
+                                    is AppResult.Ok -> Unit
+                                    is AppResult.Err -> error = "Couldn't sign in with Apple. Try again in a moment."
+                                }
+                            }
+
+                            // The sheet itself failing is almost always the user cancelling (no Apple ID
+                            // signed in, tapped away) — not worth an error message.
+                            is AppResult.Err -> {
+                                Unit
                             }
                         }
-                        // The sheet itself failing is almost always the user cancelling (no Apple ID
-                        // signed in, tapped away) — not worth an error message.
-                        is AppResult.Err -> Unit
                     }
+                } else {
+                    scope.launch { auth.signInWithProvider(OAuthProvider.APPLE) }
                 }
-            } else {
-                scope.launch { auth.signInWithProvider(OAuthProvider.APPLE) }
             }
-            "facebook" -> scope.launch { auth.signInWithProvider(OAuthProvider.FACEBOOK) }
+
+            "facebook" -> {
+                scope.launch { auth.signInWithProvider(OAuthProvider.FACEBOOK) }
+            }
         }
     })
 }
@@ -128,7 +146,10 @@ fun SignInRoute(onEmail: () -> Unit, onSignedIn: () -> Unit) {
  * profile) gets `false` so the NavHost can send them straight to Home and skip onboarding.
  */
 @Composable
-fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) -> Unit) {
+fun MagicLinkRoute(
+    onBack: () -> Unit,
+    onVerified: (needsOnboarding: Boolean) -> Unit,
+) {
     val auth = koinInject<AuthSession>()
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(MagicLinkState.Input) }
@@ -140,11 +161,19 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) ->
         allowPassword = isDebugBuild(),
         onBack = onBack,
         onSend = { e ->
-            email = e; error = null; state = MagicLinkState.Loading
+            email = e
+            error = null
+            state = MagicLinkState.Loading
             scope.launch {
                 when (val r = auth.sendEmailOtp(e)) {
-                    is AppResult.Ok -> state = MagicLinkState.Sent
-                    is AppResult.Err -> { state = MagicLinkState.Input; error = sendErrorMessage(r.error) }
+                    is AppResult.Ok -> {
+                        state = MagicLinkState.Sent
+                    }
+
+                    is AppResult.Err -> {
+                        state = MagicLinkState.Input
+                        error = sendErrorMessage(r.error)
+                    }
                 }
             }
         },
@@ -159,11 +188,19 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) ->
         },
         onResend = { scope.launch { auth.sendEmailOtp(email) } },
         onPasswordSignIn = { e, pw ->
-            email = e; error = null; state = MagicLinkState.Loading
+            email = e
+            error = null
+            state = MagicLinkState.Loading
             scope.launch {
                 when (auth.signInWithPassword(e, pw)) {
-                    is AppResult.Ok -> onVerified(!auth.hasOnboardedProfile())
-                    is AppResult.Err -> { state = MagicLinkState.Input; error = "Couldn't sign in. Check the email and password." }
+                    is AppResult.Ok -> {
+                        onVerified(!auth.hasOnboardedProfile())
+                    }
+
+                    is AppResult.Err -> {
+                        state = MagicLinkState.Input
+                        error = "Couldn't sign in. Check the email and password."
+                    }
                 }
             }
         },
@@ -171,11 +208,16 @@ fun MagicLinkRoute(onBack: () -> Unit, onVerified: (needsOnboarding: Boolean) ->
 }
 
 /** Turn an email-send failure into a message the user can act on (429 throttling vs. everything else). */
-private fun sendErrorMessage(error: AppError): String = when {
-    error is AppError.Backend && error.status == 429 ->
-        "Too many requests. Wait a minute, then try again."
-    else -> "Couldn't send the code. Check the address and try again."
-}
+private fun sendErrorMessage(error: AppError): String =
+    when {
+        error is AppError.Backend && error.status == 429 -> {
+            "Too many requests. Wait a minute, then try again."
+        }
+
+        else -> {
+            "Couldn't send the code. Check the address and try again."
+        }
+    }
 
 /**
  * First-launch product intro. Shows the [WelcomeScreen] carousel; on Skip/Get-started it stamps the
@@ -185,7 +227,12 @@ private fun sendErrorMessage(error: AppError): String = when {
 fun WelcomeRoute(onFinished: () -> Unit) {
     val storage = koinInject<SecureStorage>()
     val scope = rememberCoroutineScope()
-    WelcomeScreen(onFinish = { scope.launch { storage.putString(WELCOME_SEEN_KEY, "1"); onFinished() } })
+    WelcomeScreen(onFinish = {
+        scope.launch {
+            storage.putString(WELCOME_SEEN_KEY, "1")
+            onFinished()
+        }
+    })
 }
 
 /** Device-local flag: set once the welcome carousel has been dismissed. */
@@ -204,7 +251,12 @@ fun OnboardingRoute(onFinished: () -> Unit) {
         // The app's only notification-permission ask, and only on an explicit opt-in tap. The grant/refusal
         // isn't acted on here: the FCM token registers regardless, and the OS drops what it won't show.
         onEnableNotifications = { notifications.request() },
-        onFinish = { name, currency -> scope.launch { profiles.updateProfile(name, currency); onFinished() } },
+        onFinish = { name, currency ->
+            scope.launch {
+                profiles.updateProfile(name, currency)
+                onFinished()
+            }
+        },
     )
 }
 
@@ -237,14 +289,21 @@ fun HomeRoute(
 
 /** Join-by-invite, wired: resolves the token to a group preview, then joins via [GroupRepository.joinByToken]. */
 @Composable
-fun JoinRoute(token: String, onDismiss: () -> Unit, onOpenGroup: (String) -> Unit) {
+fun JoinRoute(
+    token: String,
+    onDismiss: () -> Unit,
+    onOpenGroup: (String) -> Unit,
+) {
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
     val scope = rememberCoroutineScope()
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     var group by remember(token) { mutableStateOf<Group?>(null) }
     var resolved by remember(token) { mutableStateOf(false) }
-    LaunchedEffect(token) { group = groups.findGroupByToken(token); resolved = true }
+    LaunchedEffect(token) {
+        group = groups.findGroupByToken(token)
+        resolved = true
+    }
     val g = group
     // Existing roster (placeholders + everyone who's joined via the link) so the sheet can show the
     // member count for "is this actually my group?" confirmation. Empty until the token resolves.
@@ -252,9 +311,10 @@ fun JoinRoute(token: String, onDismiss: () -> Unit, onOpenGroup: (String) -> Uni
     val members by membersFlow.collectAsStateWithLifecycle(emptyList())
     // Claimable identities = the still-active placeholders in this roster (already filtered to
     // unclaimed by observeMembers). Reusing the roster flow avoids a second query/injection.
-    val placeholderOptions = members
-        .filter { it.isPlaceholder }
-        .map { JoinPlaceholderOption(it.userId.value, it.displayName?.takeIf { n -> n.isNotBlank() } ?: "Member") }
+    val placeholderOptions =
+        members
+            .filter { it.isPlaceholder }
+            .map { JoinPlaceholderOption(it.userId.value, it.displayName?.takeIf { n -> n.isNotBlank() } ?: "Member") }
     JoinGroupSheet(
         groupName = g?.name ?: if (resolved) "" else "Checking invite…",
         emoji = g?.emoji ?: "🔗",
@@ -324,7 +384,10 @@ fun NewGroupRoute(
 
 /** Manual "Join with a link" sheet: parse the pasted invite, then hand off to the resolving [Route.Join]. */
 @Composable
-fun JoinByLinkRoute(onDismiss: () -> Unit, onResolved: (token: String) -> Unit) {
+fun JoinByLinkRoute(
+    onDismiss: () -> Unit,
+    onResolved: (token: String) -> Unit,
+) {
     JoinByLinkSheet(onDismiss = onDismiss, onSubmit = onResolved)
 }
 
@@ -352,43 +415,56 @@ fun HomeGateRoute(
     var purgeAt by remember { mutableStateOf<Long?>(null) }
     var cancelling by remember { mutableStateOf(false) }
     var cancelError by remember { mutableStateOf<String?>(null) }
+    val signOutFlow = rememberSignOutFlow(auth, onSignedOut)
     LaunchedEffect(Unit) {
-        purgeAt = when (val result = auth.pendingDeletionAt()) {
-            is AppResult.Ok -> result.value
-            is AppResult.Err -> null
-        }
+        purgeAt =
+            when (val result = auth.pendingDeletionAt()) {
+                is AppResult.Ok -> result.value
+                is AppResult.Err -> null
+            }
         checked = true
     }
     when {
-        !checked -> Unit
-        purgeAt != null -> PendingDeletionScreen(
-            purgeAtMillis = purgeAt!!,
-            cancelling = cancelling,
-            error = cancelError,
-            onCancelDeletion = {
-                cancelling = true
-                cancelError = null
-                scope.launch {
-                    when (auth.cancelAccountDeletion()) {
-                        is AppResult.Ok -> purgeAt = null
-                        is AppResult.Err -> cancelError = "Couldn't cancel deletion. Check your connection and try again."
+        !checked -> {
+            Unit
+        }
+
+        purgeAt != null -> {
+            PendingDeletionScreen(
+                purgeAtMillis = purgeAt!!,
+                cancelling = cancelling,
+                error = cancelError,
+                onCancelDeletion = {
+                    cancelling = true
+                    cancelError = null
+                    scope.launch {
+                        when (auth.cancelAccountDeletion()) {
+                            is AppResult.Ok -> purgeAt = null
+                            is AppResult.Err -> cancelError = "Couldn't cancel deletion. Check your connection and try again."
+                        }
+                        cancelling = false
                     }
-                    cancelling = false
-                }
-            },
-            onSignOut = { auth.signOut(); onSignedOut() },
-        )
-        else -> MainShell(
-            onOpenGroup = onOpenGroup,
-            onNewGroup = onNewGroup,
-            onJoin = onJoin,
-            onOpenArchived = onOpenArchived,
-            onSignedOut = onSignedOut,
-            onSignIn = onSignIn,
-            onEditPaymentApps = onEditPaymentApps,
-            onOpenPro = onOpenPro,
-        )
+                },
+                onSignOut = signOutFlow::start,
+            )
+        }
+
+        else -> {
+            MainShell(
+                onOpenGroup = onOpenGroup,
+                onNewGroup = onNewGroup,
+                onJoin = onJoin,
+                onOpenArchived = onOpenArchived,
+                onSignedOut = onSignedOut,
+                onSignIn = onSignIn,
+                onEditPaymentApps = onEditPaymentApps,
+                onOpenPro = onOpenPro,
+            )
+        }
     }
+    // Only ever shown on the pending-deletion branch above (MainShell routes to ProfileRoute, which
+    // owns its own flow), but hung outside the `when` so it survives a branch flip mid-sign-out.
+    signOutFlow.Dialog()
 }
 
 /** "Yearly, renews 11 Aug" — the one phrasing both the Profile row and the Pro screen use. */
@@ -415,6 +491,7 @@ fun ProfileRoute(
     val handles = profile?.paymentHandles ?: emptyMap()
     var notifStatus by remember { mutableStateOf(NotificationPermissionStatus.NotDetermined) }
     var deleteAccountError by remember { mutableStateOf<String?>(null) }
+    val signOutFlow = rememberSignOutFlow(auth, onSignedOut)
     LaunchedEffect(Unit) { notifStatus = notificationPermission.status() }
 
     // Evenly Pro (PRO_PASS_SPEC.md §8.1). The row states the PRICE, taken from the store's own localized
@@ -444,19 +521,31 @@ fun ProfileRoute(
         flags.reload()
     }
 
-    val proEntry = when {
-        !billing.isAvailable -> null
-        // The SAME sentence the Pro screen shows, plan word included. Two screens one tap apart
-        // describing one subscription in different words is what makes an anxious subscriber believe
-        // they are paying for two things.
-        subscription != null -> ProEntryUi(
-            subtitle = subscriptionLine(subscription!!),
-            isSubscribed = true,
-        )
-        // No price yet is not a reason to invent one, so the row says what Pro does instead.
-        cheapestPrice == null -> ProEntryUi("Unlimited receipt scans in every group", isSubscribed = false)
-        else -> ProEntryUi("Unlimited receipt scans, from $cheapestPrice", isSubscribed = false)
-    }
+    val proEntry =
+        when {
+            !billing.isAvailable -> {
+                null
+            }
+
+            // The SAME sentence the Pro screen shows, plan word included. Two screens one tap apart
+            // describing one subscription in different words is what makes an anxious subscriber believe
+            // they are paying for two things.
+            subscription != null -> {
+                ProEntryUi(
+                    subtitle = subscriptionLine(subscription!!),
+                    isSubscribed = true,
+                )
+            }
+
+            // No price yet is not a reason to invent one, so the row says what Pro does instead.
+            cheapestPrice == null -> {
+                ProEntryUi("Unlimited receipt scans in every group", isSubscribed = false)
+            }
+
+            else -> {
+                ProEntryUi("Unlimited receipt scans, from $cheapestPrice", isSubscribed = false)
+            }
+        }
 
     ProfileScreen(
         proEntry = proEntry,
@@ -469,7 +558,8 @@ fun ProfileRoute(
         isSignedIn = userId != null,
         onSignIn = onSignIn,
         onBack = onBack,
-        onSignOut = { auth.signOut(); onSignedOut() },
+        onSignOut = signOutFlow::start,
+        signingOut = signOutFlow.inProgress,
         onEditPaymentApps = onEditPaymentApps,
         onEditName = { name -> scope.launch { profiles.updateDisplayName(name) } },
         onSendFeedback = { urlOpener.open("mailto:feedback@split-evenly.app?subject=Evenly%20feedback") },
@@ -484,13 +574,14 @@ fun ProfileRoute(
                 // A toggle switching ON needs the OS permission first — request() shows the one-time
                 // system prompt if it hasn't fired yet, or just reports the existing grant/refusal. If
                 // refused, the pref stays at its previous (off) value instead of silently persisting "on".
-                val toApply = if (turnedOn) {
-                    val granted = notifStatus == NotificationPermissionStatus.Granted || notificationPermission.request()
-                    notifStatus = notificationPermission.status()
-                    if (granted) prefs else current
-                } else {
-                    prefs
-                }
+                val toApply =
+                    if (turnedOn) {
+                        val granted = notifStatus == NotificationPermissionStatus.Granted || notificationPermission.request()
+                        notifStatus = notificationPermission.status()
+                        if (granted) prefs else current
+                    } else {
+                        prefs
+                    }
                 profiles.updateNotificationPrefs(toApply)
             }
         },
@@ -506,6 +597,7 @@ fun ProfileRoute(
         },
         deleteAccountError = deleteAccountError,
     )
+    signOutFlow.Dialog()
 }
 
 /** Payment-handles editor, wired: streams the current account's handles and saves edits in place. */
