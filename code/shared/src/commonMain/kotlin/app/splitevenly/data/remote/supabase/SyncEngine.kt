@@ -32,11 +32,20 @@ import app.splitevenly.data.repository.BillMaterializer
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.core.time.nowEpochMillis
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.exceptions.HttpRequestException
+import io.github.jan.supabase.exceptions.RestException
+import io.github.jan.supabase.exceptions.SupabaseEncodingException
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import kotlinx.io.IOException
+import kotlinx.serialization.SerializationException
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.rpc
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Clock
@@ -101,9 +110,27 @@ class SyncEngine(
     // at a time; it also gives #8's in-flight-edit guard a stable window (no second sync op racing).
     private val syncMutex = Mutex()
 
+    private val _health = MutableStateFlow(SyncHealth())
+
+    /**
+     * Observable outcome of the last push/pull. `SyncManager` swallows results on purpose, so without
+     * this a permanently-failing sync is invisible — which is what made every other sync defect
+     * undiagnosable in production. Read from Settings / a debug screen.
+     */
+    val health: StateFlow<SyncHealth> = _health.asStateFlow()
+
+    private fun recordHealth(result: AppResult<Unit>): AppResult<Unit> {
+        val now = Clock.System.nowEpochMillis()
+        _health.value = when (result) {
+            is AppResult.Ok -> _health.value.recordSuccess(now)
+            is AppResult.Err -> _health.value.recordFailure(result.error, now)
+        }
+        return result
+    }
+
     /** Pull the signed-in user's data into Room (server → local). Best-effort: errors are returned. */
     suspend fun pull(userId: String): AppResult<Unit> = syncMutex.withLock {
-      runCatchingSync {
+      recordHealth(runCatchingSync {
         // 1. The user's memberships give the set of groups to hydrate.
         val myMemberships = client.from("members").select(Columns.ALL) {
             filter { eq("user_id", userId) }
@@ -260,7 +287,7 @@ class SyncEngine(
         val billSourcesChanged = freshExpenses.isNotEmpty() || freshItems.isNotEmpty() ||
             freshClaims.isNotEmpty() || freshItemShares.isNotEmpty() || freshParticipants.isNotEmpty()
         if (billSourcesChanged) billMaterializer.rematerializeGroups(groupIds, Clock.System.nowEpochMillis())
-      }
+      })
     }
 
     /** Record each row's current fingerprint as synced, so [push] won't re-upload it unchanged. */
@@ -340,7 +367,9 @@ class SyncEngine(
         // No custom merge: the unique (group, name, answerer) key makes a re-insert idempotent, which is
         // what makes an offline "No" harmless if it ends up sent twice.
         step { pushDirty("placeholder_claim_answers", db.placeholderClaimAnswerDao().allForSync()) { it.id } }
-        firstError.let { if (it == null) AppResult.Ok(Unit) else AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, it)) }
+        recordHealth(
+            firstError.let { if (it == null) AppResult.Ok(Unit) else AppResult.Err(classifySyncError(it)) },
+        )
     }
 
     /** Upsert + fingerprint only the rows in [rows] whose content differs from their last sync. */
@@ -433,8 +462,17 @@ class SyncEngine(
         return pull(userId)
     }
 
+    /**
+     * `column in (values)`, chunked. One unchunked `id=in.(…)` carries every id in the URL, so past the
+     * gateway's URL limit EVERY pull fails permanently — and it lands first on the most engaged group.
+     * Chunking here fixes all call sites at once. Do not "simplify" this to an unfiltered full-table
+     * select: that breaks the moment RLS is tightened.
+     */
     private suspend inline fun <reified T : Any> selectIn(table: String, column: String, values: List<String>): List<T> =
-        client.from(table).select(Columns.ALL) { filter { isIn(column, values) } }.decodeList<T>()
+        chunkedSelect(values) { chunk ->
+            client.from(table).select(Columns.ALL) { filter { isIn(column, chunk) } }.decodeList<T>()
+        }
+
 
     private suspend inline fun <reified T : Any> upsertAll(table: String, rows: List<T>) {
         if (rows.isNotEmpty()) client.from(table).upsert(rows)
@@ -447,10 +485,53 @@ class SyncEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            AppResult.Err(AppError.Network(AppError.Network.Kind.Unreachable, e))
+            AppResult.Err(classifySyncError(e))
         }
 
     companion object {
+
+        /** Max ids per `in.(…)` filter — see [selectIn]. */
+        const val SELECT_IN_CHUNK: Int = 100
+
+        /**
+         * The chunk loop behind [selectIn], deliberately NOT inline and NOT a member. [pull] inlines
+         * [selectIn] at ~25 call sites and is already close to the JVM's 64KB per-method ceiling (see
+         * [land]); keeping the loop — and the request's whole suspension state machine, which rides in
+         * the [fetch] lambda's own class — out of the inlined body is what stops chunking from blowing
+         * that limit. `internal` so [SyncEngineTest] can pin it without a live client.
+         */
+        internal suspend fun <T> chunkedSelect(
+            values: List<String>,
+            fetch: suspend (List<String>) -> List<T>,
+        ): List<T> {
+            if (values.isEmpty()) return emptyList()
+            if (values.size <= SELECT_IN_CHUNK) return fetch(values)
+            val out = ArrayList<T>(values.size)
+            for (chunk in values.chunked(SELECT_IN_CHUNK)) out += fetch(chunk)
+            return out
+        }
+
+        /**
+         * Turn a sync exception into the error it actually is. Everything used to collapse into
+         * `Network.Unreachable`, so an RLS denial, a serialization drift and a dead radio were
+         * indistinguishable — which is what made every other sync defect invisible in production.
+         *
+         * `internal` so [SyncEngineTest] can pin the mapping without a live client.
+         */
+        internal fun classifySyncError(e: Throwable): AppError = when (e) {
+            is RestException -> when (e.statusCode) {
+                401 -> AppError.SessionExpired
+                403 -> AppError.NotAuthorized
+                else -> AppError.Backend(e.statusCode, e.error, e.description ?: e.message)
+            }
+            is HttpRequestTimeoutException -> AppError.Network(AppError.Network.Kind.Timeout, e)
+            is HttpRequestException -> AppError.Network(AppError.Network.Kind.Unreachable, e)
+            is SupabaseEncodingException -> AppError.Backend(null, "decode", e.message)
+            is SerializationException -> AppError.Backend(null, "decode", e.message)
+            is IOException -> AppError.Network(AppError.Network.Kind.Unreachable, e)
+            else -> AppError.Unexpected(e)
+        }
+
         /**
          * Keep only the incoming rows that are at least as new as the local copy (by `updated_at`). A row
          * the local DB has *newer* is dropped so the pull can't clobber an unsynced local edit (Rule 5) —

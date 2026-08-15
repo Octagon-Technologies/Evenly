@@ -1,7 +1,11 @@
 package app.splitevenly.data.remote.supabase
 
+import app.splitevenly.core.error.AppError
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.UserEntity
+import kotlinx.coroutines.test.runTest
+import kotlinx.io.IOException
+import kotlinx.serialization.SerializationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -119,5 +123,68 @@ class SyncEngineTest {
     @Test
     fun emptyIncoming_returnsEmpty() {
         assertTrue(keepNewerUsers(emptyList(), listOf(user("u1", "Sam", 100L))).isEmpty())
+    }
+
+    // --- selectIn chunking (#22) ---------------------------------------------------------------
+    // One unchunked `id=in.(…)` carried every expense id in the URL, so past the gateway's URL limit
+    // EVERY pull failed permanently — and #25 reported it as "you're offline".
+
+    @Test
+    fun chunkedSelect_splitsPastTheChunkSize_andConcatenatesInOrder() = runTest {
+        val ids = (1..250).map { "id-$it" }
+        val batches = mutableListOf<List<String>>()
+
+        val out = SyncEngine.chunkedSelect(ids) { chunk ->
+            batches += chunk
+            chunk
+        }
+
+        assertEquals(listOf(100, 100, 50), batches.map { it.size })
+        assertEquals(ids, out)
+    }
+
+    @Test
+    fun chunkedSelect_underTheLimit_sendsOneRequest() = runTest {
+        var calls = 0
+        val ids = (1..100).map { "id-$it" }
+
+        val out = SyncEngine.chunkedSelect(ids) { calls++; it }
+
+        assertEquals(1, calls)
+        assertEquals(ids, out)
+    }
+
+    @Test
+    fun chunkedSelect_empty_sendsNoRequestAtAll() = runTest {
+        var calls = 0
+        assertTrue(SyncEngine.chunkedSelect<String>(emptyList()) { calls++; it }.isEmpty())
+        assertEquals(0, calls)
+    }
+
+    // --- error classification (#25) --------------------------------------------------------------
+    // Every sync failure used to map to Network.Unreachable, so an RLS denial, a decode drift and a
+    // dead radio were indistinguishable — which made every other sync defect invisible in production.
+
+    @Test
+    fun classify_decodeFailure_isBackend_notOffline() {
+        val e = SyncEngine.classifySyncError(SerializationException("unknown key 'foo'"))
+
+        assertTrue(e is AppError.Backend, "expected Backend, got $e")
+        assertEquals("decode", e.code)
+    }
+
+    @Test
+    fun classify_transportFailure_staysNetworkUnreachable() {
+        val e = SyncEngine.classifySyncError(IOException("connection reset"))
+
+        assertTrue(e is AppError.Network, "expected Network, got $e")
+        assertEquals(AppError.Network.Kind.Unreachable, e.kind)
+    }
+
+    @Test
+    fun classify_unknownThrowable_isUnexpected_neverOffline() {
+        val e = SyncEngine.classifySyncError(IllegalStateException("bug"))
+
+        assertTrue(e is AppError.Unexpected, "expected Unexpected, got $e")
     }
 }
