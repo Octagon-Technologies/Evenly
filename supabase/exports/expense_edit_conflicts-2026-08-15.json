@@ -1,0 +1,62 @@
+[
+  {
+    "id": "demo-conflict-airbnb-carol",
+    "group_id": "019ed8b0-6c1e-7000-b5de-c380154d914a",
+    "expense_id": "019ed8b2-aac0-7000-8911-e269c57f267c",
+    "created_at": 1750000000000,
+    "base_version": 0,
+    "server_version": 1,
+    "rejected_by": "019ed8b1-a042-7000-a09c-b563284ea531",
+    "server_actor": null,
+    "resolution": null,
+    "resolved_at": null,
+    "resolved_by": null,
+    "rejected_expense": "{\"id\":\"019ed8b2-aac0-7000-8911-e269c57f267c\",\"group_id\":\"019ed8b0-6c1e-7000-b5de-c380154d914a\",\"kind\":\"EXPENSE\",\"title\":\"Airbnb (penthouse upgrade)\",\"amount_subunits\":24000,\"currency\":\"USD\",\"expense_date\":\"2026-06-20\",\"payer_user_id\":\"5b1da621-c70f-4f61-85ab-bb501ea810eb\",\"split_mode\":\"EXACT\",\"status\":\"ACTIVE\",\"created_by\":\"019ed8b1-a042-7000-a09c-b563284ea531\",\"created_at\":1750000000000,\"updated_at\":1750000000000,\"row_version\":1}",
+    "rejected_shares": "[{\"id\":\"rs-bob\",\"expense_id\":\"019ed8b2-aac0-7000-8911-e269c57f267c\",\"user_id\":\"5b1da621-c70f-4f61-85ab-bb501ea810eb\",\"share_owed_subunits\":0,\"created_at\":1750000000000,\"updated_at\":1750000000000},{\"id\":\"rs-carol\",\"expense_id\":\"019ed8b2-aac0-7000-8911-e269c57f267c\",\"user_id\":\"019ed8b1-a042-7000-a09c-b563284ea531\",\"share_owed_subunits\":12000,\"created_at\":1750000000000,\"updated_at\":1750000000000},{\"id\":\"rs-alice\",\"expense_id\":\"019ed8b2-aac0-7000-8911-e269c57f267c\",\"user_id\":\"019ed8b1-80a9-7000-9cc4-fd0bba55f479\",\"share_owed_subunits\":12000,\"created_at\":1750000000000,\"updated_at\":1750000000000}]"
+  },
+  {
+    "id": "demo-conflict-acme-dave",
+    "group_id": "019ef556-61e1-7000-8c57-8b79031a2a69",
+    "expense_id": "019efbc3-99ed-7000-a03c-eea9deb0c4d5",
+    "created_at": 1750000000000,
+    "base_version": 8,
+    "server_version": 8,
+    "rejected_by": "f9e22757-bebf-473c-93cc-6b090e40c691",
+    "server_actor": null,
+    "resolution": null,
+    "resolved_at": null,
+    "resolved_by": null,
+    "rejected_expense": "{\"id\":\"019efbc3-99ed-7000-a03c-eea9deb0c4d5\",\"group_id\":\"019ef556-61e1-7000-8c57-8b79031a2a69\",\"kind\":\"EXPENSE\",\"title\":\"Acme Shopping (split evenly)\",\"amount_subunits\":8000,\"currency\":\"USD\",\"expense_date\":\"2026-06-22\",\"payer_user_id\":\"0b372ffa-3b1a-464f-989c-ff4111035d86\",\"split_mode\":\"EVEN\",\"status\":\"ACTIVE\",\"created_by\":\"f9e22757-bebf-473c-93cc-6b090e40c691\",\"created_at\":1750000000000,\"updated_at\":1750000000000,\"row_version\":8}",
+    "rejected_shares": "[{\"id\":\"prs1\",\"expense_id\":\"019efbc3-99ed-7000-a03c-eea9deb0c4d5\",\"user_id\":\"0b372ffa-3b1a-464f-989c-ff4111035d86\",\"share_owed_subunits\":2000,\"created_at\":1750000000000,\"updated_at\":1750000000000},{\"id\":\"prs2\",\"expense_id\":\"019efbc3-99ed-7000-a03c-eea9deb0c4d5\",\"user_id\":\"f9e22757-bebf-473c-93cc-6b090e40c691\",\"share_owed_subunits\":2000,\"created_at\":1750000000000,\"updated_at\":1750000000000},{\"id\":\"prs3\",\"expense_id\":\"019efbc3-99ed-7000-a03c-eea9deb0c4d5\",\"user_id\":\"0aabe43b-c404-4070-b49a-0323375aadba\",\"share_owed_subunits\":2000,\"created_at\":1750000000000,\"updated_at\":1750000000000},{\"id\":\"prs4\",\"expense_id\":\"019efbc3-99ed-7000-a03c-eea9deb0c4d5\",\"user_id\":\"019efbc2-beb8-7000-b107-435ec09ed819\",\"share_owed_subunits\":2000,\"created_at\":1750000000000,\"updated_at\":1750000000000}]"
+  },
+  {
+    "id": "019efbc3-99ed-7000-a03c-eea9deb0c4d5:8:0aabe43b-c404-4070-b49a-0323375aadba",
+    "group_id": "019ef556-61e1-7000-8c57-8b79031a2a69",
+    "expense_id": "019efbc3-99ed-7000-a03c-eea9deb0c4d5",
+    "created_at": 1782352485819,
+    "base_version": 8,
+    "server_version": 9,
+    "rejected_by": "0aabe43b-c404-4070-b49a-0323375aadba",
+    "server_actor": null,
+    "resolution": null,
+    "resolved_at": null,
+    "resolved_by": null,
+    "rejected_expense": "{\"id\": \"019efbc3-99ed-7000-a03c-eea9deb0c4d5\", \"kind\": \"EXPENSE\", \"notes\": null, \"title\": \"Acme Shopping\", \"status\": \"ACTIVE\", \"currency\": \"USD\", \"group_id\": \"019ef556-61e1-7000-8c57-8b79031a2a69\", \"created_at\": 1782340360685, \"created_by\": \"0b372ffa-3b1a-464f-989c-ff4111035d86\", \"deleted_at\": null, \"split_mode\": \"PERCENT\", \"updated_at\": 1782352485819, \"category_id\": \"groceries\", \"has_tax_row\": false, \"row_version\": 9, \"expense_date\": \"2026-06-24\", \"tax_subunits\": 0, \"tip_subunits\": 0, \"payer_user_id\": \"0b372ffa-3b1a-464f-989c-ff4111035d86\", \"is_auto_refund\": false, \"subcategory_id\": null, \"tip_split_mode\": \"PROPORTIONAL\", \"amount_subunits\": 10000, \"payer_outside_name\": null, \"refund_of_expense_id\": null}",
+    "rejected_shares": "[{\"id\": \"019efbc3-99ed-7001-812f-7294b25183ba\", \"user_id\": \"0b372ffa-3b1a-464f-989c-ff4111035d86\", \"created_at\": 1782340360685, \"deleted_at\": null, \"expense_id\": \"019efbc3-99ed-7000-a03c-eea9deb0c4d5\", \"updated_at\": 1782352485819, \"row_version\": 2, \"share_units\": null, \"share_percentage\": 25.0, \"share_owed_subunits\": 2500, \"share_exact_subunits\": null}, {\"id\": \"019efbc3-99ed-7002-9e04-1049d4f49fe3\", \"user_id\": \"019efbc2-beb8-7000-b107-435ec09ed819\", \"created_at\": 1782340360685, \"deleted_at\": null, \"expense_id\": \"019efbc3-99ed-7000-a03c-eea9deb0c4d5\", \"updated_at\": 1782352485819, \"row_version\": 2, \"share_units\": null, \"share_percentage\": 25.0, \"share_owed_subunits\": 2500, \"share_exact_subunits\": null}, {\"id\": \"019efc7c-9dbf-7000-82c5-e8bf95396460\", \"user_id\": \"f9e22757-bebf-473c-93cc-6b090e40c691\", \"created_at\": 1782352485819, \"deleted_at\": null, \"expense_id\": \"019efbc3-99ed-7000-a03c-eea9deb0c4d5\", \"updated_at\": 1782352485819, \"row_version\": 1, \"share_units\": null, \"share_percentage\": 25.0, \"share_owed_subunits\": 2500, \"share_exact_subunits\": null}, {\"id\": \"019efc7c-9dbf-7001-8ba7-6b8580a10609\", \"user_id\": \"0aabe43b-c404-4070-b49a-0323375aadba\", \"created_at\": 1782352485819, \"deleted_at\": null, \"expense_id\": \"019efbc3-99ed-7000-a03c-eea9deb0c4d5\", \"updated_at\": 1782352485819, \"row_version\": 1, \"share_units\": null, \"share_percentage\": 25.0, \"share_owed_subunits\": 2500, \"share_exact_subunits\": null}]"
+  },
+  {
+    "id": "019f2a5a-d477-7000-a2fd-be87b3fb35af:1:0aabe43b-c404-4070-b49a-0323375aadba",
+    "group_id": "019f2a58-0f5a-7000-87c0-db4e43cd2a0a",
+    "expense_id": "019f2a5a-d477-7000-a2fd-be87b3fb35af",
+    "created_at": 1783122290916,
+    "base_version": 1,
+    "server_version": 2,
+    "rejected_by": "0aabe43b-c404-4070-b49a-0323375aadba",
+    "server_actor": "0aabe43b-c404-4070-b49a-0323375aadba",
+    "resolution": null,
+    "resolved_at": null,
+    "resolved_by": null,
+    "rejected_expense": "{\"id\": \"019f2a5a-d477-7000-a2fd-be87b3fb35af\", \"kind\": \"EXPENSE\", \"notes\": null, \"title\": \"ACME\", \"status\": \"ACTIVE\", \"currency\": \"USD\", \"group_id\": \"019f2a58-0f5a-7000-87c0-db4e43cd2a0a\", \"created_at\": 1783122023543, \"created_by\": \"0aabe43b-c404-4070-b49a-0323375aadba\", \"deleted_at\": null, \"split_mode\": \"ITEMIZED\", \"updated_at\": 1783122290916, \"category_id\": null, \"has_tax_row\": false, \"last_editor\": \"0aabe43b-c404-4070-b49a-0323375aadba\", \"row_version\": 2, \"expense_date\": \"2026-07-03\", \"tax_subunits\": 2068, \"tip_subunits\": 0, \"payer_user_id\": \"0aabe43b-c404-4070-b49a-0323375aadba\", \"is_auto_refund\": false, \"subcategory_id\": null, \"tip_split_mode\": \"EVEN\", \"amount_subunits\": 32560, \"discount_subunits\": 0, \"gratuity_subunits\": 5292, \"payer_outside_name\": null, \"refund_of_expense_id\": null}",
+    "rejected_shares": "[]"
+  }
+]

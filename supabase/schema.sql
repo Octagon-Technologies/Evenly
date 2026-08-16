@@ -854,6 +854,13 @@ begin
 end;
 $$;
 
+-- These four helpers are pure and fully schema-qualified inside, so pinning an EMPTY search_path costs
+-- nothing and keeps them off the `function_search_path_mutable` advisor. Do the same for any new one.
+alter function public._clamp_client_ts(bigint)      set search_path = '';
+alter function public._clamp_expense_payload(jsonb) set search_path = '';
+alter function public._expense_defaults()           set search_path = '';
+alter function public._share_defaults()             set search_path = '';
+
 create or replace function public._replace_expense_shares(p_expense_id text, p_shares jsonb, p_now bigint)
 returns void language plpgsql as $$
 declare
@@ -900,6 +907,35 @@ language sql
 stable  -- NOT immutable: it reads now(), which is fixed per transaction but not across them.
 as $$
   select least(coalesce(p_ts, 0), (extract(epoch from now()) * 1000)::bigint + 60000);
+$$;
+
+-- Clamp the timestamps INSIDE the payload, so the create path is covered too.
+--
+-- Clamping only at the point of comparison is not enough and was the first version of this fix: the
+-- `not found` branch of both RPCs inserts via `jsonb_populate_record`, which copies `title_updated_at`
+-- and friends straight out of the payload. A poisoned stamp on a brand-NEW expense therefore sailed
+-- past a clamp that only guarded the merge branch, and the field was locked from birth. Sanitising the
+-- jsonb once, before anything reads it, is what makes that impossible to get wrong again.
+--
+-- Keys absent from the payload stay absent — this must not resurrect the NULL-over-default bug that
+-- `_expense_defaults()` exists to fix, so it only rewrites keys that are actually present.
+create or replace function public._clamp_expense_payload(p_expense jsonb)
+returns jsonb
+language sql
+stable
+as $$
+  select coalesce(
+    (select jsonb_object_agg(
+              key,
+              case when key in ('updated_at', 'created_at', 'deleted_at',
+                                'title_updated_at', 'notes_updated_at',
+                                'category_updated_at', 'date_updated_at')
+                    and jsonb_typeof(value) = 'number'
+                   then to_jsonb(public._clamp_client_ts((value #>> '{}')::bigint))
+                   else value
+              end)
+       from jsonb_each(p_expense)),
+    p_expense);
 $$;
 
 -- ── The base row `jsonb_populate_record` fills in from ──────────────────────────────────────────
@@ -952,9 +988,12 @@ create or replace function public.commit_expense(
 language plpgsql
 as $$
 declare
-  v_id text := p_expense->>'id';
-  v_group_id text := p_expense->>'group_id';
-  v_now bigint := public._clamp_client_ts((p_expense->>'updated_at')::bigint);
+  -- Sanitise the client's clocks ONCE, before anything reads them (#19). Everything below uses
+  -- v_exp, never p_expense, so the create path gets the same clamp as the merge path.
+  v_exp jsonb := public._clamp_expense_payload(p_expense);
+  v_id text := v_exp->>'id';
+  v_group_id text := v_exp->>'group_id';
+  v_now bigint := coalesce((v_exp->>'updated_at')::bigint, 0);
   v_current public.expenses%rowtype;
   v_new_version bigint;
   v_conflict_id text;
@@ -966,25 +1005,25 @@ begin
 
   if not found then
     insert into public.expenses
-      select * from jsonb_populate_record(public._expense_defaults(), p_expense);
+      select * from jsonb_populate_record(public._expense_defaults(), v_exp);
     update public.expenses set last_editor = p_actor where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
-    return jsonb_build_object('status', 'created', 'version', coalesce((p_expense->>'row_version')::bigint, 1));
+    return jsonb_build_object('status', 'created', 'version', coalesce((v_exp->>'row_version')::bigint, 1));
   end if;
 
   if v_current.row_version = p_base_version and v_current.deleted_at is null then
     v_new_version := p_base_version + 1;
     update public.expenses set
-      title              = p_expense->>'title',
-      notes              = p_expense->>'notes',
-      amount_subunits    = (p_expense->>'amount_subunits')::bigint,
-      currency           = p_expense->>'currency',
-      expense_date       = p_expense->>'expense_date',
-      payer_user_id      = p_expense->>'payer_user_id',
-      payer_outside_name = p_expense->>'payer_outside_name',
-      split_mode         = p_expense->>'split_mode',
-      category_id        = p_expense->>'category_id',
-      subcategory_id     = p_expense->>'subcategory_id',
+      title              = v_exp->>'title',
+      notes              = v_exp->>'notes',
+      amount_subunits    = (v_exp->>'amount_subunits')::bigint,
+      currency           = v_exp->>'currency',
+      expense_date       = v_exp->>'expense_date',
+      payer_user_id      = v_exp->>'payer_user_id',
+      payer_outside_name = v_exp->>'payer_outside_name',
+      split_mode         = v_exp->>'split_mode',
+      category_id        = v_exp->>'category_id',
+      subcategory_id     = v_exp->>'subcategory_id',
       updated_at         = v_now,
       row_version        = v_new_version,
       last_editor        = p_actor
@@ -1007,16 +1046,16 @@ begin
     where s->>'deleted_at' is null;
 
   v_same := v_current.deleted_at is null
-    and v_current.title              is not distinct from p_expense->>'title'
-    and v_current.notes              is not distinct from p_expense->>'notes'
-    and v_current.amount_subunits    is not distinct from (p_expense->>'amount_subunits')::bigint
-    and v_current.currency           is not distinct from p_expense->>'currency'
-    and v_current.expense_date       is not distinct from p_expense->>'expense_date'
-    and v_current.payer_user_id      is not distinct from p_expense->>'payer_user_id'
-    and v_current.payer_outside_name is not distinct from p_expense->>'payer_outside_name'
-    and v_current.split_mode         is not distinct from p_expense->>'split_mode'
-    and v_current.category_id        is not distinct from p_expense->>'category_id'
-    and v_current.subcategory_id     is not distinct from p_expense->>'subcategory_id'
+    and v_current.title              is not distinct from v_exp->>'title'
+    and v_current.notes              is not distinct from v_exp->>'notes'
+    and v_current.amount_subunits    is not distinct from (v_exp->>'amount_subunits')::bigint
+    and v_current.currency           is not distinct from v_exp->>'currency'
+    and v_current.expense_date       is not distinct from v_exp->>'expense_date'
+    and v_current.payer_user_id      is not distinct from v_exp->>'payer_user_id'
+    and v_current.payer_outside_name is not distinct from v_exp->>'payer_outside_name'
+    and v_current.split_mode         is not distinct from v_exp->>'split_mode'
+    and v_current.category_id        is not distinct from v_exp->>'category_id'
+    and v_current.subcategory_id     is not distinct from v_exp->>'subcategory_id'
     and v_current_shares = v_incoming_shares;
 
   if v_same then
@@ -1029,7 +1068,7 @@ begin
     rejected_expense, rejected_shares, created_at)
   values (
     v_conflict_id, v_group_id, v_id, p_base_version, v_current.row_version, p_actor, v_current.last_editor,
-    p_expense::text, p_shares::text, v_now)
+    v_exp::text, p_shares::text, v_now)
   on conflict (id) do nothing;
   return jsonb_build_object('status', 'conflict', 'server_version', v_current.row_version, 'conflict_id', v_conflict_id);
 end;
@@ -1058,11 +1097,14 @@ create or replace function public.merge_expense(
 language plpgsql
 as $$
 declare
-  v_id text := p_expense->>'id';
-  v_group_id text := p_expense->>'group_id';
-  v_now bigint := public._clamp_client_ts((p_expense->>'updated_at')::bigint);
+  -- Sanitise the client's clocks ONCE, before anything reads them (#19). Everything below uses
+  -- v_exp, never p_expense, so the create path gets the same clamp as the merge path.
+  v_exp jsonb := public._clamp_expense_payload(p_expense);
+  v_id text := v_exp->>'id';
+  v_group_id text := v_exp->>'group_id';
+  v_now bigint := coalesce((v_exp->>'updated_at')::bigint, 0);
   v_cur public.expenses%rowtype;
-  v_client_split_ver bigint := coalesce((p_expense->>'split_version')::bigint, 1);
+  v_client_split_ver bigint := coalesce((v_exp->>'split_version')::bigint, 1);
   v_client_changed boolean;
   v_server_advanced boolean;
   v_status text;
@@ -1077,20 +1119,20 @@ begin
   select * into v_cur from public.expenses where id = v_id for update;
 
   if not found then
-    insert into public.expenses select * from jsonb_populate_record(public._expense_defaults(), p_expense);
+    insert into public.expenses select * from jsonb_populate_record(public._expense_defaults(), v_exp);
     update public.expenses set split_updated_by = p_actor where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
     return jsonb_build_object(
       'status', 'created',
-      'split_version', coalesce((p_expense->>'split_version')::bigint, 1),
+      'split_version', coalesce((v_exp->>'split_version')::bigint, 1),
       'expense', (select to_jsonb(e) from public.expenses e where e.id = v_id),
       'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id));
   end if;
 
-  if (p_expense->>'deleted_at') is not null then
+  if (v_exp->>'deleted_at') is not null then
     if v_now >= v_cur.updated_at then
       update public.expenses
-         set deleted_at = public._clamp_client_ts((p_expense->>'deleted_at')::bigint), status = 'DELETED',
+         set deleted_at = (v_exp->>'deleted_at')::bigint, status = 'DELETED',
              updated_at = v_now, row_version = v_cur.row_version + 1
        where id = v_id;
     end if;
@@ -1101,20 +1143,20 @@ begin
       'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id and s.deleted_at is null));
   end if;
 
-  if public._clamp_client_ts((p_expense->>'title_updated_at')::bigint) > coalesce(v_cur.title_updated_at, 0) then
-    v_title := p_expense->>'title'; v_title_at := public._clamp_client_ts((p_expense->>'title_updated_at')::bigint);
+  if coalesce((v_exp->>'title_updated_at')::bigint, 0) > coalesce(v_cur.title_updated_at, 0) then
+    v_title := v_exp->>'title'; v_title_at := coalesce((v_exp->>'title_updated_at')::bigint, 0);
   else v_title := v_cur.title; v_title_at := v_cur.title_updated_at; end if;
 
-  if public._clamp_client_ts((p_expense->>'notes_updated_at')::bigint) > coalesce(v_cur.notes_updated_at, 0) then
-    v_notes := p_expense->>'notes'; v_notes_at := public._clamp_client_ts((p_expense->>'notes_updated_at')::bigint);
+  if coalesce((v_exp->>'notes_updated_at')::bigint, 0) > coalesce(v_cur.notes_updated_at, 0) then
+    v_notes := v_exp->>'notes'; v_notes_at := coalesce((v_exp->>'notes_updated_at')::bigint, 0);
   else v_notes := v_cur.notes; v_notes_at := v_cur.notes_updated_at; end if;
 
-  if public._clamp_client_ts((p_expense->>'category_updated_at')::bigint) > coalesce(v_cur.category_updated_at, 0) then
-    v_cat := p_expense->>'category_id'; v_subcat := p_expense->>'subcategory_id'; v_cat_at := public._clamp_client_ts((p_expense->>'category_updated_at')::bigint);
+  if coalesce((v_exp->>'category_updated_at')::bigint, 0) > coalesce(v_cur.category_updated_at, 0) then
+    v_cat := v_exp->>'category_id'; v_subcat := v_exp->>'subcategory_id'; v_cat_at := coalesce((v_exp->>'category_updated_at')::bigint, 0);
   else v_cat := v_cur.category_id; v_subcat := v_cur.subcategory_id; v_cat_at := v_cur.category_updated_at; end if;
 
-  if public._clamp_client_ts((p_expense->>'date_updated_at')::bigint) > coalesce(v_cur.date_updated_at, 0) then
-    v_date := p_expense->>'expense_date'; v_date_at := public._clamp_client_ts((p_expense->>'date_updated_at')::bigint);
+  if coalesce((v_exp->>'date_updated_at')::bigint, 0) > coalesce(v_cur.date_updated_at, 0) then
+    v_date := v_exp->>'expense_date'; v_date_at := coalesce((v_exp->>'date_updated_at')::bigint, 0);
   else v_date := v_cur.expense_date; v_date_at := v_cur.date_updated_at; end if;
 
   v_client_changed := v_client_split_ver > p_base_split_version;
@@ -1123,18 +1165,18 @@ begin
   if v_client_changed and not v_server_advanced then
     v_status := 'merged';
     update public.expenses set
-      amount_subunits    = (p_expense->>'amount_subunits')::bigint,
-      currency           = p_expense->>'currency',
-      split_mode         = p_expense->>'split_mode',
-      payer_user_id      = p_expense->>'payer_user_id',
-      payer_outside_name = p_expense->>'payer_outside_name',
-      has_tax_row        = coalesce((p_expense->>'has_tax_row')::boolean, false),
-      tax_subunits       = coalesce((p_expense->>'tax_subunits')::bigint, 0),
-      tip_subunits       = coalesce((p_expense->>'tip_subunits')::bigint, 0),
-      tip_split_mode     = coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL'),
-      gratuity_subunits  = coalesce((p_expense->>'gratuity_subunits')::bigint, 0),
-      discount_subunits  = coalesce((p_expense->>'discount_subunits')::bigint, 0),
-      other_charges_subunits = coalesce((p_expense->>'other_charges_subunits')::bigint, 0),
+      amount_subunits    = (v_exp->>'amount_subunits')::bigint,
+      currency           = v_exp->>'currency',
+      split_mode         = v_exp->>'split_mode',
+      payer_user_id      = v_exp->>'payer_user_id',
+      payer_outside_name = v_exp->>'payer_outside_name',
+      has_tax_row        = coalesce((v_exp->>'has_tax_row')::boolean, false),
+      tax_subunits       = coalesce((v_exp->>'tax_subunits')::bigint, 0),
+      tip_subunits       = coalesce((v_exp->>'tip_subunits')::bigint, 0),
+      tip_split_mode     = coalesce(v_exp->>'tip_split_mode', 'PROPORTIONAL'),
+      gratuity_subunits  = coalesce((v_exp->>'gratuity_subunits')::bigint, 0),
+      discount_subunits  = coalesce((v_exp->>'discount_subunits')::bigint, 0),
+      other_charges_subunits = coalesce((v_exp->>'other_charges_subunits')::bigint, 0),
       split_version      = v_cur.split_version + 1,
       split_updated_by   = p_actor
     where id = v_id;
@@ -1149,17 +1191,17 @@ begin
       into v_current_shares from public.shares where expense_id = v_id and deleted_at is null;
     select coalesce(jsonb_object_agg(s->>'user_id', (s->>'share_owed_subunits')::bigint), '{}'::jsonb)
       into v_incoming_shares from jsonb_array_elements(p_shares) s where s->>'deleted_at' is null;
-    v_same := v_cur.amount_subunits    is not distinct from (p_expense->>'amount_subunits')::bigint
-      and v_cur.currency           is not distinct from p_expense->>'currency'
-      and v_cur.split_mode         is not distinct from p_expense->>'split_mode'
-      and v_cur.payer_user_id      is not distinct from p_expense->>'payer_user_id'
-      and v_cur.payer_outside_name is not distinct from p_expense->>'payer_outside_name'
-      and v_cur.tax_subunits       is not distinct from coalesce((p_expense->>'tax_subunits')::bigint, 0)
-      and v_cur.tip_subunits       is not distinct from coalesce((p_expense->>'tip_subunits')::bigint, 0)
-      and v_cur.tip_split_mode     is not distinct from coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL')
-      and v_cur.gratuity_subunits  is not distinct from coalesce((p_expense->>'gratuity_subunits')::bigint, 0)
-      and v_cur.discount_subunits  is not distinct from coalesce((p_expense->>'discount_subunits')::bigint, 0)
-      and v_cur.other_charges_subunits is not distinct from coalesce((p_expense->>'other_charges_subunits')::bigint, 0)
+    v_same := v_cur.amount_subunits    is not distinct from (v_exp->>'amount_subunits')::bigint
+      and v_cur.currency           is not distinct from v_exp->>'currency'
+      and v_cur.split_mode         is not distinct from v_exp->>'split_mode'
+      and v_cur.payer_user_id      is not distinct from v_exp->>'payer_user_id'
+      and v_cur.payer_outside_name is not distinct from v_exp->>'payer_outside_name'
+      and v_cur.tax_subunits       is not distinct from coalesce((v_exp->>'tax_subunits')::bigint, 0)
+      and v_cur.tip_subunits       is not distinct from coalesce((v_exp->>'tip_subunits')::bigint, 0)
+      and v_cur.tip_split_mode     is not distinct from coalesce(v_exp->>'tip_split_mode', 'PROPORTIONAL')
+      and v_cur.gratuity_subunits  is not distinct from coalesce((v_exp->>'gratuity_subunits')::bigint, 0)
+      and v_cur.discount_subunits  is not distinct from coalesce((v_exp->>'discount_subunits')::bigint, 0)
+      and v_cur.other_charges_subunits is not distinct from coalesce((v_exp->>'other_charges_subunits')::bigint, 0)
       and v_current_shares = v_incoming_shares;
     if v_same then
       v_status := 'merged'; -- canonical already equals the incoming split; adopt it, log nothing
@@ -1171,7 +1213,7 @@ begin
       values (
         v_id || ':' || p_base_split_version::text || ':' || p_actor,
         v_group_id, v_id, p_base_split_version, v_cur.split_version, p_actor,
-        p_expense::text, p_shares::text, v_now)
+        v_exp::text, p_shares::text, v_now)
       on conflict (id) do nothing;
     end if;
   else

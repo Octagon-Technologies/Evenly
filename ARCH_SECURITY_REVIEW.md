@@ -8,12 +8,15 @@ architecture. Excludes anything already tracked in CLAUDE.md's "PRODUCTION DATA-
 Each item has a checkbox. Check it off `[x]` only once the fix has actually been implemented and
 verified (compiled + tested per CLAUDE.md's build rules) — not just triaged.
 
-## Status as of 2026-08-15 — 28 of 29 closed
+## Status as of 2026-08-15 — all 29 closed
 
 `SECURITY_FIX_HANDOFF.md` re-verified the 14 then-open findings against `feat/pro-passes` @ `daef743`
 and they were fixed on `fix/security-handoff` (one commit per finding, both platforms green).
 
-**#23 is the only thing still open**, and half of it is intentional — read its entry before touching it.
+**#23 is closed too**: the four stranded rows were exported, judged, and marked resolved (see
+`supabase/exports/expense_edit_conflicts-2026-08-15.md`). Removing the dead `expense_edit_conflicts`
+table from `SYNC_TABLES`/`SyncEngine` is still deliberately deferred until the concurrent `RowSyncState`
+work settles — that is a scheduling decision, not an open defect.
 **#27 is closed as WRONG**: acting on it re-creates the 13.9M-message realtime outage.
 
 Two of these are now enforced by machine rather than by this checkbox, which is the point: #20 and #21
@@ -21,9 +24,11 @@ are money invariants asserted over every vector in `test-vectors/bill-split.json
 the TS runner, so they fail CI rather than silently regressing. A markdown checkbox decays; a vector
 does not.
 
-**Not yet applied to the live Supabase project** (ref `wfpfgbipjmkysalfmyub`): the #16/#19/#29 schema
-changes. They are `create or replace function` plus one `drop index if exists`, no table changes, and
-were verified against a scratch Postgres 18 — but applying them is the owner's call.
+**Applied to the live Supabase project** (ref `wfpfgbipjmkysalfmyub`) on 2026-08-15, in four migrations:
+`clamp_client_clocks_and_fix_populate_record_defaults`, `commit_expense_use_clamped_payload_and_defaults`,
+`merge_expense_use_clamped_payload_and_defaults`, `pin_search_path_on_new_expense_helpers`. Verified live
+inside a rolled-back transaction: a partial payload keeps its column defaults and a year-2100 stamp is
+clamped, on the create path as well as the merge path.
 
 ---
 
@@ -122,9 +127,10 @@ were verified against a scratch Postgres 18 — but applying them is the owner's
 - [x] **22. `selectIn` builds one `id=in.(…)` GET per table with every expense id — at ~800-1000 expenses/group the URL exceeds gateway limits and every pull fails wholesale, reported as permanently "unreachable."**
   Fix: chunk `values` into batches (e.g. 100 ids) and concatenate results inside the `selectIn` helper. Don't switch to unfiltered full-table selects as a workaround (breaks post-RLS-tightening).
 
-- [ ] **23. STILL OPEN, and half of it must NOT be "fixed".** Four unresolved `expense_edit_conflicts` rows on the live server are stranded: invisible in-app but synced to every device forever.
-  **Not a defect:** `observeEditConflicts` returning empty is deliberate and documented (`data/AGENTS.md:118`), and asserted by `EditConflictResolutionTest.observeEditConflicts_isEmpty_bilateralCardsRetired`. Leave it.
-  **Genuinely open, needs the owner:** (a) the 4 live rows carry full rejected payloads, so they need exporting for a manual keep/apply decision before being marked resolved via SQL — that needs live DB access, which this session did not take; (b) removing `expense_edit_conflicts` from `SyncEngine.pull`/`push` and `SyncManager.SYNC_TABLES` is **deliberately deferred** — the owner asked to leave it until the concurrent `RowSyncState` work settles (asked and answered 2026-08-15).
+- [x] **23. Closed 2026-08-15.** Four unresolved `expense_edit_conflicts` rows were stranded on the live server: invisible in-app but synced to every device forever.
+  **Not a defect, do not "fix":** `observeEditConflicts` returning empty is deliberate (`data/AGENTS.md:118`) and asserted by `EditConflictResolutionTest.observeEditConflicts_isEmpty_bilateralCardsRetired`.
+  **Done:** all four rows were exported in full, judged individually, and marked `resolution = 'KEEP_SERVER'` (marked, never deleted). Two were seeded demo fixtures; one was a real rejected split edit in a `@sharecost.test` group; one was a self-supersede with an empty share set. The record and the reasoning are in `supabase/exports/expense_edit_conflicts-2026-08-15.md`, the raw payloads beside it in `.json`. No real user's money was involved.
+  **Still deferred by choice:** removing `expense_edit_conflicts` from `SyncEngine.pull`/`push` and `SyncManager.SYNC_TABLES`, until the concurrent `RowSyncState` work settles.
 
 - [x] **24. Sign-out doesn't clear Room; sign-in as a different account on the same device pushes account A's stale rows to the server under account B's session.**
   Fix: on `signOut`/`deleteAccount`, clear synced Room tables + `row_sync_state`/`expense_sync_state`, gated on a dirty-check ("unsynced changes will be lost" warning first). Don't wipe unconditionally in the same path that runs when the delete RPC failed.
