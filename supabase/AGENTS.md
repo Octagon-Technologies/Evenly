@@ -130,15 +130,19 @@ rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
 - **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
   policies: only the `web-claim` edge function's service key ever touches it.
 - **`web_bill_links`** — the 72h revocable bill token, stored hashed. RLS enabled, **zero policies,
-  permanently.** Step 6 was planned to add a membership-scoped table policy and deliberately did not:
-  RLS is still `using (true)` app-wide, so *any* policy here makes `token_hash` readable by every
-  authenticated user, and that hash is the entire authorisation check `web-claim` performs. The app
-  reaches the table only through the `security definer` RPCs below, none of which return the hash.
+  permanently.** Step 6 was planned to add a membership-scoped table policy and deliberately did not,
+  and tightening the rest of the schema did **not** change that: `token_hash` is the entire
+  authorisation check `web-claim` performs, so a member-readable policy would hand every member of a
+  group a working bearer token for its bills. Zero policies is the design, not a gap left to fill. The
+  app reaches the table only through the `security definer` RPCs below, none of which return the hash.
 - **`pending_item_edits`** — the bill's change log: a guest's add/relabel/reprice/requantify/remove,
   written **already `APPLIED`**. The name predates the drop of the approval gate
   (`WEB_CLAIM_PATCH_PLAN.md`) and the table is synced, so renaming it costs more than it explains.
-  **Synced**, so it carries the same permissive `for all to authenticated` policy as the rest of this
-  schema, and is in the doorbell trigger loop. `previous_line_total_subunits` is what an undo restores;
+  **Synced**, so it is membership-scoped by `group_id` like the rest of the schema, and is in the
+  doorbell trigger loop. Its policy is declared at its own definition rather than in the RLS section's
+  loop, because the table is created ~1100 lines after that loop runs — it carried the *permissive*
+  policy for the same reason, and that is precisely how the first tightening pass nearly missed it.
+  `previous_line_total_subunits` is what an undo restores;
   `previous_unit_price_subunits` is display only and rebuilding a line total from it loses a penny.
 - **`join_item_portion(item_id, joiner_user_id, portion_id, now, over_claim_ack)`** — the write a
   client can never safely make itself: converting someone else's solo `item_claims` row into a shared
@@ -229,10 +233,10 @@ status rule so a badge costs no round trip, and only `extract-receipt` enforces.
 
 **`revoke insert, update, delete` is not enough — RLS does not apply to TRUNCATE.** Supabase grants ALL
 on a new public table to `anon`/`authenticated`, so a signed-in user could wipe the table in one
-statement regardless of policies. `group_passes` revokes TRUNCATE explicitly. **Every other table in
-this schema still grants it** (verified by a live grants query, 32 tables including the zero-policy
-`web_bill_links` / `apple_oauth_tokens`) — fold `revoke truncate on all tables in schema public from
-anon, authenticated;` into the RLS tightening below.
+statement regardless of policies. The project-wide sweep (`revoke truncate on all tables in schema
+public from anon, authenticated;`) now runs in the RLS section of `schema.sql`, and a live grants query
+returns zero tables still granting it. **It is not automatic for a table you add later** — Supabase
+grants ALL at creation time, so re-run the sweep, or revoke on the new table as `group_passes` does.
 
 **`my_group_scan_usage(group_id)` is the only way a client learns its group's scan count.**
 `receipt_scan_log`'s RLS is `user_id = auth.uid()`, so a member querying the table sees only the scans
@@ -279,14 +283,52 @@ only in edge-function env; the apps carry the public SDK keys.
   want the retry". Unconfigured means **refusing**, not accepting: an unauthenticated writer here could
   hand any account a subscription.
 
-## RLS — currently permissive, and that is a P0 before prod
+## RLS — membership-scoped
 
-The loop at `schema.sql:591` generates `for all to authenticated using (true) with check (true)` for every
-table. That means **any authenticated user, including an anonymous one, can read, overwrite, or delete every
-row in the database.** It is deliberate for testing and it is a one-account mass-data-loss vector.
+Every one of the 20 app tables is scoped to **ACTIVE** members of the row's group. This replaced a loop
+generating `for all to authenticated using (true) with check (true)`, under which any signed-in account could
+read, overwrite, or delete every other group's ledger. Proven, not assumed: as a signed-in non-member, all 20
+tables return 0 rows of another group's data, and update/delete/insert against them affect 0 rows or raise.
 
-Tighten to membership-scoped before any non-test user exists; the policy sketch is already in `schema.sql`
-(see the commented `expenses_member_read` example around line 610).
+Four rules govern anything you add here:
+
+1. **Never add a permissive policy, not even "just for testing".** Permissive policies OR together, so one
+   surviving `using (true)` silently defeats every policy beside it. That is also why the old `_rw` loop had
+   to be deleted rather than supplemented.
+2. **Go through `is_group_member(group_id)`**, the `security definer` helper with a pinned `search_path`.
+   Definer is load-bearing: a membership policy *on* `members` that selects *from* `members` recurses
+   forever. `shares` is the only table with no `group_id` and uses `can_access_expense(expense_id)` instead.
+3. **Never filter `deleted_at is null` in a policy.** Deletions travel as soft-deleted rows; hiding
+   tombstones stops them reaching other devices and the data resurrects on the next pull.
+4. **Wrap `auth.uid()` as `(select auth.uid())`** so it is evaluated once per statement, not once per row.
+
+Four tables are deliberately *not* plain membership scoping, and each arm is load-bearing:
+
+- **`groups`** — insert also accepts `created_by = auth.uid()`. `SyncEngine.push` sends users → groups →
+  members, so a newly created group is inserted before its creator has a membership row.
+- **`members`** — also accepts `user_id = auth.uid()`, which is what carries pull step 1 (it selects by
+  user_id before knowing any group, and lands LEFT rows), joining, and leaving.
+- **`users`** — read is "me, or anyone I share a group with"; scoping it to `id = auth.uid()` would blank out
+  every co-member and placeholder name in the app. The co-member arm does **not** filter the other side to
+  ACTIVE: claimed placeholders and departed members are soft-left and their names still have to resolve on
+  historical rows. Write is my own row, or a placeholder in one of my groups.
+- **`device_tokens`** — per-user (`user_id = auth.uid()`), never group-scoped. It is a route to one person's
+  lock screen.
+
+**Membership gates which group you may write to, not which row inside it.** Any ACTIVE member can edit or
+soft-delete any expense, settlement, or comment in their groups, including ones they did not create. That
+matches how the app already behaves. Per-actor rules (only the payer may edit their settlement) would be a
+separate design.
+
+**`merge_expense` and `commit_expense` are SECURITY INVOKER**, so these policies are enforced *inside* them.
+`can_access_expense` is a definer function and therefore sees the expense row the same transaction just
+inserted. Check the security mode before assuming a new RPC bypasses anything.
+
+**Join-by-link cannot be a policy.** An RLS predicate cannot see the query's `WHERE`, so nothing can express
+"allow this row because they supplied its token" — any policy permitting that read permits reading every
+group. `resolve_group_by_invite_token` (definer) is the only path, and
+`SupabaseRemoteGroupGateway.resolveByToken` is its only caller. A plain select on `groups` there returns zero
+rows and breaks cross-device join silently.
 
 **Any view over an RLS-protected table needs `with (security_invoker = true)`.** A plain `create view`
 defaults to `SECURITY DEFINER`, which runs as the view owner and bypasses the underlying table's RLS
@@ -306,8 +348,14 @@ the service-role client is never the default; if a task genuinely needs it, say 
 
 ## Storage
 
-Receipts live in a **public** bucket `receipts`; object policies are currently permissive and should be
-tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its Storage object
+Receipts live in a **public** bucket `receipts`. **This is the last known read hole in the project, and
+membership-scoped RLS did not close it:** `public = true` makes the bucket's four `storage.objects` policies
+decorative, so anyone holding an object URL reads that receipt photo without authenticating at all — names,
+amounts, often a card's last four. Closing it means a private bucket plus signed URLs, and `publicUrl` has no
+expiry to renew, so it is a **client** change and was deliberately left out of the RLS work rather than
+half-done. The `receipts` *table* is membership-scoped; only the bytes are open.
+
+A soft-deleted `receipts` row best-effort deletes its Storage object
 (`ActivityRepositoryImpl.deleteReceipt`). **Never** issue a bucket-wide or prefix-wide delete.
 
 ## Edge functions

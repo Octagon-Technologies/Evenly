@@ -617,23 +617,221 @@ alter table public.pro_orphan_purchases enable row level security;
 -- Deliberately no policies: it holds a stranger's purchase record and no client has business reading it.
 revoke all on public.pro_orphan_purchases from anon, authenticated;
 
--- ── Row-Level Security ──────────────────────────────────────────────────────────────────────────
--- PERMISSIVE policies so sync works immediately for testing: any authenticated (incl. anonymous)
--- user can read/write every row. NOT safe for real multi-user data — see the membership-scoped sketch
--- at the bottom before going further than a personal test.
+-- ── Row-Level Security: membership-scoped ───────────────────────────────────────────────────────
+-- A row is reachable only by ACTIVE members of its group. This replaced a `for all to authenticated
+-- using (true) with check (true)` loop over these same 20 tables, under which any signed-in account
+-- could read, overwrite, or delete every other group's ledger.
+--
+-- ⚠️ If you are adding a table here, do NOT reintroduce a permissive policy "just for testing".
+-- Permissive policies OR together, so a single surviving `using (true)` silently defeats every policy
+-- in this section.
+--
+-- "Member" means status = 'ACTIVE', matching `SyncEngine.activeGroupIds` (a departed member's device
+-- already stops pulling the group) and the four policies that predate this section.
+--
+-- NOTE: no policy here filters `deleted_at is null`, deliberately. Deletions travel as soft-deleted
+-- rows; hiding tombstones would stop deletions reaching other devices and the data would resurrect on
+-- the next pull (AGENTS.md §4.5).
+
+-- SECURITY DEFINER is load-bearing: a membership policy ON `members` that selects FROM `members`
+-- recurses infinitely. A definer function is not subject to the caller's policies, so it terminates.
+-- `search_path` is pinned because a definer function with a mutable one lets the caller shadow
+-- `members` with a relation of their own.
+--
+-- `(select auth.uid())` rather than a bare `auth.uid()`: the scalar subquery is evaluated once per
+-- statement instead of once per row, which is the difference between a usable sync and an unusable one.
+create or replace function public.is_group_member(p_group_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.members m
+    where m.group_id = p_group_id
+      and m.user_id = (select auth.uid())::text
+      and m.status = 'ACTIVE'
+  );
+$$;
+
+-- `shares` is the ONLY app table with no `group_id`, so it reaches the group through its parent
+-- expense. Kept as a definer helper so the join lives in one place and `expenses`' own RLS is not
+-- re-evaluated inside `shares`' policy.
+create or replace function public.can_access_expense(p_expense_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.expenses e
+    join public.members m on m.group_id = e.group_id
+    where e.id = p_expense_id
+      and m.user_id = (select auth.uid())::text
+      and m.status = 'ACTIVE'
+  );
+$$;
+
+revoke all on function public.is_group_member(text) from public, anon;
+revoke all on function public.can_access_expense(text) from public, anon;
+grant execute on function public.is_group_member(text) to authenticated;
+grant execute on function public.can_access_expense(text) to authenticated;
+
+-- Every policy below drives off (user_id, group_id) with status ACTIVE. `members_user_idx` alone makes
+-- that a scan of every group the user belongs to; this makes it one index lookup.
+create index if not exists members_user_group_active_idx
+  on public.members (user_id, group_id) where status = 'ACTIVE';
+
+-- Retire the permissive policies. These must be DROPPED, not merely supplemented.
 do $$
 declare t text;
 begin
-  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','expense_blocked_users','receipts','categories','expense_history','device_tokens','expense_items','item_claims','item_shares','bill_participants']
+  foreach t in array array[
+    'users','groups','members','expenses','shares','settlements','settlement_allocations',
+    'conflicts','expense_edit_conflicts','comments','expense_blocked_users','receipts','categories',
+    'expense_history','device_tokens','expense_items','item_claims','item_shares',
+    'bill_participants'
+  ]
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists %I on public.%I;', t || '_rw', t);
+  end loop;
+end $$;
+
+-- The plainly group-scoped tables: each carries its own `not null group_id`, so each is one helper
+-- call against an indexed column. `pending_item_edits` belongs to this set but is created ~1100 lines
+-- below, so it repeats this exact policy shape at its own definition rather than here.
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'expenses','settlements','settlement_allocations','conflicts','expense_edit_conflicts',
+    'comments','expense_blocked_users','receipts','categories','expense_history',
+    'expense_items','item_claims','item_shares','bill_participants'
+  ]
+  loop
+    execute format('drop policy if exists %I on public.%I;', t || '_member_rw', t);
     execute format(
-      'create policy %I on public.%I for all to authenticated using (true) with check (true);',
-      t || '_rw', t
+      'create policy %I on public.%I for all to authenticated '
+      'using (public.is_group_member(group_id)) '
+      'with check (public.is_group_member(group_id));',
+      t || '_member_rw', t
     );
   end loop;
 end $$;
+
+-- The INSERT arm is why this is not a plain `is_group_member(id)`: `SyncEngine.push` sends the roster
+-- as users → groups → members, so when a newly created group is inserted its creator still has no
+-- membership row on the server. `created_by` is the only thing that can vouch for that write.
+drop policy if exists groups_member_rw on public.groups;
+create policy groups_member_rw on public.groups
+  for all to authenticated
+  using (public.is_group_member(id))
+  with check (
+    public.is_group_member(id)
+    or created_by = (select auth.uid())::text
+  );
+
+-- The `user_id = auth.uid()` arm carries three flows the membership arm cannot:
+--   read   : `SyncEngine.pull` step 1 selects this table by user_id BEFORE it knows any group, and
+--            deliberately lands the LEFT rows too — `is_group_member` is false for those.
+--   insert : joining a group. The membership being created is the thing being checked, so nothing else
+--            could authorise it. Costs: anyone holding a group's id (UUIDv7, ~74 random bits, never
+--            exposed to non-members) can add themselves. That is the join mechanism.
+--   update : leaving. A self-leave writes status = 'LEFT', which the membership arm would reject.
+drop policy if exists members_member_rw on public.members;
+create policy members_member_rw on public.members
+  for all to authenticated
+  using (
+    public.is_group_member(group_id)
+    or user_id = (select auth.uid())::text
+  )
+  with check (
+    public.is_group_member(group_id)
+    or user_id = (select auth.uid())::text
+  );
+
+-- `merge_expense` is SECURITY INVOKER, so this policy is evaluated inside it. `can_access_expense` is
+-- a definer function and therefore sees the expense row the same transaction just inserted.
+drop policy if exists shares_member_rw on public.shares;
+create policy shares_member_rw on public.shares
+  for all to authenticated
+  using (public.can_access_expense(expense_id))
+  with check (public.can_access_expense(expense_id));
+
+-- Read: myself, or anyone I share a group with. Scoping this to `id = auth.uid()` would make every
+-- co-member and every placeholder invisible and blank out every name in the app.
+--
+-- `them` is deliberately NOT filtered to ACTIVE while `me` is: a claimed placeholder and a departed
+-- member are both soft-left, and their names still have to resolve on historical expenses and shares.
+--
+-- Write: my own profile, or a placeholder belonging to a group I am in (creating and renaming
+-- placeholders are ordinary group actions). This arm closes the sharpest hole in the old policy —
+-- under `using (true)` any signed-in account could rewrite anyone's payment handles, which is a route
+-- to being paid in their place.
+drop policy if exists users_member_rw on public.users;
+create policy users_member_rw on public.users
+  for all to authenticated
+  using (
+    id = (select auth.uid())::text
+    or exists (
+      select 1
+      from public.members me
+      join public.members them on them.group_id = me.group_id
+      where me.user_id = (select auth.uid())::text
+        and me.status = 'ACTIVE'
+        and them.user_id = users.id
+    )
+  )
+  with check (
+    id = (select auth.uid())::text
+    or (is_placeholder and public.is_group_member(placeholder_group_id))
+  );
+
+-- Per-user, not per-group: an FCM/APNs token is a route to one person's lock screen and has no group
+-- scope at all. `PushController` only ever writes the signed-in user's own row.
+drop policy if exists device_tokens_member_rw on public.device_tokens;
+create policy device_tokens_member_rw on public.device_tokens
+  for all to authenticated
+  using (user_id = (select auth.uid())::text)
+  with check (user_id = (select auth.uid())::text);
+
+-- ⚠️ RLS DOES NOT APPLY TO TRUNCATE. Supabase grants ALL on every new public table to
+-- anon/authenticated, so without this sweep every policy above is one `TRUNCATE` away from
+-- irrelevant. Re-run it after adding a table.
+revoke truncate on all tables in schema public from anon, authenticated;
+
+-- ── Join-by-link: the one read that CANNOT be membership-scoped ──────────────────────────────────
+-- `GroupRepositoryImpl.joinByToken` resolves an invite token against `groups` for a user who is not a
+-- member yet, by definition. An RLS predicate cannot see the query's WHERE clause, so no policy can
+-- express "allow this row because they supplied its token" — any policy permitting that read permits
+-- reading every group in the database. Hence a definer RPC: the token match happens inside the
+-- function, where it IS the authorisation check rather than a filter the caller chose.
+--
+-- It leaks nothing the token does not already grant, and the token is a UUIDv7 (~74 random bits), so
+-- it is not enumerable. Returns the whole row so the client decodes `GroupEntity` unchanged.
+-- `SupabaseRemoteGroupGateway.resolveByToken` is the only caller; a plain select there returns zero
+-- rows now and would silently break cross-device join.
+create or replace function public.resolve_group_by_invite_token(p_token text)
+returns setof public.groups
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select g.*
+  from public.groups g
+  where g.invite_token = p_token
+    and g.deleted_at is null
+  limit 1;
+$$;
+
+revoke all on function public.resolve_group_by_invite_token(text) from public, anon;
+grant execute on function public.resolve_group_by_invite_token(text) to authenticated;
 
 -- ── Realtime: the per-group DOORBELL (replaces per-table CDC) ────────────────────────────────────
 -- The client IGNORES realtime payloads: an event only ever means "something changed, pull now".
@@ -782,17 +980,15 @@ begin
   end loop;
 end $$;
 
--- ── Tightening RLS later (sketch — do NOT ship the permissive policies above) ────────────────────
--- A row should be visible only to members of its group. e.g. for expenses:
---   create policy expenses_member_read on public.expenses for select to authenticated
---   using (exists (select 1 from public.members m
---                  where m.group_id = expenses.group_id and m.user_id = auth.uid()::text));
--- Mirror per table (members/shares/settlements/conflicts key off group_id; shares via its expense).
--- `users` is trickier (you may expose only co-members' profiles). See spec/04 for the full model.
-
 -- ── Storage: the `receipts` bucket (F5) ──────────────────────────────────────────────────────────
 -- Receipt bytes live in a PUBLIC bucket so the client's `publicUrl(path)` renders without signing.
--- (Permissive, like the table policies above — tighten to membership-scoped before real multi-user.)
+--
+-- ⚠️ OPEN, and NOT closed by the membership-scoped RLS above: `public = true` means the four
+-- `storage.objects` policies below are decorative. Anyone holding (or guessing) an object URL reads
+-- that receipt photo without authenticating at all — a receipt carries names, amounts, and often a
+-- card's last four. Closing it means a private bucket plus signed URLs, which is a client change
+-- (`publicUrl` has no expiry to renew), so it is deliberately out of scope here rather than
+-- half-done. This is the last known read hole in the project.
 insert into storage.buckets (id, name, public)
 values ('receipts', 'receipts', true)
 on conflict (id) do update set public = true;
@@ -1523,10 +1719,21 @@ create index if not exists pending_item_edits_group_idx on public.pending_item_e
 -- the server lacks breaks ALL sync for this table, not just this column.
 alter table public.pending_item_edits add column if not exists previous_line_total_subunits bigint;
 
+-- RLS: membership-scoped by `group_id`, identical in shape to the loop in the Row-Level Security
+-- section above. It is repeated here only because this table is created ~1100 lines after that
+-- section, so the loop cannot reach it on a from-scratch apply.
+--
+-- It previously declared its own copy of the permissive `_rw` policy, which is exactly how a
+-- tightening sweep misses a table: the loop gets audited and the lone straggler does not. If you add a
+-- table down here, add its policy down here too.
 alter table public.pending_item_edits enable row level security;
 drop policy if exists pending_item_edits_rw on public.pending_item_edits;
-create policy pending_item_edits_rw on public.pending_item_edits
-  for all to authenticated using (true) with check (true);
+drop policy if exists pending_item_edits_member_rw on public.pending_item_edits;
+create policy pending_item_edits_member_rw on public.pending_item_edits
+  for all to authenticated
+  using (public.is_group_member(group_id))
+  with check (public.is_group_member(group_id));
+revoke truncate on public.pending_item_edits from anon, authenticated;
 
 -- Doorbell: a guest's pending edit must wake the payer's app (spec §5.6). Same statement-level
 -- AFTER INSERT/UPDATE pattern as every other synced table — added to the existing trigger loop.
@@ -2538,11 +2745,11 @@ end $$;
 create unique index if not exists group_passes_txn_idx on public.group_passes (store, store_txn_id);
 create index if not exists group_passes_group_idx on public.group_passes (group_id, expires_at desc);
 
--- ⚠️ DELIBERATELY OUTSIDE the permissive `_rw` loop above, and it must stay outside even after that
--- loop is tightened. Under `for all to authenticated using (true) with check (true)` any authenticated
--- user — including an anonymous one — could insert themselves a pass expiring in 2099. That is free
--- unlimited paid Claude-vision calls for anyone who reads the anon key out of the APK, so this is the
--- one table that could not wait for the pre-prod RLS work.
+-- ⚠️ DELIBERATELY OUTSIDE the membership loop above, and it must stay outside. Membership-scoped
+-- WRITES are not enough here: every arm of that loop grants insert/update to any ACTIVE member, so a
+-- member of their own one-person group could still insert themselves a pass expiring in 2099. That is
+-- free unlimited paid Claude-vision calls for anyone who reads the anon key out of the APK. This table
+-- is read-only to clients, full stop — which is why it could not wait for the pre-prod RLS work.
 alter table public.group_passes enable row level security;
 
 -- Read: members of the group only. Members need this to render the Pro badge and to know who paid.
@@ -2567,10 +2774,10 @@ revoke insert, update, delete on public.group_passes from anon, authenticated;
 -- therefore still leaves any signed-in user able to wipe the entire table in one statement, read-policy
 -- or not. Verified against a live grants query, not assumed.
 --
--- ⚠️ This is true of EVERY table in this schema right now, including the zero-policy ones
--- (superseded_split_edits, web_bill_links, web_sessions, apple_oauth_tokens). That is a project-wide
--- P0 for the pre-prod RLS work, not something this table's migration should fix behind everyone's back:
---   revoke truncate on all tables in schema public from anon, authenticated;
+-- This used to be true of EVERY table here, including the zero-policy ones (superseded_split_edits,
+-- web_bill_links, web_sessions, apple_oauth_tokens), whose "no policies" was not the protection it
+-- read as. The project-wide sweep now runs in the Row-Level Security section above; this table keeps
+-- its own revoke so it stays covered even if that sweep is ever reordered.
 revoke truncate, references, trigger on public.group_passes from anon, authenticated;
 
 -- Doorbell, so the buyer's purchase wakes the other five phones (same statement-level AFTER
@@ -3042,3 +3249,151 @@ end;
 $$;
 
 revoke execute on function public.admin_waitlist_stats(timestamptz) from public, anon, authenticated;
+
+-- ── Group deletion: delete for everyone → 30-day Recently deleted → nightly purge ────────────────
+-- A group can now be deleted, not only left. Deleting is for EVERYONE (that is the whole point: the
+-- alternative was messaging five people individually to abandon a duplicate group), so it is
+-- deliberately recoverable for 30 days by ANY member from Home → Recently deleted.
+--
+-- The delete and the restore are NOT RPCs. They are ordinary local-first Room writes to
+-- `groups.deleted_at`/`deleted_by` that ride the existing `SyncEngine` push like every other
+-- soft-delete in the app, which is what makes both work offline. Two existing properties carry them:
+--   • RLS is membership-scoped and never filters `deleted_at`, so a deleted group stays readable and
+--     writable by its members — that is what lets any of them restore it.
+--   • `members` rows stay ACTIVE on delete. Soft-leaving them (the obvious-looking move) would make
+--     `is_group_member` false and revoke everyone's access to the very row they need to restore, AND
+--     drop the group out of `SyncEngine.pull`'s `activeGroupIds`, so no other device would ever learn
+--     it was deleted. Do not "tidy" that up.
+--
+-- Only the purge needs the server, because only the server can act 30 days later.
+
+alter table public.groups add column if not exists deleted_by text;
+
+-- The nightly scan reads only tombstones; without this it is a seq scan of every group forever.
+create index if not exists groups_deleted_at_idx
+  on public.groups (deleted_at) where deleted_at is not null;
+
+-- DESTRUCTIVE OPERATION — the one sanctioned hard delete of user data in this schema.
+--
+-- What it does: 30 days after a group was deleted, permanently removes that group and all 23 of its
+-- row sets (listed in order below), its placeholder `users` rows, and its receipt bytes under the
+-- `receipts/<group_id>/` prefix.
+--
+-- Why this is exempt from `data/AGENTS.md` Rule 1 (never hard-delete user data), decided by the owner
+-- 2026-08-17: a soft delete exists so a deletion can propagate and be undone. Here it is already
+-- deleted for every member, no member has any surface that can reach it, and the 30 days to change
+-- their mind have elapsed. A tombstone nobody can read is not a record, it is a copy of private
+-- financial data we promised to delete and then kept.
+--
+-- Pre-checks (true as of 2026-08-17):
+--   • Which app versions read these rows after a purge? None. No shipped version has group delete at
+--     all, and from this version on a client purges its own local copy on the same 30-day rule, so it
+--     never asks the server for a purged group (`SyncEngine.pull` scopes to ACTIVE memberships, and
+--     the `members` rows are gone).
+--   • Is anything of value lost that lives nowhere else? Yes, deliberately and by request — this is
+--     the point of the feature, and it is gated behind a for-everyone delete, a typed group-name
+--     confirmation, a push to every member, and 30 days in Recently deleted.
+--   • Recovery path: Supabase PITR, once P0 #6 is done. Until then, none. That is stated plainly
+--     rather than dressed up: this function must not be scheduled on a project without PITR.
+--
+-- NOT purged, on purpose:
+--   • `group_passes` — an Evenly Pro pass is a PURCHASE, not group content. Support and finance need
+--     the record after the group is gone, and a member deleting a group must never quietly destroy
+--     what another member paid for. Its `group_id` is left dangling by design. The confirm sheet
+--     tells the deleter the pass is not refunded.
+--   • `receipt_scan_log` — the per-scan cost ledger and rate-limit history. It is operational and
+--     per-USER; erasing it on group delete would also hand anyone a way to reset their own scan quota.
+--   • `user_subscriptions`, `users` (real accounts) — per-person, and shared across groups.
+create or replace function public.purge_deleted_groups()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_id text;
+  purged int := 0;
+  now_ms bigint;
+  grace_period_ms constant bigint := 30::bigint * 24 * 60 * 60 * 1000;
+begin
+  now_ms := (extract(epoch from now()) * 1000)::bigint;
+
+  for target_id in
+    select id from public.groups
+    where deleted_at is not null
+      and deleted_at < now_ms - grace_period_ms
+  loop
+    -- Per-group nested block, matching purge_deleted_accounts(): one unpurgeable group must not
+    -- abort the whole nightly batch and leave every later group un-purged forever.
+    begin
+      -- `shares` is the only table with no `group_id`; it reaches the group through its expense, so
+      -- it must go BEFORE the expenses that identify it.
+      delete from public.shares
+        where expense_id in (select id from public.expenses where group_id = target_id);
+
+      delete from public.item_claims            where group_id = target_id;
+      delete from public.item_shares            where group_id = target_id;
+      delete from public.expense_items          where group_id = target_id;
+      delete from public.bill_participants      where group_id = target_id;
+      delete from public.pending_item_edits     where group_id = target_id;
+      delete from public.settlement_allocations where group_id = target_id;
+      delete from public.settlements            where group_id = target_id;
+      delete from public.comments               where group_id = target_id;
+      delete from public.expense_blocked_users  where group_id = target_id;
+      delete from public.receipts               where group_id = target_id;
+      delete from public.expense_history        where group_id = target_id;
+      delete from public.conflicts              where group_id = target_id;
+      delete from public.expense_edit_conflicts where group_id = target_id;
+      delete from public.superseded_split_edits where group_id = target_id;
+      delete from public.expenses               where group_id = target_id;
+      delete from public.categories             where group_id = target_id;
+      delete from public.placeholder_claim_answers where group_id = target_id;
+
+      -- The web-claim trio. The write log keys on token_hash only, so it has to be resolved through
+      -- the links before those are removed.
+      delete from public.web_claim_write_log
+        where token_hash in (select token_hash from public.web_bill_links where group_id = target_id);
+      delete from public.web_bill_links         where group_id = target_id;
+      delete from public.web_sessions           where group_id = target_id;
+
+      -- Placeholders are group-private by construction (`is_placeholder` + `placeholder_group_id`),
+      -- so they die with the group. Real accounts are never touched here.
+      delete from public.users
+        where is_placeholder and placeholder_group_id = target_id;
+
+      -- Receipt bytes. Prefix-scoped to this one group (`ReceiptUploadManager` writes
+      -- `<group_id>/<expense_id>/<receipt_id>.<ext>`), never bucket-wide.
+      delete from storage.objects
+        where bucket_id = 'receipts' and name like target_id || '/%';
+
+      delete from public.group_activity         where group_id = target_id;
+      delete from public.members                where group_id = target_id;
+      delete from public.groups                 where id = target_id;
+
+      purged := purged + 1;
+    exception when others then
+      raise warning 'purge_deleted_groups: failed for group %: %', target_id, sqlerrm;
+    end;
+  end loop;
+
+  if purged > 0 then
+    raise notice 'purge_deleted_groups: purged % group(s)', purged;
+  end if;
+end;
+$$;
+
+-- Supabase auto-grants EXECUTE to anon/authenticated at creation time, independent of `revoke from
+-- public`. This one is cron-only and must be callable by nobody else.
+revoke all on function public.purge_deleted_groups() from public, anon, authenticated;
+
+-- Nightly at 03:15 UTC, 15 minutes after purge-deleted-accounts so the two never interleave on the
+-- same `members` rows. Guarded so the file still applies without pg_cron; cron.schedule upserts by
+-- jobname, so re-running this file never duplicates the job.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('purge-deleted-groups', '15 3 * * *', 'select public.purge_deleted_groups()');
+  else
+    raise notice 'pg_cron not installed - schedule purge-deleted-groups manually';
+  end if;
+end $$;
