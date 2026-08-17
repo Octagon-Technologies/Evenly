@@ -1,0 +1,50 @@
+# The admin dashboard's build gate (ADMIN_FEEDBACK_SPEC.md, `admin/AGENTS.md`).
+#
+# Deliberately its own workflow rather than a third job in `money-vectors.yml`. That one exists to
+# catch drift between the two copies of the split math; this bundle has no money math in it, and a
+# gate whose name stops describing what it protects is a gate people stop reading.
+#
+# Typecheck plus build is the whole thing, and the absence of a test job is not an oversight:
+# `admin/` holds no money math and no authorisation logic. The gate that matters for this feature is
+# server-side, in the `admin` edge function's allowlist check, and nothing in this directory can
+# weaken it. If logic worth testing ever appears here, it is in the wrong bundle.
+#
+# The two `paths:` lists must stay identical. GitHub Actions does not support YAML anchors, so they
+# are written out twice on purpose.
+name: admin build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'admin/**'
+      - '.github/workflows/admin-build.yml'
+  pull_request:
+    paths:
+      - 'admin/**'
+      - '.github/workflows/admin-build.yml'
+
+concurrency:
+  group: admin-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # Vite's build is a real check here, not a formality: `svelte-check` does not compile the
+      # Svelte templates the way Rollup does, and the `import.meta.env.DEV` guards that keep the
+      # `?mock` fixture out of a production bundle only take effect in this step.
+      - run: npm run build

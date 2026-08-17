@@ -199,6 +199,14 @@ Claude-vision calls for anyone who reads the anon key out of the APK.
 retry, and the reconciliation sweep all race to insert the same purchase; one wins, the rest no-op.
 Without it one $0.99 charge becomes three stacked passes.
 
+**`store = 'test_store'` is RevenueCat's Test Store, and `PRO_ALLOW_TEST_STORE` is its off switch.**
+The Test Store runs the whole purchase round trip over simulated money with no App Store Connect or Play
+Console product, which is the only way this feature was verifiable end to end before those existed. Its
+public SDK key ships inside every build configured with it, so `mapStore` refuses `test_store` unless
+`PRO_ALLOW_TEST_STORE=true` — an ungated path would make a leaked test key worth unlimited paid vision
+calls. **Unset that secret before launch**, and keep the value distinct from `promo`: a simulated pass
+must never read as revenue, and must stay findable once the test config is gone.
+
 **`user_subscriptions` is the second route to Pro** (`PRO_PASS_SPEC.md` §5.2): a personal, auto-renewing
 subscription, one row per *person* (renewals update it; billing history stays in RevenueCat). Same
 server-owned, pull-only, outside-the-`_rw`-loop shape as `group_passes`, but read is scoped to *people you
@@ -318,6 +326,40 @@ tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its S
 | `sync-subscriber`           | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
 | `activate-pass`             | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
 | `revenuecat-webhook`        | Deployed; **refuses every request** until `REVENUECAT_WEBHOOK_SECRET` is set; `verify_jwt = false` |
+| `admin`                     | The admin dashboard's whole security boundary; `verify_jwt = false` (own gate) |
+| `feedback`                  | Feedback submission from all three entry points; `verify_jwt = false` (two are anonymous) |
+
+`admin` and `feedback` are `ADMIN_FEEDBACK_SPEC.md`, build-order steps 1 to 4. Both carry
+`verify_jwt = false`, and for `admin` that is the opposite of what it looks like: platform-level
+verification would 401 the CORS preflight before the function's own gate runs, and it accepts the
+project **anon key** as a valid JWT, which proves nothing about who is calling. The real check is
+`requireAdmin` — verify the token against the auth server, look the user up in `admin_users`, **403
+before touching any data** — and it runs on every action with no exceptions. `admin_users` is an
+**email allowlist, never a domain rule**: the owner account is a `gmail.com` address, so a domain rule
+admits every Google account on earth. There is no bootstrap branch in code; the first row is inserted
+by hand (`admin/README.md`).
+
+`feedback` takes an **optional** Authorization header (in-app is signed in, `/feedback` and the claim
+flow are strangers). A present-but-invalid token is a 401 and never a silent downgrade to anonymous,
+so an expired session cannot file someone's bug report under "some stranger". `feedback_tickets` is
+**write-only from the client** in v1 — nothing reads a ticket back — which is what keeps it out of the
+sync engine entirely. A "your past tickets" screen would make it a synced entity under `data/AGENTS.md`'s
+rules and the schema-before-entity hook.
+
+Rate limiting for the public endpoints (`waitlist`, `feedback`) is `_shared/rateLimit.ts`: 30 per hour
+per principal, counted in `public_write_log`, mirroring `web_claim_write_log`. It stores
+`sha256(kind:ip)` and never the address — an IP is PII and the only question the table answers is
+"same caller again?". It **fails closed on a broken count and open on a missing IP**: a failed query
+means the limiter cannot do its job, but turning a header quirk into a blanket refusal would take the
+endpoint down for everyone rather than protecting it.
+
+`_shared/slack.ts` is the two-channel webhook helper: `SLACK_ALERT_WEBHOOK_URL` for ops,
+`SLACK_FEEDBACK_WEBHOOK_URL` for support, deliberately separate channels. **Feedback is never behind
+the `ops_alerts` cooldown.** That cooldown exists so one failing receipt scan cannot spam a channel;
+every ticket is a distinct human, and dropping the fifth because four arrived that minute is silently
+losing your users' words. Inbound rate limiting is the lever for that. `extract-receipt` and
+`revenuecat-webhook` still carry inline copies of the cooldown helper — migrate them next time either
+is touched for its own reasons, not as a standalone redeploy.
 
 `apple-link-token`/`apple-revoke-token` (Apple Sign In native plan §5 P4, Guideline 5.1.1(v)) exchange a
 native Apple authorization code for a refresh token on sign-in and revoke it on account deletion, stored

@@ -43,6 +43,7 @@ class BillRepositoryTest {
                 db.itemShareDao(),
                 db.billParticipantDao(),
                 db.shareDao(),
+                db.billWriteDao(),
                 clockAt("2026-06-28"),
             )
     }
@@ -285,6 +286,109 @@ class BillRepositoryTest {
             assertEquals(1, view.assignedQuantityByItem[pizza], "the unit Cara held alone is back to needing someone")
         }
 
+    // ── Atomicity of the bill writes (R4, R8) ────────────────────────────────────────────────────
+    //
+    // The end states above are the same either way — a test cannot observe a half-written bill, which is
+    // exactly why the review found this by reading. What these two pin is the *shape*: both writes go
+    // through the one `BillWriteDao` transaction and nothing is left loose beside it. Both were a
+    // sequence of separate calls issued from a `rememberCoroutineScope()`, so a back-tap between two of
+    // them committed the first and dropped the rest, and neither partial state has anything that repairs
+    // it (the pull re-derives a removed person's debt from her still-live claims rather than healing it).
+
+    /** Delegates everything, and counts the loose per-table writes the transaction is meant to replace. */
+    private class CountingExpenseDao(
+        private val real: app.splitevenly.data.db.dao.ExpenseDao,
+    ) : app.splitevenly.data.db.dao.ExpenseDao by real {
+        var looseUpserts = 0
+
+        override suspend fun upsert(expense: app.splitevenly.data.db.entity.ExpenseEntity) {
+            looseUpserts++
+            real.upsert(expense)
+        }
+    }
+
+    private class CountingBillParticipantDao(
+        private val real: app.splitevenly.data.db.dao.BillParticipantDao,
+    ) : app.splitevenly.data.db.dao.BillParticipantDao by real {
+        var looseSoftDeletes = 0
+
+        override suspend fun softDeleteByIds(
+            ids: List<String>,
+            ts: Long,
+        ) {
+            looseSoftDeletes++
+            real.softDeleteByIds(ids, ts)
+        }
+    }
+
+    private fun repoCounting(
+        expenses: CountingExpenseDao = CountingExpenseDao(db.expenseDao()),
+        participants: CountingBillParticipantDao = CountingBillParticipantDao(db.billParticipantDao()),
+    ) = BillRepositoryImpl(
+        expenses,
+        db.expenseItemDao(),
+        db.itemClaimDao(),
+        db.itemShareDao(),
+        participants,
+        db.shareDao(),
+        db.billWriteDao(),
+        clockAt("2026-06-28"),
+    )
+
+    @Test
+    fun createBill_writesTheExpenseItsLinesAndItsRosterInOneTransaction() =
+        runTest {
+            val expenses = CountingExpenseDao(db.expenseDao())
+            val counting = repoCounting(expenses = expenses)
+
+            val bill =
+                (
+                    counting.createBill(
+                        NewBill(
+                            groupId = group,
+                            title = "Dinner at Tavolo",
+                            currency = "USD",
+                            expenseDate = "2026-06-28",
+                            payerUserId = me,
+                            createdBy = me,
+                            items = listOf(NewBillItem("Margherita pizza", quantity = 2, lineTotalSubunits = 3600)),
+                            participantUserIds = listOf(me, bob),
+                        ),
+                    ) as AppResult.Ok
+                ).value
+
+            assertEquals(
+                0,
+                expenses.looseUpserts,
+                "an expense written outside the transaction can outlive a cancelled scope with no lines under it",
+            )
+            assertEquals(3600L, db.expenseDao().getById(bill.value)!!.amountSubunits)
+            assertEquals(1, db.expenseItemDao().getByExpense(bill.value).size)
+            assertEquals(2, db.billParticipantDao().getByExpense(bill.value).size)
+        }
+
+    @Test
+    fun editBill_takesAPersonAndTheirClaimsOffInOneTransaction() =
+        runTest {
+            val participants = CountingBillParticipantDao(db.billParticipantDao())
+            val counting = repoCounting(participants = participants)
+            val bill = newBill()
+            val pizza = itemId(bill, "Margherita pizza")
+            val salad = itemId(bill, "Caesar salad")
+            counting.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob, cara)))
+            counting.setClaim(bill, salad, cara, 1)
+
+            counting.editBill(bill, editWith(pizza, salad, participants = listOf(me, bob)))
+
+            assertEquals(
+                0,
+                participants.looseSoftDeletes,
+                "a roster tombstone written on its own leaves Cara off the bill and still paying for the salad",
+            )
+            assertNull(db.itemClaimDao().getActiveClaim(salad, cara.value))
+            assertEquals(emptyMap(), owed(bill).filterValues { it != 0L })
+        }
+
     /** Off then back on: the deterministic row id means the tombstone must be revived, not re-inserted. */
     @Test
     fun puttingSomeoneBackOnTheBill_restoresThem() =
@@ -347,6 +451,33 @@ class BillRepositoryTest {
                 )
 
             assertIs<AppResult.Err>(result, "a bill totalling zero is not an expense")
+        }
+
+    // …and the total staying positive is not enough (findings-domain.md D1). A discount rides
+    // proportional to the ITEM subtotal, so a $30 voucher on $26 of food hands the only claimant a
+    // −$1.00 tab even though the $9 tip keeps the bill total at $5.00 — and `ShareDao`'s `> 0` filters
+    // then erase the credit, showing the payer owed $6.00 on a $5.00 bill.
+    @Test
+    fun createBill_rejectsADiscountBiggerThanTheItems_evenWhenATipKeepsTheTotalPositive() =
+        runTest {
+            val result =
+                bills.createBill(
+                    NewBill(
+                        groupId = group,
+                        title = "Dinner at Tavolo",
+                        currency = "USD",
+                        expenseDate = "2026-06-28",
+                        payerUserId = me,
+                        createdBy = me,
+                        items = listOf(NewBillItem("Dinner", quantity = 1, lineTotalSubunits = 2600)),
+                        extras = BillExtrasInput(tipSubunits = 900, discountSubunits = 3000),
+                    ),
+                )
+
+            val err = assertIs<AppResult.Err>(result, "a $30 voucher on $26 of food must not be recorded")
+            val validation = assertIs<AppError.Validation>(err.error)
+            assertEquals(AppError.Validation.Reason.OutOfRange, validation.fieldErrors["discount"])
+            assertTrue(db.expenseDao().allForSync().isEmpty(), "nothing was written")
         }
 
     @Test

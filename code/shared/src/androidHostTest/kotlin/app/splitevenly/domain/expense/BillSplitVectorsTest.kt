@@ -65,11 +65,6 @@ class BillSplitVectorsTest {
                 val actual = runAllocate(case)
                 checkOrRecord(case, "allocate", actual)
             }
-        val itemizedCases =
-            root.cases("itemizedShares").map { case ->
-                val actual = runItemizedShares(case)
-                checkOrRecord(case, "itemizedShares", actual)
-            }
         val splitCases =
             root.cases("splitBill").map { case ->
                 val actual = runSplitBill(case)
@@ -82,13 +77,12 @@ class BillSplitVectorsTest {
                 JsonObject(
                     root.toMutableMap().apply {
                         put("allocate", JsonArray(allocateCases))
-                        put("itemizedShares", JsonArray(itemizedCases))
                         put("splitBill", JsonArray(splitCases))
                     },
                 )
             file.writeText(json.encodeToString(JsonObject.serializer(), rewritten) + "\n")
             fail(
-                "Recorded ${allocateCases.size + itemizedCases.size + splitCases.size} expectations into " +
+                "Recorded ${allocateCases.size + splitCases.size} expectations into " +
                     "${file.path}. Review the diff, then re-run WITHOUT -Devenly.vectors.record to verify.",
             )
         }
@@ -106,22 +100,6 @@ class BillSplitVectorsTest {
                         .jsonPrimitive.long
             }
         return allocate(case.getValue("totalSubunits").jsonPrimitive.long, weights).toJson()
-    }
-
-    private fun runItemizedShares(case: JsonObject): JsonElement {
-        val subtotals =
-            case.getValue("subtotals").jsonArray.map {
-                UserId(it.jsonObject.str("userId")) to
-                    it.jsonObject
-                        .getValue("subtotal")
-                        .jsonPrimitive.long
-            }
-        return itemizedShares(
-            subtotals = subtotals,
-            taxSubunits = case.long("taxSubunits"),
-            tipSubunits = case.long("tipSubunits"),
-            tipSplitMode = TipSplitMode.valueOf(case["tipSplitMode"]?.jsonPrimitive?.content ?: "EVEN"),
-        ).toJson()
     }
 
     /** [splitBill] returns four things worth pinning: the tab, its parts, the per-line split, and the statuses. */
@@ -224,10 +202,15 @@ class BillSplitVectorsTest {
     ) {
         val name = case.str("name")
         val extras = case["extras"]?.jsonObject ?: JsonObject(emptyMap())
-        val lineTotals = case.rows("items").sumOf { it.long("lineTotalSubunits") }
+        // Normalised exactly as the engine normalises: a line total is never negative, and a discount
+        // never exceeds the item subtotal it rides proportional to. A bill breaking either is invalid
+        // input the engine neutralises (findings D1, D4) and `validate` refuses at entry — so the total
+        // these invariants are stated against is the normalised one, not the raw arithmetic.
+        val lineTotals = case.rows("items").sumOf { it.long("lineTotalSubunits").coerceAtLeast(0L) }
         val total =
             lineTotals + extras.long("taxSubunits") + extras.long("gratuitySubunits") +
-                extras.long("otherChargesSubunits") + extras.long("tipSubunits") - extras.long("discountSubunits")
+                extras.long("otherChargesSubunits") + extras.long("tipSubunits") -
+                extras.long("discountSubunits").coerceIn(0L, lineTotals)
 
         val statuses = actual.rows("items").map { it.str("status") }
         val fullyClaimed = statuses.isNotEmpty() && statuses.all { it == "RESOLVED" }

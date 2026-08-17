@@ -11,19 +11,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.time.shortDate
+import app.splitevenly.data.remote.revenuecat.ActivationOutcome
 import app.splitevenly.data.remote.revenuecat.ProConfig
 import app.splitevenly.data.repository.PassPurchaseResult
 import app.splitevenly.data.repository.ProPurchaseCoordinator
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.pro.PassOffer
-import app.splitevenly.domain.pro.PassTier
 import app.splitevenly.domain.pro.PassSheetConfig
+import app.splitevenly.domain.pro.PassTier
 import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.pro.ProFunnel
+import app.splitevenly.domain.pro.ProSource
 import app.splitevenly.domain.pro.bestValueOffer
 import app.splitevenly.domain.pro.ordered
 import app.splitevenly.domain.pro.preselected
-import app.splitevenly.domain.pro.ProSource
 import app.splitevenly.domain.repository.GroupProState
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.ProRepository
@@ -44,9 +45,9 @@ import app.splitevenly.ui.screen.pro.ProSubscribedScreen
 import app.splitevenly.ui.screen.pro.ProUnavailableScreen
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
-import org.koin.compose.koinInject
 
 /**
  * The "Evenly Pro" destination (`PRO_PASS_SPEC.md` §8.2 / §8.6).
@@ -89,46 +90,58 @@ fun ProRoute(
 
     val live = subscription?.takeIf { it.expiresAt > Clock.System.now().toEpochMilliseconds() }
     when {
-        live != null -> ProSubscribedScreen(
-            subscription = MySubscriptionUi(
-                periodLabel = if (live.period == "annual") "Yearly" else "Monthly",
-                // will_renew picks the verb and nothing else. A cancelled-but-unexpired subscriber is
-                // still Pro, and telling them "ends" rather than "renews" is the honest version of that.
-                renewalLine = (if (live.willRenew) "renews " else "ends ") + shortDate(live.expiresAt),
-            ),
-            coveredGroups = myGroups.map { CoveredGroupUi(emoji = it.emoji, name = it.name) },
-            restoring = restoring,
-            restoreNote = restoreNote,
-            onManage = { urlOpener.open(ProConfig.manageSubscriptionsUrl(null)) },
-            onRestore = {
-                restoring = true
-                restoreNote = null
-                scope.launch {
-                    val ok = purchases.restore()
-                    // Phrased as a CHECK, not as a switch being flipped: this button sits under
-                    // "Manage or cancel", and "Restored, Pro is on" read there by someone who just
-                    // cancelled looks exactly like an accidental undo.
-                    restoreNote = if (ok) "Checked. Pro is on in every group you're in."
-                    else "Nothing to restore on this account."
-                    restoring = false
-                }
-            },
-            onBack = onBack,
-        )
-        !billing.isAvailable -> ProUnavailableScreen(onBack = onBack)
+        live != null -> {
+            ProSubscribedScreen(
+                subscription =
+                    MySubscriptionUi(
+                        periodLabel = if (live.period == "annual") "Yearly" else "Monthly",
+                        // will_renew picks the verb and nothing else. A cancelled-but-unexpired subscriber is
+                        // still Pro, and telling them "ends" rather than "renews" is the honest version of that.
+                        renewalLine = (if (live.willRenew) "renews " else "ends ") + shortDate(live.expiresAt),
+                    ),
+                coveredGroups = myGroups.map { CoveredGroupUi(emoji = it.emoji, name = it.name) },
+                restoring = restoring,
+                restoreNote = restoreNote,
+                onManage = { urlOpener.open(ProConfig.manageSubscriptionsUrl(null)) },
+                onRestore = {
+                    restoring = true
+                    restoreNote = null
+                    scope.launch {
+                        val ok = purchases.restore()
+                        // Phrased as a CHECK, not as a switch being flipped: this button sits under
+                        // "Manage or cancel", and "Restored, Pro is on" read there by someone who just
+                        // cancelled looks exactly like an accidental undo.
+                        restoreNote =
+                            if (ok) {
+                                "Checked. Pro is on in every group you're in."
+                            } else {
+                                "Nothing to restore on this account."
+                            }
+                        restoring = false
+                    }
+                },
+                onBack = onBack,
+            )
+        }
+
+        !billing.isAvailable -> {
+            ProUnavailableScreen(onBack = onBack)
+        }
+
         else -> {
             // `offering_id` is what makes a RevenueCat experiment readable on our side too, not only in
             // their dashboard. Null until the SDK has an offering, which is a real state and not a zero.
             // Same event, same properties as the pass sheet, separated only by `surface`. One PostHog
             // funnel then spans both doors, which is the whole point: routing the scan gate to our own
             // sheet is only defensible if the comparison between the two doors stays answerable.
-            val paywallBase = ProFunnel.base(
-                surface = ProFunnel.Surface.RC_PAYWALL,
-                kind = ProFunnel.Kind.SUBSCRIPTION,
-                trigger = trigger,
-                groupId = null,
-                variant = null,
-            )
+            val paywallBase =
+                ProFunnel.base(
+                    surface = ProFunnel.Surface.RC_PAYWALL,
+                    kind = ProFunnel.Kind.SUBSCRIPTION,
+                    trigger = trigger,
+                    groupId = null,
+                    variant = null,
+                )
             LaunchedEffect(trigger) {
                 analytics.capture(
                     AnalyticsEvents.PRO_OFFER_SHOWN,
@@ -147,8 +160,8 @@ fun ProRoute(
                 )
             }
             ProPaywallScreen(
-            // Null means "the current offering", which is what the dashboard's own placement rules
-            // decide. Naming ours here would take the placement decision away from the console.
+                // Null means "the current offering", which is what the dashboard's own placement rules
+                // decide. Naming ours here would take the placement decision away from the console.
                 offering = null,
                 onDismiss = {
                     analytics.capture(
@@ -165,15 +178,18 @@ fun ProRoute(
                     // which is authoritative for it. The step still lands in the same funnel.
                     analytics.capture(
                         AnalyticsEvents.PURCHASE_ACTIVATED,
-                        paywallBase + mapOf(
-                            "product_id" to txn.productIds.firstOrNull().orEmpty(),
-                            "stacked" to false,
-                        ),
+                        paywallBase +
+                            mapOf(
+                                "product_id" to txn.productIds.firstOrNull().orEmpty(),
+                                "stacked" to false,
+                            ),
                     )
                     scope.launch { purchases.syncSubscriber() }
                 },
                 onRestored = { scope.launch { purchases.syncSubscriber() } },
                 onWantsOneTrip = onPickGroupForPass,
+                onTerms = { urlOpener.open("https://split-evenly.app/terms") },
+                onPrivacy = { urlOpener.open("https://split-evenly.app/privacy") },
             )
         }
     }
@@ -196,17 +212,18 @@ fun ProGroupPickerRoute(
     val states by remember(ids) { pro.observeAll(ids) }.collectAsStateWithLifecycle(emptyMap())
 
     ProGroupPickerScreen(
-        groups = myGroups.map { g ->
-            val state = states[g.id.value]
-            PickableGroupUi(
-                groupId = g.id.value,
-                emoji = g.emoji,
-                name = g.name,
-                state = pickerStateLine(state),
-                isPro = state?.status?.isPro == true,
-                coveredBySubscription = state?.status?.source == ProSource.Subscription,
-            )
-        },
+        groups =
+            myGroups.map { g ->
+                val state = states[g.id.value]
+                PickableGroupUi(
+                    groupId = g.id.value,
+                    emoji = g.emoji,
+                    name = g.name,
+                    state = pickerStateLine(state),
+                    isPro = state?.status?.isPro == true,
+                    coveredBySubscription = state?.status?.source == ProSource.Subscription,
+                )
+            },
         onPick = onPicked,
         onBack = onBack,
     )
@@ -218,6 +235,7 @@ private fun pickerStateLine(state: GroupProState?): String {
         return when (status.source) {
             // No date for a subscription: it is someone's personal renewal, not a group fact.
             ProSource.Subscription -> "Already covered by a subscription"
+
             else -> status.expiresAt?.let { "Pro until ${shortDate(it)}, tap to extend" } ?: "Pro"
         }
     }
@@ -251,17 +269,19 @@ fun PassSheetHost(
     val groups = koinInject<GroupRepository>()
     val analytics = koinInject<EvAnalytics>()
     val flags = koinInject<FeatureFlags>()
+    val urlOpener = koinInject<UrlOpener>()
     val scope = rememberCoroutineScope()
 
     // The remote-design surface RevenueCat's editor gives the subscription paywall and cannot give a
     // consumable one (§2.1). Read once per opening: a sheet that re-ordered its own tiers under the
     // buyer's finger would be worse than no experiment at all.
-    val config = remember {
-        PassSheetConfig.from(
-            variant = flags.variant(PassSheetConfig.FLAG_KEY),
-            payload = flags.payload(PassSheetConfig.FLAG_KEY),
-        )
-    }
+    val config =
+        remember {
+            PassSheetConfig.from(
+                variant = flags.variant(PassSheetConfig.FLAG_KEY),
+                payload = flags.payload(PassSheetConfig.FLAG_KEY),
+            )
+        }
     // A super property, so every subsequent event carries the arm without any call site remembering to.
     LaunchedEffect(config.variant) {
         config.variant?.let { analytics.register(PassSheetConfig.FLAG_KEY, it) }
@@ -280,9 +300,13 @@ fun PassSheetHost(
     // A charge already waiting on a pass reopens straight into its retry, so nobody has to remember
     // they were owed something (§6.2).
     LaunchedEffect(Unit) {
-        if (purchases.hasPendingActivation()) {
-            phase = if (purchases.retryPendingActivation()) PassSheetPhase.Idle else PassSheetPhase.Charged
+        if (purchases.hasPendingActivation(groupId)) {
+            phase = purchases.retryPendingActivation(groupId).toSheetPhase()
         }
+        // Another group's stuck charge is still owed a pass, and any Pro surface opening is as good a
+        // moment as any to settle it. It never touches this sheet's phase: a sheet reports on the group
+        // it names and no other (R11).
+        purchases.retryOtherPendingActivations(exceptGroupId = groupId)
     }
 
     val members by remember(groupId) { groups.observeMembers(GroupId(groupId)) }
@@ -290,47 +314,62 @@ fun PassSheetHost(
     val payerName = members.firstOrNull { it.userId.value == proState?.status?.purchasedBy }?.displayName
 
     val status = proState?.status
-    val mode = when {
-        // The one purchase we actively talk someone out of. It is NOT only the viewer's own
-        // subscription: a pass bought for a group a flatmate already covers buys nothing, and unlike a
-        // subscription it cannot be cancelled or refunded, so nothing later corrects it. Extending from
-        // a subscription's expiry would be worse still — that date is someone's private renewal, and a
-        // pass starting there is dead time sold as coverage.
-        status?.source == ProSource.Subscription -> PassSheetMode.AlreadySubscribed(
-            subscriberName = payerName,
-            isMe = status.purchasedBy == userId?.value,
-        )
-        status?.isPro == true && status.expiresAt != null ->
-            PassSheetMode.Extend(
-                currentExpiresOn = shortDate(status.expiresAt!!),
-                holderName = payerName,
-            )
-        else -> PassSheetMode.Fresh
-    }
+    val mode =
+        when {
+            // The one purchase we actively talk someone out of. It is NOT only the viewer's own
+            // subscription: a pass bought for a group a flatmate already covers buys nothing, and unlike a
+            // subscription it cannot be cancelled or refunded, so nothing later corrects it. Extending from
+            // a subscription's expiry would be worse still — that date is someone's private renewal, and a
+            // pass starting there is dead time sold as coverage.
+            status?.source == ProSource.Subscription -> {
+                PassSheetMode.AlreadySubscribed(
+                    subscriberName = payerName,
+                    isMe = status.purchasedBy == userId?.value,
+                )
+            }
+
+            status?.isPro == true && status.expiresAt != null -> {
+                PassSheetMode.Extend(
+                    currentExpiresOn = shortDate(status.expiresAt!!),
+                    holderName = payerName,
+                    isMe = status.purchasedBy == userId?.value,
+                )
+            }
+
+            else -> {
+                PassSheetMode.Fresh(
+                    scansLeft = proState?.freeUsed?.let { (proState!!.freeLimit - it).coerceAtLeast(0) },
+                    freeLimit = proState?.freeLimit ?: 0,
+                )
+            }
+        }
     // The default selection is the cheapest when extending (the honest recommendation when you are
     // already covered) and otherwise whatever the experiment says, defaulting to best value. Either way
     // the button below it always names a real amount.
-    val defaultOffer = when (mode) {
-        is PassSheetMode.Extend -> offers.minByOrNull { it.priceMicros }
-        else -> offers.preselected(config)
-    }
+    val defaultOffer =
+        when (mode) {
+            is PassSheetMode.Extend -> offers.minByOrNull { it.priceMicros }
+            else -> offers.preselected(config)
+        }
     val effectiveSelection = selected ?: defaultOffer?.packageId
     val bestValueId = offers.bestValueOffer()?.packageId
 
     // Assembled once so the impression, the selection, the start and the activation cannot disagree
     // about what they are describing.
-    val base = ProFunnel.base(
-        surface = ProFunnel.Surface.PASS_SHEET,
-        kind = ProFunnel.Kind.PASS,
-        trigger = trigger,
-        groupId = groupId,
-        variant = config.variant,
-    )
-    val modeName = when (mode) {
-        is PassSheetMode.Extend -> "extend"
-        is PassSheetMode.AlreadySubscribed -> "already_covered"
-        PassSheetMode.Fresh -> "fresh"
-    }
+    val base =
+        ProFunnel.base(
+            surface = ProFunnel.Surface.PASS_SHEET,
+            kind = ProFunnel.Kind.PASS,
+            trigger = trigger,
+            groupId = groupId,
+            variant = config.variant,
+        )
+    val modeName =
+        when (mode) {
+            is PassSheetMode.Extend -> "extend"
+            is PassSheetMode.AlreadySubscribed -> "already_covered"
+            is PassSheetMode.Fresh -> "fresh"
+        }
     // Fires on the FIRST render that has prices, not on open: an impression recorded before the offers
     // load would report an empty offer set and make every experiment arm look identical.
     var impressionSent by remember { mutableStateOf(false) }
@@ -350,9 +389,10 @@ fun PassSheetHost(
             ),
         )
     }
-    val extendToLabel = (effectiveSelection?.let { PassTier.byPackageId(it) })?.let { tier ->
-        shortDate(PassTier.expiryIfBought(tier, Clock.System.now().toEpochMilliseconds(), status?.expiresAt))
-    }
+    val extendToLabel =
+        (effectiveSelection?.let { PassTier.byPackageId(it) })?.let { tier ->
+            shortDate(PassTier.expiryIfBought(tier, Clock.System.now().toEpochMilliseconds(), status?.expiresAt))
+        }
 
     PassSheet(
         groupName = groupName,
@@ -391,55 +431,82 @@ fun PassSheetHost(
                 )
             }
             scope.launch {
-                phase = when (purchases.buyPass(groupId, pkg)) {
-                    PassPurchaseResult.Activated -> {
-                        // Fired on ACTIVATION, not on the charge: a purchase the server never turned
-                        // into an entitlement is not a conversion, and counting it as one would hide the
-                        // exact failure the retry below exists for.
-                        analytics.capture(
-                            AnalyticsEvents.PURCHASE_ACTIVATED,
-                            ProFunnel.purchaseActivated(
-                                base = base,
-                                productId = productId,
-                                priceMicros = offer?.priceMicros ?: 0L,
-                                currency = offer?.currency,
-                                store = null,
-                                // Whether this extended an existing pass rather than starting one, which
-                                // is the difference between a first sale and a repeat.
-                                stacked = status?.isPro == true,
-                            ),
-                        )
-                        PassSheetPhase.Idle.also { onDismiss() }
+                phase =
+                    when (purchases.buyPass(groupId, pkg)) {
+                        PassPurchaseResult.Activated -> {
+                            // Fired on ACTIVATION, not on the charge: a purchase the server never turned
+                            // into an entitlement is not a conversion, and counting it as one would hide the
+                            // exact failure the retry below exists for.
+                            analytics.capture(
+                                AnalyticsEvents.PURCHASE_ACTIVATED,
+                                ProFunnel.purchaseActivated(
+                                    base = base,
+                                    productId = productId,
+                                    priceMicros = offer?.priceMicros ?: 0L,
+                                    currency = offer?.currency,
+                                    store = null,
+                                    // Whether this extended an existing pass rather than starting one, which
+                                    // is the difference between a first sale and a repeat.
+                                    stacked = status?.isPro == true,
+                                ),
+                            )
+                            PassSheetPhase.Idle.also { onDismiss() }
+                        }
+
+                        PassPurchaseResult.ChargedNotActivated -> {
+                            // The one failure that costs someone money. Logged separately from a refusal so
+                            // its rate is visible rather than buried in a generic failure count.
+                            analytics.capture(
+                                AnalyticsEvents.PURCHASE_ACTIVATION_FAILED,
+                                base + mapOf("product_id" to productId, "reason" to "activation"),
+                            )
+                            PassSheetPhase.Charged
+                        }
+
+                        PassPurchaseResult.ChargedActivationRefused -> {
+                            // Its own reason, or the metric cannot answer the one question that matters
+                            // here: how many of these are a flaky network (which fixes itself) versus the
+                            // server rejecting real transactions (which does not, and needs a human).
+                            analytics.capture(
+                                AnalyticsEvents.PURCHASE_ACTIVATION_FAILED,
+                                base + mapOf("product_id" to productId, "reason" to "activation_refused"),
+                            )
+                            PassSheetPhase.ChargedRefused
+                        }
+
+                        PassPurchaseResult.Cancelled -> {
+                            PassSheetPhase.Idle
+                        }
+
+                        PassPurchaseResult.Failed -> {
+                            analytics.capture(
+                                AnalyticsEvents.PURCHASE_ACTIVATION_FAILED,
+                                base + mapOf("product_id" to productId, "reason" to "store"),
+                            )
+                            PassSheetPhase.Failed(null)
+                        }
                     }
-                    PassPurchaseResult.ChargedNotActivated -> {
-                        // The one failure that costs someone money. Logged separately from a refusal so
-                        // its rate is visible rather than buried in a generic failure count.
-                        analytics.capture(
-                            AnalyticsEvents.PURCHASE_ACTIVATION_FAILED,
-                            base + mapOf("product_id" to productId, "reason" to "activation"),
-                        )
-                        PassSheetPhase.Charged
-                    }
-                    PassPurchaseResult.Cancelled -> PassSheetPhase.Idle
-                    PassPurchaseResult.Failed -> {
-                        analytics.capture(
-                            AnalyticsEvents.PURCHASE_ACTIVATION_FAILED,
-                            base + mapOf("product_id" to productId, "reason" to "store"),
-                        )
-                        PassSheetPhase.Failed(null)
-                    }
-                }
             }
         },
         onRetryOffers = { offersAttempt++ },
-        onSeeSubscription = onSeeSubscription?.let { seePro -> { onDismiss(); seePro() } },
+        onSeeSubscription =
+            onSeeSubscription?.let { seePro ->
+                {
+                    onDismiss()
+                    seePro()
+                }
+            },
         onRetryActivation = {
             phase = PassSheetPhase.Working
             scope.launch {
-                phase = if (purchases.retryPendingActivation()) PassSheetPhase.Idle.also { onDismiss() }
-                else PassSheetPhase.Charged
+                phase =
+                    purchases
+                        .retryPendingActivation(groupId)
+                        .toSheetPhase()
+                        .also { if (it == PassSheetPhase.Idle) onDismiss() }
             }
         },
+        onContactSupport = { urlOpener.open(PASS_SUPPORT_MAILTO) },
         onDismiss = {
             // The funnel's denominator. Without it, "shown minus purchased" absorbs every crash and
             // backgrounding, and the drop-off number stops meaning anything.
@@ -453,3 +520,24 @@ fun PassSheetHost(
         },
     )
 }
+
+/**
+ * Where someone whose charge was refused goes. The same address as Settings' Send feedback, with its
+ * own subject so these land identifiable rather than mixed into general feedback — the reply needs the
+ * `pro_orphan_purchases` row, not a bug triage.
+ */
+private const val PASS_SUPPORT_MAILTO = "mailto:feedback@split-evenly.app?subject=Evenly%20Pro%20payment"
+
+/**
+ * The pass sheet's reading of an activation attempt.
+ *
+ * [ActivationOutcome.Retryable] is the only one that keeps offering the retry, and that is the whole
+ * point of the split: the sheet used to show "tap again, you won't be charged twice" for a permanent
+ * server refusal too, on every launch and every paywall open, forever.
+ */
+internal fun ActivationOutcome.toSheetPhase(): PassSheetPhase =
+    when (this) {
+        is ActivationOutcome.Activated -> PassSheetPhase.Idle
+        is ActivationOutcome.Retryable -> PassSheetPhase.Charged
+        is ActivationOutcome.Refused -> PassSheetPhase.ChargedRefused
+    }

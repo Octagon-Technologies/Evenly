@@ -279,13 +279,21 @@ class SupabaseAuthSession(
      * The order below is the whole design, and each step is load-bearing:
      *
      * 1. **Push first.** Local writes that never reached the server are real user data; wiping them is
-     *    a silent loss (`data/AGENTS.md` Rule 1). A successful push means the cache is a pure mirror.
-     * 2. **On a failed push, ask — do not guess.** But only if something is genuinely still pending:
-     *    a failed push with nothing dirty (offline, no local edits) is not worth a dialog. Returning
-     *    [SignOutOutcome.UnsyncedChanges] leaves the user signed in with the cache untouched, so a
-     *    "Cancel" is a true no-op.
-     * 3. **Wipe, then sign out of Supabase.** The other way round tears the session down while the
-     *    sync loops are still running, and a pull can land rows back in after the wipe.
+     *    a silent loss (`data/AGENTS.md` Rule 1).
+     * 2. **Then ask the cache, not the push, whether anything is still pending.** `push()` returning
+     *    `Ok` is *not* "everything reached the server": #8's in-flight-edit guard deliberately leaves an
+     *    expense dirty when a local edit lands during the round trip, and that path throws nothing, so
+     *    the push reports success with a local-only expense still sitting there. The count is the only
+     *    honest question, so it is asked on every sign-out rather than only after a failed push — and
+     *    when the count itself throws it fails **closed** (`UnsyncedChanges(null)`), because a failing
+     *    DB read is not evidence that there is nothing to lose.
+     * 3. **The count and the wipe run inside the sync fence, as one unit.** Closing the fence refuses
+     *    every push and pull for this account *including the ones already queued*, and holding the sync
+     *    lock across both means nothing can dirty a row between counting and wiping, and nothing can
+     *    re-land the account's rows into the cache we just emptied. Nulling `currentUserId` only stops
+     *    `SyncManager`'s loops; three other launches never gated on it. See [SyncGate].
+     * 4. **Unregister the push token, then sign out of Supabase.** Both need A's session to still
+     *    authenticate, so `client.auth.signOut()` stays last.
      *
      * Deliberately NOT reused by [requestAccountDeletion]: a deletion is cancellable within its grace
      * period, so its local state has to survive (Rule 9), and its failure branch must wipe nothing.
@@ -293,22 +301,34 @@ class SupabaseAuthSession(
     override suspend fun signOut(discardUnsynced: Boolean): SignOutOutcome {
         val userId = _currentUserId.value?.value
         val engine = syncEngine
-        if (userId != null && engine != null && !discardUnsynced) {
-            if (engine.push(userId) is AppResult.Err) {
-                val pending = runCatching { engine.countPendingLocalWrites() }.getOrDefault(0)
-                if (pending > 0) return SignOutOutcome.UnsyncedChanges(pending)
+        if (userId != null && engine != null) {
+            if (!discardUnsynced) engine.push(userId)
+            val question =
+                engine.closeForSignOut(userId) {
+                    // Inside the fence: no push, pull or wipe can interleave with either statement.
+                    val pending =
+                        if (discardUnsynced) 0 else pendingWritesOrUnknown { engine.countPendingLocalWrites() }
+                    val question = unsyncedChangesFor(pending)
+                    // Best-effort: a failure here must not strand the user signed-in-but-wiped. Room is a
+                    // cache of server truth, so the worst case is a stale row that the next account's pull
+                    // overwrites — whereas refusing to sign out because a DELETE failed is a dead end.
+                    if (question == null) runCatching { signOutWipeDao?.wipeSignedOutAccount() }
+                    question
+                }
+            if (question != null) {
+                // Nothing was touched and the user is still signed in, so sync has to resume — otherwise
+                // "Stay signed in" leaves them with a device that never syncs again.
+                engine.reopenSync(userId)
+                return question
             }
         }
 
         analytics?.capture(AnalyticsEvents.USER_SIGNED_OUT)
         analytics?.reset()
-        // Stops the sync loops (they gate on this) before anything is deleted, so no in-flight pull
-        // can re-land the rows we are about to drop.
         _currentUserId.value = null
-        // Best-effort: a failure here must not strand the user signed-in-but-wiped. Room is a cache of
-        // server truth, so the worst case is a stale row that the next account's pull overwrites —
-        // whereas refusing to sign out because a DELETE failed is a dead end with no way forward.
-        runCatching { signOutWipeDao?.wipeSignedOutAccount() }
+        // While A's session can still authenticate it: otherwise the server goes on believing this
+        // handset is A's, and every push for one of A's groups renders on whoever holds it next.
+        if (userId != null) runCatching { pushController?.unregisterCurrentToken(userId) }
         // The bill-link plaintext tokens live here, not Room: bearer credentials for one bill each, so
         // they must not outlive the session that minted them (`data/AGENTS.md`, WebBillLinkRepository).
         runCatching { secureStorage?.clear() }
@@ -425,6 +445,10 @@ class SupabaseAuthSession(
         _currentUserId.value = UserId(user.id)
         analytics?.identify(user.id)
         if (wasSignedOut) analytics?.capture(AnalyticsEvents.USER_SIGNED_IN)
+        // This account signing back in on a device it signed out of is the one thing that should lift
+        // sign-out's sync fence, and it is a no-op for anyone else (the fence is keyed by user id, so a
+        // different account's sign-in cannot unblock work still queued for the one that left).
+        syncEngine?.reopenSync(user.id)
         scope.launch { syncEngine?.syncNow(user.id) }
     }
 
@@ -443,6 +467,32 @@ class SupabaseAuthSession(
         const val GRACE_PERIOD_MS = 30L * 24 * 60 * 60 * 1000
     }
 }
+
+/**
+ * "We could not tell how much is unsaved." Negative rather than a large positive so it can never be
+ * mistaken for a real count by a caller that only tests `> 0`.
+ */
+internal const val PENDING_UNKNOWN = -1
+
+/**
+ * How many local writes have not reached the server, or [PENDING_UNKNOWN] when the count itself threw.
+ *
+ * **Failing closed is the entire point.** This one read stands between a push we cannot fully trust and
+ * permanently destroying the only copy of someone's expenses, and it used to be
+ * `.getOrDefault(0)` — "nothing pending, safe to wipe" — which is the single most permissive answer
+ * available. A DB read failing is not evidence that there is nothing to lose.
+ */
+internal suspend fun pendingWritesOrUnknown(count: suspend () -> Int): Int = runCatching { count() }.getOrDefault(PENDING_UNKNOWN)
+
+/**
+ * The question sign-out has to ask before wiping, or null when there is nothing to ask and the cache
+ * may go.
+ *
+ * Only an actual zero authorises the wipe. [PENDING_UNKNOWN] becomes `UnsyncedChanges(null)` — we stop
+ * and ask, without inventing a number we were not able to take.
+ */
+internal fun unsyncedChangesFor(pending: Int): SignOutOutcome.UnsyncedChanges? =
+    if (pending == 0) null else SignOutOutcome.UnsyncedChanges(pending.takeIf { it > 0 })
 
 /** Narrow projection of `public.users` for [SupabaseAuthSession.pendingDeletionAt]. */
 @Serializable

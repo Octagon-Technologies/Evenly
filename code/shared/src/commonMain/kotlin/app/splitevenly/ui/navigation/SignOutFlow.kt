@@ -58,7 +58,9 @@ class SignOutFlow internal constructor(
     var inProgress by mutableStateOf(false)
         private set
 
-    private var pendingWrites by mutableStateOf<Int?>(null)
+    /** The question to ask, or null when there is none. Boxed rather than kept as a bare count because
+     *  the count can legitimately be unknown — see [SignOutOutcome.UnsyncedChanges.pendingWrites]. */
+    private var unsynced by mutableStateOf<SignOutOutcome.UnsyncedChanges?>(null)
 
     fun start() = attempt(discardUnsynced = false)
 
@@ -69,13 +71,13 @@ class SignOutFlow internal constructor(
             when (val outcome = auth.signOut(discardUnsynced = discardUnsynced)) {
                 is SignOutOutcome.SignedOut -> {
                     inProgress = false
-                    pendingWrites = null
+                    unsynced = null
                     onSignedOut()
                 }
 
                 is SignOutOutcome.UnsyncedChanges -> {
                     inProgress = false
-                    pendingWrites = outcome.pendingWrites
+                    unsynced = outcome
                 }
             }
         }
@@ -84,9 +86,14 @@ class SignOutFlow internal constructor(
     /** Renders the "your changes haven't saved yet" confirmation, or nothing when there is none to ask. */
     @Composable
     fun Dialog() {
-        val pending = pendingWrites ?: return
+        val question = unsynced ?: return
+        val pending = question.pendingWrites
+        // Plural only when we actually counted more than one. An unknown count reads as singular
+        // ("some of what you did … deletes it"), because inventing a number we could not take would be
+        // worse than being vague about it.
+        val many = pending != null && pending > 1
         val c = EvenlyTheme.colors
-        EvModalScaffold(onDismiss = { pendingWrites = null }) {
+        EvModalScaffold(onDismiss = { unsynced = null }) {
             Text(
                 "Not everything is saved yet",
                 color = c.ink,
@@ -98,10 +105,18 @@ class SignOutFlow internal constructor(
                 // The COUNT is the whole message: it is the only thing that tells the person holding
                 // the phone whether this is one stray edit or their whole evening. No "sync", no
                 // "server", no "pending writes" (jargon blocklist) — those are our words, not theirs.
-                if (pending == 1) {
-                    "1 thing you did on this phone isn't saved yet. Signing out now deletes it."
-                } else {
-                    "$pending things you did on this phone aren't saved yet. Signing out now deletes them."
+                when {
+                    pending == null -> {
+                        "Some of what you did on this phone may not be saved yet. Signing out now deletes it."
+                    }
+
+                    many -> {
+                        "$pending things you did on this phone aren't saved yet. Signing out now deletes them."
+                    }
+
+                    else -> {
+                        "1 thing you did on this phone isn't saved yet. Signing out now deletes it."
+                    }
                 },
                 color = c.ink2,
                 fontSize = 15.sp,
@@ -110,10 +125,10 @@ class SignOutFlow internal constructor(
             Text(
                 // Names the exact retry, because "try again later" leaves the user guessing which
                 // control to press and whether staying signed in has already fixed anything.
-                if (pending == 1) {
-                    "Get back online, then tap Sign out again to save it first."
-                } else {
+                if (many) {
                     "Get back online, then tap Sign out again to save them first."
+                } else {
+                    "Get back online, then tap Sign out again to save it first."
                 },
                 color = c.ink2,
                 fontSize = 15.sp,
@@ -122,11 +137,11 @@ class SignOutFlow internal constructor(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Primary is the safe one: the destructive path must be the deliberate tap, and its
                 // label says what it destroys rather than a bare "Sign out".
-                EvButton("Stay signed in", { pendingWrites = null }, variant = ButtonVariant.Primary)
+                EvButton("Stay signed in", { unsynced = null }, variant = ButtonVariant.Primary)
                 EvButton(
-                    if (pending == 1) "Sign out and delete it" else "Sign out and delete them",
+                    if (many) "Sign out and delete them" else "Sign out and delete it",
                     {
-                        pendingWrites = null
+                        unsynced = null
                         attempt(discardUnsynced = true)
                     },
                     variant = ButtonVariant.Danger,

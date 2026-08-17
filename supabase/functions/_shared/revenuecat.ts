@@ -102,8 +102,10 @@ export async function fetchSubscriber(appUserId: string): Promise<RcSubscriber |
  * `group_passes.store` and `user_subscriptions.store` both carry a CHECK constraint, so guessing here
  * would turn an unknown store into a failed insert further down where it is harder to explain.
  */
-export function mapStore(rcStore: string | undefined): "app_store" | "play_store" | "promo" | null {
-  switch (rcStore) {
+export function mapStore(
+  rcStore: string | undefined,
+): "app_store" | "play_store" | "promo" | "test_store" | null {
+  switch (rcStore?.toLowerCase()) {
     case "app_store":
     case "mac_app_store":
       return "app_store";
@@ -111,6 +113,15 @@ export function mapStore(rcStore: string | undefined): "app_store" | "play_store
       return "play_store";
     case "promotional":
       return "promo";
+    case "test_store":
+    case "rc_test_store":
+      // RevenueCat's Test Store: a real purchase flow over simulated money, which is what lets the pass
+      // and subscription round trips be verified before a store product exists. Kept as its own value
+      // rather than folded into `promo` so a test row is never mistaken for revenue, and **gated on
+      // `PRO_ALLOW_TEST_STORE`**: the test SDK key ships inside every dev build, so an ungated path
+      // would let anyone holding one mint themselves unlimited paid vision calls. Unset means refuse,
+      // matching every other unconfigured integration here.
+      return Deno.env.get("PRO_ALLOW_TEST_STORE") === "true" ? "test_store" : null;
     default:
       return null;
   }

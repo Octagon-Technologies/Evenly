@@ -50,6 +50,7 @@ fun MainShell(
     onSignedOut: () -> Unit = {},
     onSignIn: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
+    onSendFeedback: () -> Unit = {},
     onOpenPro: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
@@ -60,20 +61,26 @@ fun MainShell(
         Box(Modifier.fillMaxSize().weight(1f)) {
             Crossfade(targetState = tab, animationSpec = EvMotion.standard()) { current ->
                 when (current) {
-                    RootTab.Groups -> HomeRoute(
-                        onOpenGroup = onOpenGroup,
-                        onNewGroup = onNewGroup,
-                        onJoin = onJoin,
-                        onOpenArchived = onOpenArchived,
-                        onOpenSettings = { tab = RootTab.Settings },
-                    )
-                    RootTab.Settings -> ProfileRoute(
-                        onBack = { tab = RootTab.Groups },
-                        onSignedOut = onSignedOut,
-                        onSignIn = onSignIn,
-                        onEditPaymentApps = onEditPaymentApps,
-                        onOpenPro = onOpenPro,
-                    )
+                    RootTab.Groups -> {
+                        HomeRoute(
+                            onOpenGroup = onOpenGroup,
+                            onNewGroup = onNewGroup,
+                            onJoin = onJoin,
+                            onOpenArchived = onOpenArchived,
+                            onOpenSettings = { tab = RootTab.Settings },
+                        )
+                    }
+
+                    RootTab.Settings -> {
+                        ProfileRoute(
+                            onBack = { tab = RootTab.Groups },
+                            onSignedOut = onSignedOut,
+                            onSignIn = onSignIn,
+                            onEditPaymentApps = onEditPaymentApps,
+                            onSendFeedback = onSendFeedback,
+                            onOpenPro = onOpenPro,
+                        )
+                    }
                 }
             }
         }

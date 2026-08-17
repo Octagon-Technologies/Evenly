@@ -481,9 +481,9 @@ create index if not exists device_tokens_user_idx on public.device_tokens (user_
 -- per-user rate limit (20 scans/hour) against the paid, Claude-vision-backed OCR endpoint.
 create table if not exists public.receipt_scan_log (
   id uuid primary key default gen_random_uuid(),
-  -- ON DELETE CASCADE so delete_my_account() (which deletes the auth.users row) doesn't FK-violate once
-  -- scan rows exist. A rate-limit log is ephemeral operational data, not financial history, so a hard
-  -- cascade here is correct (P1 #12). The migration below re-adds the FK with the cascade on live DBs.
+  -- ON DELETE CASCADE so purge_deleted_accounts() (which deletes the auth.users row after the 30-day
+  -- grace) doesn't FK-violate once scan rows exist. A rate-limit log is ephemeral operational data, not
+  -- financial history, so a hard cascade is correct (P1 #12). The migration below re-adds it on live DBs.
   user_id uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
@@ -809,10 +809,54 @@ begin
   create policy receipts_obj_delete on storage.objects for delete to authenticated using (bucket_id = 'receipts');
 end $$;
 
--- ── Account deletion (F8): caller deletes their own profile + device tokens + auth record ────────
--- security definer so it can touch auth.users; conservative scope (leaves shared group data — a full
--- cascade / admin-ownership-transfer is a separate product decision).
-create or replace function public.delete_my_account()
+-- ── Account deletion: request → 30-day grace → nightly anonymizing purge (Rule 9) ────────────────
+-- Replaces the old hard-delete `delete_my_account()` (Play Store "Delete account URL" requirement;
+-- rationale in `data/AGENTS.md` Rule 9). These definitions were applied to the live project on
+-- 2026-08-08 and folded back into this file on 2026-08-16 (review finding B1) — the file had kept
+-- shipping the superseded function while the app called RPCs the file never mentioned, so a
+-- from-scratch apply produced a database where account deletion 404s at the first tap.
+
+-- The two columns the flow rides on. Additive per §"Applying changes"; nullable, so no defaults race.
+alter table public.users add column if not exists deletion_requested_at bigint;
+alter table public.users add column if not exists deleted_at bigint;
+
+-- Sign-in email uniqueness (review B3): the Room mirror has always declared UNIQUE on email and its
+-- KDoc claimed the server enforced it — now it does. Partial over non-null so placeholders (no email)
+-- stay unlimited; lower() matches the client's COLLATE NOCASE lookup semantics for ASCII emails.
+create unique index if not exists users_email_lower_uidx
+  on public.users (lower(email)) where email is not null;
+
+-- Stamp only — nothing is deleted yet, so the request is cancellable for the whole grace period.
+-- Returns the epoch-ms instant the purge becomes eligible, for the client's "deletes on <date>" copy.
+create or replace function public.request_account_deletion()
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid text := auth.uid()::text;
+  requested_at bigint := (extract(epoch from now()) * 1000)::bigint;
+  purge_at bigint;
+  grace_period_ms constant bigint := 30::bigint * 24 * 60 * 60 * 1000;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+  update public.users
+    set deletion_requested_at = requested_at, updated_at = requested_at
+    where id = uid and deleted_at is null
+    returning deletion_requested_at + grace_period_ms into purge_at;
+  if purge_at is null then
+    raise exception 'account not found or already deleted';
+  end if;
+  return purge_at;
+end;
+$$;
+revoke all on function public.request_account_deletion() from public, anon;
+grant execute on function public.request_account_deletion() to authenticated;
+
+create or replace function public.cancel_account_deletion()
 returns void
 language plpgsql
 security definer
@@ -823,13 +867,103 @@ begin
   if uid is null then
     raise exception 'not authenticated';
   end if;
-  delete from public.device_tokens where user_id = uid;
-  delete from public.users where id = uid;
-  delete from auth.users where id = uid::uuid;
+  update public.users
+    set deletion_requested_at = null, updated_at = (extract(epoch from now()) * 1000)::bigint
+    where id = uid and deleted_at is null;
 end;
 $$;
-revoke all on function public.delete_my_account() from public;
-grant execute on function public.delete_my_account() to authenticated;
+revoke all on function public.cancel_account_deletion() from public, anon;
+grant execute on function public.cancel_account_deletion() to authenticated;
+
+-- The nightly purge: anonymize (never row-delete) every account whose grace period has elapsed.
+-- Admin is handed off to the longest-tenured other ACTIVE member first; memberships soft-leave;
+-- device_tokens (ephemeral, non-financial) hard-delete; the auth.users credential is removed last.
+-- Each target runs in its own exception block so one bad row can't abort the whole batch.
+-- The day-count seeds as an explicit ::bigint — 30 * 24 * 60 * 60 * 1000 overflows int4 before
+-- Postgres promotes it. Service-role/cron only: no caller context, and EXECUTE is revoked below.
+create or replace function public.purge_deleted_accounts()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_id text;
+  grp record;
+  now_ms bigint;
+  grace_period_ms constant bigint := 30::bigint * 24 * 60 * 60 * 1000;
+begin
+  now_ms := (extract(epoch from now()) * 1000)::bigint;
+  for target_id in
+    select id from public.users
+    where deletion_requested_at is not null
+      and deletion_requested_at < now_ms - grace_period_ms
+      and deleted_at is null
+  loop
+    begin
+      for grp in
+        select g.id as group_id, m2.user_id as new_admin
+        from public.members m1
+        join public.groups g on g.id = m1.group_id
+        join lateral (
+          select user_id from public.members m2
+          where m2.group_id = m1.group_id and m2.status = 'ACTIVE' and m2.user_id <> target_id
+          order by m2.joined_at asc
+          limit 1
+        ) m2 on true
+        where m1.user_id = target_id and m1.status = 'ACTIVE' and g.admin_user_id = target_id
+      loop
+        update public.groups set admin_user_id = grp.new_admin, updated_at = now_ms
+          where id = grp.group_id;
+        update public.members set is_admin = true, updated_at = now_ms
+          where user_id = grp.new_admin and group_id = grp.group_id;
+      end loop;
+
+      update public.members
+        set status = 'LEFT', left_at = now_ms, updated_at = now_ms
+        where user_id = target_id and status = 'ACTIVE';
+
+      delete from public.device_tokens where user_id = target_id;
+
+      update public.users
+        set display_name = 'Deleted user',
+            email = null,
+            avatar_url = null,
+            venmo_handle = null,
+            cashapp_handle = null,
+            paypal_handle = null,
+            zelle_handle = null,
+            preferred_payment_app = null,
+            deleted_at = now_ms,
+            updated_at = now_ms
+        where id = target_id;
+
+      delete from auth.users where id = target_id::uuid;
+    exception when others then
+      raise warning 'purge_deleted_accounts: failed for user %: %', target_id, sqlerrm;
+    end;
+  end loop;
+end;
+$$;
+revoke all on function public.purge_deleted_accounts() from public, anon, authenticated;
+
+-- Nightly at 03:00 UTC. Guarded so the file still applies on a project without pg_cron enabled;
+-- cron.schedule upserts by jobname, so re-running this file never duplicates the job.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('purge-deleted-accounts', '0 3 * * *', 'select public.purge_deleted_accounts()');
+  else
+    raise notice 'pg_cron not installed - schedule purge-deleted-accounts manually';
+  end if;
+end $$;
+
+-- DESTRUCTIVE OPERATION: removes a callable grant, zero rows touched.
+-- Pre-checks (true as of 2026-08-16): no app version ever shipped calling delete_my_account (the
+-- shipped client calls request/cancel_account_deletion only — grep SupabaseAuthSession.kt); the live
+-- project already has no such function (verified via pg_proc, it was dropped when the RPCs above were
+-- applied on 2026-08-08). Recovery: recreate from git history of this file.
+drop function if exists public.delete_my_account();
 
 -- ── Optimistic-concurrency commit for expenses (versioning + parked conflicts) ───────────────────
 -- The client routes every expense create/edit through commit_expense() instead of a blind upsert.
@@ -2393,8 +2527,12 @@ begin
   alter table public.group_passes add constraint group_passes_tier_check
     check (tier in ('week_1', 'week_2', 'month_1'));
   alter table public.group_passes drop constraint if exists group_passes_store_check;
+  -- `test_store` is RevenueCat's Test Store (simulated money, no store product needed). It is a real
+  -- row in every other respect, so it is a distinct value rather than folded into `promo`: a test pass
+  -- must never read as revenue, and must stay findable when the test config is torn down. The edge
+  -- function gates it behind `PRO_ALLOW_TEST_STORE`, so widening this constraint grants nothing on its own.
   alter table public.group_passes add constraint group_passes_store_check
-    check (store in ('app_store', 'play_store', 'promo'));
+    check (store in ('app_store', 'play_store', 'promo', 'test_store'));
 end $$;
 
 create unique index if not exists group_passes_txn_idx on public.group_passes (store, store_txn_id);
@@ -2475,8 +2613,9 @@ create table if not exists public.user_subscriptions (
 do $$
 begin
   alter table public.user_subscriptions drop constraint if exists user_subscriptions_store_check;
+  -- See the note on group_passes_store_check.
   alter table public.user_subscriptions add constraint user_subscriptions_store_check
-    check (store in ('app_store', 'play_store', 'promo'));
+    check (store in ('app_store', 'play_store', 'promo', 'test_store'));
   alter table public.user_subscriptions drop constraint if exists user_subscriptions_period_check;
   alter table public.user_subscriptions add constraint user_subscriptions_period_check
     check (period in ('monthly', 'annual'));
@@ -2718,3 +2857,188 @@ alter table public.waitlist_signups enable row level security;
 -- permissive policy added by mistake still does not expose the list to the anon key. Verified: anon
 -- gets 42501 permission denied on both select and insert.
 revoke all on public.waitlist_signups from anon, authenticated;
+
+-- ══════════════════════════════════════════════════════════════════════════════════════════════
+-- Admin dashboard & feedback (ADMIN_FEEDBACK_SPEC.md)
+--
+-- Three tables and one aggregation RPC, all with the same posture as `waitlist_signups` above: RLS
+-- enabled, NO policies, grants revoked from anon/authenticated. Nothing here is app data, nothing
+-- here syncs to a device, and nothing here may ever be added to the `supabase_realtime` publication.
+-- The only readers/writers are the `admin` and `feedback` edge functions holding the service key.
+-- ══════════════════════════════════════════════════════════════════════════════════════════════
+
+-- ── admin_users ────────────────────────────────────────────────────────────────────────────────
+-- The allowlist. Signing in with Google is necessary but not sufficient: a row here is what grants
+-- access, and revoking an admin is deleting one row with no shared secret to rotate.
+--
+-- Allowlisting by EMAIL, never by domain (spec §2.1), and the reason is worth keeping next to the
+-- table so nobody "simplifies" into it later: the owner account is a gmail.com address, and a domain
+-- rule on gmail.com admits every Google account on earth.
+--
+-- There is deliberately no bootstrap path in code. The first row is inserted by hand after the first
+-- sign-in attempt creates the auth.users row (see `admin/README.md`); an env-var-seeded "if the table
+-- is empty, trust this email" branch in the edge function would be a permanent backdoor to save a
+-- one-time SQL statement.
+create table if not exists public.admin_users (
+  user_id     uuid primary key references auth.users(id) on delete cascade,
+  -- Denormalized from auth.users so the dashboard can show who is on the list without a join into
+  -- the auth schema. Display only: the gate matches on user_id, never on this column.
+  email       text not null,
+  added_at    timestamptz not null default now(),
+  added_by    uuid references auth.users(id)
+);
+
+alter table public.admin_users enable row level security;
+-- Deliberately no policies. An authenticated non-admin being able to read this table would hand them
+-- the exact list of accounts worth phishing.
+revoke all on public.admin_users from anon, authenticated;
+
+-- ── feedback_tickets ───────────────────────────────────────────────────────────────────────────
+-- One table behind three entry points (in-app, /feedback on the web, the guest claim flow).
+--
+-- v1 is WRITE-ONLY from the client: nothing reads a ticket back into the app. That is what keeps this
+-- table out of the sync engine entirely. If a "your past tickets" screen is ever built it becomes a
+-- synced entity and lands under `data/AGENTS.md`'s rules and the schema-before-entity hook, which is
+-- a much bigger decision than it looks.
+create table if not exists public.feedback_tickets (
+  id              uuid primary key default gen_random_uuid(),
+  -- Null for web/anonymous submissions. NOT a foreign key: if someone deletes their account you still
+  -- want the bug report, so this holds the id and tolerates a dangling one. `text` rather than `uuid`
+  -- because the app's own user ids are text everywhere else in this schema.
+  user_id         text,
+  submitter_name  text,          -- web only, optional
+  submitter_email text,          -- web only, the address a manual reply goes to (spec §5.1)
+  type            text not null,
+  category        text not null,
+  message         text not null,
+  title           text,          -- null in v1; auto-titles are §4.4, and deliberately not built
+  status          text not null default 'new',
+  -- Internal, and never shown to the submitter. Stated in the schema as well as the spec because that
+  -- is exactly the kind of thing that leaks once a "your ticket" screen gets built.
+  admin_note      text,
+  source          text not null,
+  app_version     text,          -- app only; half of triaging a bug is knowing if it is already fixed
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+-- Enumerations as check constraints rather than Postgres enums: adding a category later is an `alter
+-- ... drop constraint` + `add constraint` in an idempotent migration, where an enum needs `alter type`
+-- and cannot drop a value at all. The submit function validates the same lists; this is the backstop
+-- that makes a bug there a 500 instead of a garbage row.
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_type_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_type_chk
+  check (type in ('problem', 'suggestion', 'question'));
+
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_category_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_category_chk
+  check (category in ('payments', 'account', 'missing_expense', 'splitting', 'design', 'other'));
+
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_status_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_status_chk
+  check (status in ('new', 'in_progress', 'resolved', 'wont_fix', 'duplicate'));
+
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_source_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_source_chk
+  check (source in ('app_ios', 'app_android', 'web', 'web_claim'));
+
+-- The queue's default view is `new` only (spec §5), newest first. Partial index so that read stays
+-- cheap regardless of how large the resolved pile gets.
+create index if not exists feedback_tickets_open_idx
+  on public.feedback_tickets (created_at desc) where status = 'new';
+create index if not exists feedback_tickets_created_idx
+  on public.feedback_tickets (created_at desc);
+
+alter table public.feedback_tickets enable row level security;
+-- Deliberately no policies: user-submitted text including email addresses, readable only through the
+-- admin function's service key after its allowlist check.
+revoke all on public.feedback_tickets from anon, authenticated;
+
+-- ── public_write_log — rate limiting for the unauthenticated endpoints (spec §8) ────────────────
+-- 30 submissions per hour per principal, on `waitlist` and `feedback`. Mirrors `web_claim_write_log`
+-- and `receipt_scan_log`: insert-only, service-role-only, counted in a rolling window.
+--
+-- `principal_hash` is sha256(kind + ':' + ip-or-user-id) and never the address itself. An IP is
+-- personal data under the "no PII in logs" rule (§8), and this table only ever needs to answer "have
+-- I seen this same caller 30 times in the last hour", which a hash answers exactly as well.
+create table if not exists public.public_write_log (
+  id             uuid primary key default gen_random_uuid(),
+  kind           text not null,  -- 'waitlist' | 'feedback'
+  principal_hash text not null,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists public_write_log_window_idx
+  on public.public_write_log (kind, principal_hash, created_at desc);
+
+alter table public.public_write_log enable row level security;
+-- Deliberately no policies -- only the edge functions' service key touches this table.
+revoke all on public.public_write_log from anon, authenticated;
+
+-- ── admin_waitlist_stats — the growth chart, aggregated in SQL (spec §3.2) ──────────────────────
+-- Aggregation happens here and never by shipping every row to the browser to count there. Invisible
+-- at a thousand rows and five lines either way, so there is no reason to write the version that stops
+-- working.
+--
+-- Returns one object so the chart is one round trip:
+--   baseline -- signups strictly before the window, the starting height of the cumulative line
+--   total    -- every signup ever, for the headline number
+--   days     -- DENSE, one entry per calendar day in the window including the zeros. Pre-launch there
+--               are genuine zero days and a chart that silently omits them draws a lie.
+--   bySource -- sparse (day, source, n), for the stacked breakdown. Dense here would be days x
+--               sources rows to carry mostly zeros the caller can infer.
+--
+-- `security definer` with a pinned `search_path`, and EXECUTE revoked from every client role: the
+-- only caller is the admin edge function's service key, after its allowlist check.
+create or replace function public.admin_waitlist_stats(p_from timestamptz default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from  timestamptz;
+  v_today date := (now() at time zone 'utc')::date;
+  v_result jsonb;
+begin
+  -- Null `p_from` is the "all" toggle: start at the first signup, or today if there are none yet.
+  v_from := coalesce(
+    p_from,
+    (select min(created_at) from public.waitlist_signups),
+    now()
+  );
+
+  select jsonb_build_object(
+    'from', v_from,
+    'baseline', (select count(*) from public.waitlist_signups where created_at < v_from),
+    'total',    (select count(*) from public.waitlist_signups),
+    'days', coalesce((
+      -- `d.day::date` matters: generate_series over dates yields TIMESTAMPS, and an un-cast value
+      -- serializes as "2026-08-16T00:00:00", which the chart parses as an invalid date.
+      select jsonb_agg(jsonb_build_object('day', d.day::date, 'n', coalesce(c.n, 0)) order by d.day)
+      from generate_series((v_from at time zone 'utc')::date, v_today, interval '1 day') as d(day)
+      left join (
+        select (created_at at time zone 'utc')::date as day, count(*) as n
+        from public.waitlist_signups
+        where created_at >= v_from
+        group by 1
+      ) c on c.day = d.day::date
+    ), '[]'::jsonb),
+    'bySource', coalesce((
+      select jsonb_agg(jsonb_build_object('day', s.day, 'source', s.source, 'n', s.n) order by s.day)
+      from (
+        select (created_at at time zone 'utc')::date as day,
+               coalesce(source, 'unknown') as source,
+               count(*) as n
+        from public.waitlist_signups
+        where created_at >= v_from
+        group by 1, 2
+      ) s
+    ), '[]'::jsonb)
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+revoke execute on function public.admin_waitlist_stats(timestamptz) from public, anon, authenticated;

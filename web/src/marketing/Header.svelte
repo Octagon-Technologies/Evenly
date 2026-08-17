@@ -4,7 +4,7 @@
    * tab for the page you're on; "How it works" always points at the home page's feature strip,
    * same href whether you're already there (browser just scrolls) or arriving from elsewhere.
    */
-  import { storeUrl } from '../lib/format.ts';
+  import { storeUrl, PRE_LAUNCH } from '../lib/format.ts';
 
   const { current }: { current: 'home' | 'privacy' | 'terms' | 'delete-account' | 'support' } = $props();
 </script>
@@ -24,7 +24,8 @@
       <a href="/support" class={current === 'support' ? 'site-current' : ''}>Support</a>
       <a href="/privacy" class={current === 'privacy' ? 'site-current' : ''}>Privacy</a>
       <a href="/terms" class={current === 'terms' ? 'site-current' : ''}>Terms</a>
-      <a class="site-nav-cta" href={storeUrl()}>Get the app</a>
+      <!-- Pre-launch this points at the waitlist, so it must not promise an app you cannot install. -->
+      <a class="site-nav-cta" href={storeUrl()}>{PRE_LAUNCH ? 'Get early access' : 'Get the app'}</a>
     </nav>
   </header>
 </div>

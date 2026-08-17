@@ -227,3 +227,316 @@ a.site-badge { display: inline-flex; line-height: 0; }
   .site-doc h1 { font-size: 32px; }
   .site-doc-summary { font-size: 17px; }
 }
+
+/* ═══ waitlist (/waitlist) ═════════════════════════════════════════════════════════════════════
+ * Pre-launch page. Same editorial system as the rest of `site-`, with one deliberate departure:
+ * it has NO nav. Every other link on a waitlist page is a way to leave without signing up, so the
+ * header is the wordmark and a launch pill, and the only controls on the page are the two copies
+ * of the same email field.
+ *
+ * Approved mockup: `design/waitlist-final.html` (direction A3). The receipt scan is a CSS animation
+ * rather than a video so it costs nothing and survives an ad blocker.
+ */
+
+.site-wl-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  max-width: 1120px; margin: 0 auto; padding: 20px 24px;
+}
+.site-wl-pill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px;
+  border-radius: var(--site-r-pill); background: var(--site-accent-tint);
+  border: 1px solid #d3dffb; color: var(--site-accent-press);
+  font-size: 12.5px; font-weight: 680; white-space: nowrap;
+}
+.site-wl-dot { width: 6px; height: 6px; border-radius: 50%; background: #16a34a; flex: none; }
+
+/* ── hero ── */
+.site-wl-hero {
+  max-width: 780px; margin: 0 auto; padding: 46px 24px 52px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.site-wl-hero h1 {
+  font-size: 56px; line-height: 1.08; letter-spacing: -0.012em; color: var(--site-ink); margin: 0;
+}
+.site-wl-hero h1 em { font-style: italic; color: var(--site-accent); }
+.site-wl-lede {
+  font-size: 18px; line-height: 1.62; color: var(--site-ink-soft);
+  max-width: 50ch; margin: 22px 0 0;
+}
+.site-wl-lede b { color: var(--site-ink); font-weight: 650; }
+
+/* The gaps here are graded on purpose: 30px above the field separates it from the sentence, 10px
+   inside binds field to button. Equal gaps were what made the mobile hero read as three things
+   stacked rather than one form. */
+.site-wl-form { display: flex; gap: 10px; width: 100%; max-width: 460px; margin-top: 30px; }
+.site-wl-input {
+  flex: 1; min-width: 0; height: 54px; padding: 0 16px;
+  border: 1.5px solid var(--site-line); border-radius: 13px; background: var(--site-paper);
+  font-family: var(--site-sans); font-size: 16px; color: var(--site-ink);
+}
+.site-wl-input::placeholder { color: var(--site-ink-faint); }
+.site-wl-input:focus-visible {
+  outline: none; border-color: var(--site-accent); box-shadow: 0 0 0 3px var(--site-accent-tint);
+}
+.site-wl-input:disabled { opacity: 0.6; }
+.site-wl-submit {
+  height: 54px; padding: 0 24px; flex: none;
+  border: none; border-radius: 13px; background: var(--site-accent); color: #fff;
+  font-family: var(--site-sans); font-size: 15.5px; font-weight: 660; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.site-wl-submit:hover:not(:disabled) { background: var(--site-accent-press); }
+.site-wl-submit:disabled { opacity: 0.65; cursor: default; }
+.site-wl-submit:focus-visible { outline: 2px solid var(--site-accent-press); outline-offset: 2px; }
+.site-wl-micro { font-size: 13px; color: var(--site-ink-faint); margin: 15px 0 0; line-height: 1.5; }
+.site-wl-err {
+  font-size: 13.5px; color: #b42318; margin: 12px 0 0; font-weight: 620;
+}
+.site-wl-ok {
+  display: flex; align-items: center; gap: 11px; margin-top: 30px;
+  padding: 15px 20px; border-radius: 14px;
+  background: #e7f4ec; border: 1px solid #c7e7d2; color: #15803d;
+  font-size: 15px; font-weight: 640; text-align: left;
+}
+.site-wl-ok svg { width: 19px; height: 19px; flex: none; }
+
+/* ── the two panels: what you photograph / what your friends get ── */
+.site-wl-panels {
+  max-width: 1000px; margin: 0 auto; padding: 0 24px;
+  display: grid; grid-template-columns: 1fr 1fr;
+}
+.site-wl-panels-in {
+  grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--site-line); border-radius: var(--site-r-card); overflow: hidden;
+  background: var(--site-paper);
+}
+.site-wl-pan { padding: 26px 26px 28px; display: flex; flex-direction: column; gap: 15px; }
+.site-wl-pan + .site-wl-pan { border-left: 1px solid var(--site-line); }
+.site-wl-eyebrow {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11.5px; font-weight: 720; letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--site-ink-faint);
+}
+.site-wl-eyebrow.site-wl-on { color: var(--site-accent); }
+.site-wl-eyebrow i { flex: 1; height: 1px; background: var(--site-line); }
+.site-wl-pcap { font-size: 14px; line-height: 1.6; color: var(--site-ink-soft); margin: 0; }
+.site-wl-pcap b { color: var(--site-ink); font-weight: 650; }
+
+/* the receipt, scanning */
+.site-wl-scan {
+  position: relative; overflow: hidden; border-radius: 13px;
+  border: 1px solid var(--site-line); background: var(--site-paper);
+}
+.site-wl-paper {
+  padding: 15px 16px; font-family: var(--site-mono); font-size: 11px;
+  color: var(--site-ink-soft); line-height: 1.95;
+}
+.site-wl-paper b {
+  display: block; text-align: center; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; color: var(--site-ink); margin-bottom: 6px;
+}
+.site-wl-paper span { display: flex; justify-content: space-between; gap: 12px; }
+.site-wl-beam {
+  position: absolute; left: 0; right: 0; height: 64px; pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(37, 99, 235, 0.13) 55%, rgba(37, 99, 235, 0.3));
+  border-bottom: 1.5px solid var(--site-accent);
+  animation: site-wl-beam 4.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+@keyframes site-wl-beam {
+  0% { top: -66px; }
+  40% { top: 100%; }
+  41%, 100% { top: 100%; opacity: 0; }
+}
+
+/* the friend's browser view */
+.site-wl-list {
+  border: 1px solid var(--site-line); border-radius: 13px; overflow: hidden; background: var(--site-paper);
+}
+.site-wl-lh {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 15px; border-bottom: 1px solid var(--site-line); background: #fafbfe;
+  font-size: 13px; font-weight: 680; color: var(--site-ink);
+}
+.site-wl-lh em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--site-ink-faint); }
+.site-wl-li {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 15px; border-bottom: 1px solid var(--site-line);
+  animation: site-wl-pop 0.5s both;
+}
+.site-wl-li:last-child { border-bottom: none; }
+.site-wl-li:nth-child(2) { animation-delay: 1.4s; }
+.site-wl-li:nth-child(3) { animation-delay: 1.75s; }
+.site-wl-li:nth-child(4) { animation-delay: 2.1s; }
+.site-wl-li:nth-child(5) { animation-delay: 2.45s; }
+@keyframes site-wl-pop { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+.site-wl-li .site-wl-n { flex: 1; min-width: 0; font-size: 14px; font-weight: 620; color: var(--site-ink); }
+.site-wl-li .site-wl-a {
+  font-size: 13.5px; font-weight: 650; color: var(--site-ink-soft);
+  font-variant-numeric: tabular-nums; font-family: var(--site-mono);
+}
+.site-wl-claim {
+  flex: none; height: 26px; padding: 0 11px; border-radius: var(--site-r-pill);
+  border: 1px dashed var(--site-accent); background: transparent; color: var(--site-accent);
+  font-family: var(--site-sans); font-size: 11.5px; font-weight: 680;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.site-wl-claim.site-wl-taken {
+  border-style: solid; border-color: #c7e7d2; background: #e7f4ec; color: #15803d;
+  animation: site-wl-flip 0.45s 3.1s both;
+}
+@keyframes site-wl-flip { from { opacity: 0.2; transform: scale(0.88); } to { opacity: 1; transform: none; } }
+.site-wl-av {
+  width: 16px; height: 16px; border-radius: 50%; flex: none;
+  background: var(--site-accent-tint); color: var(--site-accent-press);
+  font-size: 8px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.site-wl-claim.site-wl-taken .site-wl-av { background: rgba(22, 163, 74, 0.16); color: #15803d; }
+
+@media (prefers-reduced-motion: reduce) {
+  .site-wl-beam { animation: none; top: 36%; }
+  .site-wl-li, .site-wl-claim.site-wl-taken { animation: none; }
+}
+
+/* ── breadth: it is a tracker, the receipt is just its sharpest trick ── */
+.site-wl-breadth {
+  border-top: 1px solid var(--site-line); margin-top: 64px; padding: 78px 24px 84px;
+  background: #fafbfe;
+}
+.site-wl-bhead { max-width: 620px; margin: 0 auto 44px; text-align: center; }
+.site-wl-bhead h2 { font-size: 36px; line-height: 1.15; color: var(--site-ink); margin: 0 0 16px; }
+.site-wl-bhead p { font-size: 16px; line-height: 1.65; color: var(--site-ink-soft); margin: 0; }
+.site-wl-bhead p b { color: var(--site-ink); font-weight: 650; }
+.site-wl-bgrid {
+  max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr;
+  gap: 22px; align-items: start;
+}
+.site-wl-card {
+  background: var(--site-paper); border: 1px solid var(--site-line);
+  border-radius: var(--site-r-card); overflow: hidden;
+}
+.site-wl-ch {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 15px 18px; border-bottom: 1px solid var(--site-line);
+  font-size: 14.5px; font-weight: 680; color: var(--site-ink);
+}
+.site-wl-ch em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--site-ink-faint); }
+.site-wl-ex {
+  display: flex; align-items: center; gap: 13px;
+  padding: 14px 18px; border-bottom: 1px solid var(--site-line);
+}
+.site-wl-ex:last-child { border-bottom: none; }
+.site-wl-ico {
+  width: 36px; height: 36px; flex: none; border-radius: 12px;
+  background: var(--site-accent-tint); display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.site-wl-ex .site-wl-g { flex: 1; min-width: 0; }
+.site-wl-ex .site-wl-t { font-size: 14.5px; font-weight: 640; color: var(--site-ink); }
+.site-wl-ex .site-wl-m { font-size: 12.5px; color: var(--site-ink-faint); margin-top: 2px; }
+.site-wl-ex .site-wl-v {
+  flex: none; font-size: 14px; font-weight: 700; font-family: var(--site-mono);
+  font-variant-numeric: tabular-nums;
+}
+.site-wl-v.site-wl-owed { color: #15803d; }
+.site-wl-v.site-wl-owe { color: #b45309; }
+
+.site-wl-bal { padding: 20px 18px 18px; display: flex; flex-direction: column; gap: 16px; }
+.site-wl-balk { font-size: 12.5px; font-weight: 620; color: var(--site-ink-faint); }
+.site-wl-balv {
+  font-family: var(--site-serif); font-size: 40px; font-weight: 500; line-height: 1;
+  letter-spacing: -0.02em; color: #15803d; margin-top: 5px; font-variant-numeric: tabular-nums;
+}
+.site-wl-bar2 {
+  display: flex; height: 10px; border-radius: 5px; overflow: hidden;
+  background: #f2f5fb; border: 1px solid var(--site-line);
+}
+.site-wl-bar2 i { display: block; height: 100%; }
+.site-wl-bar2 .site-wl-paid { background: #16a34a; flex: 0 0 62%; }
+.site-wl-bar2 .site-wl-open { background: #fdf3e3; flex: 1; border-left: 1px solid #ebd9bc; }
+.site-wl-barlbl {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 12.5px; color: var(--site-ink-faint); margin-top: -8px;
+}
+.site-wl-barlbl b { color: var(--site-ink-soft); font-weight: 660; }
+.site-wl-settle {
+  border-top: 1px solid var(--site-line); padding-top: 15px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.site-wl-srow { display: flex; align-items: center; gap: 11px; }
+.site-wl-srow .site-wl-av { width: 24px; height: 24px; font-size: 9.5px; }
+.site-wl-srow .site-wl-g { flex: 1; min-width: 0; }
+.site-wl-srow .site-wl-t { font-size: 13.5px; font-weight: 630; color: var(--site-ink); }
+.site-wl-srow .site-wl-m { font-size: 12px; color: var(--site-ink-faint); margin-top: 1px; }
+.site-wl-sbtn {
+  flex: none; height: 29px; padding: 0 14px; border-radius: var(--site-r-pill);
+  border: 1px solid var(--site-accent); background: var(--site-accent); color: #fff;
+  font-family: var(--site-sans); font-size: 12px; font-weight: 680;
+}
+.site-wl-sbtn.site-wl-done { background: #e7f4ec; border-color: #c7e7d2; color: #15803d; }
+
+/* ── closing band: the same field again, for anyone who scrolled to decide ── */
+.site-wl-band-form { display: flex; gap: 10px; max-width: 460px; margin: 0 auto; }
+.site-wl-band-form .site-wl-input {
+  background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.22); color: #fff;
+}
+.site-wl-band-form .site-wl-input::placeholder { color: #8e97c4; }
+.site-wl-band-form .site-wl-input:focus-visible {
+  border-color: #93a9ff; box-shadow: 0 0 0 3px rgba(147, 169, 255, 0.22);
+}
+.site-wl-band-micro { font-size: 13px; color: #8e97c4; margin: 16px 0 0; }
+.site-wl-tags {
+  display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 26px;
+}
+.site-wl-tag {
+  font-size: 12.5px; font-weight: 630; color: #aeb6dd;
+  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: var(--site-r-pill); padding: 7px 15px;
+}
+.site-wl-band .site-wl-ok { background: rgba(22, 163, 74, 0.16); border-color: rgba(74, 222, 128, 0.35); color: #86efac; }
+
+@media (max-width: 880px) {
+  .site-wl-hero { padding: 34px 22px 40px; }
+  .site-wl-hero h1 { font-size: 37px; }
+  .site-wl-lede { font-size: 16px; margin-top: 18px; }
+  /* Stacked, and the graded gaps matter more here than anywhere: the desktop row becomes a column
+     and equal spacing would put the button as far from its field as the field is from the sentence. */
+  .site-wl-form, .site-wl-band-form { flex-direction: column; max-width: 420px; }
+  /* `flex: 1` governs the MAIN axis, which is now height: left alone the field collapses to its
+     content box and the 54px on it never applies. Both controls are sized explicitly instead. */
+  .site-wl-input { flex: none; width: 100%; height: 54px; }
+  .site-wl-submit { width: 100%; }
+  .site-wl-panels-in { grid-template-columns: 1fr; }
+  .site-wl-pan + .site-wl-pan { border-left: none; border-top: 1px solid var(--site-line); }
+  .site-wl-breadth { margin-top: 44px; padding: 52px 22px 58px; }
+  .site-wl-bhead h2 { font-size: 27px; }
+  .site-wl-bgrid { grid-template-columns: 1fr; }
+}
+
+/* `<i>` is used here as a neutral inline box (receipt cells, avatar initials, category glyphs, the
+   rule inside an eyebrow, the bar segments), never as emphasis. Without this reset the browser's
+   default italic lands on receipt text and avatar initials, which reads as a rendering fault. */
+.site-wl-paper span i,
+.site-wl-av,
+.site-wl-ico,
+.site-wl-eyebrow i,
+.site-wl-bar2 i,
+.site-wl-dot { font-style: normal; }
+
+/* Pre-launch call to action, standing in for the store badges until the listings exist
+   (`StoreBadges.svelte`). Sized to hold the same visual weight the two badges had, so the hero
+   composition does not collapse when one button replaces a 2-up row.
+
+   Every rule is written as `.site-root a.site-cta-btn` on purpose: `.site-root a { color: inherit }`
+   above is specificity (0,1,1) and would otherwise beat a bare `.site-cta-btn` (0,1,0), painting the
+   label in the page's ink. On the dark band that is near-white on white, i.e. an invisible button. */
+.site-root a.site-cta-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 52px; padding: 0 30px; border-radius: var(--site-r-pill);
+  background: var(--site-accent); color: #ffffff; text-decoration: none;
+  font-family: var(--site-sans); font-size: 16px; font-weight: 660; letter-spacing: -0.005em;
+}
+.site-root a.site-cta-btn:hover { background: var(--site-accent-press); color: #ffffff; }
+.site-root a.site-cta-btn:focus-visible { outline: 2px solid var(--site-accent-press); outline-offset: 3px; }
+/* On the dark band the blue loses its lift, so the button inverts to paper-on-ink instead. */
+.site-root a.site-cta-btn.site-cta-on-dark { background: #ffffff; color: var(--site-band); }
+.site-root a.site-cta-btn.site-cta-on-dark:hover { background: #e7edfd; color: var(--site-band); }
+.site-root a.site-cta-btn.site-cta-on-dark:focus-visible { outline: 2px solid #93a9ff; outline-offset: 3px; }

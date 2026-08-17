@@ -10,7 +10,6 @@ the URL — a bill token (`/b/:token` or `?b=`) always wins; everything else is 
 src/lib/money/
   allocate.ts        largest-remainder allocator            ← Allocator.kt
   billSplit.ts       the itemized engine                    ← BillSplit.kt
-  itemizedShares.ts  extras on per-person subtotals         ← ItemizedAllocator.kt
   fromApi.ts         POST /web-claim/bill payload → engine  ← BillMaterializer.kt
 src/screens/          the claim flow's Svelte screens, frames 1-9
 src/marketing/         home, privacy, terms — styled by src/marketing.css, not app.css

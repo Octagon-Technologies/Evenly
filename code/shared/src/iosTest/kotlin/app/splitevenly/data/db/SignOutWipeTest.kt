@@ -181,7 +181,7 @@ class SignOutWipeTest {
         )
         // Sync bookkeeping. If these outlive the rows they describe, the NEXT account's freshly-pulled
         // rows look already-pushed and never sync at all.
-        db.rowSyncStateDao().upsertAll(listOf(RowSyncStateEntity("users", "a", 42)))
+        db.rowSyncStateDao().upsertAll(listOf(RowSyncStateEntity("users", "a", 42L)))
         db.expenseSyncStateDao().upsert(ExpenseSyncStateEntity("e1", 1, 1))
     }
 

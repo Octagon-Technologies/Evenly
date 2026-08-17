@@ -64,6 +64,11 @@ interface SignOutWipeDao {
         clearSupersededNotices()
         clearGroupScanUsage()
         clearReceiptUploads()
+        // An unsent feedback ticket dies with the session that wrote it. Keeping it would let the next
+        // account on this device flush a stranger's bug report under their own token, which is the exact
+        // thing the edge function refuses to do server-side. Losing a rare unsent ticket is the cheaper
+        // side of that trade.
+        clearFeedbackOutbox()
         clearFxBaked()
     }
 
@@ -148,6 +153,54 @@ interface SignOutWipeDao {
     @Query("DELETE FROM receipt_uploads")
     suspend fun clearReceiptUploads()
 
+    @Query("DELETE FROM feedback_outbox")
+    suspend fun clearFeedbackOutbox()
+
     @Query("DELETE FROM fx_baked")
     suspend fun clearFxBaked()
 }
+
+/**
+ * The tables [SignOutWipeDao.wipeSignedOutAccount] clears, named so a test can check them.
+ *
+ * Room gives us no way to ask a `@Dao` what its queries touch, and Kotlin/Native has no reflection to
+ * ask with, so this is a hand-written mirror of the body above — the same class of hand-maintained
+ * list that let `SyncManager`'s table list drift out of step with `SyncEngine.push`. `SyncedTablesTest`
+ * is what stops it drifting here: it asserts every table `push` sends appears in this list, because a
+ * synced table the wipe misses is the next account on this device pushing the previous one's rows.
+ */
+internal val WIPED_TABLES: List<String> =
+    listOf(
+        // Synced tables — the server is the authority for all of these; they rehydrate on next pull.
+        "users",
+        "groups",
+        "members",
+        "placeholder_claim_answers",
+        "expenses",
+        "shares",
+        "settlements",
+        "settlement_allocations",
+        "conflicts",
+        "expense_edit_conflicts",
+        "comments",
+        "expense_blocked_users",
+        "receipts",
+        "expense_history",
+        "categories",
+        "expense_items",
+        "item_claims",
+        "item_shares",
+        "bill_participants",
+        "pending_item_edits",
+        // Pull-only Pro entitlement mirrors — per-USER, so the next account must not inherit them.
+        "group_passes",
+        "user_subscriptions",
+        // Sync bookkeeping, and the device-local caches scoped to the account that just left.
+        "row_sync_state",
+        "expense_sync_state",
+        "superseded_notices",
+        "group_scan_usage",
+        "feedback_outbox",
+        "receipt_uploads",
+        "fx_baked",
+    )

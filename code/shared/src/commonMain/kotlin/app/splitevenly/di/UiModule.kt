@@ -7,6 +7,7 @@ import app.splitevenly.data.remote.revenuecat.HttpPassActivationGateway
 import app.splitevenly.data.remote.revenuecat.HttpSubscriberSyncGateway
 import app.splitevenly.data.remote.revenuecat.PassActivationGateway
 import app.splitevenly.data.remote.revenuecat.SubscriberSyncGateway
+import app.splitevenly.data.remote.supabase.FeedbackHttp
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.PushController
@@ -24,11 +25,14 @@ import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
 import app.splitevenly.data.remote.supabase.WebBillLinkGateway
 import app.splitevenly.data.remote.supabase.createEvenlySupabaseClient
+import app.splitevenly.data.repository.FeedbackOutbox
 import app.splitevenly.data.upload.AccessTokenProvider
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.domain.auth.AuthSession
+import app.splitevenly.domain.feedback.FeedbackSubmitter
 import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.AppForeground
+import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.PushService
 import app.splitevenly.platform.SecureStorage
@@ -37,6 +41,7 @@ import app.splitevenly.ui.screen.home.HomeViewModel
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.flow.map
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 
@@ -86,6 +91,18 @@ val authModule =
                     auth = get(),
                     connectivity = get(),
                     tokens = get(),
+                )
+            }
+            // In-app feedback (ADMIN_FEEDBACK_SPEC.md step 8). Eager for the same reason the receipt
+            // uploader is: a ticket queued on a dead network in a previous session should start draining
+            // on launch, not wait for someone to open the form again. Bound only with Supabase, so the
+            // offline build keeps the Settings row on its `mailto:`.
+            single<FeedbackSubmitter>(createdAtStart = true) {
+                FeedbackOutbox(
+                    dao = get<EvenlyDatabase>().feedbackOutboxDao(),
+                    http = FeedbackHttp(get<HttpClient>(), accessTokenProvider = get()),
+                    connectivity = get<ConnectivityObserver>().status,
+                    signedIn = get<AuthSession>().currentUserId.map { it != null },
                 )
             }
             // Server-side invite-token resolution for cross-device join (F7).

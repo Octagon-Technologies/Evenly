@@ -2,8 +2,10 @@ package app.splitevenly.data.remote.supabase
 
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
+import app.splitevenly.core.time.ServerClock
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.EvenlyDatabase
+import app.splitevenly.data.db.dao.RowSyncStateDao
 import app.splitevenly.data.db.entity.BillParticipantEntity
 import app.splitevenly.data.db.entity.CategoryEntity
 import app.splitevenly.data.db.entity.CommentEntity
@@ -29,6 +31,7 @@ import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.SupersededNoticeEntity
 import app.splitevenly.data.db.entity.UserEntity
 import app.splitevenly.data.db.entity.UserSubscriptionEntity
+import app.splitevenly.data.db.entity.rowFingerprint
 import app.splitevenly.data.repository.BillMaterializer
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import io.github.jan.supabase.SupabaseClient
@@ -43,8 +46,6 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -111,44 +112,168 @@ class SyncEngine(
     // Serialize sync ops (#6): three independent triggers (debounced push, realtime pull, the 60s
     // syncNow) plus mirrorCurrentUser's syncNow can otherwise overlap. Two concurrent pushes send the
     // same split edit twice → the second sees a stale base and the device SUPERSEDES ITSELF (a junk audit
-    // row + a false "your change was superseded" notice). A single mutex means at most one push/pull runs
-    // at a time; it also gives #8's in-flight-edit guard a stable window (no second sync op racing).
-    private val syncMutex = Mutex()
+    // row + a false "your change was superseded" notice). The gate means at most one push/pull runs at a
+    // time; it also gives #8's in-flight-edit guard a stable window (no second sync op racing). It is a
+    // gate rather than a bare mutex because sign-out's cache wipe has to be fenced against operations
+    // already queued on it — see [SyncGate], which is where that reasoning lives.
+    private val gate = SyncGate()
 
     private val _health = MutableStateFlow(SyncHealth())
 
     /**
-     * Observable outcome of the last push/pull. `SyncManager` swallows results on purpose, so without
-     * this a permanently-failing sync is invisible — which is what made every other sync defect
-     * undiagnosable in production. Read from Settings / a debug screen.
+     * Observable outcome of the last push and the last pull, tracked separately. `SyncManager` swallows
+     * results on purpose, so without this a permanently-failing sync is invisible — which is what made
+     * every other sync defect undiagnosable in production. Read from Settings / a debug screen.
      */
     val health: StateFlow<SyncHealth> = _health.asStateFlow()
 
-    private fun recordHealth(result: AppResult<Unit>): AppResult<Unit> {
-        val now = Clock.System.nowEpochMillis()
-        _health.value =
-            when (result) {
-                is AppResult.Ok -> _health.value.recordSuccess(now)
-                is AppResult.Err -> _health.value.recordFailure(result.error, now)
-            }
+    /**
+     * Fold one round-trip's outcome into [channel]'s half of [health].
+     *
+     * The channel argument is the fix for S3, not decoration: push and pull are driven by two
+     * independent loops and fail independently, so a single shared counter let every successful pull
+     * erase a push that had been failing forever. See [SyncHealth].
+     */
+    private fun recordHealth(
+        channel: SyncChannel,
+        result: AppResult<Unit>,
+    ): AppResult<Unit> {
+        _health.value = _health.value.record(channel, result, Clock.System.nowEpochMillis())
         return result
     }
 
-    /** Pull the signed-in user's data into Room (server → local). Best-effort: errors are returned. */
+    /**
+     * One synced table's push contract: where its rows come from, how a row is identified, and how a
+     * batch goes up. [push] and [countPendingLocalWrites] walk the *same* list of these, which is what
+     * makes "clean here means precisely `push` would send nothing" true by construction rather than by
+     * two hand-maintained lists agreeing (S9). [T] never escapes, so the list can be heterogeneous.
+     */
+    private class SyncTable<T : Any>(
+        val name: String,
+        private val rows: suspend () -> List<T>,
+        private val id: (T) -> String,
+        private val upsert: suspend (List<T>) -> Unit,
+    ) {
+        /** Rows whose content differs from the fingerprint recorded at their last successful sync. */
+        private suspend fun dirty(states: RowSyncStateDao): List<T> {
+            val all = rows()
+            if (all.isEmpty()) return emptyList()
+            val synced = states.forTable(name).associate { it.rowId to it.syncedHash }
+            return all.filter { synced[id(it)] != rowFingerprint(it) }
+        }
+
+        suspend fun countDirty(states: RowSyncStateDao): Int = dirty(states).size
+
+        /** Upsert + re-fingerprint only the rows whose content actually changed since the last sync. */
+        suspend fun push(states: RowSyncStateDao) {
+            val outgoing = dirty(states)
+            if (outgoing.isEmpty()) return
+            upsert(outgoing)
+            states.upsertAll(outgoing.map { RowSyncStateEntity(name, id(it), rowFingerprint(it)) })
+        }
+    }
+
+    /**
+     * Every table [push] sends as a plain dirty-row upsert — i.e. [SYNCED_TABLES] minus `expenses`,
+     * which goes through the `merge_expense` RPC instead and is sequenced explicitly in [push].
+     *
+     * Pull-only tables are deliberately absent and must stay absent: `group_passes` and
+     * `user_subscriptions` are server-written entitlements, and a client that could push either could
+     * grant itself unlimited paid Claude-vision calls (`data/AGENTS.md`). `shares` is absent too — a
+     * bill's shares are a local derived materialization and a normal expense's ride with
+     * `merge_expense`, so there is nothing here to send.
+     */
+    private val upsertTables: List<SyncTable<*>> =
+        listOf(
+            SyncTable("users", { db.userDao().allForSync() }, { it.id }, { upsertAll("users", it) }),
+            SyncTable("groups", { db.groupDao().allForSync() }, { it.id }, { upsertAll("groups", it) }),
+            SyncTable("members", { db.memberDao().allForSync() }, { it.id }, { upsertAll("members", it) }),
+            SyncTable("settlements", { db.settlementDao().allForSync() }, { it.id }, { upsertAll("settlements", it) }),
+            SyncTable("settlement_allocations", { db.settlementDao().allAllocationsForSync() }, {
+                it.id
+            }, { upsertAll("settlement_allocations", it) }),
+            SyncTable("conflicts", { db.conflictDao().allForSync() }, { it.id }, { upsertAll("conflicts", it) }),
+            SyncTable("expense_edit_conflicts", { db.expenseEditConflictDao().allForSync() }, {
+                it.id
+            }, { upsertAll("expense_edit_conflicts", it) }),
+            SyncTable("comments", { db.commentDao().allForSync() }, { it.id }, { upsertAll("comments", it) }),
+            SyncTable("expense_blocked_users", { db.expenseBlockedUserDao().allForSync() }, {
+                it.id
+            }, { upsertAll("expense_blocked_users", it) }),
+            SyncTable("receipts", { db.receiptDao().allForSync() }, { it.id }, { upsertAll("receipts", it) }),
+            SyncTable("categories", { db.categoryDao().allForSync() }, { it.id }, { upsertAll("categories", it) }),
+            SyncTable("expense_history", { db.historyEventDao().allForSync() }, {
+                it.id
+            }, { upsertAll("expense_history", it) }),
+            SyncTable("expense_items", { db.expenseItemDao().allForSync() }, {
+                it.id
+            }, { upsertAll("expense_items", it) }),
+            SyncTable("item_claims", { db.itemClaimDao().allForSync() }, { it.id }, { upsertAll("item_claims", it) }),
+            SyncTable("item_shares", { db.itemShareDao().allForSync() }, { it.id }, { upsertAll("item_shares", it) }),
+            SyncTable("bill_participants", { db.billParticipantDao().allForSync() }, {
+                it.id
+            }, { upsertAll("bill_participants", it) }),
+            // Only the decision half ever originates here — the proposals arrive from the web.
+            SyncTable("pending_item_edits", { db.pendingItemEditDao().allForSync() }, {
+                it.id
+            }, { upsertAll("pending_item_edits", it) }),
+            // No custom merge: the unique (group, name, answerer) key makes a re-insert idempotent, which
+            // is what makes an offline "No" harmless if it ends up sent twice.
+            SyncTable("placeholder_claim_answers", { db.placeholderClaimAnswerDao().allForSync() }, {
+                it.id
+            }, { upsertAll("placeholder_claim_answers", it) }),
+        )
+
+    init {
+        // The one thing a human can still get wrong here, turned into a crash on the next launch rather
+        // than an unbounded sync delay nothing tests (S9). SYNCED_TABLES is what SyncManager watches for
+        // local writes; a table pushed but not listed simply never triggers a prompt push.
+        val declared = SYNCED_TABLES.toSet()
+        val actual = upsertTables.mapTo(HashSet()) { it.name } + EXPENSES_TABLE
+        check(declared == actual) {
+            "SYNCED_TABLES is out of step with push(): missing ${actual - declared}, stale ${declared - actual}"
+        }
+    }
+
+    /**
+     * Pull the signed-in user's data into Room (server → local). Best-effort: errors are returned.
+     *
+     * Returns `Ok` without doing anything when sync is closed for [userId] (sign-out is wiping this
+     * account's cache) — see [SyncGate]. That is neither a success nor a failure, so it is not recorded
+     * as either.
+     */
     suspend fun pull(userId: String): AppResult<Unit> =
-        syncMutex.withLock {
+        gate.withSync(userId) {
             recordHealth(
+                SyncChannel.Pull,
                 runCatchingSync {
-                    // 1. The user's memberships give the set of groups to hydrate.
-                    val myMemberships =
+                    // 1. The user's memberships give the set of groups to hydrate — but only the ACTIVE
+                    //    ones. A soft-leave keeps the `members` row on purpose (historical shares still
+                    //    have to resolve to a name), and taking group ids from the unfiltered set meant a
+                    //    member who left kept hydrating that group's expenses, settlements, receipts and
+                    //    the other members' payment handles onto their phone forever, and kept offering
+                    //    those rows back up on every push. Leaving a group has to end the relationship on
+                    //    the device too, not just in the UI that hides it.
+                    val membershipsResponse =
                         client
                             .from("members")
                             .select(Columns.ALL) {
                                 filter { eq("user_id", userId) }
-                            }.decodeList<MemberEntity>()
-                    val groupIds = myMemberships.map { it.groupId }.distinct()
+                            }
+                    // The cheapest clock we will ever get: sync's own first response already carries the
+                    // server's `Date`. Learning the offset here (rather than only off edge-function
+                    // traffic, which most devices never generate) is what keeps [trustHorizon] and the
+                    // write clamp in `nowEpochMillis` honest on the path that actually runs every minute.
+                    observeServerClock(membershipsResponse.headers)
+                    val myMemberships = membershipsResponse.decodeList<MemberEntity>()
+                    val groupIds = activeGroupIds(myMemberships)
                     if (groupIds.isEmpty()) {
-                        db.memberDao().upsertAll(myMemberships)
+                        // Land our own membership rows (including the LEFT ones) through the same
+                        // last-write-wins guard as everything else — a blind upsert here would let a
+                        // stale still-ACTIVE server row un-leave a group this device just left.
+                        land("members", myMemberships, db.memberDao().allForSync(), { it.id }, { it.updatedAt }) {
+                            db.memberDao().upsertAll(it)
+                        }
                         // Still hydrate the caller's OWN users row — a membership-less account (fresh sign-in on a new
                         // device) otherwise never pulls its real profile, so the "You" default mirrorCurrentUser seeded
                         // would stand and then push over the server's real name/handles/prefs (P0 #4).
@@ -258,13 +383,15 @@ class SyncEngine(
                     // The second route to Pro (PRO_PASS_SPEC.md §5.5). Keyed by user rather than group, so it is
                     // pulled for the roster rather than for the group ids; RLS narrows it to people we share a group
                     // with anyway. Pull-only for exactly the same reason as group_passes.
-                    val memberIds = members.map { it.userId }.distinct()
+                    //
+                    // **Always include ourselves**, exactly as the `users` pull above does for `me`. The roster is
+                    // empty for someone in no groups, and a roster-only filter then skipped their OWN subscription:
+                    // the Profile row went on selling Pro to someone already paying for it, and Restore looked like
+                    // it did nothing. That is a plausible double charge, not a cosmetic gap, because the Profile
+                    // door is reachable with zero groups and is where a first subscription gets bought.
+                    val subscriberIds = subscriberIdsFor(members.map { it.userId }, userId)
                     val subscriptions =
-                        if (memberIds.isEmpty()) {
-                            emptyList()
-                        } else {
-                            selectIn<UserSubscriptionEntity>("user_subscriptions", "user_id", memberIds)
-                        }
+                        selectIn<UserSubscriptionEntity>("user_subscriptions", "user_id", subscriberIds)
 
                     // 3. Land them in Room (parents before children isn't required — there are no FK constraints).
                     //    Every synced table that carries updated_at gets a last-write-wins guard (Rule 5): never let an
@@ -282,7 +409,13 @@ class SyncEngine(
                     //    idempotent), so neither has a "newer local edit" to clobber.
                     land("users", users, db.userDao().allForSync(), { it.id }, { it.updatedAt }) { db.userDao().upsertAll(it) }
                     land("groups", groups, db.groupDao().allForSync(), { it.id }, { it.updatedAt }) { db.groupDao().upsertAll(it) }
-                    land("members", members, db.memberDao().allForSync(), { it.id }, { it.updatedAt }) { db.memberDao().upsertAll(it) }
+                    // Our own LEFT rows ride along with the active groups' rosters: they no longer decide
+                    // what gets hydrated, but they still have to exist locally or a left group's
+                    // historical shares lose the name they resolve through.
+                    val allMembers = (members + myMemberships).distinctBy { it.id }
+                    land("members", allMembers, db.memberDao().allForSync(), { it.id }, { it.updatedAt }) {
+                        db.memberDao().upsertAll(it)
+                    }
                     // Expenses additionally respect the optimistic-concurrency tracker: never let a pull overwrite a
                     // locally-DIRTY expense (one with an unsynced edit, i.e. local row_version != its synced base).
                     // That edit belongs to the next commit_expense CAS — pull clobbering it would be the silent loss
@@ -294,7 +427,7 @@ class SyncEngine(
                             .filter { syncState[it.id] != null && syncState[it.id] != it.rowVersion }
                             .mapTo(HashSet()) { it.id }
                     val freshExpenses =
-                        keepNewer(expenses, localExpenses, { it.id }, { it.updatedAt })
+                        keepNewer(expenses, localExpenses, { it.id }, { it.updatedAt }, trustHorizon())
                             .filter { it.id !in dirtyExpenseIds }
                     if (freshExpenses.isNotEmpty()) db.expenseDao().upsertAll(freshExpenses)
                     val seedStates =
@@ -310,7 +443,7 @@ class SyncEngine(
                             .filter { it.splitMode == SPLIT_MODE_ITEMIZED }
                             .mapTo(HashSet()) { it.id }
                     val freshShares =
-                        keepNewer(shares, db.shareDao().allForSync(), { it.id }, { it.updatedAt })
+                        keepNewer(shares, db.shareDao().allForSync(), { it.id }, { it.updatedAt }, trustHorizon())
                             .filterNot { it.expenseId in itemizedExpenseIds }
                     if (freshShares.isNotEmpty()) db.shareDao().upsertAll(freshShares) // shares ride with expenses; no independent push to track
                     land(
@@ -425,7 +558,17 @@ class SyncEngine(
                     if (billSourcesChanged) billMaterializer.rematerializeGroups(groupIds, Clock.System.nowEpochMillis())
                 },
             )
-        }
+        } ?: AppResult.Ok(Unit)
+
+    /**
+     * The newest `updated_at` this pull is willing to believe — see [keepNewer].
+     *
+     * Reads the raw device clock rather than [nowEpochMillis], which is already clamped *down* to this
+     * same horizon: clamping the horizon by itself would make it drift below the timestamps our own
+     * writes are allowed to carry.
+     */
+    @OptIn(ExperimentalTime::class)
+    private fun trustHorizon(): Long = ServerClock.trustHorizonMillis(Clock.System.now().toEpochMilliseconds())
 
     /** Record each row's current fingerprint as synced, so [push] won't re-upload it unchanged. */
     private suspend fun <T : Any> stampSynced(
@@ -433,7 +576,7 @@ class SyncEngine(
         rows: List<T>,
         id: (T) -> String,
     ) {
-        db.rowSyncStateDao().upsertAll(rows.map { RowSyncStateEntity(table, id(it), it.hashCode()) })
+        db.rowSyncStateDao().upsertAll(rows.map { RowSyncStateEntity(table, id(it), rowFingerprint(it)) })
     }
 
     /**
@@ -452,7 +595,7 @@ class SyncEngine(
         updatedAt: (T) -> Long,
         upsert: suspend (List<T>) -> Unit,
     ): List<T> {
-        val fresh = keepNewer(incoming, local, id, updatedAt)
+        val fresh = keepNewer(incoming, local, id, updatedAt, trustHorizon())
         if (fresh.isNotEmpty()) {
             upsert(fresh)
             stampSynced(table, fresh, id)
@@ -471,7 +614,7 @@ class SyncEngine(
      * [actorUserId] is the conflict's actor.
      */
     suspend fun push(actorUserId: String): AppResult<Unit> =
-        syncMutex.withLock {
+        gate.withSync(actorUserId) {
             // Per-table isolation (#5): one table's push failing must NOT stop the tables sequenced after it.
             // A single wedged table (e.g. a unique-index 23505 from concurrent same-slot writes — now also
             // prevented by deterministic ids) otherwise blocks every later table forever, surfacing only as a
@@ -488,32 +631,35 @@ class SyncEngine(
                     if (firstError == null) firstError = e
                 }
             }
-            step { pushDirty("users", db.userDao().allForSync()) { it.id } }
-            step { pushDirty("groups", db.groupDao().allForSync()) { it.id } }
-            step { pushDirty("members", db.memberDao().allForSync()) { it.id } }
-            step { pushExpenses(actorUserId) } // expenses + shares move as one atomic, version-guarded unit
-            step { pushDirty("settlements", db.settlementDao().allForSync()) { it.id } }
-            step { pushDirty("settlement_allocations", db.settlementDao().allAllocationsForSync()) { it.id } }
-            step { pushDirty("conflicts", db.conflictDao().allForSync()) { it.id } }
-            step { pushDirty("expense_edit_conflicts", db.expenseEditConflictDao().allForSync()) { it.id } }
-            step { pushDirty("comments", db.commentDao().allForSync()) { it.id } }
-            step { pushDirty("expense_blocked_users", db.expenseBlockedUserDao().allForSync()) { it.id } }
-            step { pushDirty("receipts", db.receiptDao().allForSync()) { it.id } }
-            step { pushDirty("categories", db.categoryDao().allForSync()) { it.id } }
-            step { pushDirty("expense_history", db.historyEventDao().allForSync()) { it.id } }
-            step { pushDirty("expense_items", db.expenseItemDao().allForSync()) { it.id } }
-            step { pushDirty("item_claims", db.itemClaimDao().allForSync()) { it.id } }
-            step { pushDirty("item_shares", db.itemShareDao().allForSync()) { it.id } }
-            step { pushDirty("bill_participants", db.billParticipantDao().allForSync()) { it.id } }
-            // Only the decision half ever originates here — the proposals arrive from the web.
-            step { pushDirty("pending_item_edits", db.pendingItemEditDao().allForSync()) { it.id } }
-            // No custom merge: the unique (group, name, answerer) key makes a re-insert idempotent, which is
-            // what makes an offline "No" harmless if it ends up sent twice.
-            step { pushDirty("placeholder_claim_answers", db.placeholderClaimAnswerDao().allForSync()) { it.id } }
+
+            val states = db.rowSyncStateDao()
+            val (roster, rest) = upsertTables.partition { it.name in ROSTER_TABLES }
+            // The roster goes first, and the order is not cosmetic: once RLS is membership-scoped (the P0
+            // gate in `data/AGENTS.md`) the server has to already know the group and who is in it before
+            // it will accept an expense underneath them.
+            for (table in roster) step { table.push(states) }
+            // Expenses + their shares move as one atomic, version-guarded unit through `merge_expense`
+            // rather than as a dirty-row upsert, which is why this one is sequenced by hand.
+            step { pushExpenses(actorUserId) }
+            for (table in rest) step { table.push(states) }
             recordHealth(
+                SyncChannel.Push,
                 firstError.let { if (it == null) AppResult.Ok(Unit) else AppResult.Err(classifySyncError(it)) },
             )
-        }
+        } ?: AppResult.Ok(Unit)
+
+    /**
+     * Close sync for [userId] and run [block] — sign-out's cache wipe, and the pending-writes count that
+     * authorises it — with the sync lock held, so nothing already queued can re-land the departing
+     * account's rows into the cache [block] just emptied. The reasoning lives on [SyncGate].
+     */
+    suspend fun <T> closeForSignOut(
+        userId: String,
+        block: suspend () -> T,
+    ): T = gate.closeForSignOut(userId, block)
+
+    /** Reopen sync for [userId] — sign-out aborted, or the same account signed back in. */
+    fun reopenSync(userId: String) = gate.reopen(userId)
 
     /**
      * How many local rows have NOT reached the server yet.
@@ -522,56 +668,16 @@ class SyncEngine(
      * user data, and wiping them is a silent loss (`data/AGENTS.md` Rule 1). Zero here means the cache
      * is a pure mirror of the server and can be dropped safely.
      *
-     * Uses exactly the fingerprint comparison [pushDirty] uses, and expenses' own
-     * `expense_sync_state` version check, so "clean" here means precisely "[push] would send nothing".
-     * A table added to [push] must be added here too, or its unsynced rows vanish without a warning.
+     * Walks exactly the [upsertTables] list [push] walks, plus expenses' own `expense_sync_state`
+     * version check, so "clean" here means precisely "[push] would send nothing" — by construction now,
+     * rather than because two hand-maintained lists happened to agree.
      */
     suspend fun countPendingLocalWrites(): Int {
-        suspend fun <T : Any> dirty(
-            table: String,
-            rows: List<T>,
-            id: (T) -> String,
-        ): Int {
-            if (rows.isEmpty()) return 0
-            val synced = db.rowSyncStateDao().forTable(table).associate { it.rowId to it.syncedHash }
-            return rows.count { synced[id(it)] != it.hashCode() }
-        }
-
+        val states = db.rowSyncStateDao()
         val expenseStates = db.expenseSyncStateDao().all().associateBy { it.expenseId }
         var pending = db.expenseDao().allForSync().count { expenseStates[it.id]?.syncedVersion != it.rowVersion }
-
-        pending += dirty("users", db.userDao().allForSync()) { it.id }
-        pending += dirty("groups", db.groupDao().allForSync()) { it.id }
-        pending += dirty("members", db.memberDao().allForSync()) { it.id }
-        pending += dirty("settlements", db.settlementDao().allForSync()) { it.id }
-        pending += dirty("settlement_allocations", db.settlementDao().allAllocationsForSync()) { it.id }
-        pending += dirty("conflicts", db.conflictDao().allForSync()) { it.id }
-        pending += dirty("expense_edit_conflicts", db.expenseEditConflictDao().allForSync()) { it.id }
-        pending += dirty("comments", db.commentDao().allForSync()) { it.id }
-        pending += dirty("expense_blocked_users", db.expenseBlockedUserDao().allForSync()) { it.id }
-        pending += dirty("receipts", db.receiptDao().allForSync()) { it.id }
-        pending += dirty("categories", db.categoryDao().allForSync()) { it.id }
-        pending += dirty("expense_history", db.historyEventDao().allForSync()) { it.id }
-        pending += dirty("expense_items", db.expenseItemDao().allForSync()) { it.id }
-        pending += dirty("item_claims", db.itemClaimDao().allForSync()) { it.id }
-        pending += dirty("item_shares", db.itemShareDao().allForSync()) { it.id }
-        pending += dirty("bill_participants", db.billParticipantDao().allForSync()) { it.id }
-        pending += dirty("pending_item_edits", db.pendingItemEditDao().allForSync()) { it.id }
-        pending += dirty("placeholder_claim_answers", db.placeholderClaimAnswerDao().allForSync()) { it.id }
+        for (table in upsertTables) pending += table.countDirty(states)
         return pending
-    }
-
-    /** Upsert + fingerprint only the rows in [rows] whose content differs from their last sync. */
-    private suspend inline fun <reified T : Any> pushDirty(
-        table: String,
-        rows: List<T>,
-        id: (T) -> String,
-    ) {
-        val synced = db.rowSyncStateDao().forTable(table).associate { it.rowId to it.syncedHash }
-        val dirty = rows.filter { synced[id(it)] != it.hashCode() }
-        if (dirty.isEmpty()) return
-        upsertAll(table, dirty)
-        db.rowSyncStateDao().upsertAll(dirty.map { RowSyncStateEntity(table, id(it), it.hashCode()) })
     }
 
     /**
@@ -707,6 +813,18 @@ class SyncEngine(
         const val SELECT_IN_CHUNK: Int = 100
 
         /**
+         * Who to pull `user_subscriptions` for: the roster, **plus always ourselves**.
+         *
+         * Extracted only so [SyncEngineTest] can pin the "plus ourselves" half, which is the whole bug
+         * it had: filtering on the roster alone meant a user in no groups pulled nothing, including
+         * their own live subscription, so the Profile row kept selling Pro to someone already paying.
+         */
+        internal fun subscriberIdsFor(
+            rosterUserIds: List<String>,
+            selfUserId: String,
+        ): List<String> = (rosterUserIds + selfUserId).distinct()
+
+        /**
          * The chunk loop behind [selectIn], deliberately NOT inline and NOT a member. [pull] inlines
          * [selectIn] at ~25 call sites and is already close to the JVM's 64KB per-method ceiling (see
          * [land]); keeping the loop — and the request's whole suspension state machine, which rides in
@@ -772,16 +890,91 @@ class SyncEngine(
          * a just-recorded settle, a claimed/soft-left placeholder member, or a Settings rename that hasn't
          * pushed yet. Rows absent locally pass through (new from the server). `internal` so [SyncEngineTest]
          * can exercise the guard without standing up a Supabase client.
+         *
+         * **[horizon] is the newest timestamp worth believing** ([ServerClock.trustHorizonMillis]), and it
+         * is what stops one wrong clock from pinning a field forever. A device set a year forward stamps a
+         * row in 2027 and pushes it; every device that pulls that row then drops every honest later edit,
+         * because the poisoned stamp is "newer" than all of them, and no correctly-clocked device can ever
+         * out-stamp it. Two rules follow from treating a stamp past the horizon as a wrong clock rather
+         * than as a later edit:
+         *
+         * - a **local** stamp past the horizon is no evidence of newness, so the row accepts the next
+         *   honest edit instead of being pinned (this is the half that heals an already-poisoned row);
+         * - an **incoming** stamp past the horizon is compared as if it were the horizon, so it cannot
+         *   beat a genuinely newer local edit on its way in.
+         *
+         * The tradeoff, stated: on a device whose *own* clock is the wrong one, a local row it stamped
+         * past the horizon yields to the server's copy. That device is already writing fiction, and the
+         * write clamp in [ServerClock] is what stops it producing such stamps in the first place.
          */
         internal inline fun <T> keepNewer(
             incoming: List<T>,
             local: List<T>,
             id: (T) -> String,
             updatedAt: (T) -> Long,
+            horizon: Long = Long.MAX_VALUE,
         ): List<T> {
             if (incoming.isEmpty()) return incoming
             val localTs = local.associate { id(it) to updatedAt(it) }
-            return incoming.filter { (localTs[id(it)] ?: Long.MIN_VALUE) <= updatedAt(it) }
+            return incoming.filter {
+                val mine = localTs[id(it)] ?: Long.MIN_VALUE
+                mine > horizon || mine <= minOf(updatedAt(it), horizon)
+            }
         }
+
+        /**
+         * The groups a pull should hydrate: the ones this user is still ACTIVE in.
+         *
+         * A soft-leave keeps the `members` row deliberately — historical shares have to keep resolving to
+         * a name — so the full membership set is the wrong question to ask here. `internal` and pure so
+         * [SyncEngineTest] can pin it without a Supabase client.
+         */
+        internal fun activeGroupIds(memberships: List<MemberEntity>): List<String> =
+            memberships
+                .filter { it.status == MemberEntity.STATUS_ACTIVE }
+                .map { it.groupId }
+                .distinct()
+
+        /** The expense table, which pushes through `merge_expense` rather than as a dirty-row upsert. */
+        internal const val EXPENSES_TABLE: String = "expenses"
+
+        /** Pushed before [EXPENSES_TABLE] — see the ordering note in [push]. */
+        internal val ROSTER_TABLES: Set<String> = setOf("users", "groups", "members")
+
+        /**
+         * Every table [push] sends. **The** list, and the reason it is here rather than in three places:
+         * it used to be maintained by hand in `SyncManager.SYNC_TABLES`, in `push`, and in
+         * [countPendingLocalWrites], and the first had already drifted — it was missing
+         * `expense_blocked_users` and `pending_item_edits`, so a local write to either never triggered
+         * the debounced push and sat until the 60s fallback tick, and it listed `shares`, which `push`
+         * never sends, so every share materialization fired a full push cycle carrying nothing.
+         *
+         * Consumers: `SyncManager` watches these tables for local writes, `push` and
+         * [countPendingLocalWrites] walk the [upsertTables] objects that carry these names (pinned to
+         * this list by [SyncEngine]'s `init` check), and `SignOutWipeDao.WIPED_TABLES` is pinned against
+         * it by `SyncedTablesTest` — a synced table the sign-out wipe misses is #24's leak coming back.
+         */
+        internal val SYNCED_TABLES: List<String> =
+            listOf(
+                "users",
+                "groups",
+                "members",
+                EXPENSES_TABLE,
+                "settlements",
+                "settlement_allocations",
+                "conflicts",
+                "expense_edit_conflicts",
+                "comments",
+                "expense_blocked_users",
+                "receipts",
+                "categories",
+                "expense_history",
+                "expense_items",
+                "item_claims",
+                "item_shares",
+                "bill_participants",
+                "pending_item_edits",
+                "placeholder_claim_answers",
+            )
     }
 }

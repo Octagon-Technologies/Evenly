@@ -384,6 +384,20 @@ verify_jwt = false
 [functions.revenuecat-webhook]
 verify_jwt = false
 
+# The admin dashboard's backend (ADMIN_FEEDBACK_SPEC.md §2.3). Off, and NOT because the endpoint is
+# public -- it is the opposite. Platform-level verification would 401 the CORS preflight before the
+# function's own gate ever runs, and it accepts the project's anon key as a valid JWT, which proves
+# nothing about who is calling. The real check is `requireAdmin`: verify the token against the auth
+# server, look the user up in `admin_users`, 403 before touching any data.
+[functions.admin]
+verify_jwt = false
+
+# Feedback submission. Two of its three entry points are anonymous strangers (the /feedback page and
+# the guest claim flow) with no Supabase session to present, so the Authorization header is optional
+# and verified inside the function when it is there.
+[functions.feedback]
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.

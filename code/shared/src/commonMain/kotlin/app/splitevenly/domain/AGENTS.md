@@ -17,6 +17,13 @@ the remainders are handed out deterministically so the parts always sum back to 
 units bills 334/333/333 with no leak. If you are writing a division that produces money, you are almost
 certainly meant to call `allocate` instead.
 
+**A money rule gets ONE home here, even a trivial one.** `BillTotal.kt` holds what a bill adds up to and the
+two ways that sum stops being a legal expense (`billTotalProblem`); it lived twice in `data/repository/` and
+the second copy called no validator at all, so create and edit refused a negative bill and *undo* stored one.
+`Convert.kt` holds where a converted amount stops being a `Double` — call `convertSubunits` **once per figure
+a person reads**, never once per row behind it: rounding fifteen shares and summing is not the same number as
+summing and rounding once, and the drift changes sign with the rate.
+
 ## `BillSplit.kt` — the itemized engine
 
 `splitBill` is the pure function that turns line items + claims into per-person amounts. It is the single
@@ -51,9 +58,25 @@ evenly**, discount is **negative-proportional** — all penny-exact through `all
 bottle deposit, bag fee, or card surcharge. It shares tax's proportional bucket, and `TabBreakdown.taxSubunits`
 folds all three — the breakdown explains one person's number, and splitting it three ways when they ride
 identically tells the reader nothing they can act on. The bill *editor* keeps them apart, because there the
-amounts are being entered. The `ItemizedAllocator` still supports
+amounts are being entered. `splitBill` still supports
 `TipSplitMode.PROPORTIONAL`, but the editor no longer exposes the toggle and always sends `EVEN`; leave the
 domain support in place, just don't wire a new UI to it.
+
+**The engine states its own preconditions and does not trust its callers.** `validate` in
+`BillRepositoryImpl` refuses these at entry, but rows also arrive from sync and from the web guest path,
+where nothing re-checks them, so `splitBill` normalises rather than assumes (`review/findings-domain.md`):
+
+- **A line total is never negative** — clamped at 0. A negative one makes largest-remainder leak a subunit
+  *and* hands its claimants a share below zero.
+- **A discount never exceeds the item subtotal it rides proportional to** — clamped to it. Past that the
+  claimant's `items − discount` goes negative while the parts still sum to the bill, so no conservation
+  check catches it; `ShareDao`'s `remaining > 0` filters then erase the credit and the payer reads as owed
+  MORE than the bill. Clamp at the boundary, never per person: that would break conservation.
+- **"Fully claimed" is a statement about units** — every line RESOLVED, never `claimedSum >= fullSubtotal`.
+  A comped bill is finished and costs nothing; the two are not the same question.
+- **Order must not decide money.** `allocate` sorts its own weights, individual claims sort by `UserId`, and
+  shared portions sort by `portion_id` — because portions consume a line's unit costs in list order and the
+  DAO queries carry no `ORDER BY`, so an unsorted list gave two devices different answers for one bill.
 
 ## Settlement: `remaining` is derived, never stored
 
@@ -64,7 +87,7 @@ The persistence consequences are in `../data/AGENTS.md`.
 
 ## This math is implemented twice. Changing it here is half the job.
 
-`Allocator.kt`, `BillSplit.kt` and `ItemizedAllocator.kt` are hand-ported to TypeScript in
+`Allocator.kt` and `BillSplit.kt` are hand-ported to TypeScript in
 `web/src/lib/money/` so a web guest's total is instant on a restaurant connection
 (`WEB_CLAIM_SPEC.md` §2.10). **Kotlin is the authority** — it is what the ledger records; the port is
 only what the guest sees, and is allowed to be stale by one poll, never to disagree.

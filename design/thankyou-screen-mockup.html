@@ -1,0 +1,388 @@
+<title>Evenly Thank-You Screen</title>
+<style>
+:root{
+  --ground:#EDF1F7; --deck-ink:#0B1220; --deck-ink2:#5B6577; --deck-ink3:#9AA3B2;
+  --deck-border:#E6EAF0; --deck-blue:#2563EB;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0A0E17; --deck-ink:#E9EDF5; --deck-ink2:#A6B0C2; --deck-ink3:#6C7689;
+    --deck-border:#242C3B; --deck-blue:#5B8DEF;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0A0E17; --deck-ink:#E9EDF5; --deck-ink2:#A6B0C2; --deck-ink3:#6C7689;
+  --deck-border:#242C3B; --deck-blue:#5B8DEF;
+}
+/* Artboards mock the app/web-claim system (app.css tokens), so they hold the light palette in both themes. */
+.desk,.ph{
+  --page:#FFFFFF; --surface:#F6F8FB; --border:#E6EAF0; --border-strong:#D6DCE6;
+  --ink:#0B1220; --ink-2:#5B6577; --ink-3:#9AA3B2;
+  --blue:#2563EB; --blue-press:#1E40AF; --blue-tint:#EFF4FF; --blue-tint-2:#DBE6FF;
+  --font:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color:var(--ink);font-family:var(--font);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+     background:var(--ground);color:var(--deck-ink);padding:44px 22px 100px;
+     -webkit-font-smoothing:antialiased;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.deck-h1{font-size:27px;font-weight:680;letter-spacing:-.025em}
+.deck-lede{color:var(--deck-ink2);font-size:15px;max-width:820px}
+.deck-lede b{color:var(--deck-ink);font-weight:640}
+.rule{height:1px;background:var(--deck-border);margin:36px 0 0}
+.sect{display:flex;flex-direction:column;gap:8px;margin-top:44px}
+.sect .kicker{font-size:11.5px;font-weight:750;letter-spacing:.12em;text-transform:uppercase;color:var(--deck-blue)}
+.sect h2{font-size:22px;font-weight:680;letter-spacing:-.02em}
+.sect .why{font-size:14px;color:var(--deck-ink2);max-width:860px}
+.sect .why b{color:var(--deck-ink);font-weight:640}
+.stage{display:flex;gap:26px;align-items:flex-start;overflow-x:auto;padding:22px 2px 8px;scroll-snap-type:x proximity}
+.col{flex:0 0 auto;scroll-snap-align:start}
+.cap{font-size:12.5px;color:var(--deck-ink2);line-height:1.55;margin-top:12px;max-width:340px}
+.cap b{display:block;color:var(--deck-ink);font-weight:650;font-size:13px;margin-bottom:2px}
+.cap.wide{max-width:820px}
+
+/* artboards */
+.desk{width:460px;border-radius:14px;overflow:hidden;background:var(--page);
+      box-shadow:0 0 0 1px rgba(11,18,32,.08),0 26px 54px -22px rgba(11,18,32,.32)}
+.browser{height:36px;background:var(--surface);border-bottom:1px solid var(--border);
+         display:flex;align-items:center;gap:9px;padding:0 13px}
+.browser .d{width:9px;height:9px;border-radius:50%;background:var(--border-strong)}
+.browser .addr{flex:1;height:21px;border-radius:999px;background:var(--page);border:1px solid var(--border);
+       display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px;color:var(--ink-2);margin-left:8px}
+.browser .lock{width:8px;height:8px;border:1.4px solid var(--ink-3);border-radius:1.5px;border-bottom-width:4px}
+.ph{width:320px;background:var(--page);border-radius:36px;overflow:hidden;display:flex;flex-direction:column;
+    box-shadow:0 0 0 1px rgba(11,18,32,.08),0 22px 46px -18px rgba(11,18,32,.28)}
+.ph .st{height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+        padding:0 22px 0 24px;font-size:12px;font-weight:600}
+.ph--tall{height:640px}
+.desk--tall .pg,.ph .stbody{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.desk--tall{display:flex;flex-direction:column}
+
+/* ---------- shared thank-you frame ---------- */
+.ty{display:flex;flex-direction:column;height:100%;background:var(--page)}
+.ty-top{padding:16px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.ty-back{width:30px;height:30px;border-radius:9px;background:var(--surface);border:1px solid var(--border);
+         color:var(--ink-2);font-size:15px;display:flex;align-items:center;justify-content:center;
+         font-family:inherit;cursor:pointer}
+.ty-replay{font-size:11px;font-weight:680;color:var(--blue);background:var(--blue-tint);
+           border:1px solid var(--blue-tint-2);border-radius:999px;padding:5px 11px;cursor:pointer;
+           font-family:inherit}
+.ty-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+         text-align:center;padding:0 30px;gap:0}
+.ty-icon{width:84px;height:84px;margin-bottom:26px;position:relative;display:flex;align-items:center;
+         justify-content:center}
+.ty-h{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.25;max-width:19ch}
+.ty-sub{font-size:14px;color:var(--ink-2);line-height:1.55;max-width:30ch;margin-top:10px}
+.ty-cta{padding:18px 22px 24px;flex-shrink:0}
+.ty-btn{width:100%;height:48px;border-radius:13px;background:var(--blue);color:#fff;border:none;
+        font-family:inherit;font-size:14.5px;font-weight:660;cursor:pointer}
+.ty-btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--border)}
+
+/* ---------- Problem: settle ---------- */
+.ic-badge{width:100%;height:100%;border-radius:50%;background:var(--surface);
+          border:1.5px solid var(--border-strong);display:flex;align-items:center;justify-content:center}
+.ic-problem .ic-badge{animation:settle .58s cubic-bezier(.2,.8,.3,1) both}
+@keyframes settle{
+  0%{transform:translateY(-10px) scale(.75);opacity:0}
+  55%{transform:translateY(3px) scale(1.06);opacity:1}
+  78%{transform:translateY(-1px) scale(.99)}
+  100%{transform:translateY(0) scale(1)}
+}
+.ic-problem svg{width:34px;height:34px}
+.ic-problem path{fill:none;stroke:var(--blue-press);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;
+                  stroke-dasharray:40;stroke-dashoffset:40;animation:draw .38s .32s ease-out both}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* ---------- Suggestion: lift ---------- */
+.ic-suggestion .ic-badge{background:var(--blue-tint);border-color:var(--blue-tint-2);
+                          animation:lift .56s cubic-bezier(.34,1.4,.4,1) both}
+@keyframes lift{
+  0%{transform:translateY(6px) scale(.7);opacity:0;box-shadow:0 0 0 0 rgba(37,99,235,0)}
+  60%{transform:translateY(-4px) scale(1.08);opacity:1;box-shadow:0 0 0 14px rgba(37,99,235,.08)}
+  100%{transform:translateY(0) scale(1);box-shadow:0 0 0 0 rgba(37,99,235,0)}
+}
+.ic-suggestion svg{width:34px;height:34px}
+.ic-suggestion .bulb{fill:var(--blue);opacity:0;animation:bulbin .3s .2s ease-out both}
+@keyframes bulbin{to{opacity:1}}
+.spark{position:absolute;width:5px;height:5px;border-radius:50%;background:var(--blue);opacity:0}
+.spark.s1{top:14px;left:12px;animation:spark .5s .28s ease-out both}
+.spark.s2{top:10px;right:14px;animation:spark .5s .38s ease-out both}
+.spark.s3{top:22px;right:4px;animation:spark .46s .48s ease-out both}
+@keyframes spark{
+  0%{opacity:0;transform:translateY(0) scale(.6)}
+  35%{opacity:1}
+  100%{opacity:0;transform:translateY(-16px) scale(.9)}
+}
+
+/* ---------- Question: travel ---------- */
+.ic-question .ic-badge{animation:settle .5s cubic-bezier(.2,.8,.3,1) both}
+.ic-question svg{width:38px;height:38px;overflow:visible}
+.ic-question .plane{transform-origin:50% 50%;animation:fly .6s cubic-bezier(.3,.7,.25,1) both}
+@keyframes fly{
+  0%{transform:translate(-10px,6px) rotate(-14deg);opacity:0}
+  45%{transform:translate(9px,-8px) rotate(8deg);opacity:1}
+  100%{transform:translate(0,0) rotate(0deg);opacity:1}
+}
+.ic-question .trail{fill:none;stroke:var(--blue-tint-2);stroke-width:2;stroke-linecap:round;
+                     stroke-dasharray:3 5;stroke-dashoffset:26;animation:trail .5s .05s ease-out both}
+@keyframes trail{to{stroke-dashoffset:0}}
+
+@media (prefers-reduced-motion:reduce){
+  .ic-badge,.ic-problem path,.ic-suggestion .bulb,.spark,.ic-question .plane,.ic-question .trail{
+    animation:none !important;opacity:1 !important;transform:none !important;
+    stroke-dashoffset:0 !important;box-shadow:none !important
+  }
+}
+/* Replay: toggling this class off/on restarts the animations via reflow (see script) */
+.ty-icon.no-anim .ic-badge,.ty-icon.no-anim path,.ty-icon.no-anim .bulb,
+.ty-icon.no-anim .spark,.ty-icon.no-anim .plane,.ty-icon.no-anim .trail{animation:none !important}
+
+/* ---------- reduced-motion static row ---------- */
+.rm-note{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3);padding:0 18px 14px}
+.rm-note .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-3)}
+</style>
+
+<div class="wrap">
+  <div class="deck-h1">Evenly &mdash; feedback thank-you screen, three variants</div>
+  <p class="deck-lede">Per <b>THANKYOU_SCREEN_PROMPT.md</b>: one screen, three treatments selected by
+    feedback <b>Type</b>. Same frame and blue system as the claim flow (<code>app.css</code> tokens,
+    IBM Plex Sans) so it reads as one product with <code>/feedback</code> and the web claim flow rather
+    than the marketing site's serif system. Mobile is the design; desktop is the same layout in a
+    centred column, not a rebuild. Everything below is drawn with transforms, opacity and one
+    <code>stroke-dashoffset</code> draw-on per icon &mdash; all achievable in Compose. <b>Press Replay on
+    any artboard to watch the animation again.</b></p>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Mobile &middot; the three variants</div>
+    <h2>Settle, lift, travel</h2>
+    <p class="why">One shared shape &mdash; back arrow, centred icon, headline, subhead, full-width button
+      &mdash; carrying three distinct <b>motions and icons</b> rather than three distinct layouts. That's the
+      answer to the brief's Q1: fully separate treatments would triple the surface to build and audit for
+      three screens someone sees for two seconds; a shared frame with a distinct <i>moment</i> per type gets
+      the emotional differentiation without three maintenance burdens. Colour stays inside the app's existing
+      blue system throughout, on purpose (see notes below) rather than reaching for a new hue per variant.</p>
+  </div>
+  <div class="stage">
+    <div class="col">
+      <div class="ph ph--tall">
+        <div class="st"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="stbody"><div class="ty">
+          <div class="ty-top"><button class="ty-back">&larr;</button>
+            <button class="ty-replay" onclick="replay(this,'p1')">Replay</button></div>
+          <div class="ty-body">
+            <div class="ty-icon ic-problem" id="p1">
+              <div class="ic-badge"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></svg></div>
+            </div>
+            <h2 class="ty-h">We&rsquo;ve got this.</h2>
+            <p class="ty-sub">Your report is logged and a real person will read it. We&rsquo;ll email you
+              when it&rsquo;s fixed.</p>
+          </div>
+          <div class="ty-cta"><button class="ty-btn ghost">Back to Evenly</button></div>
+        </div></div>
+      </div>
+      <p class="cap"><b>Problem &middot; settle</b> A checkmark draws itself inside a badge that arrives
+        with a little weight (slight overshoot, then rest), not a bounce. Muted ink tones, not brand
+        blue at full strength. No exclamation marks, no "thanks for your patience". Calm and believed,
+        not cheerful.</p>
+    </div>
+
+    <div class="col">
+      <div class="ph ph--tall">
+        <div class="st"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="stbody"><div class="ty">
+          <div class="ty-top"><button class="ty-back">&larr;</button>
+            <button class="ty-replay" onclick="replay(this,'s1')">Replay</button></div>
+          <div class="ty-body">
+            <div class="ty-icon ic-suggestion" id="s1">
+              <div class="ic-badge"><svg viewBox="0 0 24 24" class="bulb"><path d="M12 2a6 6 0 0 0-3.5 10.9c.5.36.7.9.7 1.4V16h5.6v-1.7c0-.5.2-1.04.7-1.4A6 6 0 0 0 12 2ZM9.5 19h5v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-1Z"/></svg></div>
+              <i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i>
+            </div>
+            <h2 class="ty-h">Noted, and thank you.</h2>
+            <p class="ty-sub">Ideas from people who actually use Evenly are how it gets better. We read
+              every one.</p>
+          </div>
+          <div class="ty-cta"><button class="ty-btn">Back to Evenly</button></div>
+        </div></div>
+      </div>
+      <p class="cap"><b>Suggestion &middot; lift</b> The badge rises with a soft blue glow and three small
+        sparks drift up and fade, brighter and quicker than the Problem variant. This is the one variant
+        allowed to feel a little delightful, so the solid CTA (not ghost) and warmer tint carry that
+        without adding a new colour to the palette.</p>
+    </div>
+
+    <div class="col">
+      <div class="ph ph--tall">
+        <div class="st"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="stbody"><div class="ty">
+          <div class="ty-top"><button class="ty-back">&larr;</button>
+            <button class="ty-replay" onclick="replay(this,'q1')">Replay</button></div>
+          <div class="ty-body">
+            <div class="ty-icon ic-question" id="q1">
+              <div class="ic-badge">
+                <svg viewBox="0 0 40 40">
+                  <path class="trail" d="M10 26 Q20 30 30 14"/>
+                  <g class="plane">
+                    <path d="M20 8 4 15l6 2.4L13.6 24l3-6.5L23 22l-3-14Z" fill="var(--blue-press)"/>
+                  </g>
+                </svg>
+              </div>
+            </div>
+            <h2 class="ty-h">We&rsquo;ll get you an answer.</h2>
+            <p class="ty-sub">Your question is with us. We&rsquo;ll reply by email.</p>
+          </div>
+          <div class="ty-cta"><button class="ty-btn ghost">Back to Evenly</button></div>
+        </div></div>
+      </div>
+      <p class="cap"><b>Question &middot; travel</b> A small paper plane arrives along a dashed curve
+        already in motion, as if it just landed, rather than launching from the centre. Reads as "your
+        message went somewhere" without literally animating a reply arriving, which would overpromise a
+        response time.</p>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Mobile &middot; the case Q6 is about</div>
+    <h2>Problem, from an anonymous web submitter</h2>
+    <p class="why">The brief's own flag: <b>"we'll email you when it's fixed" is a promise the product
+      cannot keep if no email was captured.</b> A guest hitting <code>/feedback</code> anonymously, or
+      using the quiet footnote link from the claim flow without giving a name, can submit with
+      <code>submitter_email</code> null. <b>Decision: swap the second line, not the whole variant.</b>
+      Same icon, same motion, same headline &mdash; only the promise changes, so it's the smallest possible
+      edit at the one moment it's wrong, not a fourth treatment to design and maintain.</p>
+  </div>
+  <div class="stage">
+    <div class="col">
+      <div class="ph ph--tall">
+        <div class="st"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="stbody"><div class="ty">
+          <div class="ty-top"><button class="ty-back">&larr;</button>
+            <button class="ty-replay" onclick="replay(this,'p2')">Replay</button></div>
+          <div class="ty-body">
+            <div class="ty-icon ic-problem" id="p2">
+              <div class="ic-badge"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></svg></div>
+            </div>
+            <h2 class="ty-h">We&rsquo;ve got this.</h2>
+            <p class="ty-sub">Your report is logged and a real person will read it.</p>
+          </div>
+          <div class="ty-cta"><button class="ty-btn ghost">Back to Evenly</button></div>
+        </div></div>
+      </div>
+      <p class="cap"><b>No email on file</b> The line just stops one sentence early, no substitute promise
+        put in its place ("check back later" invites a return visit to a page with nothing new on it,
+        which is its own small disappointment). If the web form's optional Name field ever grows an
+        optional email alongside it, this variant becomes the one that disappears rather than one more
+        state to maintain.</p>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Desktop</div>
+    <h2>Same design, centred column</h2>
+    <p class="why">Per <code>AGENTS.md</code> &sect;7, wider viewports get a centred column, not a
+      different design. Shown here inside the web browser chrome for <code>/feedback</code>; the in-app
+      desktop-width case (iPad, resized window) is the identical column without the browser frame.</p>
+  </div>
+  <div class="stage">
+    <div class="col">
+      <div class="desk desk--tall">
+        <div class="browser"><i class="d"></i><i class="d"></i><i class="d"></i>
+          <div class="addr"><i class="lock"></i>split-evenly.app/feedback</div></div>
+        <div class="pg" style="height:560px">
+          <div class="ty" style="max-width:420px;margin:0 auto">
+            <div class="ty-top"><button class="ty-back">&larr;</button>
+              <button class="ty-replay" onclick="replay(this,'s2')">Replay</button></div>
+            <div class="ty-body">
+              <div class="ty-icon ic-suggestion" id="s2">
+                <div class="ic-badge"><svg viewBox="0 0 24 24" class="bulb"><path d="M12 2a6 6 0 0 0-3.5 10.9c.5.36.7.9.7 1.4V16h5.6v-1.7c0-.5.2-1.04.7-1.4A6 6 0 0 0 12 2ZM9.5 19h5v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-1Z"/></svg></div>
+                <i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i>
+              </div>
+              <h2 class="ty-h">Noted, and thank you.</h2>
+              <p class="ty-sub">Ideas from people who actually use Evenly are how it gets better. We read
+                every one.</p>
+            </div>
+            <div class="ty-cta"><button class="ty-btn">Back to split-evenly.app</button></div>
+          </div>
+        </div>
+      </div>
+      <p class="cap wide"><b>Desktop, web &mdash; Suggestion</b> Column width, icon size and type scale are
+        unchanged from mobile. Only the CTA label differs from the app: web has nowhere to "go back" to
+        after a cold <code>/feedback</code> visit (brief's Q4), so the button reads
+        <b>"Back to split-evenly.app"</b> and routes to the marketing home rather than closing a screen
+        that was never a modal.</p>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Accessibility</div>
+    <h2>Reduced motion still looks finished</h2>
+    <p class="why">Under <code>prefers-reduced-motion: reduce</code>, every animation is suppressed and
+      every element renders straight into its end state, opacity 1, no transform, no dash offset. Nothing
+      is invisible and nothing pops in unstyled. This column has the media query forced on to preview it
+      (your system setting is not touched).</p>
+  </div>
+  <div class="stage">
+    <div class="col">
+      <div class="ph" style="height:340px">
+        <div class="st"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="stbody"><div class="ty">
+          <div class="ty-top"><button class="ty-back">&larr;</button><span></span></div>
+          <div class="rm-note"><i class="dot"></i>prefers-reduced-motion: reduce</div>
+          <div class="ty-body" style="padding-bottom:24px">
+            <div class="ty-icon ic-problem no-anim">
+              <div class="ic-badge" style="opacity:1;transform:none">
+                <svg viewBox="0 0 24 24"><path style="stroke-dashoffset:0" d="M5 12.5 10 17 19 7"/></svg>
+              </div>
+            </div>
+            <h2 class="ty-h">We&rsquo;ve got this.</h2>
+            <p class="ty-sub">Your report is logged and a real person will read it. We&rsquo;ll email you
+              when it&rsquo;s fixed.</p>
+          </div>
+        </div></div>
+      </div>
+      <p class="cap"><b>Static end-state</b> This is what a reduced-motion user always sees, immediately.
+        It is not a degraded version of the animated screen; it is the same composition read as a still.</p>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Decided in this mock</div>
+    <h2>Notes, and what's still open</h2>
+    <p class="why">
+      <b>Decided:</b> one shared frame, three motions (Q1). No submitted-content summary shown back to
+      the user (Q2) &mdash; the message they just typed is still on the screen behind this one, and
+      re-displaying it here adds weight to what the brief asks to keep light. No ticket reference number
+      in v1 (Q3) &mdash; nothing in <code>ADMIN_FEEDBACK_SPEC.md</code> exposes one to the submitter, and
+      inventing one to show here would be a promise ("check ticket #4021") the queue doesn't back yet.
+      Reply-time language stays at "we'll reply by email" (Q5), no number, matching the spec's v1-is-manual
+      resolution flow. The anonymous-Problem case (Q6) is handled by dropping the email clause, not by a
+      fourth variant.<br><br>
+      <b>Still open:</b> the exact onward action for the web claim flow's footnote entry point (brief's
+      Q4) &mdash; "back to the bill" only makes sense if the claim screen is still live in another tab or
+      the same view; needs a decision once the footnote link's own presentation (new tab vs. inline) is
+      settled in <code>WEB_CLAIM_SPEC.md</code>-adjacent work. Icon set above is a first pass, not final
+      art &mdash; worth a look from whoever owns the feather mark treatment before Compose work starts, so
+      the icon language matches <code>EvWordmark.kt</code>'s line weight rather than this mock's plain
+      SVG strokes.
+    </p>
+  </div>
+</div>
+
+<script>
+function replay(btn, id){
+  var el = document.getElementById(id);
+  el.classList.add('no-anim');
+  void el.offsetWidth; // force reflow
+  el.classList.remove('no-anim');
+}
+</script>

@@ -159,6 +159,13 @@ fun splitBill(
 
     for (item in items) {
         val quantity = item.quantity
+        // A line total is never negative. `validate` (BillRepositoryImpl) rejects one at entry, but rows
+        // also arrive from sync and from the web guest path, where nothing re-checks the sign — and a
+        // negative total is wrong twice over: [splitEven] leaks a subunit on it (−1000 over 3 units sums
+        // to −999) AND its claimants get a share below zero, which the `remaining > 0` outstanding
+        // filters erase, leaving the payer owed MORE than the bill. Costing it at 0 keeps the split
+        // exact and every tab non-negative; the line still reconciles on its units.
+        val lineTotal = item.lineTotalSubunits.coerceAtLeast(0L)
         val explicitPortions = portionsByItem[item.itemId].orEmpty()
         val legacyMembers = sharersByItem[item.itemId].orEmpty()
         // A single unit can't be both solo-claimed AND split via the LEGACY set — the moment that set
@@ -177,13 +184,15 @@ fun splitBill(
                     .filter { it.value > 0 }
             }
         val totalIndiv = unitsByUser.values.sum()
-        // Effective shared slices: explicit portions (each carries its own quantity) win; otherwise the
-        // legacy set becomes ONE portion covering everything left after individual claims — which is
-        // byte-for-byte the old "share absorbs the leftover" behaviour.
+        // Effective shared slices: explicit portions (each carries its own quantity) win, in a stable
+        // order that does not depend on how the rows arrived (see [inStableOrder]); otherwise the legacy
+        // set becomes ONE portion covering everything left after individual claims — which is
+        // byte-for-byte the old "share absorbs the leftover" behaviour, and a single slice has no order
+        // to be sensitive to.
         val portions: List<LinePortion> =
             when {
-                explicitPortions.isNotEmpty() -> explicitPortions.map { LinePortion(it.quantity, it.members.distinct()) }
-                legacyMembers.isNotEmpty() -> listOf(LinePortion((quantity - totalIndiv).coerceAtLeast(0), legacyMembers))
+                explicitPortions.isNotEmpty() -> explicitPortions.inStableOrder()
+                legacyMembers.isNotEmpty() -> listOf(LinePortion("", (quantity - totalIndiv).coerceAtLeast(0), legacyMembers))
                 else -> emptyList()
             }
         val totalAssigned = totalIndiv + portions.sumOf { it.quantity }
@@ -200,7 +209,7 @@ fun splitBill(
         if (totalAssigned > quantity) {
             // Over-assignment: more units handed out than ordered. Cost every unit at the derived per-unit
             // price so the tab exceeds the line total — surfaced as OVERCLAIMED, never silently capped.
-            val perUnit = perUnitSubunits(item.lineTotalSubunits, quantity)
+            val perUnit = perUnitSubunits(lineTotal, quantity)
             for ((user, units) in unitsByUser) charge(user, units.toLong() * perUnit)
             for (p in portions) {
                 if (p.members.isNotEmpty()) {
@@ -211,7 +220,7 @@ fun splitBill(
             // Split the line total penny-exact across its units, then hand slices out in order: individual
             // whole units first, then each shared portion its quantity of slices (split evenly). Any slices
             // left over stay unbilled → the line reconciles as UNCLAIMED (its units still "need someone").
-            val unitCosts = splitEven(item.lineTotalSubunits, quantity)
+            val unitCosts = splitEven(lineTotal, quantity)
             var cursor = 0
             for ((user, units) in unitsByUser.entries.sortedBy { it.key.value }) {
                 var owed = 0L
@@ -227,10 +236,15 @@ fun splitBill(
         }
         if (itemAlloc.isNotEmpty()) perItem[item.itemId] = itemAlloc
 
+        // A PRICED line with no units is claimable by nobody: [splitEven] hands out no slices, so its
+        // money is charged to no one. Reading RESOLVED let it disappear from a bill the UI called
+        // finished and silenced the "still needs someone" nudge that would have surfaced it. A
+        // zero-priced line with no units owes nothing and is genuinely done.
         val status =
             when {
                 totalAssigned > quantity -> ItemStatus.OVERCLAIMED
                 totalAssigned < quantity -> ItemStatus.UNCLAIMED
+                quantity <= 0 && lineTotal > 0L -> ItemStatus.UNCLAIMED
                 else -> ItemStatus.RESOLVED
             }
         reconcile += ItemReconcile(item.itemId, quantity, totalIndiv, portions.isNotEmpty(), status)
@@ -244,8 +258,17 @@ fun splitBill(
     // claim absorbs 100% of tax + tip (a $5 juice showing a $102 tab). The still-unclaimed portion of the
     // bill rides a phantom bucket whose slice is computed then dropped — it gets billed as those items are
     // claimed, so every person's own share stays stable and correct throughout live claiming.
-    val fullSubtotal = items.sumOf { it.lineTotalSubunits }
+    val fullSubtotal = items.sumOf { it.lineTotalSubunits.coerceAtLeast(0L) }
     val claimedSum = subtotals.sumOf { it.second }
+
+    // A discount rides proportional to the item subtotal, so it may not exceed it. Past that point
+    // `items − discount` goes below zero for whoever claimed, and because the parts still sum to the
+    // bill total nothing downstream notices — until `ShareDao`'s `remaining > 0` filters drop the
+    // negative row and the payer reads as owed $6.00 on a $5.00 bill. `validate` rejects an oversized
+    // discount at entry; this clamp is what stops a row from sync or an older client producing one.
+    // Clamped HERE and not per person: capping a share after the fact would break conservation, and
+    // `discount <= fullSubtotal` is exactly the condition that makes every `items − discount` >= 0.
+    val effectiveDiscount = extras.discountSubunits.coerceIn(0L, fullSubtotal)
 
     fun proportionalToFullBill(amount: Long): Map<UserId, Long> {
         if (amount == 0L) return emptyMap()
@@ -257,7 +280,7 @@ fun splitBill(
 
     val proportionalShares =
         proportionalToFullBill(extras.taxSubunits + extras.gratuitySubunits + extras.otherChargesSubunits)
-    val discountShares = proportionalToFullBill(extras.discountSubunits)
+    val discountShares = proportionalToFullBill(effectiveDiscount)
     val tipShares =
         when (extras.tipSplitMode) {
             TipSplitMode.PROPORTIONAL -> {
@@ -282,7 +305,14 @@ fun splitBill(
     //  - GENUINELY ITEM-LESS — every unit is claimed and they took none, so tip is all they owe. Dropping
     //    their EVEN slice here made a finished bill's shares sum BELOW `amount_subunits`: a silent leak.
     // Only the second gets a row, which is why this is gated on the bill being fully claimed.
-    val fullyClaimed = fullSubtotal > 0L && claimedSum >= fullSubtotal
+    //
+    // "Fully claimed" is a statement about UNITS, not money — every line reconciled RESOLVED. Asking it
+    // of money instead (`claimedSum >= fullSubtotal`, with a `fullSubtotal > 0` guard against the
+    // all-free case) answered NO for a comped bill, whose lines are all $0 and all claimed: the even
+    // tip slices of everyone who took nothing were computed and then dropped, so a finished bill's
+    // shares summed to a third of its own tip. Whether a bill is finished cannot depend on whether it
+    // cost anything.
+    val fullyClaimed = reconcile.isNotEmpty() && reconcile.all { it.status == ItemStatus.RESOLVED }
     val claimants = subtotals.mapTo(HashSet()) { it.first }
     val tipOnly =
         if (!fullyClaimed) {
@@ -308,11 +338,33 @@ fun splitBill(
     return BillResult(owed, reconcile, breakdown, perItem)
 }
 
-/** A line's effective shared slice inside [splitBill]: [quantity] units split evenly among [members]. */
+/**
+ * A line's effective shared slice inside [splitBill]: [quantity] units split evenly among [members].
+ *
+ * [portionId] carries through from [SharedPortion] only so slices can be put in a stable order before
+ * they consume the line's unit costs; the legacy all-leftover set is one slice and passes `""`.
+ */
 private class LinePortion(
+    val portionId: String,
     val quantity: Int,
     val members: List<UserId>,
 )
+
+/**
+ * A line's explicit slices, in an order that is the same on every device.
+ *
+ * Portions consume the line's unit costs in list order, and on an indivisible line those costs differ
+ * by a subunit — so list order decides who pays the odd cent. The list arrives as whatever
+ * `ItemShareDao` returned (its queries carry no `ORDER BY`), which is not the same on the device that
+ * authored the portions and one that pulled them, so the two derived different money for one bill.
+ * `portionId` is deterministic per slice; the member set is the tiebreak for rows that share one.
+ */
+private fun List<SharedPortion>.inStableOrder(): List<LinePortion> =
+    map { LinePortion(it.portionId, it.quantity, it.members.distinct()) }
+        .sortedWith(compareBy({ it.portionId }, { it.memberKey() }))
+
+/** A slice's member set as one comparable string — the tiebreak when two share a [SharedPortion.portionId]. */
+private fun LinePortion.memberKey(): String = members.map(UserId::value).sorted().joinToString(",")
 
 /** Sentinel weight-bucket for the un-yet-claimed portion of a bill; its extras slice is computed then dropped. */
 private val UNCLAIMED_BUCKET = UserId("\u0000unclaimed")
@@ -330,6 +382,9 @@ fun perUnitSubunits(
 /**
  * Split [total] into [parts] penny-exact slices summing to [total]: each slice is `total / parts`, and
  * the first `total % parts` slices get one extra subunit (largest-remainder, over equal weights).
+ *
+ * Requires `total >= 0`, which [splitBill] guarantees by clamping every line total: on a negative
+ * total the remainder is negative, `it < extra` is never true, and the slices sum a subunit SHORT.
  */
 private fun splitEven(
     total: Long,

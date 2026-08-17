@@ -20,7 +20,6 @@ import kotlin.test.assertTrue
  *  - a Settings display-name rename getting REVERTED by the stale server row.
  */
 class SyncEngineTest {
-
     private fun member(
         id: String,
         userId: String = "u-$id",
@@ -39,18 +38,26 @@ class SyncEngineTest {
         updatedAt = updatedAt,
     )
 
-    private fun user(id: String, displayName: String, updatedAt: Long) = UserEntity(
+    private fun user(
+        id: String,
+        displayName: String,
+        updatedAt: Long,
+    ) = UserEntity(
         id = id,
         displayName = displayName,
         createdAt = 0L,
         updatedAt = updatedAt,
     )
 
-    private fun keepNewerMembers(incoming: List<MemberEntity>, local: List<MemberEntity>) =
-        SyncEngine.keepNewer(incoming, local, { it.id }, { it.updatedAt })
+    private fun keepNewerMembers(
+        incoming: List<MemberEntity>,
+        local: List<MemberEntity>,
+    ) = SyncEngine.keepNewer(incoming, local, { it.id }, { it.updatedAt })
 
-    private fun keepNewerUsers(incoming: List<UserEntity>, local: List<UserEntity>) =
-        SyncEngine.keepNewer(incoming, local, { it.id }, { it.updatedAt })
+    private fun keepNewerUsers(
+        incoming: List<UserEntity>,
+        local: List<UserEntity>,
+    ) = SyncEngine.keepNewer(incoming, local, { it.id }, { it.updatedAt })
 
     @Test
     fun claimedPlaceholder_isNotResurrected_byStaleActiveServerRow() {
@@ -108,12 +115,13 @@ class SyncEngineTest {
     @Test
     fun mixedBatch_keepsOnlyNonStaleRows() {
         val localStaleLoser = user("u1", displayName = "renamed-local", updatedAt = 500L) // local newer → drop incoming
-        val localOlder = user("u2", displayName = "old", updatedAt = 100L)                // server newer → keep incoming
-        val incoming = listOf(
-            user("u1", displayName = "server-old", updatedAt = 400L),
-            user("u2", displayName = "server-new", updatedAt = 300L),
-            user("u3", displayName = "brand-new", updatedAt = 10L),                       // new to device → keep
-        )
+        val localOlder = user("u2", displayName = "old", updatedAt = 100L) // server newer → keep incoming
+        val incoming =
+            listOf(
+                user("u1", displayName = "server-old", updatedAt = 400L),
+                user("u2", displayName = "server-new", updatedAt = 300L),
+                user("u3", displayName = "brand-new", updatedAt = 10L), // new to device → keep
+            )
 
         val fresh = keepNewerUsers(incoming, listOf(localStaleLoser, localOlder))
 
@@ -130,35 +138,72 @@ class SyncEngineTest {
     // EVERY pull failed permanently — and #25 reported it as "you're offline".
 
     @Test
-    fun chunkedSelect_splitsPastTheChunkSize_andConcatenatesInOrder() = runTest {
-        val ids = (1..250).map { "id-$it" }
-        val batches = mutableListOf<List<String>>()
+    fun chunkedSelect_splitsPastTheChunkSize_andConcatenatesInOrder() =
+        runTest {
+            val ids = (1..250).map { "id-$it" }
+            val batches = mutableListOf<List<String>>()
 
-        val out = SyncEngine.chunkedSelect(ids) { chunk ->
-            batches += chunk
-            chunk
+            val out =
+                SyncEngine.chunkedSelect(ids) { chunk ->
+                    batches += chunk
+                    chunk
+                }
+
+            assertEquals(listOf(100, 100, 50), batches.map { it.size })
+            assertEquals(ids, out)
         }
 
-        assertEquals(listOf(100, 100, 50), batches.map { it.size })
-        assertEquals(ids, out)
+    @Test
+    fun chunkedSelect_underTheLimit_sendsOneRequest() =
+        runTest {
+            var calls = 0
+            val ids = (1..100).map { "id-$it" }
+
+            val out =
+                SyncEngine.chunkedSelect(ids) {
+                    calls++
+                    it
+                }
+
+            assertEquals(1, calls)
+            assertEquals(ids, out)
+        }
+
+    @Test
+    fun chunkedSelect_empty_sendsNoRequestAtAll() =
+        runTest {
+            var calls = 0
+            assertTrue(
+                SyncEngine
+                    .chunkedSelect<String>(emptyList()) {
+                        calls++
+                        it
+                    }.isEmpty(),
+            )
+            assertEquals(0, calls)
+        }
+
+    // --- who user_subscriptions is pulled for ----------------------------------------------------
+    // A subscription is keyed by PERSON, so it is pulled for the roster. The roster is empty for
+    // someone in no groups, and the filter used to be the roster alone — so a subscriber who had not
+    // joined a group yet never pulled their OWN row, and Settings went on offering them Pro.
+
+    @Test
+    fun subscriberIds_includeSelf_whenInNoGroups() {
+        assertEquals(listOf("me"), SyncEngine.subscriberIdsFor(emptyList(), "me"))
     }
 
     @Test
-    fun chunkedSelect_underTheLimit_sendsOneRequest() = runTest {
-        var calls = 0
-        val ids = (1..100).map { "id-$it" }
+    fun subscriberIds_includeSelf_alongsideTheRoster() {
+        val ids = SyncEngine.subscriberIdsFor(listOf("alice", "bob"), "me")
 
-        val out = SyncEngine.chunkedSelect(ids) { calls++; it }
-
-        assertEquals(1, calls)
-        assertEquals(ids, out)
+        assertTrue("me" in ids, "self must always be pulled; got $ids")
+        assertEquals(listOf("alice", "bob", "me"), ids)
     }
 
     @Test
-    fun chunkedSelect_empty_sendsNoRequestAtAll() = runTest {
-        var calls = 0
-        assertTrue(SyncEngine.chunkedSelect<String>(emptyList()) { calls++; it }.isEmpty())
-        assertEquals(0, calls)
+    fun subscriberIds_doNotRepeatSelf_whenAlreadyInTheRoster() {
+        assertEquals(listOf("alice", "me"), SyncEngine.subscriberIdsFor(listOf("alice", "me"), "me"))
     }
 
     // --- error classification (#25) --------------------------------------------------------------
@@ -186,5 +231,117 @@ class SyncEngineTest {
         val e = SyncEngine.classifySyncError(IllegalStateException("bug"))
 
         assertTrue(e is AppError.Unexpected, "expected Unexpected, got $e")
+    }
+
+    // --- the trust horizon (S4) -------------------------------------------------------------------
+    // Last-write-wins with no bound on the writing device's clock means one phone set a year forward
+    // pins a field on every device that pulls its row: the poisoned stamp beats every honest later edit
+    // and no correctly-clocked device can out-stamp it. `horizon` is what makes a stamp past the
+    // server's clock read as a wrong clock rather than as a later edit.
+
+    private val now = 1_700_000_000_000L
+    private val horizon = now + 60_000L
+    private val poisoned = now + 365L * 24 * 3_600_000L
+
+    @Test
+    fun aPoisonedLocalRow_acceptsTheNextHonestEdit_insteadOfBeingPinnedForever() {
+        // Device C pulled the future-stamped row earlier; B now renames the group correctly.
+        val poisonedLocal = user("u1", displayName = "from-the-bad-clock", updatedAt = poisoned)
+        val honestServer = user("u1", displayName = "Alex renamed this", updatedAt = now)
+
+        val fresh = SyncEngine.keepNewer(listOf(honestServer), listOf(poisonedLocal), { it.id }, { it.updatedAt }, horizon)
+
+        assertEquals(listOf(honestServer), fresh, "a local stamp past the horizon is a wrong clock, not a later edit")
+    }
+
+    @Test
+    fun aPoisonedIncomingRow_cannotClobberAGenuinelyNewerLocalEdit() {
+        val honestLocal = user("u1", displayName = "renamed-here", updatedAt = now)
+        val poisonedServer = user("u1", displayName = "from-the-bad-clock", updatedAt = poisoned)
+
+        val fresh = SyncEngine.keepNewer(listOf(poisonedServer), listOf(honestLocal), { it.id }, { it.updatedAt }, horizon)
+
+        // Compared as if it were the horizon: still newer than an older local row (so a real edit made on
+        // a bad phone is not lost), but it cannot beat a local edit made after the horizon.
+        assertEquals(listOf(poisonedServer), fresh)
+    }
+
+    @Test
+    fun theHorizonDoesNotDisturbOrdinaryLastWriteWins() {
+        val localNewer = user("u1", displayName = "local", updatedAt = now)
+        val serverOlder = user("u1", displayName = "server", updatedAt = now - 3_600_000L)
+
+        val fresh = SyncEngine.keepNewer(listOf(serverOlder), listOf(localNewer), { it.id }, { it.updatedAt }, horizon)
+
+        assertTrue(fresh.isEmpty(), "an honest older server row must still lose to an honest newer local one")
+    }
+
+    @Test
+    fun theHorizonDoesNotResurrectAClaimedPlaceholder() {
+        // The regression this guard could plausibly cause, pinned: both stamps are well inside the
+        // horizon, so the soft-left placeholder is still protected exactly as before.
+        val localLeft = member("m1", status = MemberEntity.STATUS_LEFT, placeholderClaimCompletedAt = now, updatedAt = now)
+        val staleActive = member("m1", status = MemberEntity.STATUS_ACTIVE, updatedAt = now - 1_000)
+
+        val fresh = SyncEngine.keepNewer(listOf(staleActive), listOf(localLeft), { it.id }, { it.updatedAt }, horizon)
+
+        assertTrue(fresh.isEmpty(), "the placeholder guard must survive the horizon rule")
+    }
+
+    // --- membership scoping (S5) ------------------------------------------------------------------
+    // The memberships query filtered on user_id alone, so a member who LEFT a group kept hydrating its
+    // expenses, settlements, receipts and everyone's payment handles onto their phone forever, and kept
+    // offering those rows back up on every push. The row itself has to survive (historical shares
+    // resolve names through it); what must not survive is its vote on what gets pulled.
+
+    @Test
+    fun groupsYouHaveLeft_areNotHydrated() {
+        val ids =
+            SyncEngine.activeGroupIds(
+                listOf(
+                    member("m1", updatedAt = 1).copy(groupId = "iceland", status = MemberEntity.STATUS_LEFT),
+                    member("m2", updatedAt = 1).copy(groupId = "flat", status = MemberEntity.STATUS_ACTIVE),
+                ),
+            )
+
+        assertEquals(listOf("flat"), ids)
+    }
+
+    @Test
+    fun leavingEveryGroup_leavesNothingToPull() {
+        val ids =
+            SyncEngine.activeGroupIds(
+                listOf(member("m1", updatedAt = 1).copy(groupId = "iceland", status = MemberEntity.STATUS_LEFT)),
+            )
+
+        assertTrue(ids.isEmpty(), "an ex-member of everything must pull no group's ledger at all")
+    }
+
+    @Test
+    fun rejoiningAGroupYouLeft_hydratesItAgain() {
+        // Both rows exist for the same group (the LEFT one is history, the ACTIVE one is now), and the
+        // group has to come back — a filter that keyed off "has any LEFT row" would strand the rejoiner.
+        val ids =
+            SyncEngine.activeGroupIds(
+                listOf(
+                    member("m1", updatedAt = 1).copy(groupId = "iceland", status = MemberEntity.STATUS_LEFT),
+                    member("m2", updatedAt = 2).copy(groupId = "iceland", status = MemberEntity.STATUS_ACTIVE),
+                ),
+            )
+
+        assertEquals(listOf("iceland"), ids)
+    }
+
+    @Test
+    fun duplicateActiveRows_collapseToOneGroupId() {
+        val ids =
+            SyncEngine.activeGroupIds(
+                listOf(
+                    member("m1", updatedAt = 1).copy(groupId = "flat"),
+                    member("m2", updatedAt = 1).copy(groupId = "flat"),
+                ),
+            )
+
+        assertEquals(listOf("flat"), ids)
     }
 }

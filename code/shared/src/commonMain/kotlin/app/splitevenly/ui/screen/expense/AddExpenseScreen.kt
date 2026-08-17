@@ -35,12 +35,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.domain.expense.CategoryDefaults
 import app.splitevenly.domain.expense.GroupCategory
+import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.AvatarSize
+import app.splitevenly.ui.components.BannerVariant
 import app.splitevenly.ui.components.EvAvatar
+import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSelectField
@@ -62,7 +64,11 @@ import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
 
 /** A participant the expense can be split between (real members are passed by the route). */
-data class AddParticipantUi(val userId: String, val name: String, val isMe: Boolean)
+data class AddParticipantUi(
+    val userId: String,
+    val name: String,
+    val isMe: Boolean,
+)
 
 /**
  * 13 · Add / edit expense (design/src/screens-addexpense.jsx) — the full split editor. This file owns the
@@ -82,6 +88,14 @@ fun AddExpenseScreen(
     categories: List<GroupCategory> = CategoryDefaults.all,
     currencyCode: String = "USD",
     saving: Boolean = false,
+    /**
+     * Set when a save the editor could not have predicted came back refused, so the tap says something
+     * instead of just un-sticking the Save button. The one case today is re-denominating an expense that
+     * already carries a recorded payment (R1) — the editor cannot gate the currency chip on it, because
+     * whether anyone has paid is a fact only the repository holds.
+     */
+    notice: String? = null,
+    onDismissNotice: () -> Unit = {},
     prefill: AddExpensePrefill? = null,
     // Who was on the group's most recent expense — defaults a brand-new expense's participant selection
     // to "whoever was actually there last time" instead of the whole group. Ignored when [prefill] is set
@@ -142,7 +156,8 @@ fun AddExpenseScreen(
     var selected by remember {
         mutableStateOf(
             prefill?.selectedUserIds
-                ?: lastExpenseParticipantIds.filterTo(HashSet()) { id -> participants.any { it.userId == id } }
+                ?: lastExpenseParticipantIds
+                    .filterTo(HashSet()) { id -> participants.any { it.userId == id } }
                     .takeIf { it.isNotEmpty() }
                 ?: participants.map { it.userId }.toSet(),
         )
@@ -170,17 +185,21 @@ fun AddExpenseScreen(
         }
     }
 
-    val effectivePayerId = participants.firstOrNull { it.userId == payerId }?.userId
-        ?: participants.firstOrNull { it.isMe }?.userId
-        ?: participants.firstOrNull()?.userId
-        ?: ""
+    val effectivePayerId =
+        participants.firstOrNull { it.userId == payerId }?.userId
+            ?: participants.firstOrNull { it.isMe }?.userId
+            ?: participants.firstOrNull()?.userId
+            ?: ""
     val payer = participants.firstOrNull { it.userId == effectivePayerId }
     val isOutsidePayer = !outsidePayerName.isNullOrBlank()
     val payerDisplayName = if (isOutsidePayer) outsidePayerName!! else (payer?.name ?: "You")
     // Auto-select members that appear after a placeholder is added, without re-selecting ones the user deselected.
     LaunchedEffect(participants) {
         val fresh = participants.map { it.userId }.toSet() - known
-        if (fresh.isNotEmpty()) { selected = selected + fresh; known = known + fresh }
+        if (fresh.isNotEmpty()) {
+            selected = selected + fresh
+            known = known + fresh
+        }
     }
 
     val selectedList = participants.filter { it.userId in selected }
@@ -218,18 +237,20 @@ fun AddExpenseScreen(
                     payerUserId = if (isOutsidePayer) null else effectivePayerId,
                 ),
             )
-        } else onSave(
-            AddExpenseSubmit(
-                amountSubunits = divide.amountSubunits,
-                title = title.trim(),
-                payerUserId = if (isOutsidePayer) "" else effectivePayerId,
-                payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
-                mode = divide.mode,
-                currency = currency,
-                categoryId = categoryId,
-                shares = divide.shares(ids),
-            ),
-        )
+        } else {
+            onSave(
+                AddExpenseSubmit(
+                    amountSubunits = divide.amountSubunits,
+                    title = title.trim(),
+                    payerUserId = if (isOutsidePayer) "" else effectivePayerId,
+                    payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
+                    mode = divide.mode,
+                    currency = currency,
+                    categoryId = categoryId,
+                    shares = divide.shares(ids),
+                ),
+            )
+        }
     }
 
     // Up-front split-type question: a focused editor beats a toggle you can flip by accident. Until it's
@@ -237,31 +258,55 @@ fun AddExpenseScreen(
     if (splitApproach == null) {
         Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
             EvTopBar(title = "New expense", navIcon = { EvIconButton(EvIcons.Close, onBack) })
-            SplitApproachChooser(onChoose = { splitApproach = it; onSplitApproachChosen(it) })
+            SplitApproachChooser(onChoose = {
+                splitApproach = it
+                onSplitApproachChosen(it)
+            })
         }
         return
     }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         EvTopBar(
-            title = if (editing) "Edit expense" else if (isItemized) "Restaurant bill" else "Split one amount",
-            navIcon = { EvIconButton(if (editing) EvIcons.Close else EvIcons.Back, { if (editing) onBack() else splitApproach = null }) },
+            title =
+                if (editing) {
+                    "Edit expense"
+                } else if (isItemized) {
+                    "Restaurant bill"
+                } else {
+                    "Split one amount"
+                },
+            navIcon = {
+                EvIconButton(
+                    if (editing) EvIcons.Close else EvIcons.Back,
+                    { if (editing) onBack() else splitApproach = null },
+                )
+            },
             actions = {
                 // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
                 val active = !saving
                 val bg = if (active) c.blue else c.blueTint2
                 val fg = if (active) c.onAccent else c.disabledInk
                 Box(
-                    Modifier.clip(RoundedCornerShape(11.dp)).background(bg)
+                    Modifier
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(bg)
                         .then(if (active) Modifier.clickable { submit() } else Modifier)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
             },
         )
+        notice?.let {
+            Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
+                EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
+            }
+        }
         Column(
-            Modifier.fillMaxSize()
+            Modifier
+                .fillMaxSize()
                 .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
-                .verticalScroll(scrollState).padding(16.dp),
+                .verticalScroll(scrollState)
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // ── shared header: title, category, paid by, participants — entered once, both modes ──
@@ -296,7 +341,10 @@ fun AddExpenseScreen(
                         { showPayerDialog = true },
                         leading = {
                             if (isOutsidePayer) {
-                                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                Box(
+                                    Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
+                                    contentAlignment = Alignment.Center,
+                                ) {
                                     EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
                                 }
                             } else {
@@ -316,11 +364,17 @@ fun AddExpenseScreen(
                             leading = {
                                 if (selectedCategory != null) {
                                     val catColor = Color(selectedCategory.colorHex)
-                                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                    Box(
+                                        Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
                                         EvIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
                                     }
                                 } else {
-                                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                    Box(
+                                        Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
                                         EvIcon(EvIcons.Tag, size = 15.dp, tint = c.blueText)
                                     }
                                 }
@@ -442,25 +496,35 @@ fun AddExpenseScreen(
         ScanSourceSheet(onScan = onScanReceipt, onDismiss = { showScanSource = false })
     }
     when (val s = scanState) {
-        is ScanUiState.Working -> ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
-        is ScanUiState.Failed -> ScanErrorSheet(
-            kind = s.kind,
-            onManual = onDismissScan,
-            onRetry = onRetryScan,
-            onPickAgain = { onDismissScan(); showScanSource = true },
-            groupName = groupName,
-            onGetPro = onGetPro,
-        )
+        is ScanUiState.Working -> {
+            ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
+        }
+
+        is ScanUiState.Failed -> {
+            ScanErrorSheet(
+                kind = s.kind,
+                onManual = onDismissScan,
+                onRetry = onRetryScan,
+                onPickAgain = {
+                    onDismissScan()
+                    showScanSource = true
+                },
+                groupName = groupName,
+                onGetPro = onGetPro,
+            )
+        }
+
         ScanUiState.Idle -> {}
     }
 }
 
-private val DemoParticipants = listOf(
-    AddParticipantUi("u1", "You", true),
-    AddParticipantUi("u2", "Andrew", false),
-    AddParticipantUi("u3", "Bob", false),
-    AddParticipantUi("u4", "Maya", false),
-)
+private val DemoParticipants =
+    listOf(
+        AddParticipantUi("u1", "You", true),
+        AddParticipantUi("u2", "Andrew", false),
+        AddParticipantUi("u3", "Bob", false),
+        AddParticipantUi("u4", "Maya", false),
+    )
 
 @Preview
 @Composable

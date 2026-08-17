@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.Flow
 /** DAO for `settlements` + `settlement_allocations` (02 §3.9). Owns the apply/void transactions. */
 @Dao
 interface SettlementDao {
-
     @Upsert
     suspend fun upsert(settlement: SettlementEntity)
 
@@ -37,7 +36,7 @@ interface SettlementDao {
         SELECT * FROM settlements
         WHERE group_id = :groupId AND deleted_at IS NULL
         ORDER BY settled_at DESC
-        """
+        """,
     )
     fun observeByGroup(groupId: String): Flow<List<SettlementEntity>>
 
@@ -58,7 +57,7 @@ interface SettlementDao {
             SELECT 1 FROM settlement_allocations sa2 INNER JOIN shares sh2 ON sh2.id = sa2.share_id
             WHERE sa2.settlement_id = st.id AND sh2.expense_id <> :expenseId)
         ORDER BY st.settled_at DESC
-        """
+        """,
     )
     fun observeByExpense(expenseId: String): Flow<List<SettlementEntity>>
 
@@ -77,7 +76,7 @@ interface SettlementDao {
         INNER JOIN expenses e ON e.id = sh.expense_id
         WHERE sa.group_id = :groupId AND st.deleted_at IS NULL AND e.deleted_at IS NULL
         ORDER BY e.expense_date ASC
-        """
+        """,
     )
     fun observeCoveredTitlesByGroup(groupId: String): Flow<List<SettlementCoveredTitleRow>>
 
@@ -95,7 +94,7 @@ interface SettlementDao {
           AND from_user_id = :fromUserId AND to_user_id = :toUserId AND payment_currency = :currency
         ORDER BY settled_at DESC
         LIMIT 2
-        """
+        """,
     )
     suspend fun lastTwoPaymentAmounts(
         groupId: String,
@@ -107,9 +106,6 @@ interface SettlementDao {
     @Query("SELECT * FROM settlement_allocations WHERE settlement_id = :settlementId")
     suspend fun allocationsForSettlement(settlementId: String): List<SettlementAllocationEntity>
 
-    @Query("SELECT * FROM settlement_allocations WHERE share_id = :shareId")
-    suspend fun allocationsForShare(shareId: String): List<SettlementAllocationEntity>
-
     /** Every local allocation — the push side of sync (allocations are synced ground truth). */
     @Query("SELECT * FROM settlement_allocations")
     suspend fun allAllocationsForSync(): List<SettlementAllocationEntity>
@@ -120,12 +116,15 @@ interface SettlementDao {
         SELECT COALESCE(SUM(sa.applied_amount_subunits), 0)
         FROM settlement_allocations sa INNER JOIN settlements st ON st.id = sa.settlement_id
         WHERE sa.share_id = :shareId AND st.deleted_at IS NULL
-        """
+        """,
     )
     suspend fun sumAppliedToShare(shareId: String): Long
 
     @Query("UPDATE settlements SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
-    suspend fun softDelete(id: String, ts: Long)
+    suspend fun softDelete(
+        id: String,
+        ts: Long,
+    )
 
     // --- Transactions ---------------------------------------------------------------------------
 
@@ -137,7 +136,7 @@ interface SettlementDao {
             INNER JOIN settlements st ON st.id = sa.settlement_id
             WHERE sa.share_id = s.id AND st.deleted_at IS NULL), 0)
         FROM shares s WHERE s.id = :shareId
-        """
+        """,
     )
     suspend fun derivedRemainingForShare(shareId: String): Long?
 
@@ -170,7 +169,10 @@ interface SettlementDao {
      * per-share restore, no status recompute.
      */
     @Transaction
-    suspend fun voidSettlement(settlementId: String, ts: Long) {
+    suspend fun voidSettlement(
+        settlementId: String,
+        ts: Long,
+    ) {
         softDelete(settlementId, ts)
     }
 

@@ -126,11 +126,16 @@ sealed interface SignOutOutcome {
     data object SignedOut : SignOutOutcome
 
     /**
-     * Nothing happened: [pendingWrites] local changes could not be pushed, and signing out would
-     * discard them. The user is still signed in and the cache is untouched. Ask, then call
-     * `signOut(discardUnsynced = true)` if they say go ahead.
+     * Nothing happened: local changes could not be pushed, and signing out would discard them. The user
+     * is still signed in and the cache is untouched. Ask, then call `signOut(discardUnsynced = true)` if
+     * they say go ahead.
+     *
+     * [pendingWrites] is **null when the count itself could not be taken** — a DB read failing is not
+     * evidence that nothing is pending, and the one read standing between a failed push and destroying
+     * someone's only copy of their expenses has to fail closed. The dialog says "some of what you did"
+     * rather than inventing a number.
      */
     data class UnsyncedChanges(
-        val pendingWrites: Int,
+        val pendingWrites: Int?,
     ) : SignOutOutcome
 }

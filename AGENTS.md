@@ -40,7 +40,7 @@ Paths below are under `code/shared/src/commonMain/kotlin/app/splitevenly/` unles
 | `platform/**` — `expect`/`actual`, permissions | `platform/AGENTS.md`     |
 | `supabase/**` — schema, RLS, edge functions   | `supabase/AGENTS.md`     |
 | `code/iosApp/**` — Xcode host, Kotlin/Native  | `code/iosApp/AGENTS.md`  |
-| `web/**` — the web claim surface + TS money port | `web/AGENTS.md`       |
+| `web/**` claim + marketing; `admin/**` dashboard | `web/AGENTS.md`, `admin/AGENTS.md` |
 
 If you are about to touch one of those trees and have not read its file, read it first. It exists
 because someone already made the mistake you are about to make.

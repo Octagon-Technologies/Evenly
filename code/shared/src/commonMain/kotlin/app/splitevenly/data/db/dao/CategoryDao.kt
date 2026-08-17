@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 /** DAO for `categories` — per-group editable categories with copy-on-write defaults. */
 @Dao
 interface CategoryDao {
-
     @Upsert
     suspend fun upsert(category: CategoryEntity)
 
@@ -26,15 +25,26 @@ interface CategoryDao {
 
     /** One live category by its per-group [key] (the value stored on `expenses.category_id`). */
     @Query("SELECT * FROM categories WHERE group_id = :groupId AND key = :key AND deleted_at IS NULL LIMIT 1")
-    suspend fun getByKey(groupId: String, key: String): CategoryEntity?
+    suspend fun getByKey(
+        groupId: String,
+        key: String,
+    ): CategoryEntity?
 
     /** Largest sort_order currently used in a group (so a new category appends to the end). */
     @Query("SELECT COALESCE(MAX(sort_order), -1) FROM categories WHERE group_id = :groupId AND deleted_at IS NULL")
     suspend fun maxSortOrder(groupId: String): Long
 
-    /** Soft-delete one category (Rule 1 — never hard-delete user data). */
-    @Query("UPDATE categories SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 WHERE group_id = :groupId AND key = :key")
-    suspend fun softDelete(groupId: String, key: String, now: Long)
+    /** Soft-delete one category (Rule 1 — never hard-delete user data). Guarded to the LIVE row:
+     *  uniqueness on `(group_id, key)` is partial over active rows, so a reused key legitimately has an
+     *  old tombstone beside it, and re-stamping that tombstone would re-push a row nothing changed. */
+    @Query(
+        "UPDATE categories SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 WHERE group_id = :groupId AND key = :key AND deleted_at IS NULL",
+    )
+    suspend fun softDelete(
+        groupId: String,
+        key: String,
+        now: Long,
+    )
 
     /** Every local row — the push side of sync (includes tombstones so deletions propagate). */
     @Query("SELECT * FROM categories")

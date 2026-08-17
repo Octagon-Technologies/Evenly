@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.Flow
 /** DAO for `members` (02 §3.5). */
 @Dao
 interface MemberDao {
-
     @Upsert
     suspend fun upsert(member: MemberEntity)
 
@@ -18,20 +17,14 @@ interface MemberDao {
     suspend fun upsertAll(members: List<MemberEntity>)
 
     @Query("SELECT * FROM members WHERE group_id = :groupId AND user_id = :userId")
-    suspend fun getMember(groupId: String, userId: String): MemberEntity?
+    suspend fun getMember(
+        groupId: String,
+        userId: String,
+    ): MemberEntity?
 
     /** Every local row — the push side of sync. */
     @Query("SELECT * FROM members")
     suspend fun allForSync(): List<MemberEntity>
-
-    @Query(
-        """
-        SELECT * FROM members
-        WHERE group_id = :groupId AND status = 'ACTIVE'
-        ORDER BY joined_at ASC
-        """
-    )
-    fun observeActiveMembers(groupId: String): Flow<List<MemberEntity>>
 
     @Query("SELECT COUNT(*) FROM members WHERE group_id = :groupId AND status = 'ACTIVE'")
     suspend fun countActiveMembers(groupId: String): Int
@@ -45,7 +38,7 @@ interface MemberDao {
         SELECT * FROM members
         WHERE group_id = :groupId AND status = 'ACTIVE'
         ORDER BY joined_at ASC, id ASC
-        """
+        """,
     )
     suspend fun activeMembersByTenure(groupId: String): List<MemberEntity>
 
@@ -64,17 +57,30 @@ interface MemberDao {
         LEFT JOIN users u ON u.id = m.user_id
         WHERE m.group_id = :groupId AND m.status = 'ACTIVE'
         ORDER BY m.joined_at ASC, m.id ASC
-        """
+        """,
     )
     fun observeActiveMembersWithUser(groupId: String): Flow<List<MemberWithUserRow>>
 
     /** Archive/unarchive a member's view of a group (04 §2.3 `set_archive`). */
-    @Query("UPDATE members SET archived_at = :archivedAt, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId")
-    suspend fun setArchived(groupId: String, userId: String, archivedAt: Long?, ts: Long)
+    @Query(
+        "UPDATE members SET archived_at = :archivedAt, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId",
+    )
+    suspend fun setArchived(
+        groupId: String,
+        userId: String,
+        archivedAt: Long?,
+        ts: Long,
+    )
 
     /** Soft-remove a member by user (admin removes someone, or a placeholder is merged on reconcile). */
-    @Query("UPDATE members SET status = 'LEFT', left_at = :ts, is_admin = 0, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId")
-    suspend fun markLeftByUser(groupId: String, userId: String, ts: Long)
+    @Query(
+        "UPDATE members SET status = 'LEFT', left_at = :ts, is_admin = 0, updated_at = :ts, row_version = row_version + 1 WHERE group_id = :groupId AND user_id = :userId",
+    )
+    suspend fun markLeftByUser(
+        groupId: String,
+        userId: String,
+        ts: Long,
+    )
 
     // Retiring a claimed placeholder membership lives in [PlaceholderMergeDao.markClaimed]: the stamp has
     // to land in the same transaction as the money it retires, and a copy here would be a way to stamp it

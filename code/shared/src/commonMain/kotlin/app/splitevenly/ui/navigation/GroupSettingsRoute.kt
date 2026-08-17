@@ -1,32 +1,33 @@
 package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
-import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.core.time.shortDate
+import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.export.ExportOutcome
 import app.splitevenly.domain.export.GroupExporter
+import app.splitevenly.domain.pro.ProSource
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.ProRepository
-import app.splitevenly.domain.pro.ProSource
+import app.splitevenly.platform.PlatformShare
 import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.pro.ExportNeedsProSheet
-import app.splitevenly.ui.screen.settings.ProStatusUi
-import app.splitevenly.platform.PlatformShare
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
 import app.splitevenly.ui.screen.settings.MemberRowUi
-import kotlinx.coroutines.launch
+import app.splitevenly.ui.screen.settings.ProStatusUi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /** Group settings, wired: streams the group + members; renames, copies the invite, and leaves (F4). */
@@ -65,30 +66,47 @@ fun GroupSettingsRoute(
     // streams, so a pass bought by someone who has since left the group simply drops the attribution line
     // rather than showing a raw id.
     val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
-    val proUi = proState?.let { state ->
-        val status = state.status
-        val payerName = members.firstOrNull { it.userId.value == status.purchasedBy }?.displayName
-        when {
-            status.source == ProSource.Subscription -> ProStatusUi.ViaSubscription(
-                subscriberName = payerName,
-                isMe = status.purchasedBy == userId?.value,
-            )
-            status.isPro -> ProStatusUi.ViaPass(
-                expiresOn = status.expiresAt?.let { shortDate(it) } ?: "",
-                purchasedByName = payerName,
-            )
-            // Only say "Pro ended" to a group that actually had it. A group that never did is not in an
-            // ended state, it is just a normal free group, and telling it otherwise invents a loss that
-            // never happened.
-            state.everHadPro -> ProStatusUi.Ended
-            // The row that used to be missing entirely: a free group renders the door, not nothing.
-            else -> ProStatusUi.Free(
-                groupName = group?.name ?: "this group",
-                scansLeft = state.freeUsed?.let { (state.freeLimit - it).coerceAtLeast(0) },
-                freeLimit = state.freeLimit,
-            )
+    // `freeUsed` lives in a local cache that only `refresh` fills, and every existing caller is on the
+    // expense/bill side. This screen renders the count ("3 of 5 free scans left") and is the door to the
+    // pass sheet, which now states it too, so without this the label sat on "Checking free scans…"
+    // forever on any group whose expense screens had not been opened. A no-op offline.
+    LaunchedEffect(gid) { pro.refresh(gid.value) }
+    val proUi =
+        proState?.let { state ->
+            val status = state.status
+            val payerName = members.firstOrNull { it.userId.value == status.purchasedBy }?.displayName
+            when {
+                status.source == ProSource.Subscription -> {
+                    ProStatusUi.ViaSubscription(
+                        subscriberName = payerName,
+                        isMe = status.purchasedBy == userId?.value,
+                    )
+                }
+
+                status.isPro -> {
+                    ProStatusUi.ViaPass(
+                        expiresOn = status.expiresAt?.let { shortDate(it) } ?: "",
+                        purchasedByName = payerName,
+                    )
+                }
+
+                // Only say "Pro ended" to a group that actually had it. A group that never did is not in an
+                // ended state, it is just a normal free group, and telling it otherwise invents a loss that
+                // never happened.
+                state.everHadPro -> {
+                    ProStatusUi.Ended
+                }
+
+                // The row that used to be missing entirely: a free group renders the door, not nothing.
+                else -> {
+                    ProStatusUi.Free(
+                        groupName = group?.name ?: "this group",
+                        scansLeft = state.freeUsed?.let { (state.freeLimit - it).coerceAtLeast(0) },
+                        freeLimit = state.freeLimit,
+                    )
+                }
+            }
         }
-    }
 
     // The pass sheet is an overlay on this screen rather than a route, so buying never takes the person
     // off the settings screen they were on. The picker can ask for it directly (openPassSheet).
@@ -106,18 +124,20 @@ fun GroupSettingsRoute(
     // explanation is available by tapping rather than by guessing (the guide-when-blocked rule).
     val exportHint = if (proState?.status?.isPro == false) "Pro" else null
 
-    val rows = members.map { m ->
-        MemberRowUi(
-            userId = m.userId.value,
-            name = m.displayName ?: "Someone",
-            role = when {
-                m.isAdmin -> "Admin"
-                m.isPlaceholder -> "No account"
-                else -> ""
-            },
-            isMe = m.userId == userId,
-        )
-    }
+    val rows =
+        members.map { m ->
+            MemberRowUi(
+                userId = m.userId.value,
+                name = m.displayName ?: "Someone",
+                role =
+                    when {
+                        m.isAdmin -> "Admin"
+                        m.isPlaceholder -> "No account"
+                        else -> ""
+                    },
+                isMe = m.userId == userId,
+            )
+        }
 
     GroupSettingsScreen(
         groupName = group?.name ?: "",
@@ -159,13 +179,25 @@ fun GroupSettingsRoute(
                             )
                             exportNote = null
                         }
+
                         // The server disagreed with our local mirror (a pass that expired mid-session, say).
                         // No retry offered: waiting does not buy Pro. Opens the same door instead of leaving
                         // the old dead-end label.
-                        ExportOutcome.NeedsPro -> showExportPaywall = true
-                        ExportOutcome.Offline -> exportNote = "You're offline"
-                        ExportOutcome.Unavailable -> exportNote = "Not available"
-                        is ExportOutcome.Failed -> exportNote = "Didn't work, try again"
+                        ExportOutcome.NeedsPro -> {
+                            showExportPaywall = true
+                        }
+
+                        ExportOutcome.Offline -> {
+                            exportNote = "You're offline"
+                        }
+
+                        ExportOutcome.Unavailable -> {
+                            exportNote = "Not available"
+                        }
+
+                        is ExportOutcome.Failed -> {
+                            exportNote = "Didn't work, try again"
+                        }
                     }
                     exporting = false
                 }
@@ -208,7 +240,10 @@ fun GroupSettingsRoute(
     }
     if (showExportPaywall) {
         ExportNeedsProSheet(
-            onSeePro = { showExportPaywall = false; onOpenPro(ProTriggers.EXPORT) },
+            onSeePro = {
+                showExportPaywall = false
+                onOpenPro(ProTriggers.EXPORT)
+            },
             onDismiss = { showExportPaywall = false },
         )
     }

@@ -18,6 +18,7 @@ import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.NotificationPrefs
 import app.splitevenly.domain.auth.OAuthProvider
 import app.splitevenly.domain.auth.ThemeMode
+import app.splitevenly.domain.feedback.FeedbackSubmitter
 import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.NewGroup
@@ -28,6 +29,7 @@ import app.splitevenly.domain.repository.MySubscription
 import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.settlement.PaymentApp
+import app.splitevenly.domain.settlement.resolvePreferredPaymentApp
 import app.splitevenly.platform.AnalyticsPerson
 import app.splitevenly.platform.AppleSignIn
 import app.splitevenly.platform.EvAnalytics
@@ -58,6 +60,7 @@ import app.splitevenly.ui.screen.settings.ProfileScreen
 import app.splitevenly.ui.screen.settle.appLabel
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -251,9 +254,18 @@ fun OnboardingRoute(onFinished: () -> Unit) {
         // The app's only notification-permission ask, and only on an explicit opt-in tap. The grant/refusal
         // isn't acted on here: the FCM token registers regardless, and the OS drops what it won't show.
         onEnableNotifications = { notifications.request() },
-        onFinish = { name, currency ->
+        onFinish = { name, currency, handles ->
             scope.launch {
                 profiles.updateProfile(name, currency)
+                // Onboarding only ever adds. A blank entry is a row that was opened and abandoned,
+                // never an instruction to clear one, so it is dropped rather than written through.
+                val filled = handles.filterValues { it.isNotBlank() }
+                if (filled.isNotEmpty()) {
+                    profiles.updatePaymentHandles(filled)
+                    // Onboarding shows no preferred-method picker, so the first handle added claims the
+                    // slot. Without this a two-handle sign-up reaches the settle screen with no default.
+                    profiles.updatePreferredPaymentApp(resolvePreferredPaymentApp(filled, current = null))
+                }
                 onFinished()
             }
         },
@@ -407,6 +419,7 @@ fun HomeGateRoute(
     onSignedOut: () -> Unit,
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
+    onSendFeedback: () -> Unit,
     onOpenPro: () -> Unit,
 ) {
     val auth = koinInject<AuthSession>()
@@ -458,6 +471,7 @@ fun HomeGateRoute(
                 onSignedOut = onSignedOut,
                 onSignIn = onSignIn,
                 onEditPaymentApps = onEditPaymentApps,
+                onSendFeedback = onSendFeedback,
                 onOpenPro = onOpenPro,
             )
         }
@@ -479,12 +493,17 @@ fun ProfileRoute(
     onSignedOut: () -> Unit,
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
+    onSendFeedback: () -> Unit = {},
     onOpenPro: () -> Unit = {},
 ) {
     val auth = koinInject<AuthSession>()
     val profiles = koinInject<ProfileRepository>()
     val urlOpener = koinInject<UrlOpener>()
     val notificationPermission = koinInject<NotificationPermission>()
+    // Bound only when Supabase is configured, so this is also the answer to "is there anywhere for a
+    // ticket to go". Resolved through the Koin scope rather than koinInject, which throws when unbound.
+    val koin = getKoin()
+    val canSubmitFeedback = remember(koin) { koin.getOrNull<FeedbackSubmitter>() != null }
     val scope = rememberCoroutineScope()
     val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -562,7 +581,16 @@ fun ProfileRoute(
         signingOut = signOutFlow.inProgress,
         onEditPaymentApps = onEditPaymentApps,
         onEditName = { name -> scope.launch { profiles.updateDisplayName(name) } },
-        onSendFeedback = { urlOpener.open("mailto:feedback@split-evenly.app?subject=Evenly%20feedback") },
+        // The in-app form when there is a server to post to, the old mailto when there is not: the
+        // offline stub build binds no FeedbackSubmitter, and a form whose Send can never do anything is
+        // worse than a mail draft.
+        onSendFeedback = {
+            if (canSubmitFeedback) {
+                onSendFeedback()
+            } else {
+                urlOpener.open("mailto:feedback@split-evenly.app?subject=Evenly%20feedback")
+            }
+        },
         onPrivacy = { urlOpener.open("https://split-evenly.app/privacy") },
         onTerms = { urlOpener.open("https://split-evenly.app/terms") },
         notifications = profile?.notifications ?: NotificationPrefs(),

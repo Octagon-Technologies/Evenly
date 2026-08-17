@@ -1,0 +1,338 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evenly Pro — paywall plan-card directions</title>
+<style>
+  :root{
+    --blue:#3762E3; --blue-press:#2A4CB8; --blue-text:#2B55D6;
+    --blue-tint:#EFF4FF; --blue-tint-2:#DBE6FF;
+    --page:#FFFFFF; --surface:#F6F8FB; --border:#E6EAF0; --border-strong:#D6DCE6;
+    --ink:#0B1220; --ink-2:#5B6577; --ink-3:#9AA3B2;
+    --green:#16A34A; --green-tint:#E7F4EC;
+    --on-accent:#FFFFFF;
+    --shell:#eef1f6; --shell-ink:#0B1220; --shell-ink-2:#5B6577; --shell-card:#fff;
+  }
+  body.dark{
+    --blue:#3A52D6; --blue-press:#2C3FA8; --blue-text:#7AA6FF;
+    --blue-tint:rgba(110,155,255,.10); --blue-tint-2:rgba(110,155,255,.18);
+    --page:#000; --surface:rgba(110,155,255,.06);
+    --border:rgba(110,155,255,.16); --border-strong:rgba(110,155,255,.26);
+    --ink:#E7ECF3; --ink-2:#9BA6B8; --ink-3:#67738A;
+    --green:#4ADE80; --green-tint:#13271B;
+    --shell:#101318; --shell-ink:#E7ECF3; --shell-ink-2:#9BA6B8; --shell-card:#171b22;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--shell);color:var(--shell-ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  header{padding:32px 24px 4px;max-width:1320px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--shell-ink-2);margin:0 0 16px;max-width:78ch}
+  .toggle{display:inline-flex;gap:2px;padding:3px;border-radius:99px;background:var(--shell-card);
+    border:1px solid var(--border)}
+  .toggle button{font:600 13px/1 inherit;padding:8px 16px;border-radius:99px;border:0;
+    background:transparent;color:var(--shell-ink-2);cursor:pointer}
+  .toggle button[aria-pressed=true]{background:var(--blue);color:#fff}
+  .grid{max-width:1320px;margin:0 auto;padding:20px 24px 90px;display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:36px 28px}
+  .cap{font:700 14px/1.4 inherit;margin:0 0 3px}
+  .cap span{color:var(--shell-ink-2);font-weight:500}
+  .note{color:var(--shell-ink-2);font-size:12.5px;margin:10px 2px 0;line-height:1.55}
+  .note b{color:var(--shell-ink);font-weight:650}
+  .note .ok{color:var(--green);font-weight:650}
+  .note .no{color:#C2410C;font-weight:650}
+
+  /* phone shell */
+  .phone{width:100%;max-width:352px;aspect-ratio:402/812;margin:10px auto 0;background:var(--page);
+    border-radius:36px;border:1px solid var(--border-strong);overflow:hidden;position:relative;
+    color:var(--ink);display:flex;flex-direction:column}
+  .status{height:44px;display:flex;align-items:flex-end;justify-content:space-between;
+    padding:0 22px 4px;font:600 12px/1 inherit;color:var(--ink);flex:none}
+  .body{flex:1;display:flex;flex-direction:column;padding:0 20px;overflow:hidden}
+  .foot{flex:none;padding:0 20px 18px}
+
+  .x{width:32px;height:32px;border-radius:99px;background:var(--surface);border:1px solid var(--border);
+    display:grid;place-items:center;color:var(--ink-2);font-size:15px;font-weight:600}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 0 4px}
+  .propill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px 5px 6px;border-radius:99px;
+    background:var(--blue);color:#fff;font:800 11.5px/1 inherit;letter-spacing:.06em}
+  .propill i{width:17px;height:17px;border-radius:99px;background:rgba(255,255,255,.28);display:block}
+
+  h2.t{font:700 25px/1.18 inherit;letter-spacing:-.028em;margin:14px 0 6px}
+  p.d{color:var(--ink-2);font-size:14px;margin:0 0 14px;line-height:1.45}
+
+  .feats{display:flex;flex-direction:column;gap:11px;margin:2px 0 16px}
+  .feat{display:flex;gap:10px;align-items:flex-start}
+  .tick{width:19px;height:19px;border-radius:99px;background:var(--blue-tint-2);color:var(--blue-text);
+    font:800 11px/19px inherit;text-align:center;flex:none;margin-top:1px}
+  .feat b{font-weight:600;font-size:14px}
+  .feat span{display:block;color:var(--ink-2);font-size:12.5px;line-height:1.4}
+
+  /* plan rows (A) */
+  .plans{display:flex;flex-direction:column;gap:9px}
+  .row{position:relative;border:1.5px solid var(--border);border-radius:16px;padding:13px 15px;
+    display:flex;align-items:center;gap:12px;background:var(--page)}
+  .row.on{border-color:var(--blue);background:var(--blue-tint);border-width:2px;padding:12px 14px}
+  .radio{width:21px;height:21px;border-radius:99px;border:1.5px solid var(--border-strong);flex:none}
+  .row.on .radio{border:0;background:var(--blue);color:#fff;font:800 11px/21px inherit;text-align:center}
+  .rl{flex:1;min-width:0}
+  .rl b{display:flex;align-items:center;gap:7px;font:650 15.5px/1.25 inherit}
+  .inline-badge{background:var(--green);color:#fff;font:800 10px/1 inherit;letter-spacing:.04em;
+    padding:4px 7px;border-radius:99px}
+  .rl span{display:block;color:var(--ink-2);font-size:12.5px;margin-top:2px}
+  .rr{text-align:right}
+  .rr b{display:block;font:700 16.5px/1.2 inherit;letter-spacing:-.015em}
+  .rr span{display:block;color:var(--ink-3);font-size:11.5px;margin-top:2px}
+  .badge{position:absolute;top:-9px;left:44px;background:var(--green);color:#fff;
+    font:800 10.5px/1 inherit;letter-spacing:.04em;padding:5px 9px;border-radius:99px}
+  .badge.b2{background:var(--blue);left:auto;right:14px}
+
+  /* tiles (B) */
+  .tiles{display:flex;gap:10px}
+  .tile{flex:1;position:relative;border:1.5px solid var(--border);border-radius:18px;padding:19px 13px 14px;
+    text-align:center;background:var(--page)}
+  .tile.on{border-color:var(--blue);border-width:2px;background:var(--blue-tint);padding:18px 12px 13px}
+  .tile .badge{left:50%;transform:translateX(-50%);white-space:nowrap}
+  .tile .lbl{font:650 13.5px/1 inherit;color:var(--ink-2)}
+  .tile.on .lbl{color:var(--blue-text)}
+  .tile .big{font:800 25px/1.1 inherit;letter-spacing:-.03em;margin:9px 0 2px}
+  .tile .per{color:var(--ink-2);font-size:12px}
+  .tile .eq{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);color:var(--ink-3);font-size:11.5px}
+  .tile.on .eq{border-color:var(--blue-tint-2);color:var(--blue-text);font-weight:600}
+
+  /* segmented (C) */
+  .seg{display:flex;padding:3px;background:var(--surface);border:1px solid var(--border);
+    border-radius:99px;margin:0 0 18px}
+  .seg div{flex:1;text-align:center;padding:9px 0;border-radius:99px;font:650 13.5px/1 inherit;color:var(--ink-2)}
+  .seg div.on{background:var(--blue);color:#fff}
+  .hero{text-align:center;padding:4px 0 2px}
+  .hero .price{font:800 42px/1 inherit;letter-spacing:-.04em}
+  .hero .price em{font:600 17px/1 inherit;font-style:normal;color:var(--ink-2);letter-spacing:0}
+  .hero .under{color:var(--ink-2);font-size:13.5px;margin-top:8px}
+  .save{display:inline-block;margin-top:10px;background:var(--green-tint);color:var(--green);
+    font:750 12px/1 inherit;padding:6px 11px;border-radius:99px}
+
+  /* anchored (D) */
+  .anchor{border:2px solid var(--blue);border-radius:20px;background:var(--blue-tint);padding:16px;
+    position:relative}
+  .anchor .lbl{font:750 13px/1 inherit;color:var(--blue-text);letter-spacing:.02em}
+  .anchor .big{font:800 34px/1 inherit;letter-spacing:-.035em;margin:10px 0 0}
+  .anchor .big em{font:600 15px/1 inherit;font-style:normal;color:var(--ink-2);letter-spacing:0}
+  .math{margin-top:12px;padding-top:12px;border-top:1px solid var(--blue-tint-2);
+    display:flex;flex-direction:column;gap:5px;font-size:12.5px}
+  .math i{font-style:normal;display:flex;justify-content:space-between;color:var(--ink-2)}
+  .math i b{color:var(--ink);font-weight:650}
+  .math i.strike b{color:var(--ink-3);text-decoration:line-through;font-weight:500}
+  .alt{margin-top:9px;border:1.5px solid var(--border);border-radius:16px;padding:12px 15px;
+    display:flex;align-items:center;justify-content:space-between}
+  .alt b{font:650 14.5px/1 inherit}
+  .alt span{color:var(--ink-2);font-size:13px}
+
+  /* CTA block */
+  .cta{margin-top:14px;width:100%;background:var(--blue);color:#fff;border:0;border-radius:99px;
+    padding:16px;font:700 16px/1 inherit;text-align:center;letter-spacing:-.01em}
+  .renew{text-align:center;color:var(--ink-2);font-size:12px;margin:9px 0 0;line-height:1.45}
+  .escape{text-align:center;margin:13px 0 0;font-size:13px;color:var(--ink-2)}
+  .escape a{color:var(--blue-text);font-weight:650;text-decoration:none}
+  .legal{display:flex;justify-content:center;gap:14px;margin:12px 0 0;color:var(--ink-3);font-size:11.5px}
+  .spacer{flex:1}
+</style>
+<body>
+<header>
+  <h1>Evenly Pro — paywall plan cards, four directions</h1>
+  <p class="sub">Same content in all four; only the plan block changes. $2.99/mo vs $19.99/yr is a 44% discount,
+  so annual is the anchor and is preselected everywhere. No free trial exists (the 5 free scans are the trial),
+  so no CTA says "Start free trial". The renewal sentence sits under the button in every direction, per spec §8.2.</p>
+  <div class="toggle" role="group">
+    <button aria-pressed="true" onclick="document.body.classList.remove('dark');t(this)">Light</button>
+    <button aria-pressed="false" onclick="document.body.classList.add('dark');t(this)">Dark</button>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- ============ A ============ -->
+  <div class="cell">
+    <p class="cap">A. Ladder <span>— stacked rows, annual on top</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>▮▮▮ ᯤ ▉</span></div>
+      <div class="body">
+        <div class="topbar">
+          <div class="x">✕</div>
+          <div class="propill"><i></i>PRO</div>
+        </div>
+        <h2 class="t">Stop typing out receipts</h2>
+        <p class="d">Snap the bill, Evenly reads every line. Unlimited, in every group you are in.</p>
+        <div class="feats">
+          <div class="feat"><div class="tick">✓</div><div><b>Unlimited receipt scans</b><span>Every group you are an active member of</span></div></div>
+          <div class="feat"><div class="tick">✓</div><div><b>Your whole group benefits</b><span>One of you subscribes, nobody else pays</span></div></div>
+          <div class="feat"><div class="tick">✓</div><div><b>Export any group</b><span>Every bill and settlement as a CSV</span></div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="plans">
+          <div class="row on">
+            <div class="radio">✓</div>
+            <div class="rl"><b>Yearly <em class="inline-badge">SAVE 44%</em></b><span>$1.67 a month</span></div>
+            <div class="rr"><b>$19.99</b><span>per year</span></div>
+          </div>
+          <div class="row">
+            <div class="radio"></div>
+            <div class="rl"><b>Monthly</b><span>$2.99 a month</span></div>
+            <div class="rr"><b>$2.99</b><span>per month</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="foot">
+        <div class="cta">Get Evenly Pro</div>
+        <p class="renew">$19.99 today, then $19.99 on 15 Aug 2027.<br>Cancel anytime in the App Store.</p>
+        <p class="escape">Only need it for one trip? <a>Get a group pass</a></p>
+        <div class="legal"><span>Restore</span><span>Terms</span><span>Privacy</span></div>
+      </div>
+    </div>
+    <p class="note"><b>Why it works:</b> the per-month equivalent ($1.67) sits directly under "Yearly", so the
+    44% is felt rather than claimed. Vertical rows scan fastest on a phone and give the price room to breathe.<br>
+    <span class="ok">RC v2:</span> trivially expressible — this is close to the stock package template.<br>
+    <b>Risk:</b> the most conventional of the four. Reads competent, not memorable.</p>
+  </div>
+
+  <!-- ============ B ============ -->
+  <div class="cell">
+    <p class="cap">B. Tiles <span>— side by side, Tide Guide shape</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>▮▮▮ ᯤ ▉</span></div>
+      <div class="body">
+        <div class="topbar">
+          <div class="x">✕</div>
+          <div class="propill"><i></i>PRO</div>
+        </div>
+        <h2 class="t">Stop typing out receipts</h2>
+        <p class="d">Snap the bill, Evenly reads every line. Unlimited, in every group you are in.</p>
+        <div class="feats">
+          <div class="feat"><div class="tick">✓</div><div><b>Unlimited receipt scans</b><span>Every group you are an active member of</span></div></div>
+          <div class="feat"><div class="tick">✓</div><div><b>Your whole group benefits</b><span>One of you subscribes, nobody else pays</span></div></div>
+          <div class="feat"><div class="tick">✓</div><div><b>Export any group</b><span>Every bill and settlement as a CSV</span></div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="tiles">
+          <div class="tile">
+            <div class="lbl">Monthly</div>
+            <div class="big">$2.99</div>
+            <div class="per">per month</div>
+            <div class="eq">$35.88 a year</div>
+          </div>
+          <div class="tile on">
+            <div class="badge">SAVE 44%</div>
+            <div class="lbl">Yearly</div>
+            <div class="big">$19.99</div>
+            <div class="per">per year</div>
+            <div class="eq">$1.67 a month</div>
+          </div>
+        </div>
+      </div>
+      <div class="foot">
+        <div class="cta">Get Evenly Pro</div>
+        <p class="renew">$19.99 today, then $19.99 on 15 Aug 2027.<br>Cancel anytime in the App Store.</p>
+        <p class="escape">Only need it for one trip? <a>Get a group pass</a></p>
+        <div class="legal"><span>Restore</span><span>Terms</span><span>Privacy</span></div>
+      </div>
+    </div>
+    <p class="note"><b>Why it works:</b> the footer row is the whole argument — $35.88 a year sits under Monthly,
+    $1.67 a month sits under Yearly. Each plan is quoted in the other's unit, which is the cleanest way to make
+    the comparison without a marketing claim.<br>
+    <span class="ok">RC v2:</span> expressible (horizontal package stack).<br>
+    <b>Risk:</b> two columns halve the width, so long localized prices (Rp 289.000/tahun) wrap badly. Needs testing
+    in the fattest currency we ship to.</p>
+  </div>
+
+  <!-- ============ C ============ -->
+  <div class="cell">
+    <p class="cap">C. Segmented <span>— one price at a time, Otter shape</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>▮▮▮ ᯤ ▉</span></div>
+      <div class="body">
+        <div class="topbar">
+          <div class="x">✕</div>
+          <div class="propill"><i></i>PRO</div>
+        </div>
+        <h2 class="t">Stop typing out receipts</h2>
+        <div class="hero">
+          <div class="price">$19.99<em> / year</em></div>
+          <div class="under">That is $1.67 a month, billed yearly</div>
+          <div class="save">Save 44% vs monthly</div>
+        </div>
+        <div style="height:18px"></div>
+        <div class="seg"><div class="on">Yearly</div><div>Monthly</div></div>
+        <div class="feats">
+          <div class="feat"><div class="tick">✓</div><div><b>Unlimited receipt scans</b><span>Every group you are an active member of</span></div></div>
+          <div class="feat"><div class="tick">✓</div><div><b>Your whole group benefits</b><span>One of you subscribes, nobody else pays</span></div></div>
+          <div class="feat"><div class="tick">✓</div><div><b>Export any group</b><span>Every bill and settlement as a CSV</span></div></div>
+        </div>
+        <div class="spacer"></div>
+      </div>
+      <div class="foot">
+        <div class="cta">Get Evenly Pro</div>
+        <p class="renew">$19.99 today, then $19.99 on 15 Aug 2027.<br>Cancel anytime in the App Store.</p>
+        <p class="escape">Only need it for one trip? <a>Get a group pass</a></p>
+        <div class="legal"><span>Restore</span><span>Terms</span><span>Privacy</span></div>
+      </div>
+    </div>
+    <p class="note"><b>Why it works:</b> price becomes the hero instead of a line item, and the user compares one
+    number at a time instead of doing arithmetic. Best direction if we ever add a third package.<br>
+    <span class="no">RC v2 caveat:</span> a segmented control that swaps a hero price is <b>not</b> a stock
+    component. Achievable with a tab/stack setup, but this is the direction most likely to need a custom
+    Compose paywall, which forfeits Experiments.<br>
+    <b>Risk:</b> hiding monthly behind a tab reads as pressure in a money app. The 44% only lands if the user
+    taps the other tab.</p>
+  </div>
+
+  <!-- ============ D ============ -->
+  <div class="cell">
+    <p class="cap">D. Anchored <span>— show the arithmetic, monthly stays visible</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><span>▮▮▮ ᯤ ▉</span></div>
+      <div class="body">
+        <div class="topbar">
+          <div class="x">✕</div>
+          <div class="propill"><i></i>PRO</div>
+        </div>
+        <h2 class="t">Stop typing out receipts</h2>
+        <p class="d">Snap the bill, Evenly reads every line. Unlimited, in every group you are in.</p>
+        <div class="feats">
+          <div class="feat"><div class="tick">✓</div><div><b>Unlimited receipt scans</b><span>Every group you are an active member of</span></div></div>
+          <div class="feat"><div class="tick">✓</div><div><b>Your whole group benefits</b><span>One of you subscribes, nobody else pays</span></div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="anchor">
+          <div class="badge b2">BEST VALUE</div>
+          <div class="lbl">YEARLY</div>
+          <div class="big">$19.99<em> / year</em></div>
+          <div class="math">
+            <i><span>Works out to</span><b>$1.67 a month</b></i>
+            <i class="strike"><span>Paying monthly for a year</span><b>$35.88</b></i>
+            <i style="color:var(--green);font-weight:650"><span>You keep</span><b style="color:var(--green)">$15.89</b></i>
+          </div>
+        </div>
+        <div class="alt">
+          <div><b>Monthly</b></div>
+          <div><span>$2.99 / month</span></div>
+        </div>
+      </div>
+      <div class="foot">
+        <div class="cta">Get Evenly Pro, $19.99 a year</div>
+        <p class="renew">Renews 15 Aug 2027 for $19.99. Cancel anytime in the App Store.</p>
+        <p class="escape">Only need it for one trip? <a>Get a group pass</a></p>
+        <div class="legal"><span>Restore</span><span>Terms</span><span>Privacy</span></div>
+      </div>
+    </div>
+    <p class="note"><b>Why it works:</b> this is the only direction that argues in Evenly's own voice. Evenly is an
+    app about people checking each other's arithmetic, so showing the subtraction ($35.88 → $19.99, you keep $15.89)
+    is on-brand in a way a "SAVE 44%" pill is not. Monthly stays fully visible and one tap away, which is what
+    keeps it from feeling like a funnel.<br>
+    <span class="ok">RC v2:</span> expressible, but the three math rows are static text that must be rewritten per
+    currency. Safer variant: keep row 1, drop rows 2 and 3 outside the US.<br>
+    <b>Risk:</b> heaviest block on the screen; pushes the feature list down to two items.</p>
+  </div>
+
+</div>
+<script>
+  function t(b){[...b.parentNode.children].forEach(x=>x.setAttribute('aria-pressed',x===b))}
+</script>
+</body>

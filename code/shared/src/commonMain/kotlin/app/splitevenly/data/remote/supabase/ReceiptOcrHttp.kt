@@ -1,11 +1,11 @@
 package app.splitevenly.data.remote.supabase
 
+import app.splitevenly.data.upload.AccessTokenProvider
 import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptDraftItem
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
-import app.splitevenly.data.upload.AccessTokenProvider
 import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.ImageProcessor
 import app.splitevenly.platform.NetworkStatus
@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -42,11 +43,13 @@ class ReceiptOcrHttp(
     // skipped the limit entirely — anyone with the shipped anon key got unlimited paid Claude-vision calls.
     private val accessTokenProvider: AccessTokenProvider? = null,
 ) : ReceiptOcr {
-
     private val json = Json { ignoreUnknownKeys = true }
 
     @OptIn(ExperimentalEncodingApi::class)
-    override suspend fun extract(files: List<ReceiptOcrFile>, groupId: String?): ScanOutcome {
+    override suspend fun extract(
+        files: List<ReceiptOcrFile>,
+        groupId: String?,
+    ): ScanOutcome {
         if (files.isEmpty()) return ScanOutcome.NoReceiptFound
         if (!SupabaseConfig.isConfigured) return ScanOutcome.Unavailable
         // Don't burn a doomed round-trip (or leave the user staring at a spinner) when there's no network.
@@ -59,23 +62,28 @@ class ReceiptOcrHttp(
             // several MB and, once base64-inflated ~33%, blows past Anthropic vision's 5 MB/image limit — the
             // edge function then relays a 400 as a 502 and the scan "just fails" on real devices (never on the
             // emulator, whose synthetic image is tiny). Compressing here keeps every caller under the limit.
-            val parts = files.map { file ->
-                // OCR needs legible text, not a small upload: downscale to 2048px (not the 1600 upload
-                // default) so faint thermal-receipt print survives. Still well under Anthropic vision's
-                // 5 MB/image limit once base64-inflated, so it never trips the 400-relayed-as-502 path.
-                val processed = imageProcessor?.compress(file.bytes, file.mimeType, maxDimension = 2048)
-                if (processed != null) ExtractPart(Base64.encode(processed.bytes), processed.mimeType)
-                else ExtractPart(Base64.encode(file.bytes), file.mimeType)
-            }
+            val parts =
+                files.map { file ->
+                    // OCR needs legible text, not a small upload: downscale to 2048px (not the 1600 upload
+                    // default) so faint thermal-receipt print survives. Still well under Anthropic vision's
+                    // 5 MB/image limit once base64-inflated, so it never trips the 400-relayed-as-502 path.
+                    val processed = imageProcessor?.compress(file.bytes, file.mimeType, maxDimension = 2048)
+                    if (processed != null) {
+                        ExtractPart(Base64.encode(processed.bytes), processed.mimeType)
+                    } else {
+                        ExtractPart(Base64.encode(file.bytes), file.mimeType)
+                    }
+                }
             val body = json.encodeToString(ExtractReq(files = parts, groupId = groupId))
-            val response = http.post("${SupabaseConfig.URL}/functions/v1/extract-receipt") {
-                // Bearer = the USER's token (so auth.getUser() resolves them); apikey stays the anon key,
-                // which is what the Supabase gateway checks to admit the request at all.
-                header("Authorization", "Bearer $userToken")
-                header("apikey", SupabaseConfig.ANON_KEY)
-                contentType(ContentType.Application.Json)
-                setBody(body)
-            }
+            val response =
+                http.post("${SupabaseConfig.URL}/functions/v1/extract-receipt") {
+                    // Bearer = the USER's token (so auth.getUser() resolves them); apikey stays the anon key,
+                    // which is what the Supabase gateway checks to admit the request at all.
+                    header("Authorization", "Bearer $userToken")
+                    header("apikey", SupabaseConfig.ANON_KEY)
+                    contentType(ContentType.Application.Json)
+                    setBody(body)
+                }
             val raw = response.bodyAsText()
             // The rate limit (P1 #11) turns the request away with a 429 BEFORE any vision call — a
             // distinct "you're not allowed right now" outcome, not a generic failure. Any other non-2xx
@@ -95,13 +103,22 @@ class ReceiptOcrHttp(
             val resp = json.decodeFromString<ExtractResp>(raw)
             when {
                 !resp.configured -> ScanOutcome.Unavailable
+
                 // The server's own is_receipt classifier decided this photo isn't a receipt at all (a
                 // selfie, a ride-share summary, an unrelated screenshot) — short-circuited before any
                 // Sonnet/Opus escalation, so this is always a single cheap call regardless of retries.
                 resp.noReceipt -> ScanOutcome.NoReceiptFound
+
                 resp.receipt == null || resp.receipt.items.isEmpty() -> ScanOutcome.NoReceiptFound
+
                 else -> ScanOutcome.Success(resp.receipt.toDraft(resp.verified), scanId = resp.scanId)
             }
+        } catch (e: CancellationException) {
+            // Never swallow structured-concurrency cancellation. The user tapping Cancel cancels
+            // `scanJob` mid-request; catching it here let the (already cancelled) coroutine carry on
+            // through the non-suspending tail — flipping the sheet from Idle to an error the user did
+            // not cause, and counting every cancellation as a scan failure in the OCR funnel.
+            throw e
         } catch (t: Throwable) {
             ScanOutcome.Failed(t.message)
         }
@@ -110,12 +127,18 @@ class ReceiptOcrHttp(
 
 /** One receipt page sent to the edge function: base64 bytes + its MIME type (an image type or application/pdf). */
 @Serializable
-private class ExtractPart(val data: String, val mediaType: String)
+private class ExtractPart(
+    val data: String,
+    val mediaType: String,
+)
 
 /** The multi-page request; the edge function reads every part together as one bill. [groupId] is
  *  analytics-only (Plan A attributes the scan to a group) — the OCR itself doesn't need it. */
 @Serializable
-private class ExtractReq(val files: List<ExtractPart>, val groupId: String? = null)
+private class ExtractReq(
+    val files: List<ExtractPart>,
+    val groupId: String? = null,
+)
 
 @Serializable
 private class ExtractResp(
@@ -134,7 +157,9 @@ private class ExtractResp(
 
 /** The shape of a non-2xx response body — `{"error": "..."}` per the edge function's `json()` helper. */
 @Serializable
-private class ErrorResp(val error: String? = null)
+private class ErrorResp(
+    val error: String? = null,
+)
 
 @Serializable
 private class RcptDto(
@@ -147,17 +172,18 @@ private class RcptDto(
     @SerialName("other_charges_subunits") val otherCharges: Long = 0,
     @SerialName("detected_total_subunits") val detectedTotal: Long = 0,
 ) {
-    fun toDraft(verified: Boolean) = ReceiptDraft(
-        currency = currency,
-        items = items.map { ReceiptDraftItem(it.label, it.quantity.coerceAtLeast(1), it.lineTotal) },
-        taxSubunits = tax,
-        gratuitySubunits = gratuity,
-        tipSubunits = tip,
-        discountSubunits = discount,
-        otherChargesSubunits = otherCharges,
-        detectedTotalSubunits = detectedTotal,
-        verified = verified,
-    )
+    fun toDraft(verified: Boolean) =
+        ReceiptDraft(
+            currency = currency,
+            items = items.map { ReceiptDraftItem(it.label, it.quantity.coerceAtLeast(1), it.lineTotal) },
+            taxSubunits = tax,
+            gratuitySubunits = gratuity,
+            tipSubunits = tip,
+            discountSubunits = discount,
+            otherChargesSubunits = otherCharges,
+            detectedTotalSubunits = detectedTotal,
+            verified = verified,
+        )
 }
 
 @Serializable

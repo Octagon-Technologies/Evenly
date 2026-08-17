@@ -36,7 +36,6 @@ fun EvenlyNavHost(
     modifier: Modifier = Modifier,
 ) {
     NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
-
         // ── Auth ────────────────────────────────────────────────────────
         composable<Route.Welcome> {
             WelcomeRoute(onFinished = {
@@ -73,6 +72,7 @@ fun EvenlyNavHost(
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
+                onSendFeedback = { navController.navigate(Route.Feedback) },
                 onOpenPro = { navController.navigate(Route.Pro(ProTriggers.PROFILE)) },
             )
         }
@@ -170,7 +170,9 @@ fun EvenlyNavHost(
         }
         composable<Route.EditExpense> { entry ->
             val r = entry.toRoute<Route.EditExpense>()
-            EditExpenseRoute(groupId = r.groupId, expenseId = r.expenseId, onBack = { navController.popBackStack() }, onSaved = { navController.popBackStack() })
+            EditExpenseRoute(groupId = r.groupId, expenseId = r.expenseId, onBack = {
+                navController.popBackStack()
+            }, onSaved = { navController.popBackStack() })
         }
 
         // ── Split the bill (itemized) ───────────────────────────────────
@@ -277,6 +279,9 @@ fun EvenlyNavHost(
         }
         composable<Route.PaymentHandles> {
             PaymentHandlesRoute(onBack = { navController.popBackStack() })
+        }
+        composable<Route.Feedback> {
+            FeedbackRoute(onBack = { navController.popBackStack() })
         }
         composable<Route.Pro> { entry ->
             ProRoute(

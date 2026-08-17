@@ -24,40 +24,30 @@ data class UserSubscriptionEntity(
     @PrimaryKey
     @ColumnInfo(name = "user_id")
     val userId: String,
-
     @ColumnInfo(name = "product_id")
     val productId: String,
-
-    /** `app_store` | `play_store` | `promo`. */
+    /** `app_store` | `play_store` | `promo` | `test_store` (RevenueCat's simulated store). */
     @ColumnInfo(name = "store")
     val store: String,
-
     @ColumnInfo(name = "rc_app_user_id")
     val rcAppUserId: String,
-
     /** `monthly` | `annual`. Doubles as the `tier` label on the Pro badge. */
     @ColumnInfo(name = "period")
     val period: String,
-
     @ColumnInfo(name = "started_at")
     val startedAt: Long,
-
     /** The paid-through date on the SERVER clock. Someone who cancels stays Pro to the end of the
      *  period they already paid for. */
     @ColumnInfo(name = "expires_at")
     val expiresAt: Long,
-
     /** Renders "renews 16 Aug" vs "ends 16 Aug". It never decides entitlement; [expiresAt] alone does. */
     @ColumnInfo(name = "will_renew")
     val willRenew: Boolean = true,
-
     /** Set on a refund or chargeback. Nothing already scanned is taken away. */
     @ColumnInfo(name = "revoked_at")
     val revokedAt: Long? = null,
-
     @ColumnInfo(name = "updated_at")
     val updatedAt: Long,
-
     @ColumnInfo(name = "row_version")
     val rowVersion: Long = 1,
 )

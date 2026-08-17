@@ -1,0 +1,490 @@
+<title>Evenly Waitlist A3</title>
+<style>
+:root{
+  --ground:#EDF1F7; --deck-ink:#0B1220; --deck-ink2:#5B6577; --deck-ink3:#9AA3B2;
+  --deck-border:#E6EAF0; --deck-blue:#2563EB;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0A0E17; --deck-ink:#E9EDF5; --deck-ink2:#A6B0C2; --deck-ink3:#6C7689;
+    --deck-border:#242C3B; --deck-blue:#5B8DEF;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0A0E17; --deck-ink:#E9EDF5; --deck-ink2:#A6B0C2; --deck-ink3:#6C7689;
+  --deck-border:#242C3B; --deck-blue:#5B8DEF;
+}
+/* Artboards mock a light/blue site, so they hold the light palette in both themes. */
+.desk,.ph{
+  --page:#FFFFFF; --surface:#F6F8FB; --border:#E6EAF0; --border-strong:#D6DCE6;
+  --ink:#0B1220; --ink-2:#5B6577; --ink-3:#9AA3B2;
+  --blue:#2563EB; --blue-press:#1E40AF; --blue-tint:#EFF4FF; --blue-tint-2:#DBE6FF;
+  --green:#16A34A; --green-tint:#E7F4EC; --green-line:#C7E7D2;
+  --amber:#B45309; --amber-tint:#FDF3E3; --amber-line:#EBD9BC;
+  --font:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  color:var(--ink);font-family:var(--font);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+     background:var(--ground);color:var(--deck-ink);padding:44px 22px 100px;
+     -webkit-font-smoothing:antialiased;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.deck-h1{font-size:27px;font-weight:680;letter-spacing:-.025em}
+.deck-lede{color:var(--deck-ink2);font-size:15px;max-width:800px}
+.deck-lede b{color:var(--deck-ink);font-weight:640}
+.rule{height:1px;background:var(--deck-border);margin:36px 0 0}
+.sect{display:flex;flex-direction:column;gap:8px;margin-top:44px}
+.sect .kicker{font-size:11.5px;font-weight:750;letter-spacing:.12em;text-transform:uppercase;color:var(--deck-blue)}
+.sect h2{font-size:22px;font-weight:680;letter-spacing:-.02em}
+.sect .why{font-size:14px;color:var(--deck-ink2);max-width:840px}
+.sect .why b{color:var(--deck-ink);font-weight:640}
+.stage{display:flex;gap:26px;align-items:flex-start;overflow-x:auto;padding:22px 2px 8px;scroll-snap-type:x proximity}
+.col{flex:0 0 auto;scroll-snap-align:start}
+.cap{font-size:12.5px;color:var(--deck-ink2);line-height:1.55;margin-top:12px;max-width:820px}
+.cap b{display:block;color:var(--deck-ink);font-weight:650;font-size:13px;margin-bottom:2px}
+
+/* artboards */
+.desk{width:840px;border-radius:14px;overflow:hidden;background:var(--page);
+      box-shadow:0 0 0 1px rgba(11,18,32,.08),0 26px 54px -22px rgba(11,18,32,.32)}
+.browser{height:36px;background:var(--surface);border-bottom:1px solid var(--border);
+         display:flex;align-items:center;gap:9px;padding:0 13px}
+.browser .d{width:9px;height:9px;border-radius:50%;background:var(--border-strong)}
+.browser .addr{flex:1;height:21px;border-radius:999px;background:var(--page);border:1px solid var(--border);
+       display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px;color:var(--ink-2);margin-left:8px}
+.browser .lock{width:8px;height:8px;border:1.4px solid var(--ink-3);border-radius:1.5px;border-bottom-width:4px}
+.ph{width:320px;background:var(--page);border-radius:36px;overflow:hidden;display:flex;flex-direction:column;
+    box-shadow:0 0 0 1px rgba(11,18,32,.08),0 22px 46px -18px rgba(11,18,32,.28)}
+.ph .st{height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+        padding:0 22px 0 24px;font-size:12px;font-weight:600}
+.ph--tall{height:722px}
+.ph .stbody{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* shared */
+.brandrow{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;letter-spacing:-.02em;font-size:16.5px}
+.mark{width:26px;height:26px;border-radius:8px;background:var(--blue);position:relative;flex-shrink:0}
+.mark::after{content:"";position:absolute;inset:6px 7px;border-left:2.2px solid #fff;border-radius:0 0 0 9px;
+             border-bottom:2.2px solid #fff;transform:rotate(-14deg)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 12px;border-radius:999px;
+      background:var(--blue-tint);color:var(--blue-press);border:1px solid var(--blue-tint-2);
+      font-size:11.5px;font-weight:700;white-space:nowrap}
+.dotlive{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.h1{font-weight:700;letter-spacing:-.035em;line-height:1.06;text-wrap:balance}
+.h1 em{font-style:normal;color:var(--blue)}
+.sub{font-size:16px;color:var(--ink-2);line-height:1.6}
+.sub b{color:var(--ink);font-weight:640}
+.form{display:flex;gap:9px;max-width:452px;width:100%}
+.field{flex:1;height:52px;border:1.5px solid var(--blue);border-radius:13px;background:var(--page);
+       display:flex;align-items:center;padding:0 16px;font-size:15px;box-shadow:0 0 0 3px var(--blue-tint)}
+.cur{width:1.6px;height:19px;background:var(--blue);margin-left:2px}
+.cta{height:52px;padding:0 24px;border-radius:13px;background:var(--blue);color:#fff;border:none;
+     font-family:inherit;font-size:15px;font-weight:660;display:flex;align-items:center;
+     justify-content:center;gap:8px;flex-shrink:0}
+.micro{font-size:12.5px;color:var(--ink-3);display:flex;align-items:center;gap:9px}
+.faces{display:flex}
+.faces span{width:22px;height:22px;border-radius:50%;background:var(--blue-tint-2);color:var(--blue-press);
+   border:2px solid var(--page);margin-left:-7px;font-size:9.5px;font-weight:800;
+   display:flex;align-items:center;justify-content:center}
+.faces span:first-child{margin-left:0}
+.eyebrow{font-size:11px;font-weight:780;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);
+         display:flex;align-items:center;gap:9px}
+.eyebrow.on{color:var(--blue)}
+.eyebrow i{flex:1;height:1px;background:var(--border)}
+
+/* receipt + claims */
+.scan{position:relative;border-radius:13px;overflow:hidden;background:var(--page);border:1px solid var(--border)}
+.paper{padding:14px 15px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);line-height:1.95}
+.paper .big{font-size:11.5px;font-weight:700;color:var(--ink);letter-spacing:.1em;text-align:center;
+            display:block;margin-bottom:5px}
+.paper .r{display:flex;justify-content:space-between;gap:10px}
+.beam{position:absolute;left:0;right:0;height:62px;pointer-events:none;
+      background:linear-gradient(180deg,transparent,rgba(37,99,235,.13) 55%,rgba(37,99,235,.32));
+      border-bottom:1.5px solid var(--blue);animation:beam 4.6s cubic-bezier(.5,0,.5,1) infinite}
+@keyframes beam{0%{top:-64px}40%{top:100%}41%,100%{top:100%;opacity:0}}
+.rc{border:1px solid var(--border);border-radius:13px;background:var(--page);overflow:hidden}
+.rch{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;
+     justify-content:space-between;background:var(--surface)}
+.rch .t{font-size:12.5px;font-weight:680}
+.rch .s{font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.li{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;
+    animation:pop .5s both}
+.li:last-child{border-bottom:none}
+.li .n{flex:1;min-width:0;font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.li .a{font-size:13px;font-weight:660;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.li:nth-child(2){animation-delay:1.4s}.li:nth-child(3){animation-delay:1.75s}
+.li:nth-child(4){animation-delay:2.1s}.li:nth-child(5){animation-delay:2.45s}
+@keyframes pop{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.claim{height:25px;padding:0 11px;border-radius:999px;border:1px dashed var(--blue);color:var(--blue);
+       background:transparent;font-size:11px;font-weight:680;display:inline-flex;align-items:center;
+       gap:5px;font-family:inherit}
+.claim.taken{border-style:solid;border-color:var(--green-line);background:var(--green-tint);color:var(--green);
+             animation:flip .45s 3.1s both}
+.claim.taken .av{background:rgba(22,163,74,.16);color:var(--green)}
+@keyframes flip{from{opacity:.2;transform:scale(.88)}to{opacity:1;transform:none}}
+.av{width:15px;height:15px;border-radius:50%;background:var(--blue-tint-2);color:var(--blue-press);
+    font-size:8px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+@media (prefers-reduced-motion:reduce){.beam{animation:none;top:36%}.li,.claim.taken{animation:none}}
+
+/* ---------- page: hero ---------- */
+.pg{background:var(--surface);display:flex;flex-direction:column}
+.top{padding:20px 36px;display:flex;align-items:center;justify-content:space-between;
+     background:var(--page);border-bottom:1px solid var(--border)}
+.hero{background:var(--page);padding:52px 36px 46px;display:flex;flex-direction:column;
+      align-items:center;text-align:center;gap:0}
+.hero .h1{font-size:52px;max-width:15ch}
+.hero .sub{margin-top:20px;max-width:54ch;font-size:16.5px}
+.hero .form{margin-top:30px}
+.hero .micro{margin-top:16px}
+
+/* ---------- page: the two panels ---------- */
+.panels{display:grid;grid-template-columns:1fr 1fr;background:var(--page);
+        margin:0 36px;border:1px solid var(--border);border-radius:18px;overflow:hidden}
+.pan{padding:24px 24px 26px;display:flex;flex-direction:column;gap:14px}
+.pan+.pan{border-left:1px solid var(--border)}
+.pan .pcap{font-size:13px;color:var(--ink-2);line-height:1.55}
+.pan .pcap b{color:var(--ink);font-weight:650}
+
+/* ---------- page: breadth ---------- */
+.breadth{padding:52px 36px 46px;display:flex;flex-direction:column;gap:28px;background:var(--surface)}
+.bhead{display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px}
+.bhead h2{font-size:31px;font-weight:700;letter-spacing:-.03em;line-height:1.15;max-width:18ch}
+.bhead p{font-size:15.5px;color:var(--ink-2);line-height:1.6;max-width:56ch}
+.bhead p b{color:var(--ink);font-weight:640}
+.bgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.bcard{background:var(--page);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+.bcard .bh{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;
+           justify-content:space-between}
+.bcard .bh .t{font-size:14px;font-weight:680;letter-spacing:-.015em}
+.bcard .bh .s{font-size:11.5px;color:var(--ink-3)}
+.ex{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:center}
+.ex:last-child{border-bottom:none}
+.ico{width:34px;height:34px;border-radius:11px;background:var(--blue-tint);display:flex;align-items:center;
+     justify-content:center;flex-shrink:0;color:var(--blue-press);font-size:15px}
+.ex .g{flex:1;min-width:0}
+.ex .t{font-size:14px;font-weight:640;letter-spacing:-.01em}
+.ex .m{font-size:12px;color:var(--ink-3);margin-top:2px}
+.ex .v{font-size:13.5px;font-weight:680;font-variant-numeric:tabular-nums;text-align:right;flex-shrink:0}
+.ex .v.owed{color:var(--green)}
+.ex .v.owe{color:var(--amber)}
+.bal{padding:18px 16px 16px;display:flex;flex-direction:column;gap:14px}
+.balbig{display:flex;flex-direction:column;gap:3px}
+.balbig .k{font-size:12px;color:var(--ink-3);font-weight:600}
+.balbig .v{font-size:33px;font-weight:700;letter-spacing:-.035em;color:var(--green);
+           font-variant-numeric:tabular-nums;line-height:1}
+.bar{height:9px;border-radius:5px;overflow:hidden;display:flex;background:var(--surface);border:1px solid var(--border)}
+.bar i{display:block;height:100%}
+.bar .paid{background:var(--green);flex:0 0 62%}
+.bar .open{background:var(--amber-tint);flex:1;border-left:1px solid var(--amber-line)}
+.barlbl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3)}
+.barlbl b{color:var(--ink-2);font-weight:660}
+.settle{border-top:1px solid var(--border);padding-top:13px;display:flex;flex-direction:column;gap:9px}
+.srow{display:flex;align-items:center;gap:10px}
+.srow .g{flex:1;min-width:0}
+.srow .t{font-size:13px;font-weight:620}
+.srow .m{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+.sbtn{height:28px;padding:0 13px;border-radius:999px;background:var(--blue);color:#fff;border:none;
+      font-family:inherit;font-size:11.5px;font-weight:680;flex-shrink:0}
+.sbtn.done{background:var(--green-tint);color:var(--green);border:1px solid var(--green-line)}
+
+/* ---------- page: close ---------- */
+.close{background:var(--page);border-top:1px solid var(--border);padding:46px 36px 44px;
+       display:flex;flex-direction:column;align-items:center;text-align:center;gap:0}
+.close h2{font-size:29px;font-weight:700;letter-spacing:-.03em;max-width:17ch;line-height:1.15}
+.close .form{margin-top:26px}
+.close .micro{margin-top:15px}
+.tags{display:flex;gap:9px;flex-wrap:wrap;justify-content:center;margin-top:22px}
+.tag{font-size:12px;font-weight:640;color:var(--ink-2);border:1px solid var(--border);
+     background:var(--surface);border-radius:999px;padding:6px 14px}
+
+/* ---------- mobile ---------- */
+.pm{display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--page)}
+.pm-top{padding:6px 20px 0;display:flex;align-items:center;justify-content:space-between}
+.pm-hero{padding:34px 20px 30px;display:flex;flex-direction:column;gap:0;text-align:center;align-items:center}
+.pm-hero .h1{font-size:33px}
+.pm-hero .sub{font-size:14.5px;margin-top:16px;line-height:1.55}
+.pm-hero .form{flex-direction:column;margin-top:26px;gap:10px}
+.pm-hero .micro{margin-top:14px;justify-content:center}
+.pm-panels{padding:4px 20px 24px;display:flex;flex-direction:column;gap:11px;background:var(--surface)}
+.pm-panels .pcap{font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.pm-panels .pcap b{color:var(--ink);font-weight:650}
+.pm-b{padding:26px 20px 28px;display:flex;flex-direction:column;gap:16px;background:var(--page)}
+.pm-b h2{font-size:22px;font-weight:700;letter-spacing:-.028em;line-height:1.2}
+.pm-b p{font-size:14px;color:var(--ink-2);line-height:1.6}
+.pm-b p b{color:var(--ink);font-weight:640}
+</style>
+
+<div class="wrap">
+  <div class="deck-h1">Evenly waitlist &mdash; A3, at full copy</div>
+  <p class="deck-lede">Same layout you picked, with the words put back. The overload wasn't word count, it was
+     <b>everything arriving at once</b>, so this version spends length instead of density: the page is taller, each
+     block does one job, and nothing competes with the email field. Two things are new &mdash; the mobile hero has real
+     breathing room between title, field and button, and there is now a whole section establishing that
+     <b>Evenly is an expense tracker</b>, with the receipt scan as its sharpest feature rather than its only one.</p>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Desktop</div>
+    <h2>Four blocks, one job each</h2>
+    <p class="why"><b>Hero</b> states the promise and takes the email. <b>Panels</b> show the restaurant trick from both
+       sides. <b>"Dinner is the hard part"</b> widens it to Ubers, Airbnbs and rent, and shows the balance and
+       settle-by-expense that make it a tracker. <b>Close</b> asks again for people who scrolled. The email field
+       appears twice and nothing else on the page is clickable.</p>
+  </div>
+  <div class="stage">
+    <div class="col">
+      <div class="desk">
+        <div class="browser"><i class="d"></i><i class="d"></i><i class="d"></i>
+          <div class="addr"><i class="lock"></i>split-evenly.app</div></div>
+        <div class="pg">
+          <div class="top">
+            <div class="brand"><i class="mark"></i>Evenly</div>
+            <span class="pill"><i class="dotlive"></i>Launching August</span>
+          </div>
+
+          <!-- hero -->
+          <div class="hero">
+            <h1 class="h1">Photograph the bill.<br>Everyone <em>claims their own.</em></h1>
+            <p class="sub">Evenly keeps track of who owes whom across dinners, trips and rent. Its party trick:
+               snap a receipt and your friends tap the dishes they ate <b>in a browser</b>. Only one of you needs the app.</p>
+            <div class="form">
+              <div class="field">sam@gmail.com<i class="cur"></i></div>
+              <button class="cta">Get early access</button>
+            </div>
+            <div class="micro">
+              <span class="faces"><span>SM</span><span>DG</span><span>AK</span><span>+</span></span>
+              <span>Launching August. One email when it opens, nothing else.</span>
+            </div>
+          </div>
+
+          <!-- panels -->
+          <div class="panels">
+            <div class="pan">
+              <div class="eyebrow">What you photograph<i></i></div>
+              <div class="scan">
+                <div class="paper">
+                  <b class="big">TRATTORIA NOVE</b>
+                  <div class="r"><span>2 CARBONARA</span><span>36.00</span></div>
+                  <div class="r"><span>1 MARGHERITA</span><span>14.50</span></div>
+                  <div class="r"><span>3 APEROL SPRITZ</span><span>27.00</span></div>
+                  <div class="r"><span>1 TIRAMISU</span><span>9.00</span></div>
+                  <div class="r"><span>SERVICE 12.5%</span><span>10.81</span></div>
+                </div>
+                <div class="beam"></div>
+              </div>
+              <p class="pcap">One photo, and Evenly pulls out every line item and the service charge.
+                 <b>No typing fourteen dishes in.</b></p>
+            </div>
+            <div class="pan">
+              <div class="eyebrow on">What your friends get<i></i></div>
+              <div class="rc">
+                <div class="rch"><span class="t">Tap what you ate</span><span class="s">no app needed</span></div>
+                <div class="li"><span class="n">Carbonara &times;2</span><span class="a">36.00</span>
+                  <button class="claim">Claim</button></div>
+                <div class="li"><span class="n">Margherita</span><span class="a">14.50</span>
+                  <button class="claim taken"><i class="av">DG</i>Diego</button></div>
+                <div class="li"><span class="n">Aperol &times;3</span><span class="a">27.00</span>
+                  <button class="claim">Claim</button></div>
+                <div class="li"><span class="n">Tiramisu</span><span class="a">9.00</span>
+                  <button class="claim taken"><i class="av">AK</i>Aisha</button></div>
+              </div>
+              <p class="pcap">A link in the group chat. It opens in whatever browser they already have.
+                 <b>No download, no account.</b></p>
+            </div>
+          </div>
+
+          <!-- breadth -->
+          <div class="breadth">
+            <div class="bhead">
+              <h2>Dinner is the hard part. Evenly does the rest too.</h2>
+              <p>Add the Uber, the Airbnb, the weekly shop. Split it evenly, by share, or line by line. Evenly keeps
+                 the running balance for the whole group and <b>lets you settle one expense at a time</b> instead of
+                 one big mystery number.</p>
+            </div>
+            <div class="bgrid">
+              <div class="bcard">
+                <div class="bh"><span class="t">Lisbon, 4 people</span><span class="s">March 12&ndash;16</span></div>
+                <div class="ex"><i class="ico">&#127968;</i>
+                  <span class="g"><span class="t">Airbnb, 4 nights</span><span class="m">Split evenly &middot; you paid</span></span>
+                  <span class="v owed">+&pound;318.00</span></div>
+                <div class="ex"><i class="ico">&#127860;</i>
+                  <span class="g"><span class="t">Trattoria Nove</span><span class="m">Itemised &middot; 4 claimed</span></span>
+                  <span class="v owed">+&pound;61.19</span></div>
+                <div class="ex"><i class="ico">&#128663;</i>
+                  <span class="g"><span class="t">Uber to the airport</span><span class="m">Split evenly &middot; Diego paid</span></span>
+                  <span class="v owe">&minus;&pound;9.75</span></div>
+                <div class="ex"><i class="ico">&#128722;</i>
+                  <span class="g"><span class="t">Supermarket run</span><span class="m">By share &middot; you paid</span></span>
+                  <span class="v owed">+&pound;24.40</span></div>
+              </div>
+              <div class="bcard">
+                <div class="bh"><span class="t">Your balance</span><span class="s">across 4 expenses</span></div>
+                <div class="bal">
+                  <div class="balbig"><span class="k">You are owed</span><span class="v">&pound;393.84</span></div>
+                  <div class="bar"><i class="paid"></i><i class="open"></i></div>
+                  <div class="barlbl"><span><b>&pound;244.60 settled</b></span><span>&pound;149.24 outstanding</span></div>
+                  <div class="settle">
+                    <div class="srow"><i class="av">DG</i>
+                      <span class="g"><span class="t">Diego owes you &pound;96.05</span>
+                        <span class="m">Airbnb &middot; Trattoria Nove</span></span>
+                      <button class="sbtn">Remind</button></div>
+                    <div class="srow"><i class="av">AK</i>
+                      <span class="g"><span class="t">Aisha owes you &pound;53.19</span>
+                        <span class="m">Airbnb &middot; supermarket</span></span>
+                      <button class="sbtn">Remind</button></div>
+                    <div class="srow"><i class="av">MR</i>
+                      <span class="g"><span class="t">Mara settled &pound;98.40</span>
+                        <span class="m">Paid you back on 18 March</span></span>
+                      <button class="sbtn done">Settled</button></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- close -->
+          <div class="close">
+            <h2>Be there when it opens.</h2>
+            <div class="form">
+              <div class="field">sam@gmail.com<i class="cur"></i></div>
+              <button class="cta">Get early access</button>
+            </div>
+            <div class="micro">
+              <span>Launching August on iOS and Android.</span>
+            </div>
+            <div class="tags">
+              <span class="tag">Free to split</span>
+              <span class="tag">No bank details, ever</span>
+              <span class="tag">Friends never install anything</span>
+              <span class="tag">Settle in your own payment app</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap"><b>Desktop &mdash; full page</b> The subhead now does the widening work in one sentence
+         ("dinners, trips and rent") before the panels narrow back to the receipt trick, so nobody leaves thinking
+         it is a restaurant-only app. Balance card carries the two things you asked for explicitly: what you are owed,
+         and settling per expense rather than per person.</p>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Mobile</div>
+    <h2>The top of the page, unpacked</h2>
+    <p class="why">Your note about the hero feeling condensed was a spacing problem: title, field and button were
+       stacked on a single small gap. Now the gaps are graded &mdash; <b>16px title&rarr;subhead, 26px subhead&rarr;field,
+       10px field&rarr;button</b> &mdash; so the form reads as one object with air around it rather than three things
+       jammed together. Field and button are full width and 52px tall, which is also a comfortable thumb target.</p>
+  </div>
+  <div class="stage">
+    <div class="col">
+      <div class="ph ph--tall">
+        <div class="st"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="stbody"><div class="pm">
+          <div class="pm-top">
+            <div class="brand"><i class="mark"></i>Evenly</div>
+            <span class="pill"><i class="dotlive"></i>Launching August</span>
+          </div>
+          <div class="pm-hero">
+            <h1 class="h1">Photograph the bill. Everyone <em>claims their own.</em></h1>
+            <p class="sub">Evenly tracks who owes whom across dinners, trips and rent. Snap a receipt and your friends
+               claim what they ate <b>in a browser</b>.</p>
+            <div class="form">
+              <div class="field">sam@gmail.com<i class="cur"></i></div>
+              <button class="cta">Get early access</button>
+            </div>
+            <div class="micro"><span>Launching August.</span></div>
+          </div>
+          <div class="pm-panels">
+            <div class="eyebrow">What you photograph<i></i></div>
+            <div class="scan">
+              <div class="paper">
+                <b class="big">TRATTORIA NOVE</b>
+                <div class="r"><span>2 CARBONARA</span><span>36.00</span></div>
+                <div class="r"><span>1 MARGHERITA</span><span>14.50</span></div>
+                <div class="r"><span>3 APEROL SPRITZ</span><span>27.00</span></div>
+                <div class="r"><span>SERVICE 12.5%</span><span>10.81</span></div>
+              </div>
+              <div class="beam"></div>
+            </div>
+            <div class="eyebrow on" style="margin-top:6px">What your friends get<i></i></div>
+            <div class="rc">
+              <div class="rch"><span class="t">Tap what you ate</span><span class="s">no app needed</span></div>
+              <div class="li"><span class="n">Carbonara &times;2</span><span class="a">36.00</span>
+                <button class="claim">Claim</button></div>
+              <div class="li"><span class="n">Margherita</span><span class="a">14.50</span>
+                <button class="claim taken"><i class="av">DG</i>Diego</button></div>
+            </div>
+            <p class="pcap">A link in the group chat. <b>No download, no account.</b></p>
+          </div>
+        </div></div>
+      </div>
+      <p class="cap"><b>Mobile &mdash; hero and panels</b> Same two labels as desktop, stacked in story order.
+         The subhead carries "dinners, trips and rent" so the breadth lands even for someone who never scrolls.</p>
+    </div>
+
+    <div class="col">
+      <div class="ph ph--tall">
+        <div class="st"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="stbody"><div class="pm">
+          <div class="pm-b">
+            <h2>Dinner is the hard part. Evenly does the rest too.</h2>
+            <p>Add the Uber, the Airbnb, the weekly shop. Evenly keeps the running balance and
+               <b>lets you settle one expense at a time</b>.</p>
+            <div class="bcard">
+              <div class="bh"><span class="t">Lisbon, 4 people</span><span class="s">March 12&ndash;16</span></div>
+              <div class="ex"><i class="ico">&#127968;</i>
+                <span class="g"><span class="t">Airbnb, 4 nights</span><span class="m">Split evenly</span></span>
+                <span class="v owed">+&pound;318.00</span></div>
+              <div class="ex"><i class="ico">&#127860;</i>
+                <span class="g"><span class="t">Trattoria Nove</span><span class="m">Itemised</span></span>
+                <span class="v owed">+&pound;61.19</span></div>
+              <div class="ex"><i class="ico">&#128663;</i>
+                <span class="g"><span class="t">Uber to the airport</span><span class="m">Diego paid</span></span>
+                <span class="v owe">&minus;&pound;9.75</span></div>
+            </div>
+            <div class="bcard">
+              <div class="bal">
+                <div class="balbig"><span class="k">You are owed</span><span class="v">&pound;393.84</span></div>
+                <div class="bar"><i class="paid"></i><i class="open"></i></div>
+                <div class="barlbl"><span><b>&pound;244.60 settled</b></span><span>&pound;149.24 open</span></div>
+                <div class="settle">
+                  <div class="srow"><i class="av">DG</i>
+                    <span class="g"><span class="t">Diego owes &pound;96.05</span>
+                      <span class="m">Airbnb &middot; Trattoria</span></span>
+                    <button class="sbtn">Remind</button></div>
+                  <div class="srow"><i class="av">MR</i>
+                    <span class="g"><span class="t">Mara settled &pound;98.40</span>
+                      <span class="m">18 March</span></span>
+                    <button class="sbtn done">Settled</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="form" style="flex-direction:column;gap:10px;margin-top:4px">
+              <div class="field">sam@gmail.com<i class="cur"></i></div>
+              <button class="cta">Get early access</button>
+            </div>
+          </div>
+        </div></div>
+      </div>
+      <p class="cap"><b>Mobile &mdash; breadth and close</b> Second scroll. Expense list first (proof it handles more
+         than dinner), balance second, then the email field again for anyone convinced by it.</p>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="sect">
+    <div class="kicker">Shipped</div>
+    <h2>This is built, at <code>/waitlist</code></h2>
+    <p class="why">Live in <b>web/src/marketing/Waitlist.svelte</b>. Two deliberate differences from the artboards
+       above, both approved after this mockup: the signup <b>count is gone</b> (a number nobody can verify is the
+       first thing a sceptical visitor checks, and it was going to be invented) and the launch pill reads
+       <b>Launching August</b>. The shipped page also uses the marketing site's own Fraunces and Rethink Sans
+       rather than this deck's IBM Plex, so it sits alongside the existing home, privacy and terms pages
+       instead of looking like a page from a different company.</p>
+  </div>
+</div>

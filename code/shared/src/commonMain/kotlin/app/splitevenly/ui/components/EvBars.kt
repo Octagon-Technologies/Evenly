@@ -102,12 +102,25 @@ fun EvIconButton(
     ) {
         EvIcon(icon, size = size, tint = tint)
         if (badgeDot) {
-            Box(Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = 6.dp).size(8.dp).clip(CircleShape).background(EvenlyTheme.colors.blue))
+            Box(
+                Modifier
+                    .align(
+                        Alignment.TopEnd,
+                    ).offset(x = (-6).dp, y = 6.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(EvenlyTheme.colors.blue),
+            )
         }
     }
 }
 
-data class BottomNavItem(val id: String, val label: String, val icon: ImageVector, val badge: Int? = null)
+data class BottomNavItem(
+    val id: String,
+    val label: String,
+    val icon: ImageVector,
+    val badge: Int? = null,
+)
 
 /**
  * Paints [color] up behind the status bar so the system bar blends with the top app bar that sits
@@ -152,7 +165,9 @@ private fun MaterialBottomNav(
 ) {
     val c = EvenlyTheme.colors
     Column(
-        modifier.fillMaxWidth().background(c.page)
+        modifier
+            .fillMaxWidth()
+            .background(c.page)
             .then(if (navBarInset) Modifier.navigationBarsPadding() else Modifier),
     ) {
         EvDivider()
@@ -161,7 +176,13 @@ private fun MaterialBottomNav(
                 val on = item.id == selectedId
                 val tint by animateColorAsState(if (on) c.blue else c.ink3, EvMotion.quick())
                 Column(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).selectable(selected = on) { onSelect(item.id) }.padding(vertical = 4.dp),
+                    modifier =
+                        Modifier
+                            .weight(
+                                1f,
+                            ).clip(RoundedCornerShape(10.dp))
+                            .selectable(selected = on) { onSelect(item.id) }
+                            .padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -194,12 +215,14 @@ private fun IosFloatingNav(
     val island = RoundedCornerShape(26.dp)
     val pill = RoundedCornerShape(20.dp)
     Box(
-        modifier.fillMaxWidth()
+        modifier
+            .fillMaxWidth()
             .then(if (navBarInset) Modifier.navigationBarsPadding() else Modifier)
             .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
     ) {
         Row(
-            Modifier.fillMaxWidth()
+            Modifier
+                .fillMaxWidth()
                 .shadow(10.dp, island)
                 .background(c.page, island)
                 .border(1.dp, c.border, island)
@@ -211,10 +234,13 @@ private fun IosFloatingNav(
                 val tint by animateColorAsState(if (on) c.blue else c.ink3, EvMotion.quick())
                 val pillColor by animateColorAsState(if (on) c.blueTint else Color.Transparent, EvMotion.quick())
                 Box(
-                    modifier = Modifier.weight(1f).clip(pill)
-                        .background(pillColor)
-                        .selectable(selected = on) { onSelect(item.id) }
-                        .padding(vertical = 8.dp),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .clip(pill)
+                            .background(pillColor)
+                            .selectable(selected = on) { onSelect(item.id) }
+                            .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(
@@ -238,9 +264,15 @@ private fun IosFloatingNav(
 private fun BoxScope.NavBadge(count: Int) {
     val c = EvenlyTheme.colors
     Box(
-        modifier = Modifier.align(Alignment.TopEnd).offset(x = 12.dp, y = (-4).dp)
-            .defaultMinSize(minWidth = 16.dp).height(16.dp).clip(RoundedCornerShape(8.dp))
-            .background(c.blue).padding(horizontal = 4.dp),
+        modifier =
+            Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 12.dp, y = (-4).dp)
+                .defaultMinSize(minWidth = 16.dp)
+                .height(16.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(c.blue)
+                .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text("$count", color = c.onAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -263,18 +295,22 @@ fun EvSubTabs(
                 val tint by animateColorAsState(if (on) c.blue else c.ink2, EvMotion.quick())
                 Text(
                     text = tab,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { onSelect(tab) }
-                        .then(
-                            if (on) Modifier.drawBehind {
-                                val stroke = 2.dp.toPx()
-                                val inset = 12.dp.toPx()
-                                val y = size.height - stroke / 2f
-                                drawLine(c.blue, Offset(inset, y), Offset(size.width - inset, y), stroke, cap = StrokeCap.Round)
-                            } else Modifier,
-                        )
-                        .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),
+                    modifier =
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onSelect(tab) }
+                            .then(
+                                if (on) {
+                                    Modifier.drawBehind {
+                                        val stroke = 2.dp.toPx()
+                                        val inset = 12.dp.toPx()
+                                        val y = size.height - stroke / 2f
+                                        drawLine(c.blue, Offset(inset, y), Offset(size.width - inset, y), stroke, cap = StrokeCap.Round)
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            ).padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),
                     color = tint,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -289,25 +325,42 @@ fun EvSubTabs(
 @Composable
 fun EvSegmented(
     options: List<String>,
-    selected: String,
+    // Nullable so a form can ask a question nobody has answered yet: the feedback form must not
+    // preselect a type, or every abandoned tap files itself as whichever option sat under the pill.
+    selected: String?,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
     Row(
-        modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(12.dp)).padding(3.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.surface)
+                .border(1.dp, c.border, RoundedCornerShape(12.dp))
+                .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         options.forEach { opt ->
             val on = opt == selected
             Box(
-                modifier = Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(9.dp))
-                    .then(if (on) Modifier.shadow(2.dp, RoundedCornerShape(9.dp)).background(c.page) else Modifier)
-                    .clickable { onSelect(opt) },
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .then(if (on) Modifier.shadow(2.dp, RoundedCornerShape(9.dp)).background(c.page) else Modifier)
+                        .clickable { onSelect(opt) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(opt, color = if (on) c.ink else c.ink2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                Text(
+                    opt,
+                    color = if (on) c.ink else c.ink2,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
     }

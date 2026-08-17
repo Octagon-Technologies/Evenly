@@ -17,6 +17,8 @@
   import Terms from './marketing/Terms.svelte';
   import DeleteAccount from './marketing/DeleteAccount.svelte';
   import Support from './marketing/Support.svelte';
+  import Waitlist from './marketing/Waitlist.svelte';
+  import AdminPlaceholder from './marketing/AdminPlaceholder.svelte';
   import { store } from './lib/store.svelte.ts';
   import { resolveRoute } from './lib/router.ts';
   import { onMount } from 'svelte';
@@ -29,6 +31,8 @@
     terms: 'Terms of Service · Evenly',
     'delete-account': 'Delete Your Account · Evenly',
     support: 'Help & Support · Evenly',
+    waitlist: 'Get early access · Evenly',
+    admin: 'Admin · Evenly',
     bill: 'Claim your items · Evenly',
   } as const;
 
@@ -53,6 +57,10 @@
   <DeleteAccount />
 {:else if route.kind === 'support'}
   <Support />
+{:else if route.kind === 'waitlist'}
+  <Waitlist />
+{:else if route.kind === 'admin'}
+  <AdminPlaceholder />
 {:else}
   <div class="claim-shell">
     {#if store.phase === 'loading'}

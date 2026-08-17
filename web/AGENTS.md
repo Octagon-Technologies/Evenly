@@ -12,8 +12,9 @@ offline. If you are adding a second *claim* screen that is not in `design/web-cl
 stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
 mockup (the "Finy-inspired" home/privacy/terms artifact) — a new marketing page is in scope there.
 
-`src/lib/money/` is the ported split math; `src/screens/` is the claim flow's Svelte surface, frames
-1-9. `src/marketing/` is the home/privacy/terms pages, styled by `src/marketing.css` (`site-`-prefixed
+`src/lib/money/` is the ported split math; `src/screens/` is mostly the claim flow's Svelte surface,
+frames 1-9, plus `ThankYouScreen.svelte` (feedback build-order step 5, `ADMIN_FEEDBACK_SPEC.md` §10) —
+standalone and unrouted until step 6 wires up `/feedback` itself. `src/marketing/` is the home/privacy/terms pages, styled by `src/marketing.css` (`site-`-prefixed
 selectors, tokens scoped under `.site-root` — never `:root` — so they can never collide with
 `app.css`'s claim-flow tokens in the same bundle). `src/lib/mock.ts` is the claim flow's walkthrough
 fixture behind `?mock` and is dead code in a build.
@@ -26,8 +27,9 @@ found once already; don't reintroduce it.
 ## The money port is a copy, and the copy is gated
 
 `src/lib/money/` is a hand-port of the Kotlin split math — `allocate.ts` ← `Allocator.kt`,
-`billSplit.ts` ← `BillSplit.kt`, `itemizedShares.ts` ← `ItemizedAllocator.kt`, `fromApi.ts` ←
-`BillMaterializer.kt`'s row adapters.
+`billSplit.ts` ← `BillSplit.kt`, `fromApi.ts` ← `BillMaterializer.kt`'s row adapters. (`itemizedShares`
+was a *third* engine, ported and vector-pinned but called by nothing on either side; it was deleted with
+its vectors rather than left reading as live money code.)
 
 **Kotlin is the authority.** This port is authoritative for what the guest *sees* and never for what
 the ledger *records*. If they disagree, Kotlin wins and the web is stale by one poll.

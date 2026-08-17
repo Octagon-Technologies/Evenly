@@ -1,0 +1,48 @@
+<script lang="ts">
+  /**
+   * A signpost, not a dashboard. The admin app moved to its own deployment at
+   * `admin.split-evenly.app` (spec §2.2) so that this bundle, which every public visitor downloads,
+   * never contains admin code or its queries.
+   *
+   * The route is kept rather than deleted because `/admin` is the URL muscle memory reaches for, and
+   * a 404 there is indistinguishable from an outage. It renders **no data and performs no query**,
+   * and there is nothing here to leak: the gate lives server-side in the `admin` edge function, which
+   * verifies the JWT and checks `admin_users` before touching a table.
+   */
+  import Footer from './Footer.svelte';
+</script>
+
+<div class="site-root">
+  <div class="site-header-bar">
+    <div class="site-wl-bar">
+      <a class="site-wordmark" href="/">
+        <svg viewBox="0 0 100 100" fill="currentColor" aria-hidden="true">
+          <path
+            d="M96.32 0.05C85.02 1.19 73.68 3.79 63 7.66C55.8 10.28 48.59 13.69 42.62 18.58C37.62 22.67 33.67 27.64 30.77 33.43C29.69 35.6 28.63 37.83 27.86 40.13C27.74 40.49 27.17 42.43 26.82 42.42C26.12 42.39 25.48 40.76 25.2 40.24C23.93 37.92 23.09 35.3 22.97 32.65C22.93 31.71 23.11 30.79 23.25 29.87C23.26 29.84 23.5 28.73 23.1 28.9C22.23 29.27 21.49 30.36 20.8 30.97C18.75 32.8 16.92 34.83 15.04 36.83C8.72 43.58 3.18 51.87 2.1 61.25C1.38 67.42 2.76 73.79 3.7 79.85C4.18 82.87 4.22 85.95 4.15 89C4.13 89.76 3.64 92.38 3.93 92.78C4.22 93.18 5.11 91.6 5.24 91.37C6.29 89.58 7.74 88 8.92 86.29C11.9 81.96 15.46 77.93 18.89 73.94C29.54 61.56 40.83 49.91 53.79 39.9C57.68 36.9 61.67 34.02 65.76 31.3C67.3 30.28 68.84 29.28 70.42 28.32C70.63 28.2 71.88 27.21 71.96 27.79C72.04 28.39 70.47 30.57 70.12 31.24C68.18 35.03 65.78 38.57 63.58 42.2C54.73 56.78 43.2 69.52 31.17 81.52C26.87 85.81 22.44 89.94 17.85 93.92C16.34 95.23 14.83 96.52 13.26 97.76C11.7 98.99 10.81 99.81 11.09 99.87C12.09 100.09 13.46 99.43 14.48 99.35C17.27 99.11 20.04 98.93 22.86 99.02C28.43 99.18 33.9 100.24 39.5 100C39.98 99.98 40.5 99.8 40.98 99.74C50.47 98.62 57.03 93.73 63.94 87.54C66.56 85.2 68.85 82.47 71.13 79.81C71.66 79.19 73.66 77.21 73.78 76.52C73.85 76.12 71.2 76.71 70.26 76.72C69.41 76.73 68.48 76.78 67.65 76.72C65.76 76.58 63.68 75.77 61.98 74.94C61.63 74.77 60.25 74.21 60.34 73.68C60.42 73.29 61.46 72.99 61.77 72.88C63.19 72.38 64.54 71.63 65.88 70.95C70.83 68.42 75.57 65.18 79.3 61.04C90.28 48.84 94.33 32 96.65 16.15C97.23 12.17 97.71 8.11 97.85 4.09C97.96 1 98.92 -0.08 96.32 0.05Z"
+          />
+        </svg>
+        <span>Evenly</span>
+      </a>
+      <span class="site-wl-pill">Admin</span>
+    </div>
+  </div>
+
+  <div class="site-doc">
+    <div class="site-doc-eyebrow">Moved</div>
+    <h1>Admin dashboard</h1>
+    <p class="site-doc-meta">It lives on its own subdomain now.</p>
+
+    <div class="site-doc-section">
+      <p>
+        The dashboard is at <a href="https://admin.split-evenly.app">admin.split-evenly.app</a>,
+        deployed separately from this site. Sign-in is by Google against a hand-kept allowlist.
+      </p>
+      <p>
+        It is a separate deployment so that this bundle, the one every visitor downloads, never
+        contains admin code or the queries behind it. This page shows no data and makes no request.
+      </p>
+    </div>
+  </div>
+
+  <Footer />
+</div>

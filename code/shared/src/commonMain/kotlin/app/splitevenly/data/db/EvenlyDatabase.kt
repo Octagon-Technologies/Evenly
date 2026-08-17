@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import app.splitevenly.data.db.dao.BillParticipantDao
+import app.splitevenly.data.db.dao.BillWriteDao
 import app.splitevenly.data.db.dao.CategoryDao
 import app.splitevenly.data.db.dao.CommentDao
 import app.splitevenly.data.db.dao.ConflictDao
@@ -14,6 +15,7 @@ import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.ExpenseEditConflictDao
 import app.splitevenly.data.db.dao.ExpenseItemDao
 import app.splitevenly.data.db.dao.ExpenseSyncStateDao
+import app.splitevenly.data.db.dao.FeedbackOutboxDao
 import app.splitevenly.data.db.dao.FxCurrencyDao
 import app.splitevenly.data.db.dao.FxRateDao
 import app.splitevenly.data.db.dao.GroupDao
@@ -44,6 +46,7 @@ import app.splitevenly.data.db.entity.ExpenseEditConflictEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ExpenseItemEntity
 import app.splitevenly.data.db.entity.ExpenseSyncStateEntity
+import app.splitevenly.data.db.entity.FeedbackOutboxEntity
 import app.splitevenly.data.db.entity.FxBakedEntity
 import app.splitevenly.data.db.entity.FxCurrencyEntity
 import app.splitevenly.data.db.entity.FxRateEntity
@@ -113,8 +116,9 @@ import kotlinx.coroutines.Dispatchers
         GroupScanUsageEntity::class,
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
+        FeedbackOutboxEntity::class,
     ],
-    version = 28,
+    version = 30,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -153,6 +157,8 @@ abstract class EvenlyDatabase : RoomDatabase() {
 
     abstract fun receiptUploadDao(): ReceiptUploadDao
 
+    abstract fun feedbackOutboxDao(): FeedbackOutboxDao
+
     abstract fun historyEventDao(): HistoryEventDao
 
     abstract fun categoryDao(): CategoryDao
@@ -164,6 +170,8 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun itemShareDao(): ItemShareDao
 
     abstract fun billParticipantDao(): BillParticipantDao
+
+    abstract fun billWriteDao(): BillWriteDao
 
     abstract fun pendingItemEditDao(): PendingItemEditDao
 

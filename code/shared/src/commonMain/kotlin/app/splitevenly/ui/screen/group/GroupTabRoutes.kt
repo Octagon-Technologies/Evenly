@@ -19,9 +19,9 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.claim.ClaimStatus
-import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
+import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.balance.Debt
 import app.splitevenly.domain.balance.OutstandingItem
@@ -59,17 +59,25 @@ fun buildBalances(
 ): List<DebtUi> {
     val me = currentUserId ?: return emptyList()
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
+
     fun name(id: UserId): String = nameByUser[id.value] ?: "Someone"
     return debts.filter { it.debtorUserId == me || it.creditorUserId == me }.map { d ->
         val owedToYou = d.creditorUserId == me
         val peer = if (owedToYou) d.debtorUserId else d.creditorUserId
-        val lines = items
-            .filter {
-                it.currency == d.currency &&
-                    it.debtorUserId == (if (owedToYou) peer else me) &&
-                    it.creditorUserId == (if (owedToYou) me else peer)
-            }
-            .map { BalanceLineUi(it.expenseId.value, it.title, dayLabel(it.expenseDate, today), moneySubunits(it.remainingSubunits, it.currency)) }
+        val lines =
+            items
+                .filter {
+                    it.currency == d.currency &&
+                        it.debtorUserId == (if (owedToYou) peer else me) &&
+                        it.creditorUserId == (if (owedToYou) me else peer)
+                }.map {
+                    BalanceLineUi(
+                        it.expenseId.value,
+                        it.title,
+                        dayLabel(it.expenseDate, today),
+                        moneySubunits(it.remainingSubunits, it.currency),
+                    )
+                }
         DebtUi(
             peerUserId = peer.value,
             peerName = name(peer),
@@ -94,46 +102,54 @@ fun buildOverpayments(
 ): List<OverpaymentUi> {
     val me = currentUserId ?: return emptyList()
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
+
     fun name(id: UserId): String = nameByUser[id.value] ?: "Someone"
     return overpayments.mapNotNull { o ->
         if (o.debtorUserId != me && o.creditorUserId != me) return@mapNotNull null
         val youOverpaid = o.debtorUserId == me
         val peer = if (youOverpaid) o.creditorUserId else o.debtorUserId
-        val payments = settlements
-            .filter {
-                it.paymentCurrency == o.currency &&
-                    ((it.fromUserId == me && it.toUserId == peer) || (it.fromUserId == peer && it.toUserId == me))
-            }
-            .map { s ->
-                val fromMe = s.fromUserId == me
-                // "Who entered this" is what tells two duplicate payments apart, so lead the caption with
-                // it, then when, then which app was used.
-                val loggedBy = when {
-                    s.createdBy == null -> null
-                    s.createdBy == me -> "you"
-                    else -> name(s.createdBy)
+        val payments =
+            settlements
+                .filter {
+                    it.paymentCurrency == o.currency &&
+                        ((it.fromUserId == me && it.toUserId == peer) || (it.fromUserId == peer && it.toUserId == me))
+                }.map { s ->
+                    val fromMe = s.fromUserId == me
+                    // "Who entered this" is what tells two duplicate payments apart, so lead the caption with
+                    // it, then when, then which app was used.
+                    val loggedBy =
+                        when {
+                            s.createdBy == null -> null
+                            s.createdBy == me -> "you"
+                            else -> name(s.createdBy)
+                        }
+                    val app =
+                        s.paymentApp
+                            ?.lowercase()
+                            ?.replaceFirstChar { it.uppercase() }
+                            ?.takeIf { it.isNotBlank() }
+                    val sub =
+                        listOfNotNull(
+                            loggedBy?.let { "Added by $it" },
+                            shortDate(s.settledAt),
+                            app,
+                        ).joinToString(" · ")
+                    // What the payment paid toward, so the user can see whether the two look like the same debt.
+                    val titles = coveredTitles[s.id].orEmpty()
+                    val covers =
+                        when {
+                            titles.isEmpty() -> ""
+                            titles.size <= 3 -> "For ${titles.joinToString(", ")}"
+                            else -> "For ${titles.take(2).joinToString(", ")} +${titles.size - 2} more"
+                        }
+                    PaymentReviewUi(
+                        settlementId = s.id.value,
+                        label = if (fromMe) "You paid ${name(peer)}" else "${name(peer)} paid you",
+                        sub = sub,
+                        amountText = moneySubunits(s.paymentAmountSubunits, s.paymentCurrency),
+                        covers = covers,
+                    )
                 }
-                val app = s.paymentApp?.lowercase()?.replaceFirstChar { it.uppercase() }?.takeIf { it.isNotBlank() }
-                val sub = listOfNotNull(
-                    loggedBy?.let { "Added by $it" },
-                    shortDate(s.settledAt),
-                    app,
-                ).joinToString(" · ")
-                // What the payment paid toward, so the user can see whether the two look like the same debt.
-                val titles = coveredTitles[s.id].orEmpty()
-                val covers = when {
-                    titles.isEmpty() -> ""
-                    titles.size <= 3 -> "For ${titles.joinToString(", ")}"
-                    else -> "For ${titles.take(2).joinToString(", ")} +${titles.size - 2} more"
-                }
-                PaymentReviewUi(
-                    settlementId = s.id.value,
-                    label = if (fromMe) "You paid ${name(peer)}" else "${name(peer)} paid you",
-                    sub = sub,
-                    amountText = moneySubunits(s.paymentAmountSubunits, s.paymentCurrency),
-                    covers = covers,
-                )
-            }
         OverpaymentUi(
             peerUserId = peer.value,
             peerName = name(peer),
@@ -145,14 +161,15 @@ fun buildOverpayments(
 }
 
 /** Human label for a stored `split_mode` token, for the edit-conflict diff. */
-private fun humanizeSplitMode(mode: String): String = when (mode.uppercase()) {
-    "EVEN" -> "Even"
-    "EXACT" -> "Exact"
-    "PERCENT" -> "Percent"
-    "SHARE" -> "Shares"
-    "ITEMIZED" -> "Itemized"
-    else -> mode.lowercase().replaceFirstChar { it.uppercase() }
-}
+private fun humanizeSplitMode(mode: String): String =
+    when (mode.uppercase()) {
+        "EVEN" -> "Even"
+        "EXACT" -> "Exact"
+        "PERCENT" -> "Percent"
+        "SHARE" -> "Shares"
+        "ITEMIZED" -> "Itemized"
+        else -> mode.lowercase().replaceFirstChar { it.uppercase() }
+    }
 
 /** Expenses tab content, wired. */
 @OptIn(ExperimentalTime::class)
@@ -185,11 +202,16 @@ fun GroupExpensesRoute(
     val sharesById = remember(withShares) { withShares.associate { it.expense.id.value to it.shares } }
     val ui = buildGroupExpenses(group, filtered, members, userId, today, sharesById)
     val unresolved by remember(gid, userId) { bills.observeUnresolvedBills(gid, userId) }.collectAsStateWithLifecycle(emptyList())
-    val unresolvedUi = unresolved.map { u ->
-        val sub = if (u.unclaimedCount > 0) "${u.unclaimedCount} ${if (u.unclaimedCount == 1) "dish" else "dishes"} still need someone"
-            else "${u.stillToClaimCount} still to claim"
-        UnresolvedBillUi(u.expenseId.value, u.title, sub, u.youNeedToClaim)
-    }
+    val unresolvedUi =
+        unresolved.map { u ->
+            val sub =
+                if (u.unclaimedCount > 0) {
+                    "${u.unclaimedCount} ${if (u.unclaimedCount == 1) "dish" else "dishes"} still need someone"
+                } else {
+                    "${u.stillToClaimCount} still to claim"
+                }
+            UnresolvedBillUi(u.expenseId.value, u.title, sub, u.youNeedToClaim)
+        }
     // Invite link (same source/format as Group settings): the token resolves once the group has synced.
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -202,6 +224,10 @@ fun GroupExpensesRoute(
     val shareDao = koinInject<ShareDao>()
     val snooze = koinInject<IdentityPromptSnooze>()
     val claimStatus by claims.status.collectAsStateWithLifecycle()
+    // A claim the process died in the middle of last session is finished here, silently: the server
+    // already retired the name, so nothing else will ever offer it again (R2). Detached, because this
+    // composable's scope is not something a money merge should depend on.
+    LaunchedEffect(Unit) { claims.resumeDetached() }
     val snoozed by snooze.snoozed.collectAsStateWithLifecycle()
     val finished by snooze.finished.collectAsStateWithLifecycle()
     val unclaimed by remember(gid, userId) {
@@ -211,21 +237,23 @@ fun GroupExpensesRoute(
     // offer it again while its 5 seconds run down.
     val pendingName = (claimStatus as? ClaimStatus.Undoable)?.placeholderUserId?.value
     val myName = members.firstOrNull { it.userId == userId }?.displayName.orEmpty()
-    val identityNames = remember(unclaimed, pendingName, myName, group?.baseCurrency) {
-        unclaimed.filter { it.userId.value != pendingName }
-            // Matching only ever changes ORDERING, never whether we ask: the motivating case is someone
-            // added as "Chelimo" who signed up as "Andrew", which matches nothing and is exactly the
-            // case that must not be missed.
-            .sortedByDescending { plausiblyMe(it.displayName, myName) }
-            .map { n ->
-                UnclaimedNameUi(
-                    id = n.userId.value,
-                    name = n.displayName,
-                    expenseCount = n.expenseCount,
-                    amountLabel = n.currency?.let { moneySubunits(n.owedSubunits, it) },
-                )
-            }
-    }
+    val identityNames =
+        remember(unclaimed, pendingName, myName, group?.baseCurrency) {
+            unclaimed
+                .filter { it.userId.value != pendingName }
+                // Matching only ever changes ORDERING, never whether we ask: the motivating case is someone
+                // added as "Chelimo" who signed up as "Andrew", which matches nothing and is exactly the
+                // case that must not be missed.
+                .sortedByDescending { plausiblyMe(it.displayName, myName) }
+                .map { n ->
+                    UnclaimedNameUi(
+                        id = n.userId.value,
+                        name = n.displayName,
+                        expenseCount = n.expenseCount,
+                        amountLabel = n.currency?.let { moneySubunits(n.owedSubunits, it) },
+                    )
+                }
+        }
     // Held as (id, preview), never looked up again by name: two names can read identically ("Tyler R."
     // twice) and claiming the wrong one moves the wrong money.
     // Evidence for the single-name shape. "Are you Chelimo?" is unanswerable from a name alone, while
@@ -234,31 +262,53 @@ fun GroupExpensesRoute(
     var namedEvidence by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     val soleName = identityNames.singleOrNull()?.id
     LaunchedEffect(soleName) {
-        namedEvidence = soleName?.let { id ->
-            shareDao.expensesForUser(groupId, id).take(3).map { it.title to moneySubunits(it.amountSubunits, group?.baseCurrency ?: "USD") }
-        }.orEmpty()
+        namedEvidence =
+            soleName
+                ?.let { id ->
+                    shareDao.expensesForUser(groupId, id).take(3).map {
+                        it.title to
+                            moneySubunits(it.amountSubunits, group?.baseCurrency ?: "USD")
+                    }
+                }.orEmpty()
     }
-    val cardNames = remember(identityNames, namedEvidence) {
-        if (identityNames.size == 1) listOf(identityNames.single().copy(recentExpenses = namedEvidence))
-        else identityNames
-    }
+    val cardNames =
+        remember(identityNames, namedEvidence) {
+            if (identityNames.size == 1) {
+                listOf(identityNames.single().copy(recentExpenses = namedEvidence))
+            } else {
+                identityNames
+            }
+        }
 
     var pendingConfirm by remember { mutableStateOf<Pair<UserId, ClaimPreview>?>(null) }
     // The card is the only thing that hides on "Later"; the closing note is the receipt for the tap
     // that emptied the list, so it only shows to whoever just did the emptying.
     val showCard = identityNames.isNotEmpty() && groupId !in snoozed
-    val undoText = (claimStatus as? ClaimStatus.Undoable)
-        ?.takeIf { it.groupId.value == groupId }
-        ?.let { "${it.name} is now you" }
+    val undoText =
+        (claimStatus as? ClaimStatus.Undoable)
+            ?.takeIf { it.groupId.value == groupId }
+            ?.let { "${it.name} is now you" }
     // Losing the race or failing to reach the guard both mean nothing was written, so both say so and
     // leave the card in place. Silence here would read as "it worked" and the money wouldn't have moved.
-    val claimNotice = when (val s = claimStatus) {
-        is ClaimStatus.Lost -> s.winnerName
-            ?.let { "Someone else already claimed this name. ${s.name} now belongs to $it." }
-            ?: "Someone else already claimed this name."
-        is ClaimStatus.Failed -> "Couldn't confirm that claim. Check your connection and try again."
-        else -> null
-    }?.takeIf { (claimStatus as? ClaimStatus.Lost)?.groupId?.value == groupId || (claimStatus as? ClaimStatus.Failed)?.groupId?.value == groupId }
+    val claimNotice =
+        when (val s = claimStatus) {
+            is ClaimStatus.Lost -> {
+                s.winnerName
+                    ?.let { "Someone else already claimed this name. ${s.name} now belongs to $it." }
+                    ?: "Someone else already claimed this name."
+            }
+
+            is ClaimStatus.Failed -> {
+                "Couldn't confirm that claim. Check your connection and try again."
+            }
+
+            else -> {
+                null
+            }
+        }?.takeIf {
+            (claimStatus as? ClaimStatus.Lost)?.groupId?.value == groupId ||
+                (claimStatus as? ClaimStatus.Failed)?.groupId?.value == groupId
+        }
 
     // Leaving the tab commits a pending claim rather than leaving it hanging: the user has moved on,
     // and a claim that is never written is a claim that silently didn't happen.
@@ -275,10 +325,22 @@ fun GroupExpensesRoute(
     }
 
     GroupExpensesTab(
-        groupEmoji = ui.groupEmoji, groupName = ui.groupName, state = ui.state, days = ui.days, drafts = 0,
+        groupEmoji = ui.groupEmoji,
+        groupName = ui.groupName,
+        state = ui.state,
+        days = ui.days,
+        drafts = 0,
         filterActive = filter.isActive,
         inviteLink = inviteLink,
-        onBack = onBack, onOpenSettings = onOpenSettings, onAdd = onAdd, onOpenExpense = onOpenExpense, onSearch = onSearch, onFilter = { showFilter = true },
+        onBack = onBack,
+        onOpenSettings = onOpenSettings,
+        onAdd = onAdd,
+        onOpenExpense = onOpenExpense,
+        onSearch = onSearch,
+        onFilter = {
+            showFilter =
+                true
+        },
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
         onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },
@@ -323,8 +385,10 @@ fun GroupExpensesRoute(
             name = preview.name,
             owed = preview.owed.map { ClaimLineUi(it.title, moneySubunits(it.amountSubunits, it.currency)) },
             paid = preview.paid.map { ClaimLineUi(it.title, moneySubunits(it.amountSubunits, it.currency)) },
-            owedTotalLabel = preview.currency?.takeIf { preview.owed.isNotEmpty() }
-                ?.let { moneySubunits(preview.owedTotalSubunits, it) },
+            owedTotalLabel =
+                preview.currency
+                    ?.takeIf { preview.owed.isNotEmpty() }
+                    ?.let { moneySubunits(preview.owedTotalSubunits, it) },
             onConfirm = {
                 val me = userId
                 pendingConfirm = null
@@ -346,7 +410,10 @@ fun GroupExpensesRoute(
  * first. It never decides whether a name is offered, because the case worth catching is the one that
  * matches nothing at all.
  */
-private fun plausiblyMe(candidate: String, myName: String): Boolean {
+private fun plausiblyMe(
+    candidate: String,
+    myName: String,
+): Boolean {
     if (myName.isBlank()) return false
     val a = candidate.trim().lowercase()
     val b = myName.trim().lowercase()
@@ -359,7 +426,11 @@ private fun plausiblyMe(candidate: String, myName: String): Boolean {
  *  split into owe / owed sections with a per-expense breakdown behind each row (F2). */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun GroupBalancesRoute(groupId: String, onBack: () -> Unit, onSettleNav: (String) -> Unit) {
+fun GroupBalancesRoute(
+    groupId: String,
+    onBack: () -> Unit,
+    onSettleNav: (String) -> Unit,
+) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
     val settlements = koinInject<SettlementRepository>()
@@ -405,84 +476,109 @@ fun GroupConflictsRoute(
     val scope = rememberCoroutineScope()
 
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
+
     fun nameOf(id: UserId): String = if (id == userId) "You" else nameByUser[id.value] ?: "Someone"
 
-    val uis = conflicts.map { conf ->
-        ConflictUi(
-            conflictId = conf.id,
-            expenseId = conf.expenseId.value,
-            memberUserId = conf.addedUserId.value,
-            memberName = nameOf(conf.addedUserId),
-            title = conf.expenseTitle,
-            amount = conf.amountSubunits / 100.0,
-            by = nameOf(conf.triggeredByUserId),
-        )
-    }
-    val editUis = editConflicts.map { ec ->
-        val cur = ec.current
-        val rej = ec.rejected
-        val currency = ec.currency
-        val loserName = nameOf(ec.rejectedBy)
-        val winnerName = ec.winnerBy?.let { nameOf(it) }
-        // Name the OTHER party involved (the one who isn't you): if you lost, that's the winner; if you
-        // won, that's the loser. Fixes the misleading "You edited this while you did too" that came from
-        // labelling the card by rejected_by (always the local pusher) with no record of who actually won.
-        val otherName = when {
-            ec.winnerBy == userId -> loserName
-            ec.rejectedBy == userId -> winnerName ?: "Someone"
-            else -> winnerName ?: loserName
+    val uis =
+        conflicts.map { conf ->
+            ConflictUi(
+                conflictId = conf.id,
+                expenseId = conf.expenseId.value,
+                memberUserId = conf.addedUserId.value,
+                memberName = nameOf(conf.addedUserId),
+                title = conf.expenseTitle,
+                amount = conf.amountSubunits / 100.0,
+                by = nameOf(conf.triggeredByUserId),
+            )
         }
-        fun possessive(name: String) = if (name == "You") "yours" else "$name's"
-        fun payerLabel(side: ConflictSide) = side.payerUserId?.let { nameOf(it) } ?: side.payerOutsideName ?: "—"
+    val editUis =
+        editConflicts.map { ec ->
+            val cur = ec.current
+            val rej = ec.rejected
+            val currency = ec.currency
+            val loserName = nameOf(ec.rejectedBy)
+            val winnerName = ec.winnerBy?.let { nameOf(it) }
+            // Name the OTHER party involved (the one who isn't you): if you lost, that's the winner; if you
+            // won, that's the loser. Fixes the misleading "You edited this while you did too" that came from
+            // labelling the card by rejected_by (always the local pusher) with no record of who actually won.
+            val otherName =
+                when {
+                    ec.winnerBy == userId -> loserName
+                    ec.rejectedBy == userId -> winnerName ?: "Someone"
+                    else -> winnerName ?: loserName
+                }
 
-        // Only surface fields that actually differ between the two versions — that's the decision surface.
-        val rows = buildList {
-            if (cur.amountSubunits != rej.amountSubunits)
-                add(ConflictRowUi("Total", moneySubunits(cur.amountSubunits, currency), moneySubunits(rej.amountSubunits, currency)))
-            if (cur.splitMode != rej.splitMode)
-                add(ConflictRowUi("Split", humanizeSplitMode(cur.splitMode), humanizeSplitMode(rej.splitMode)))
-            if (cur.payerUserId != rej.payerUserId || cur.payerOutsideName != rej.payerOutsideName)
-                add(ConflictRowUi("Paid by", payerLabel(cur), payerLabel(rej)))
-            if (cur.title != rej.title)
-                add(ConflictRowUi("Title", cur.title, rej.title))
-            // Other participants whose owed amount changed (the viewing user is in the highlighted row).
-            (cur.shares.keys + rej.shares.keys).filter { it != userId }.distinct().forEach { uid ->
-                val a = cur.shares[uid]
-                val b = rej.shares[uid]
-                if (a != b) add(
-                    ConflictRowUi(
-                        nameOf(uid),
-                        a?.let { moneySubunits(it, currency) } ?: "—",
-                        b?.let { moneySubunits(it, currency) } ?: "—",
-                    ),
-                )
-            }
+            fun possessive(name: String) = if (name == "You") "yours" else "$name's"
+
+            fun payerLabel(side: ConflictSide) = side.payerUserId?.let { nameOf(it) } ?: side.payerOutsideName ?: "—"
+
+            // Only surface fields that actually differ between the two versions — that's the decision surface.
+            val rows =
+                buildList {
+                    if (cur.amountSubunits != rej.amountSubunits) {
+                        add(
+                            ConflictRowUi(
+                                "Total",
+                                moneySubunits(cur.amountSubunits, currency),
+                                moneySubunits(rej.amountSubunits, currency),
+                            ),
+                        )
+                    }
+                    if (cur.splitMode != rej.splitMode) {
+                        add(ConflictRowUi("Split", humanizeSplitMode(cur.splitMode), humanizeSplitMode(rej.splitMode)))
+                    }
+                    if (cur.payerUserId != rej.payerUserId || cur.payerOutsideName != rej.payerOutsideName) {
+                        add(ConflictRowUi("Paid by", payerLabel(cur), payerLabel(rej)))
+                    }
+                    if (cur.title != rej.title) {
+                        add(ConflictRowUi("Title", cur.title, rej.title))
+                    }
+                    // Other participants whose owed amount changed (the viewing user is in the highlighted row).
+                    (cur.shares.keys + rej.shares.keys).filter { it != userId }.distinct().forEach { uid ->
+                        val a = cur.shares[uid]
+                        val b = rej.shares[uid]
+                        if (a != b) {
+                            add(
+                                ConflictRowUi(
+                                    nameOf(uid),
+                                    a?.let { moneySubunits(it, currency) } ?: "—",
+                                    b?.let { moneySubunits(it, currency) } ?: "—",
+                                ),
+                            )
+                        }
+                    }
+                }
+            val yourCurrent = userId?.let { cur.shares[it] }
+            val yourRejected = userId?.let { rej.shares[it] }
+            val yourShare =
+                if (yourCurrent != null || yourRejected != null) {
+                    ConflictCompareUi(
+                        currentText = yourCurrent?.let { moneySubunits(it, currency) } ?: "—",
+                        rejectedText = yourRejected?.let { moneySubunits(it, currency) } ?: "—",
+                        changed = yourCurrent != yourRejected,
+                    )
+                } else {
+                    null
+                }
+
+            EditConflictUi(
+                conflictId = ec.id,
+                headline = "$otherName edited this while you did too",
+                expenseTitle = cur.title,
+                subhead =
+                    when {
+                        winnerName == null -> "This version stays unless you switch"
+                        winnerName == "You" -> "Your version is currently saved"
+                        else -> "$winnerName's version is currently saved"
+                    },
+                currentColLabel = winnerName ?: "Saved",
+                rejectedColLabel = loserName,
+                yourShare = yourShare,
+                rows = rows,
+                keepLabel = if (winnerName == null) "Keep current" else "Keep ${possessive(winnerName)}",
+                useLabel = "Use ${possessive(loserName)}",
+            )
         }
-        val yourCurrent = userId?.let { cur.shares[it] }
-        val yourRejected = userId?.let { rej.shares[it] }
-        val yourShare = if (yourCurrent != null || yourRejected != null) ConflictCompareUi(
-            currentText = yourCurrent?.let { moneySubunits(it, currency) } ?: "—",
-            rejectedText = yourRejected?.let { moneySubunits(it, currency) } ?: "—",
-            changed = yourCurrent != yourRejected,
-        ) else null
-
-        EditConflictUi(
-            conflictId = ec.id,
-            headline = "$otherName edited this while you did too",
-            expenseTitle = cur.title,
-            subhead = when {
-                winnerName == null -> "This version stays unless you switch"
-                winnerName == "You" -> "Your version is currently saved"
-                else -> "$winnerName's version is currently saved"
-            },
-            currentColLabel = winnerName ?: "Saved",
-            rejectedColLabel = loserName,
-            yourShare = yourShare,
-            rows = rows,
-            keepLabel = if (winnerName == null) "Keep current" else "Keep ${possessive(winnerName)}",
-            useLabel = "Use ${possessive(loserName)}",
-        )
-    }
     GroupConflictsTab(
         memberName = conflicts.firstOrNull()?.let { nameOf(it.addedUserId) } ?: "New members",
         conflicts = uis,
@@ -518,6 +614,7 @@ fun IncludeMemberRoute(
 
     val ews = detail ?: return // brief blank scrim while the conflicted expense loads
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
+
     fun nameOf(id: UserId): String = if (id == userId) "You" else nameByUser[id.value] ?: "Someone"
 
     IncludeMemberSheet(
@@ -531,7 +628,12 @@ fun IncludeMemberRoute(
         onConfirm = { share ->
             saving = true
             scope.launch {
-                if (groups.resolveConflict(conflictId, include = true, newShareSubunits = share) is AppResult.Ok) onConfirmed() else saving = false
+                if (groups.resolveConflict(conflictId, include = true, newShareSubunits = share) is AppResult.Ok) {
+                    onConfirmed()
+                } else {
+                    saving =
+                        false
+                }
             }
         },
     )

@@ -12,18 +12,18 @@ import kotlin.test.assertNull
  * "<handle>  <dollars> USD" (literal two-space separator, §5.2).
  */
 class DeepLinkBuilderTest {
-
     // AC-M3-030: Venmo URL constructed correctly. Only the note is URL-encoded; the
     // middle dot '·' (U+00B7) becomes its UTF-8 percent-encoding %C2%B7.
     @Test
     fun acM3030_venmoUrlConstructedCorrectly() {
-        val result = buildDeepLink(
-            app = PaymentApp.VENMO,
-            handle = "andrew-c",
-            amountUsdSubunits = 1234L,
-            groupName = "Trip",
-            expenseTitle = "Dinner",
-        )
+        val result =
+            buildDeepLink(
+                app = PaymentApp.VENMO,
+                handle = "andrew-c",
+                amountUsdSubunits = 1234L,
+                groupName = "Trip",
+                expenseTitle = "Dinner",
+            )
 
         assertEquals(
             "venmo://paycharge?txn=pay&recipients=andrew-c&amount=12.34" +
@@ -35,13 +35,14 @@ class DeepLinkBuilderTest {
     // AC-M3-031: clipboard fallback is always populated, with the literal two-space separator.
     @Test
     fun acM3031_clipboardFallbackAlwaysPopulated() {
-        val result = buildDeepLink(
-            app = PaymentApp.VENMO,
-            handle = "andrew-c",
-            amountUsdSubunits = 1234L,
-            groupName = "Trip",
-            expenseTitle = "Dinner",
-        )
+        val result =
+            buildDeepLink(
+                app = PaymentApp.VENMO,
+                handle = "andrew-c",
+                amountUsdSubunits = 1234L,
+                groupName = "Trip",
+                expenseTitle = "Dinner",
+            )
 
         assertEquals("andrew-c  12.34 USD", result.clipboardFallback)
     }
@@ -50,13 +51,14 @@ class DeepLinkBuilderTest {
     @Test
     fun clipboardFallbackPopulatedForEveryApp() {
         for (app in PaymentApp.entries) {
-            val result = buildDeepLink(
-                app = app,
-                handle = "andrew-c",
-                amountUsdSubunits = 500L,
-                groupName = "Trip",
-                expenseTitle = "Dinner",
-            )
+            val result =
+                buildDeepLink(
+                    app = app,
+                    handle = "andrew-c",
+                    amountUsdSubunits = 500L,
+                    groupName = "Trip",
+                    expenseTitle = "Dinner",
+                )
             assertEquals("andrew-c  5.00 USD", result.clipboardFallback)
         }
     }
@@ -64,13 +66,14 @@ class DeepLinkBuilderTest {
     // AC-M3-034: Zelle → url is null (clipboard only); fallback still populated.
     @Test
     fun acM3034_zelleHasNoUrl() {
-        val result = buildDeepLink(
-            app = PaymentApp.ZELLE,
-            handle = "andrew@bank.com",
-            amountUsdSubunits = 1234L,
-            groupName = "Trip",
-            expenseTitle = "Dinner",
-        )
+        val result =
+            buildDeepLink(
+                app = PaymentApp.ZELLE,
+                handle = "andrew@bank.com",
+                amountUsdSubunits = 1234L,
+                groupName = "Trip",
+                expenseTitle = "Dinner",
+            )
 
         assertNull(result.url)
         assertEquals("andrew@bank.com  12.34 USD", result.clipboardFallback)
@@ -79,13 +82,14 @@ class DeepLinkBuilderTest {
     // Cash App template: handle already includes the leading '$'; path is literal.
     @Test
     fun cashAppUrlFollowsTemplate() {
-        val result = buildDeepLink(
-            app = PaymentApp.CASH_APP,
-            handle = "\$andrewc",
-            amountUsdSubunits = 1234L,
-            groupName = "Trip",
-            expenseTitle = "Dinner",
-        )
+        val result =
+            buildDeepLink(
+                app = PaymentApp.CASH_APP,
+                handle = "\$andrewc",
+                amountUsdSubunits = 1234L,
+                groupName = "Trip",
+                expenseTitle = "Dinner",
+            )
 
         assertEquals("https://cash.app/\$andrewc/12.34", result.url)
     }
@@ -93,13 +97,14 @@ class DeepLinkBuilderTest {
     // PayPal template: paypal.me/<handle>/<dollars>USD.
     @Test
     fun payPalUrlFollowsTemplate() {
-        val result = buildDeepLink(
-            app = PaymentApp.PAYPAL,
-            handle = "andrew-c",
-            amountUsdSubunits = 1234L,
-            groupName = "Trip",
-            expenseTitle = "Dinner",
-        )
+        val result =
+            buildDeepLink(
+                app = PaymentApp.PAYPAL,
+                handle = "andrew-c",
+                amountUsdSubunits = 1234L,
+                groupName = "Trip",
+                expenseTitle = "Dinner",
+            )
 
         assertEquals("https://paypal.me/andrew-c/12.34USD", result.url)
     }
@@ -107,28 +112,92 @@ class DeepLinkBuilderTest {
     // Amount formatting: 100 subunits → "1.00".
     @Test
     fun amountFormatting_wholeDollar() {
-        val result = buildDeepLink(
-            app = PaymentApp.PAYPAL,
-            handle = "h",
-            amountUsdSubunits = 100L,
-            groupName = "G",
-            expenseTitle = "E",
-        )
+        val result =
+            buildDeepLink(
+                app = PaymentApp.PAYPAL,
+                handle = "h",
+                amountUsdSubunits = 100L,
+                groupName = "G",
+                expenseTitle = "E",
+            )
 
         assertEquals("https://paypal.me/h/1.00USD", result.url)
         assertEquals("h  1.00 USD", result.clipboardFallback)
     }
 
+    // --- a handle may not contribute URL syntax (findings-domain.md D8) ---------------------------
+    // A handle is user-supplied free text that lands in a URL which also carries the amount, and
+    // nothing between `ProfileRepository.updatePaymentHandles` and here re-checks it. Stored as
+    // `bob&amount=99.99` it used to produce TWO `amount` parameters, and which one the payment app
+    // honours is its parser's choice, not ours — so the figure the payer confirms can differ from the
+    // one Evenly recorded.
+
+    @Test
+    fun venmoHandleCannotOpenASecondQueryParameter() {
+        val result =
+            buildDeepLink(
+                app = PaymentApp.VENMO,
+                handle = "bob&amount=99.99",
+                amountUsdSubunits = 500L,
+                groupName = "Trip",
+                expenseTitle = "Dinner",
+            )
+
+        assertEquals(
+            "venmo://paycharge?txn=pay&recipients=bob%26amount%3D99.99&amount=5.00" +
+                "&note=Evenly%3A%20Trip%20%C2%B7%20Dinner",
+            result.url,
+        )
+    }
+
+    // The path templates are the same defect with a different separator: `bob/99.99USD#` would put a
+    // second amount into the PATH, where PayPal reads it, and push ours behind a fragment.
+    @Test
+    fun payPalHandleCannotOpenASecondPathSegment() {
+        val result =
+            buildDeepLink(
+                app = PaymentApp.PAYPAL,
+                handle = "bob/99.99USD#",
+                amountUsdSubunits = 500L,
+                groupName = "Trip",
+                expenseTitle = "Dinner",
+            )
+
+        assertEquals("https://paypal.me/bob%2F99.99USD%23/5.00USD", result.url)
+    }
+
+    // …and the escape is narrow on purpose: every character a REAL handle carries still rides verbatim,
+    // so the spec's templates (§5.1) produce byte-identical links for every handle in the wild today.
+    @Test
+    fun realHandleShapesStillRideVerbatim() {
+        assertEquals(
+            "venmo://paycharge?txn=pay&recipients=@andrew_c.1&amount=5.00&note=Evenly%3A%20G%20%C2%B7%20E",
+            buildDeepLink(PaymentApp.VENMO, "@andrew_c.1", 500L, "G", "E").url,
+        )
+        assertEquals(
+            "https://cash.app/\$andrew-c/5.00",
+            buildDeepLink(PaymentApp.CASH_APP, "\$andrew-c", 500L, "G", "E").url,
+        )
+        assertEquals(
+            "https://paypal.me/andrew.c/5.00USD",
+            buildDeepLink(PaymentApp.PAYPAL, "andrew.c", 500L, "G", "E").url,
+        )
+        // The clipboard fallback is plain text for a human to read, so it is never escaped.
+        val zelle = buildDeepLink(PaymentApp.ZELLE, "bob&amount=99.99", 500L, "G", "E")
+        assertEquals("bob&amount=99.99  5.00 USD", zelle.clipboardFallback)
+    }
+
     // Amount formatting: 1 subunit → "0.01" (sub-dollar, leading zero).
     @Test
     fun amountFormatting_oneCent() {
-        val result = buildDeepLink(
-            app = PaymentApp.PAYPAL,
-            handle = "h",
-            amountUsdSubunits = 1L,
-            groupName = "G",
-            expenseTitle = "E",
-        )
+        val result =
+            buildDeepLink(
+                app = PaymentApp.PAYPAL,
+                handle = "h",
+                amountUsdSubunits = 1L,
+                groupName = "G",
+                expenseTitle = "E",
+            )
 
         assertEquals("https://paypal.me/h/0.01USD", result.url)
         assertEquals("h  0.01 USD", result.clipboardFallback)

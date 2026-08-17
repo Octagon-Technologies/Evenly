@@ -10,6 +10,7 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.ExpenseStatus
 import app.splitevenly.data.db.dao.BillParticipantDao
+import app.splitevenly.data.db.dao.BillWriteDao
 import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.ExpenseItemDao
 import app.splitevenly.data.db.dao.HistoryEventDao
@@ -42,6 +43,8 @@ import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.expense.SharedMember
 import app.splitevenly.domain.expense.SharedPortion
 import app.splitevenly.domain.expense.UnresolvedBill
+import app.splitevenly.domain.expense.billTotalProblem
+import app.splitevenly.domain.expense.billTotalSubunits
 import app.splitevenly.domain.expense.perUnitSubunits
 import app.splitevenly.domain.expense.splitBill
 import app.splitevenly.domain.repository.BillRepository
@@ -78,6 +81,10 @@ class BillRepositoryImpl(
     private val itemShareDao: ItemShareDao,
     private val billParticipantDao: BillParticipantDao,
     private val shareDao: ShareDao,
+    // NOT an optional ctor dep: the two writes it owns are the ones whose halves cost money when they
+    // come apart (R4, R8), so there is no "legacy behaviour" fallback worth having. Same reasoning as
+    // `GroupRepositoryImpl`'s `placeholderMergeDao`.
+    private val billWriteDao: BillWriteDao,
     private val clock: Clock = Clock.System,
     // Optional activity log (F5). Null in unit tests => no history rows; production DI wires it.
     private val historyEventDao: HistoryEventDao? = null,
@@ -230,9 +237,9 @@ class BillRepositoryImpl(
                     updatedAt = now,
                 )
             }
-        expenseDao.upsert(expense)
-        expenseItemDao.upsertAll(items)
-        if (participants.isNotEmpty()) billParticipantDao.upsertAll(participants)
+        // One transaction: an expense carrying the whole bill total with no lines under it is not a state
+        // any user action produces, and nothing surfaces it afterwards (R8).
+        billWriteDao.createBill(expense, items, participants)
         materializeShares(expense, now) // no claims yet → no shares; tab fills in as people claim
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
         analytics?.capture(
@@ -347,15 +354,10 @@ class BillRepositoryImpl(
                 splitVersion = if (splitChanged) existing.splitVersion + 1 else existing.splitVersion,
                 splitUpdatedBy = if (splitChanged) input.editedBy?.value else existing.splitUpdatedBy,
             )
-        expenseDao.upsert(updated)
-        expenseItemDao.upsertAll(upserts)
-        if (removedItemIds.isNotEmpty()) {
-            expenseItemDao.softDeleteByIds(removedItemIds, now)
-            itemClaimDao.softDeleteByItems(removedItemIds, now)
-            itemShareDao.softDeleteByItems(removedItemIds, now)
-        }
         // Reconcile participants (only when the caller manages them — an empty set never wipes silently):
         // add the newly-selected, soft-delete the deselected, and preserve surviving rows' done stamp.
+        var added = emptyList<BillParticipantEntity>()
+        var removedParts = emptyList<BillParticipantEntity>()
         if (input.participantUserIds.isNotEmpty()) {
             val desired = input.participantUserIds.mapTo(HashSet()) { it.value }
             val existingParts = billParticipantDao.getByExpense(expenseId.value)
@@ -365,7 +367,7 @@ class BillRepositoryImpl(
             // Someone taken off the bill and then put back gets their EXISTING row revived rather than a
             // second one: the id is deterministic, so a fresh insert would collide with the tombstone and
             // leave them off the bill. Their done stamp is cleared, since they have nothing claimed now.
-            val added =
+            added =
                 desired.filter { it !in activeUsers }.map { uid ->
                     tombstoned[uid]?.let { prior ->
                         prior.copy(deletedAt = null, doneAt = null, updatedAt = now, rowVersion = prior.rowVersion + 1)
@@ -378,18 +380,21 @@ class BillRepositoryImpl(
                         updatedAt = now,
                     )
                 }
-            if (added.isNotEmpty()) billParticipantDao.upsertAll(added)
-            val removedParts = activeParts.filter { it.userId !in desired }
-            if (removedParts.isNotEmpty()) {
-                billParticipantDao.softDeleteByIds(removedParts.map { it.id }, now)
-                // Their claims and portion slices go with them. The roster row alone does not carry money
-                // (splitBill derives owed from claims), so tombstoning only that would take someone off the
-                // bill while they kept paying for their dishes. Units they held come back as UNCLAIMED.
-                val removedUsers = removedParts.map { it.userId }
-                itemClaimDao.softDeleteByExpenseAndUsers(expenseId.value, removedUsers, now)
-                itemShareDao.softDeleteByExpenseAndUsers(expenseId.value, removedUsers, now)
-            }
+            removedParts = activeParts.filter { it.userId !in desired }
         }
+        // Every row above computed, none written: the whole edit lands as one transaction (R4). A removed
+        // person's claims and portion slices go with their roster row in the same write, because a bill's
+        // money derives from claims and not from the roster, so tombstoning only the roster takes someone
+        // off the bill while they keep paying for their dishes. Units they held alone return to UNCLAIMED.
+        billWriteDao.applyBillEdit(
+            expense = updated,
+            itemUpserts = upserts,
+            removedItemIds = removedItemIds,
+            addedParticipants = added,
+            removedParticipantIds = removedParts.map { it.id },
+            removedUserIds = removedParts.map { it.userId },
+            ts = now,
+        )
         materializeShares(updated, now)
         recordHistory(expenseId.value, existing.groupId, HistoryEventType.EDITED, input.editedBy?.value, now)
         return AppResult.Ok(Unit)
@@ -433,53 +438,12 @@ class BillRepositoryImpl(
                 )
             }
         }
-        // Solo-claiming a single unit takes you out of its share (the two are mutually exclusive there).
+        // Solo-claiming a single unit takes you out of its shared split (the two are mutually exclusive
+        // there). ALL portion memberships go, not an arbitrary one — the `(item_id, user_id, portion_id)`
+        // key allows several at once.
         if (quantity > 0 && isSingleUnit(expenseId, itemId)) {
-            itemShareDao.getActiveShare(itemId, userId.value)?.let { itemShareDao.softDeleteByIds(listOf(it.id), now) }
-        }
-        materializeShares(expense, now)
-        return AppResult.Ok(Unit)
-    }
-
-    override suspend fun setShareMember(
-        expenseId: ExpenseId,
-        itemId: String,
-        memberUserId: UserId,
-        addedBy: UserId,
-        inShare: Boolean,
-    ): AppResult<Unit> {
-        val expense = expenseDao.getById(expenseId.value)
-        if (expense == null || expense.deletedAt != null) {
-            return validationErr("expense", AppError.Validation.Reason.Required)
-        }
-        val now = clock.nowEpochMillis()
-        val existing = itemShareDao.getActiveShare(itemId, memberUserId.value)
-        when {
-            !inShare -> {
-                existing?.let { itemShareDao.softDeleteByIds(listOf(it.id), now) }
-            }
-
-            existing == null -> {
-                itemShareDao.upsert(
-                    ItemShareEntity(
-                        id = shareId(itemId, memberUserId.value, portionId = null),
-                        itemId = itemId,
-                        expenseId = expenseId.value,
-                        groupId = expense.groupId,
-                        userId = memberUserId.value,
-                        addedBy = addedBy.value,
-                        createdAt = now,
-                        updatedAt = now,
-                    ),
-                )
-            }
-            // already a member → no-op (the set is idempotent; auto-union means re-adding is harmless)
-        }
-        // A single unit can't be both solo-claimed and split: joining its share drops your individual claim
-        // (else it lingers and would resurrect as a solo claim if you later leave the share). Multi-unit
-        // lines legitimately mix individual + leftover-share, so leave those alone.
-        if (inShare && isSingleUnit(expenseId, itemId)) {
-            itemClaimDao.getActiveClaim(itemId, memberUserId.value)?.let { itemClaimDao.softDeleteByIds(listOf(it.id), now) }
+            val memberships = itemShareDao.getActiveShares(itemId, userId.value)
+            if (memberships.isNotEmpty()) itemShareDao.softDeleteByIds(memberships.map { it.id }, now)
         }
         materializeShares(expense, now)
         return AppResult.Ok(Unit)
@@ -874,13 +838,11 @@ class BillRepositoryImpl(
     }
 
     /**
-     * Title required; at least one line; every line a positive quantity and non-negative line total;
-     * and the bill's TOTAL positive.
+     * Title required; at least one line; every line a positive quantity and non-negative line total; and
+     * the two total rules, which need [extras] and which is why this takes them.
      *
-     * The total check needs [extras], which is why this takes them: without it an oversized discount
-     * produced a zero or negative expense, violating the always-positive entity invariant and then
-     * hiding behind the `> 0` outstanding filters, so the bill simply vanished from the balances
-     * instead of failing. Reject on `discount`, the only extra that can subtract.
+     * The total rules themselves live in `domain/expense/BillTotal.kt` and are shared with the undo path
+     * ([BillPendingEdits]), which used to carry a copy of the arithmetic and no validator at all (R13).
      */
     private fun validate(
         title: String,
@@ -891,9 +853,18 @@ class BillRepositoryImpl(
             buildMap {
                 if (title.trim().isEmpty()) put("title", AppError.Validation.Reason.Required)
                 when {
-                    lines.isEmpty() -> put("items", AppError.Validation.Reason.Required)
-                    lines.any { (qty, lineTotal) -> qty <= 0 || lineTotal < 0L } -> put("items", AppError.Validation.Reason.OutOfRange)
-                    total(lines, extras) <= 0L -> put("discount", AppError.Validation.Reason.OutOfRange)
+                    lines.isEmpty() -> {
+                        put("items", AppError.Validation.Reason.Required)
+                    }
+
+                    lines.any { (qty, lineTotal) -> qty <= 0 || lineTotal < 0L } -> {
+                        put("items", AppError.Validation.Reason.OutOfRange)
+                    }
+
+                    // Both problems report on `discount`, the only extra that can subtract.
+                    billTotalProblem(lines.lineTotals(), extras) != null -> {
+                        put("discount", AppError.Validation.Reason.OutOfRange)
+                    }
                 }
             }
         return if (fieldErrors.isEmpty()) null else AppError.Validation(fieldErrors).asErr()
@@ -904,15 +875,14 @@ class BillRepositoryImpl(
         reason: AppError.Validation.Reason,
     ): AppResult<Nothing> = AppError.Validation(mapOf(field to reason)).asErr()
 
-    /** Bill total = Σ(line totals) + tax + gratuity + tip − discount. Each line's total is entered directly. */
     private fun total(
         lines: List<Pair<Int, Long>>,
         extras: BillExtrasInput,
-    ): Long =
-        lines.sumOf { (_, lineTotal) -> lineTotal } +
-            extras.taxSubunits + extras.gratuitySubunits + extras.otherChargesSubunits +
-            extras.tipSubunits - extras.discountSubunits
+    ): Long = billTotalSubunits(lines.lineTotals(), extras)
 }
+
+/** The line-total half of this file's `(quantity, lineTotal)` pairs — the only half the total rule reads. */
+private fun List<Pair<Int, Long>>.lineTotals(): List<Long> = map { (_, lineTotal) -> lineTotal }
 
 private fun ExpenseItemEntity.toView() = BillItemView(id, label, quantity, lineTotalSubunits, sortOrder)
 

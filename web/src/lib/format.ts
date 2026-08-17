@@ -88,8 +88,32 @@ export function paymentAppName(app: string | null): string {
 export const APP_STORE_URL = 'https://apps.apple.com/app/evenly';
 export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=app.splitevenly';
 
+export const WAITLIST_URL = '/waitlist';
+
+/**
+ * Neither store listing exists yet, so every "get the app" affordance would be a dead link. While
+ * this is true they all resolve to the waitlist instead.
+ *
+ * **Flip this to `false` on the day both listings are live, and nothing else.** Every call site in
+ * the bundle routes through the three helpers below precisely so the switch is one line rather than
+ * a hunt through five components. The copy that changes with it (`Get early access` vs `Get the
+ * app`) reads this same constant.
+ */
+export const PRE_LAUNCH = true;
+
+/** Where the App Store badge points. */
+export function appStoreLink(): string {
+  return PRE_LAUNCH ? WAITLIST_URL : APP_STORE_URL;
+}
+
+/** Where the Google Play badge points. */
+export function playStoreLink(): string {
+  return PRE_LAUNCH ? WAITLIST_URL : PLAY_STORE_URL;
+}
+
 /** Routes the install footnote to the right store, by user agent (spec §2.8). */
 export function storeUrl(): string {
+  if (PRE_LAUNCH) return WAITLIST_URL;
   const ua = navigator.userAgent ?? '';
   if (/iPhone|iPad|iPod/i.test(ua)) return APP_STORE_URL;
   if (/Android/i.test(ua)) return PLAY_STORE_URL;
