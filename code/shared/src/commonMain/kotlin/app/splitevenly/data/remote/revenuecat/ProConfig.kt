@@ -16,9 +16,13 @@ import app.splitevenly.platform.isIOS
  * purchase, and nothing else. The **secret** key lives only in edge-function env, never here.
  */
 object ProConfig {
-    // Replace with the two keys from the RevenueCat dashboard (Project settings → API keys → Public).
-    private const val APPLE_SDK_KEY: String = "YOUR_REVENUECAT_APPLE_KEY"
-    private const val GOOGLE_SDK_KEY: String = "YOUR_REVENUECAT_GOOGLE_KEY"
+    // Both hold the **Test Store** key, which is one key for every platform: purchases complete against
+    // RevenueCat's own simulated store, so the flow is exercisable with no App Store Connect or Play
+    // Console product. Swap for the per-store `appl_`/`goog_` keys (Project settings → API keys) before
+    // any build reaches a store — RevenueCat will not serve real products to a `test_` key, so shipping
+    // this is a paywall that loads nothing.
+    private const val APPLE_SDK_KEY: String = "test_HIbimZFlgPXInnZbrtZdBGcpRYk"
+    private const val GOOGLE_SDK_KEY: String = "test_HIbimZFlgPXInnZbrtZdBGcpRYk"
 
     /** The key for the store this build talks to. Resolved here rather than through an expect/actual,
      *  because nothing about it needs a platform API — only the answer to "which store". */

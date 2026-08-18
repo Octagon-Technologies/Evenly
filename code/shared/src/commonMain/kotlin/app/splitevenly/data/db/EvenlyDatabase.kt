@@ -5,21 +5,23 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import kotlinx.coroutines.Dispatchers
 import app.splitevenly.data.db.dao.BillParticipantDao
-import app.splitevenly.data.db.dao.GroupPassDao
-import app.splitevenly.data.db.dao.GroupScanUsageDao
+import app.splitevenly.data.db.dao.BillWriteDao
 import app.splitevenly.data.db.dao.CategoryDao
 import app.splitevenly.data.db.dao.CommentDao
 import app.splitevenly.data.db.dao.ConflictDao
-import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.ExpenseBlockedUserDao
+import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.ExpenseEditConflictDao
 import app.splitevenly.data.db.dao.ExpenseItemDao
 import app.splitevenly.data.db.dao.ExpenseSyncStateDao
+import app.splitevenly.data.db.dao.FeedbackOutboxDao
 import app.splitevenly.data.db.dao.FxCurrencyDao
 import app.splitevenly.data.db.dao.FxRateDao
 import app.splitevenly.data.db.dao.GroupDao
+import app.splitevenly.data.db.dao.GroupPassDao
+import app.splitevenly.data.db.dao.GroupPurgeDao
+import app.splitevenly.data.db.dao.GroupScanUsageDao
 import app.splitevenly.data.db.dao.HistoryEventDao
 import app.splitevenly.data.db.dao.ItemClaimDao
 import app.splitevenly.data.db.dao.ItemShareDao
@@ -30,9 +32,10 @@ import app.splitevenly.data.db.dao.PlaceholderMergeDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.dao.ReceiptUploadDao
 import app.splitevenly.data.db.dao.RowSyncStateDao
-import app.splitevenly.data.db.dao.SupersededNoticeDao
 import app.splitevenly.data.db.dao.SettlementDao
 import app.splitevenly.data.db.dao.ShareDao
+import app.splitevenly.data.db.dao.SignOutWipeDao
+import app.splitevenly.data.db.dao.SupersededNoticeDao
 import app.splitevenly.data.db.dao.UserDao
 import app.splitevenly.data.db.dao.UserSubscriptionDao
 import app.splitevenly.data.db.entity.BillParticipantEntity
@@ -44,27 +47,29 @@ import app.splitevenly.data.db.entity.ExpenseEditConflictEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ExpenseItemEntity
 import app.splitevenly.data.db.entity.ExpenseSyncStateEntity
+import app.splitevenly.data.db.entity.FeedbackOutboxEntity
 import app.splitevenly.data.db.entity.FxBakedEntity
 import app.splitevenly.data.db.entity.FxCurrencyEntity
 import app.splitevenly.data.db.entity.FxRateEntity
 import app.splitevenly.data.db.entity.GroupEntity
+import app.splitevenly.data.db.entity.GroupPassEntity
+import app.splitevenly.data.db.entity.GroupScanUsageEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
-import app.splitevenly.data.db.entity.GroupPassEntity
-import app.splitevenly.data.db.entity.GroupScanUsageEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
-import app.splitevenly.data.db.entity.SupersededNoticeEntity
 import app.splitevenly.data.db.entity.SettlementAllocationEntity
 import app.splitevenly.data.db.entity.SettlementEntity
 import app.splitevenly.data.db.entity.ShareEntity
+import app.splitevenly.data.db.entity.SupersededNoticeEntity
 import app.splitevenly.data.db.entity.UserEntity
 import app.splitevenly.data.db.entity.UserSubscriptionEntity
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Room KMP database (02 §7). The local schema mirrors the Supabase Postgres schema 1:1, with the
@@ -112,35 +117,65 @@ import app.splitevenly.data.db.entity.UserSubscriptionEntity
         GroupScanUsageEntity::class,
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
+        FeedbackOutboxEntity::class,
     ],
-    version = 28,
+    version = 31,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
 abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
+
     abstract fun groupDao(): GroupDao
+
+    abstract fun groupPurgeDao(): GroupPurgeDao
+
     abstract fun memberDao(): MemberDao
+
     abstract fun placeholderMergeDao(): PlaceholderMergeDao
+
     abstract fun placeholderClaimAnswerDao(): PlaceholderClaimAnswerDao
+
     abstract fun expenseDao(): ExpenseDao
+
     abstract fun shareDao(): ShareDao
+
     abstract fun settlementDao(): SettlementDao
+
     abstract fun fxRateDao(): FxRateDao
+
     abstract fun fxCurrencyDao(): FxCurrencyDao
+
     abstract fun conflictDao(): ConflictDao
+
     abstract fun expenseEditConflictDao(): ExpenseEditConflictDao
+
     abstract fun expenseSyncStateDao(): ExpenseSyncStateDao
+
     abstract fun commentDao(): CommentDao
+
     abstract fun expenseBlockedUserDao(): ExpenseBlockedUserDao
+
     abstract fun receiptDao(): ReceiptDao
+
     abstract fun receiptUploadDao(): ReceiptUploadDao
+
+    abstract fun feedbackOutboxDao(): FeedbackOutboxDao
+
     abstract fun historyEventDao(): HistoryEventDao
+
     abstract fun categoryDao(): CategoryDao
+
     abstract fun expenseItemDao(): ExpenseItemDao
+
     abstract fun itemClaimDao(): ItemClaimDao
+
     abstract fun itemShareDao(): ItemShareDao
+
     abstract fun billParticipantDao(): BillParticipantDao
+
+    abstract fun billWriteDao(): BillWriteDao
+
     abstract fun pendingItemEditDao(): PendingItemEditDao
 
     abstract fun groupPassDao(): GroupPassDao
@@ -148,8 +183,13 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun userSubscriptionDao(): UserSubscriptionDao
 
     abstract fun groupScanUsageDao(): GroupScanUsageDao
+
     abstract fun rowSyncStateDao(): RowSyncStateDao
+
     abstract fun supersededNoticeDao(): SupersededNoticeDao
+
+    /** Sign-out cache wipe. Adding an entity above means adding a line in there too — see its KDoc. */
+    abstract fun signOutWipeDao(): SignOutWipeDao
 }
 
 /**

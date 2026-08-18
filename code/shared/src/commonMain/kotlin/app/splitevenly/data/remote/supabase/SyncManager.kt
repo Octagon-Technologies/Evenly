@@ -13,10 +13,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
@@ -72,7 +72,7 @@ class SyncManager(
                     launch {
                         runCatching {
                             db.invalidationTracker
-                                .createFlow(*SYNC_TABLES, emitInitialState = false)
+                                .createFlow(*SyncEngine.SYNCED_TABLES.toTypedArray(), emitInitialState = false)
                                 .debounce(PUSH_DEBOUNCE_MS)
                                 .collect { syncEngine.push(userId) }
                         }
@@ -85,9 +85,10 @@ class SyncManager(
                             val channel = client.channel(REALTIME_CHANNEL)
                             // Must be created BEFORE subscribe() — the channel errors if it's already
                             // SUBSCRIBED. Payload ignored: the event itself is the whole signal.
-                            val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
-                                table = DOORBELL_TABLE
-                            }
+                            val changes =
+                                channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                                    table = DOORBELL_TABLE
+                                }
                             try {
                                 channel.subscribe()
                                 changes.debounce(PULL_DEBOUNCE_MS).collect { syncEngine.pull(userId) }
@@ -147,23 +148,15 @@ class SyncManager(
             foreground: Flow<Boolean>,
             graceMs: Long = BACKGROUND_GRACE_MS,
         ): Flow<UserId?> {
-            val settledForeground = foreground
-                .mapLatest { visible ->
-                    if (!visible) delay(graceMs) // cancelled if we come back within the grace
-                    visible
-                }
-                .distinctUntilChanged()
+            val settledForeground =
+                foreground
+                    .mapLatest { visible ->
+                        if (!visible) delay(graceMs) // cancelled if we come back within the grace
+                        visible
+                    }.distinctUntilChanged()
             return combine(currentUserId, settledForeground) { user, visible ->
                 user.takeIf { visible }
             }.distinctUntilChanged()
         }
-
-        /** Synced tables whose local changes should trigger a push (mirrors [SyncEngine.push]). */
-        val SYNC_TABLES = arrayOf(
-            "users", "groups", "members", "expenses", "shares",
-            "settlements", "settlement_allocations", "conflicts", "expense_edit_conflicts",
-            "comments", "receipts", "categories", "expense_history", "expense_items", "item_claims",
-            "item_shares", "bill_participants", "placeholder_claim_answers",
-        )
     }
 }

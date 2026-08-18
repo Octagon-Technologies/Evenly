@@ -29,26 +29,44 @@ import kotlin.test.assertTrue
  * archive, join-by-token, and the admin-transfer-on-leave rule (03 §7.5, including group abandonment).
  */
 class GroupRepositoryTest {
-
     private lateinit var db: EvenlyDatabase
     private lateinit var repo: GroupRepositoryImpl
 
     @BeforeTest
     fun setUp() {
         db = inMemoryTestDatabase()
-        repo = GroupRepositoryImpl(db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(), db.placeholderMergeDao(), db.placeholderClaimAnswerDao(), clockAt("2026-06-12"))
+        repo =
+            GroupRepositoryImpl(
+                db.groupDao(),
+                db.memberDao(),
+                db.userDao(),
+                db.expenseDao(),
+                db.shareDao(),
+                db.conflictDao(),
+                db.placeholderMergeDao(),
+                db.placeholderClaimAnswerDao(),
+                clockAt("2026-06-12"),
+            )
     }
 
     @AfterTest
     fun tearDown() = db.close()
 
-    private suspend fun create(name: String = "Trip", creator: String = "u1"): Group {
+    private suspend fun create(
+        name: String = "Trip",
+        creator: String = "u1",
+    ): Group {
         val result = repo.createGroup(NewGroup(name = name, baseCurrency = "USD", creatorUserId = UserId(creator)))
         assertTrue(result is AppResult.Ok, "createGroup should succeed")
         return result.value
     }
 
-    private suspend fun addMember(groupId: GroupId, userId: String, joinedAt: Long, admin: Boolean = false) {
+    private suspend fun addMember(
+        groupId: GroupId,
+        userId: String,
+        joinedAt: Long,
+        admin: Boolean = false,
+    ) {
         db.memberDao().upsert(
             MemberEntity(
                 id = "m_$userId",
@@ -58,223 +76,390 @@ class GroupRepositoryTest {
                 joinedAt = joinedAt,
                 createdAt = joinedAt,
                 updatedAt = joinedAt,
+            ),
+        )
+    }
+
+    @Test
+    fun createGroup_persistsGroupAndAdminMember() =
+        runTest {
+            val group = create()
+            assertEquals("Trip", group.name)
+            assertEquals(UserId("u1"), group.adminUserId)
+
+            assertNotNull(repo.observeGroup(group.id).first())
+            val members = repo.observeMembers(group.id).first()
+            assertEquals(1, members.size)
+            assertEquals(UserId("u1"), members.single().userId)
+            assertTrue(members.single().isAdmin)
+
+            assertEquals(listOf(group.id), repo.observeGroupsForUser(UserId("u1")).first().map { it.id })
+        }
+
+    @Test
+    fun createGroup_blankName_returnsValidation() =
+        runTest {
+            val result = repo.createGroup(NewGroup(name = "   ", baseCurrency = "USD", creatorUserId = UserId("u1")))
+            assertTrue(result is AppResult.Err)
+            assertTrue((result.error as AppError.Validation).fieldErrors.containsKey("name"))
+        }
+
+    @Test
+    fun renameGroup_updatesName() =
+        runTest {
+            val group = create()
+            val renamed = repo.renameGroup(group.id, "Ski Trip")
+            assertTrue(renamed is AppResult.Ok)
+            assertEquals("Ski Trip", renamed.value.name)
+            assertEquals("Ski Trip", repo.observeGroup(group.id).first()?.name)
+        }
+
+    @Test
+    fun renameGroup_changesEmoji_andLeavesItAloneWhenNull() =
+        runTest {
+            val group = create()
+            val withEmoji = repo.renameGroup(group.id, "Ski Trip", "🎿")
+            assertTrue(withEmoji is AppResult.Ok)
+            assertEquals("🎿", withEmoji.value.emoji)
+
+            val nameOnly = repo.renameGroup(group.id, "Ski Trip 2")
+            assertTrue(nameOnly is AppResult.Ok)
+            assertEquals("🎿", nameOnly.value.emoji)
+            assertEquals("Ski Trip 2", nameOnly.value.name)
+        }
+
+    @Test
+    fun renameGroup_blankEmoji_clearsIt() =
+        runTest {
+            val group = create()
+            val cleared = repo.renameGroup(group.id, "Ski Trip", "")
+            assertTrue(cleared is AppResult.Ok)
+            assertEquals("", cleared.value.emoji)
+            assertEquals("", repo.observeGroup(group.id).first()?.emoji)
+        }
+
+    @Test
+    fun renameGroup_rejectsASentenceAsTheEmoji() =
+        runTest {
+            val group = create()
+            val result = repo.renameGroup(group.id, "Ski Trip", "not actually an emoji at all, is it")
+            assertTrue(result is AppResult.Err)
+            assertTrue((result.error as AppError.Validation).fieldErrors.containsKey("emoji"))
+            assertEquals("💸", repo.observeGroup(group.id).first()?.emoji)
+        }
+
+    @Test
+    fun joinByToken_addsMemberFromLocalCache() =
+        runTest {
+            val group = create()
+            val joined = repo.joinByToken(group.inviteToken, UserId("u2"))
+            assertTrue(joined is AppResult.Ok)
+            assertEquals(group.id, joined.value.id)
+            assertEquals(
+                setOf("u1", "u2"),
+                repo
+                    .observeMembers(group.id)
+                    .first()
+                    .map { it.userId.value }
+                    .toSet(),
             )
-        )
-    }
+        }
 
     @Test
-    fun createGroup_persistsGroupAndAdminMember() = runTest {
-        val group = create()
-        assertEquals("Trip", group.name)
-        assertEquals(UserId("u1"), group.adminUserId)
-
-        assertNotNull(repo.observeGroup(group.id).first())
-        val members = repo.observeMembers(group.id).first()
-        assertEquals(1, members.size)
-        assertEquals(UserId("u1"), members.single().userId)
-        assertTrue(members.single().isAdmin)
-
-        assertEquals(listOf(group.id), repo.observeGroupsForUser(UserId("u1")).first().map { it.id })
-    }
+    fun joinByToken_unknownToken_returnsBackendError() =
+        runTest {
+            // With no remote gateway wired (local-only), a token that matches nothing is GROUP_NOT_FOUND (F7).
+            val result = repo.joinByToken("nope", UserId("u2"))
+            assertTrue(result is AppResult.Err)
+            assertEquals("GROUP_NOT_FOUND", (result.error as AppError.Backend).code)
+        }
 
     @Test
-    fun createGroup_blankName_returnsValidation() = runTest {
-        val result = repo.createGroup(NewGroup(name = "   ", baseCurrency = "USD", creatorUserId = UserId("u1")))
-        assertTrue(result is AppResult.Err)
-        assertTrue((result.error as AppError.Validation).fieldErrors.containsKey("name"))
-    }
-
-    @Test
-    fun renameGroup_updatesName() = runTest {
-        val group = create()
-        val renamed = repo.renameGroup(group.id, "Ski Trip")
-        assertTrue(renamed is AppResult.Ok)
-        assertEquals("Ski Trip", renamed.value.name)
-        assertEquals("Ski Trip", repo.observeGroup(group.id).first()?.name)
-    }
-
-    @Test
-    fun joinByToken_addsMemberFromLocalCache() = runTest {
-        val group = create()
-        val joined = repo.joinByToken(group.inviteToken, UserId("u2"))
-        assertTrue(joined is AppResult.Ok)
-        assertEquals(group.id, joined.value.id)
-        assertEquals(setOf("u1", "u2"), repo.observeMembers(group.id).first().map { it.userId.value }.toSet())
-    }
-
-    @Test
-    fun joinByToken_unknownToken_returnsBackendError() = runTest {
-        // With no remote gateway wired (local-only), a token that matches nothing is GROUP_NOT_FOUND (F7).
-        val result = repo.joinByToken("nope", UserId("u2"))
-        assertTrue(result is AppResult.Err)
-        assertEquals("GROUP_NOT_FOUND", (result.error as AppError.Backend).code)
-    }
-
-    @Test
-    fun joinByToken_neverSyncedGroup_resolvesViaServer() = runTest {
-        // A token absent from the local cache resolves through the remote gateway (F7 cross-device join).
-        val gateway = FakeRemoteGroupGateway(db)
-        val withRemote = GroupRepositoryImpl(
-            db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(),
-            db.placeholderMergeDao(), db.placeholderClaimAnswerDao(), clockAt("2026-06-12"), remoteGroups = gateway,
-        )
-        val joined = withRemote.joinByToken("remote-token", UserId("u2"))
-        assertTrue(joined is AppResult.Ok)
-        assertEquals(FakeRemoteGroupGateway.GROUP_ID, joined.value.id.value)
-        assertTrue(withRemote.observeMembers(joined.value.id).first().any { it.userId.value == "u2" })
-    }
+    fun joinByToken_neverSyncedGroup_resolvesViaServer() =
+        runTest {
+            // A token absent from the local cache resolves through the remote gateway (F7 cross-device join).
+            val gateway = FakeRemoteGroupGateway(db)
+            val withRemote =
+                GroupRepositoryImpl(
+                    db.groupDao(),
+                    db.memberDao(),
+                    db.userDao(),
+                    db.expenseDao(),
+                    db.shareDao(),
+                    db.conflictDao(),
+                    db.placeholderMergeDao(),
+                    db.placeholderClaimAnswerDao(),
+                    clockAt("2026-06-12"),
+                    remoteGroups = gateway,
+                )
+            val joined = withRemote.joinByToken("remote-token", UserId("u2"))
+            assertTrue(joined is AppResult.Ok)
+            assertEquals(FakeRemoteGroupGateway.GROUP_ID, joined.value.id.value)
+            assertTrue(withRemote.observeMembers(joined.value.id).first().any { it.userId.value == "u2" })
+        }
 
     /** Stand-in for the Supabase gateway: returns + caches a group for a single known token. */
-    private class FakeRemoteGroupGateway(private val db: EvenlyDatabase) : RemoteGroupGateway {
+    private class FakeRemoteGroupGateway(
+        private val db: EvenlyDatabase,
+    ) : RemoteGroupGateway {
         override suspend fun resolveByToken(token: String): GroupEntity? {
             if (token != "remote-token") return null
-            val group = GroupEntity(
-                id = GROUP_ID, name = "Remote Trip", emoji = "🏔️", baseCurrency = "USD",
-                adminUserId = "owner", inviteToken = token,
-                createdAt = 1_000L, createdBy = "owner", updatedAt = 1_000L,
-            )
+            val group =
+                GroupEntity(
+                    id = GROUP_ID,
+                    name = "Remote Trip",
+                    emoji = "🏔️",
+                    baseCurrency = "USD",
+                    adminUserId = "owner",
+                    inviteToken = token,
+                    createdAt = 1_000L,
+                    createdBy = "owner",
+                    updatedAt = 1_000L,
+                )
             db.groupDao().upsert(group)
             return group
         }
 
-        companion object { const val GROUP_ID = "remote_g" }
+        companion object {
+            const val GROUP_ID = "remote_g"
+        }
     }
 
     @Test
-    fun leaveGroup_nonAdmin_keepsAdmin() = runTest {
-        val group = create() // u1 admin
-        addMember(group.id, "u2", joinedAt = 2_000L)
+    fun leaveGroup_nonAdmin_keepsAdmin() =
+        runTest {
+            val group = create() // u1 admin
+            addMember(group.id, "u2", joinedAt = 2_000L)
 
-        assertTrue(repo.leaveGroup(group.id, UserId("u2")) is AppResult.Ok)
+            assertTrue(repo.leaveGroup(group.id, UserId("u2")) is AppResult.Ok)
 
-        assertEquals(listOf("u1"), repo.observeMembers(group.id).first().map { it.userId.value })
-        assertEquals("u1", db.groupDao().getById(group.id.value)?.adminUserId)
-    }
-
-    @Test
-    fun leaveGroup_admin_transfersToLongestTenuredActiveMember() = runTest {
-        val group = create() // u1 admin, joined at the (large) clock time
-        addMember(group.id, "u2", joinedAt = 2_000L) // longer-tenured than u1
-
-        assertTrue(repo.leaveGroup(group.id, UserId("u1")) is AppResult.Ok)
-
-        assertEquals("u2", db.groupDao().getById(group.id.value)?.adminUserId)
-        val members = repo.observeMembers(group.id).first()
-        assertEquals(listOf("u2"), members.map { it.userId.value })
-        assertTrue(members.single().isAdmin)
-    }
+            assertEquals(listOf("u1"), repo.observeMembers(group.id).first().map { it.userId.value })
+            assertEquals("u1", db.groupDao().getById(group.id.value)?.adminUserId)
+        }
 
     @Test
-    fun leaveGroup_lastMember_abandonsGroup() = runTest {
-        val group = create()
-        assertTrue(repo.leaveGroup(group.id, UserId("u1")) is AppResult.Ok)
+    fun leaveGroup_admin_transfersToLongestTenuredActiveMember() =
+        runTest {
+            val group = create() // u1 admin, joined at the (large) clock time
+            addMember(group.id, "u2", joinedAt = 2_000L) // longer-tenured than u1
 
-        assertNull(db.groupDao().getById(group.id.value)?.adminUserId) // AC-INV-005
-        assertTrue(repo.observeMembers(group.id).first().isEmpty())
-    }
+            assertTrue(repo.leaveGroup(group.id, UserId("u1")) is AppResult.Ok)
 
-    @Test
-    fun setArchived_togglesMemberArchivedAt() = runTest {
-        val group = create()
-        assertTrue(repo.setArchived(group.id, UserId("u1"), archived = true) is AppResult.Ok)
-        assertNotNull(db.memberDao().getMember(group.id.value, "u1")?.archivedAt)
-
-        assertTrue(repo.setArchived(group.id, UserId("u1"), archived = false) is AppResult.Ok)
-        assertNull(db.memberDao().getMember(group.id.value, "u1")?.archivedAt)
-    }
+            assertEquals("u2", db.groupDao().getById(group.id.value)?.adminUserId)
+            val members = repo.observeMembers(group.id).first()
+            assertEquals(listOf("u2"), members.map { it.userId.value })
+            assertTrue(members.single().isAdmin)
+        }
 
     @Test
-    fun reconcilePlaceholder_movesHistory_andRetiresPlaceholderEverywhere() = runTest {
-        // u1 created the group; "Dave" is a placeholder they've been tracking, with one share owed.
-        val group = create() // u1 is the admin member
-        val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
-        seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = dave.value, owed = 500)
+    fun leaveGroup_lastMember_abandonsGroup() =
+        runTest {
+            val group = create()
+            assertTrue(repo.leaveGroup(group.id, UserId("u1")) is AppResult.Ok)
 
-        // Before reconcile: Dave is a visible member AND a still-claimable placeholder (the bug surface).
-        assertTrue(repo.observeMembers(group.id).first().any { it.userId == dave })
-        assertEquals(listOf(dave.value), placeholders(group.id))
-
-        assertTrue(repo.reconcilePlaceholder(group.id, dave, UserId("u1")) is AppResult.Ok)
-
-        // Dave's debt moved onto u1...
-        assertEquals(listOf("u1"), db.shareDao().getByExpense("e1").map { it.userId })
-        // ...and the merged placeholder is gone from the roster *and* the picker — no lingering "Dave".
-        assertEquals(listOf("u1"), repo.observeMembers(group.id).first().map { it.userId.value })
-        assertTrue(placeholders(group.id).isEmpty())
-        assertNotNull(db.memberDao().getMember(group.id.value, dave.value)?.placeholderClaimCompletedAt)
-    }
+            assertNull(db.groupDao().getById(group.id.value)?.adminUserId) // AC-INV-005
+            assertTrue(repo.observeMembers(group.id).first().isEmpty())
+        }
 
     @Test
-    fun joinByToken_claimingPlaceholder_mergesHistoryAndRetiresIt() = runTest {
-        // u1 tracked friend "Dave" as a placeholder owing 800; Dave now joins via the link and claims it.
-        val group = create() // u1 admin
-        val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
-        seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = dave.value, owed = 800)
+    fun setArchived_togglesMemberArchivedAt() =
+        runTest {
+            val group = create()
+            assertTrue(repo.setArchived(group.id, UserId("u1"), archived = true) is AppResult.Ok)
+            assertNotNull(db.memberDao().getMember(group.id.value, "u1")?.archivedAt)
 
-        val joined = repo.joinByToken(group.inviteToken, UserId("u2"), claimPlaceholderId = dave)
-        assertTrue(joined is AppResult.Ok)
-
-        // u2 joined as a real member, Dave's debt merged onto them in one step — no manual reconcile...
-        assertEquals(setOf("u1", "u2"), repo.observeMembers(group.id).first().map { it.userId.value }.toSet())
-        assertEquals(listOf("u2"), db.shareDao().getByExpense("e1").map { it.userId })
-        // ...and the claimed placeholder is gone from the roster and the picker.
-        assertTrue(placeholders(group.id).isEmpty())
-    }
+            assertTrue(repo.setArchived(group.id, UserId("u1"), archived = false) is AppResult.Ok)
+            assertNull(db.memberDao().getMember(group.id.value, "u1")?.archivedAt)
+        }
 
     @Test
-    fun joinByToken_claimingNonPlaceholder_isIgnored() = runTest {
-        // A claim id that isn't a placeholder of this group must never reassign an arbitrary user's rows.
-        val group = create()
-        db.userDao().upsert(userRow(id = "u1", name = "Alex")) // a real user, not a placeholder
-        seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = "u1", owed = 400)
+    fun reconcilePlaceholder_movesHistory_andRetiresPlaceholderEverywhere() =
+        runTest {
+            // u1 created the group; "Dave" is a placeholder they've been tracking, with one share owed.
+            val group = create() // u1 is the admin member
+            val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
+            seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = dave.value, owed = 500)
 
-        val joined = repo.joinByToken(group.inviteToken, UserId("u2"), claimPlaceholderId = UserId("u1"))
-        assertTrue(joined is AppResult.Ok)
+            // Before reconcile: Dave is a visible member AND a still-claimable placeholder (the bug surface).
+            assertTrue(repo.observeMembers(group.id).first().any { it.userId == dave })
+            assertEquals(listOf(dave.value), placeholders(group.id))
 
-        assertEquals(setOf("u1", "u2"), repo.observeMembers(group.id).first().map { it.userId.value }.toSet())
-        assertEquals(listOf("u1"), db.shareDao().getByExpense("e1").map { it.userId }) // u1's share untouched
-    }
+            assertTrue(repo.reconcilePlaceholder(group.id, dave, UserId("u1")) is AppResult.Ok)
+
+            // Dave's debt moved onto u1...
+            assertEquals(listOf("u1"), db.shareDao().getByExpense("e1").map { it.userId })
+            // ...and the merged placeholder is gone from the roster *and* the picker — no lingering "Dave".
+            assertEquals(listOf("u1"), repo.observeMembers(group.id).first().map { it.userId.value })
+            assertTrue(placeholders(group.id).isEmpty())
+            assertNotNull(db.memberDao().getMember(group.id.value, dave.value)?.placeholderClaimCompletedAt)
+        }
 
     @Test
-    fun memberRoster_resolvesToCurrentGlobalName_placeholderNameUnaffected() = runTest {
-        // The authenticated user (u1) and a placeholder "Dave" both belong to the group. The roster
-        // reads names from the global `users` row (no per-group copy), so a Settings rename — which
-        // ProfileRepositoryImpl.updateDisplayName routes straight to userDao.updateDisplayName — must
-        // propagate to the member row, while the placeholder keeps its creator-assigned name.
-        val group = create()
-        db.userDao().upsert(userRow(id = "u1", name = "Alex"))
-        val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
+    fun joinByToken_claimingPlaceholder_mergesHistoryAndRetiresIt() =
+        runTest {
+            // u1 tracked friend "Dave" as a placeholder owing 800; Dave now joins via the link and claims it.
+            val group = create() // u1 admin
+            val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
+            seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = dave.value, owed = 800)
 
-        assertEquals("Alex", repo.observeMembers(group.id).first().first { it.userId.value == "u1" }.displayName)
+            val joined = repo.joinByToken(group.inviteToken, UserId("u2"), claimPlaceholderId = dave)
+            assertTrue(joined is AppResult.Ok)
 
-        db.userDao().updateDisplayName(id = "u1", name = "Alexandra", now = 5_000L)
+            // u2 joined as a real member, Dave's debt merged onto them in one step — no manual reconcile...
+            assertEquals(
+                setOf("u1", "u2"),
+                repo
+                    .observeMembers(group.id)
+                    .first()
+                    .map { it.userId.value }
+                    .toSet(),
+            )
+            assertEquals(listOf("u2"), db.shareDao().getByExpense("e1").map { it.userId })
+            // ...and the claimed placeholder is gone from the roster and the picker.
+            assertTrue(placeholders(group.id).isEmpty())
+        }
 
-        val members = repo.observeMembers(group.id).first()
-        assertEquals("Alexandra", members.first { it.userId.value == "u1" }.displayName)
-        assertEquals("Dave", members.first { it.userId == dave }.displayName) // placeholder untouched
+    @Test
+    fun joinByToken_claimingNonPlaceholder_isIgnored() =
+        runTest {
+            // A claim id that isn't a placeholder of this group must never reassign an arbitrary user's rows.
+            val group = create()
+            db.userDao().upsert(userRow(id = "u1", name = "Alex")) // a real user, not a placeholder
+            seedExpenseWithShare(group.id, expenseId = "e1", payer = "u1", owedBy = "u1", owed = 400)
+
+            val joined = repo.joinByToken(group.inviteToken, UserId("u2"), claimPlaceholderId = UserId("u1"))
+            assertTrue(joined is AppResult.Ok)
+
+            assertEquals(
+                setOf("u1", "u2"),
+                repo
+                    .observeMembers(group.id)
+                    .first()
+                    .map { it.userId.value }
+                    .toSet(),
+            )
+            assertEquals(listOf("u1"), db.shareDao().getByExpense("e1").map { it.userId }) // u1's share untouched
+        }
+
+    @Test
+    fun memberRoster_resolvesToCurrentGlobalName_placeholderNameUnaffected() =
+        runTest {
+            // The authenticated user (u1) and a placeholder "Dave" both belong to the group. The roster
+            // reads names from the global `users` row (no per-group copy), so a Settings rename — which
+            // ProfileRepositoryImpl.updateDisplayName routes straight to userDao.updateDisplayName — must
+            // propagate to the member row, while the placeholder keeps its creator-assigned name.
+            val group = create()
+            db.userDao().upsert(userRow(id = "u1", name = "Alex"))
+            val dave = (repo.addPlaceholder(group.id, "Dave") as AppResult.Ok).value.userId
+
+            assertEquals(
+                "Alex",
+                repo
+                    .observeMembers(group.id)
+                    .first()
+                    .first { it.userId.value == "u1" }
+                    .displayName,
+            )
+
+            db.userDao().updateDisplayName(id = "u1", name = "Alexandra", now = 5_000L)
+
+            val members = repo.observeMembers(group.id).first()
+            assertEquals("Alexandra", members.first { it.userId.value == "u1" }.displayName)
+            assertEquals("Dave", members.first { it.userId == dave }.displayName) // placeholder untouched
+        }
+
+    // ── A placeholder is one thing, so it is one write (R9) ──────────────────────────────────────
+
+    /** Delegates everything, and counts the loose `users` write the transaction is meant to replace. */
+    private class CountingUserDao(
+        private val real: app.splitevenly.data.db.dao.UserDao,
+    ) : app.splitevenly.data.db.dao.UserDao by real {
+        var looseUpserts = 0
+
+        override suspend fun upsert(user: UserEntity) {
+            looseUpserts++
+            real.upsert(user)
+        }
     }
+
+    /**
+     * `data/AGENTS.md` defines a placeholder as a `users` row **plus** a `members` row. Written
+     * separately, an interruption between them leaves a `users` row with no membership: every read that
+     * matters JOINs `members`, so the person appears in no roster, no reconcile picker and no join-sheet
+     * identity picker, and no screen offers a way to delete them. It pushes to the server like that too.
+     */
+    @Test
+    fun addPlaceholder_writesTheUserAndTheMembershipInOneTransaction() =
+        runTest {
+            val users = CountingUserDao(db.userDao())
+            val counting =
+                GroupRepositoryImpl(
+                    db.groupDao(),
+                    db.memberDao(),
+                    users,
+                    db.expenseDao(),
+                    db.shareDao(),
+                    db.conflictDao(),
+                    db.placeholderMergeDao(),
+                    db.placeholderClaimAnswerDao(),
+                    clockAt("2026-06-12"),
+                )
+            val group = create()
+
+            val added = counting.addPlaceholder(group.id, "Dave")
+
+            assertTrue(added is AppResult.Ok)
+            assertEquals(0, users.looseUpserts, "a users row written alone is invisible everywhere and never cleaned up")
+            assertNotNull(db.userDao().getById(added.value.userId.value))
+            assertNotNull(db.memberDao().getMember(group.id.value, added.value.userId.value))
+            assertTrue(counting.observeMembers(group.id).first().any { it.userId == added.value.userId })
+        }
 
     /** Insert an active expense plus a single share owed by [owedBy] — minimal reconcile fixture. */
-    private suspend fun seedExpenseWithShare(groupId: GroupId, expenseId: String, payer: String, owedBy: String, owed: Long) {
+    private suspend fun seedExpenseWithShare(
+        groupId: GroupId,
+        expenseId: String,
+        payer: String,
+        owedBy: String,
+        owed: Long,
+    ) {
         db.expenseDao().upsert(
             ExpenseEntity(
-                id = expenseId, groupId = groupId.value, title = "Tacos", amountSubunits = owed,
-                currency = "USD", expenseDate = "2026-06-12", payerUserId = payer, splitMode = "EVEN",
-                createdBy = payer, createdAt = 1_000L, updatedAt = 1_000L,
+                id = expenseId,
+                groupId = groupId.value,
+                title = "Tacos",
+                amountSubunits = owed,
+                currency = "USD",
+                expenseDate = "2026-06-12",
+                payerUserId = payer,
+                splitMode = "EVEN",
+                createdBy = payer,
+                createdAt = 1_000L,
+                updatedAt = 1_000L,
             ),
         )
         db.shareDao().upsert(
             ShareEntity(
-                id = "s_$owedBy", expenseId = expenseId, userId = owedBy,
-                shareOwedSubunits = owed, createdAt = 1_000L, updatedAt = 1_000L,
+                id = "s_$owedBy",
+                expenseId = expenseId,
+                userId = owedBy,
+                shareOwedSubunits = owed,
+                createdAt = 1_000L,
+                updatedAt = 1_000L,
             ),
         )
     }
 
-    private fun userRow(id: String, name: String) =
-        UserEntity(id = id, displayName = name, createdAt = 1_000L, updatedAt = 1_000L)
+    private fun userRow(
+        id: String,
+        name: String,
+    ) = UserEntity(id = id, displayName = name, createdAt = 1_000L, updatedAt = 1_000L)
 
     /** The group's currently-claimable placeholder user ids (the reconcile / join-sheet picker source). */
     private suspend fun placeholders(groupId: GroupId): List<String> =
-        db.userDao().observePlaceholdersInGroup(groupId.value).first().map { it.id }
+        db
+            .userDao()
+            .observePlaceholdersInGroup(groupId.value)
+            .first()
+            .map { it.id }
 }

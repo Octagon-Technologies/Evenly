@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,15 +30,33 @@ import app.splitevenly.ui.theme.EvenlyTheme
 
 /** What the pass sheet is being opened onto: a free group, or one that is already covered. */
 sealed interface PassSheetMode {
-    /** The ordinary case. The button reads "Get Pro for <group>". */
-    data object Fresh : PassSheetMode
+    /**
+     * The ordinary case. The button reads "Get Pro for <group>".
+     *
+     * Carries the group's scan count because **this sheet has two doors** and only one of them means
+     * the scans ran out: the out-of-scans gate, and the Group settings row someone taps to look. The
+     * subtitle used to state "used all 5 free scans" for both, so a group that had used none was told
+     * it was out — a false scarcity claim on a payment screen, which is a far worse thing to ship than
+     * the vague line it replaced. Same three-way split as `ProStatusRow`, for the same reason.
+     *
+     * [scansLeft] is null when the count has not been fetched yet, and then the copy claims nothing.
+     */
+    data class Fresh(
+        val scansLeft: Int?,
+        val freeLimit: Int,
+    ) : PassSheetMode
 
     /**
      * The group already holds a live pass, so this purchase **extends** it (`PRO_PASS_SPEC.md` §5.4).
      * Said before the charge, with the resulting date on the button, so "what am I actually buying"
      * needs no arithmetic.
      */
-    data class Extend(val currentExpiresOn: String, val holderName: String?) : PassSheetMode
+    data class Extend(
+        val currentExpiresOn: String,
+        val holderName: String?,
+        /** The viewer bought the pass being extended. Without it the footer told Bob about "Bob's pass". */
+        val isMe: Boolean,
+    ) : PassSheetMode
 
     /**
      * This group is already Pro because **someone's** subscription covers it. No purchase is offered at
@@ -48,7 +67,10 @@ sealed interface PassSheetMode {
      * refunded on the way out, so nothing later corrects the mistake. [subscriberName] is null when the
      * payer has left the group or cannot be resolved.
      */
-    data class AlreadySubscribed(val subscriberName: String?, val isMe: Boolean) : PassSheetMode
+    data class AlreadySubscribed(
+        val subscriberName: String?,
+        val isMe: Boolean,
+    ) : PassSheetMode
 }
 
 /** Where the sheet is in the buy-then-activate round trip. */
@@ -64,20 +86,37 @@ sealed interface PassSheetPhase {
      */
     data object Charged : PassSheetPhase
 
-    data class Failed(val message: String?) : PassSheetPhase
+    /**
+     * The store charged and the server **refused** to turn it into a pass, rather than not answering.
+     *
+     * Separate from [Charged] because [Charged]'s copy promises that tapping again will fix it, and
+     * here it cannot: the same transaction gets the same refusal on every launch. The money is not
+     * lost (the RevenueCat webhook plus `pro_orphan_purchases` catches it server-side) and this state
+     * exists to say that out loud and put a human in reach, instead of a button that does nothing.
+     */
+    data object ChargedRefused : PassSheetPhase
+
+    data class Failed(
+        val message: String?,
+    ) : PassSheetPhase
 }
 
 /**
  * The group-pass sheet (`PRO_PASS_SPEC.md` §8.3) — ours, not RevenueCat's, because RevenueCat's paywall
  * editor cannot render consumables (§2.1).
  *
- * Three copy points here are load-bearing rather than decorative:
+ * Two copy points here are load-bearing rather than decorative:
  *  - **The group name is in the headline and on the button.** Buying for the wrong group is the single
  *    mistake this design can produce, so the group is named at the moment of the tap, not just above it.
- *  - **"One time. It does not renew. Nothing to cancel."** sits above the button in ink, not in grey
- *    fine print. It is the entire differentiator from the subscription; burying it wastes it.
- *  - **"You can still add bills by hand for free."** keeps the exit visible, which is what makes this a
- *    choice rather than a wall.
+ *  - **The button carries the price, not just the verb.** "Get 1 Month Pass $3.99" needs no glance back
+ *    up the screen; a bare "Get Pro" does.
+ *
+ * The rest of the footer is deliberately light, per owner UX review: a pricing screen with three tiers
+ * already asks for one decision, and stacking renewal-terms/coverage paragraphs under it is a worse
+ * trade than leaving them out. [PassSheetMode.Fresh] renders no disclaimer line at all; [Extend] still
+ * states what it stacks onto, because that is information a buyer needs, not boilerplate. The
+ * subscription cross-link ([onSeeSubscription]) is a full row rather than a footer link so it does not
+ * read as buried fine print, since it is a real fork for anyone in more than one group.
  *
  * Prices are the store's own localized strings ([PassOffer.price]), never assembled here.
  */
@@ -93,6 +132,9 @@ fun PassSheet(
     onSelect: (String) -> Unit,
     onBuy: () -> Unit,
     onRetryActivation: () -> Unit,
+    /** Opens the feedback route for [PassSheetPhase.ChargedRefused]. Null only where there is nowhere
+     *  to send someone; the button then closes the sheet rather than sitting there dead. */
+    onContactSupport: (() -> Unit)?,
     onRetryOffers: () -> Unit,
     /** The mirror of the paywall's "Only need it for one trip?": whichever door someone came through,
      *  the other one is one tap away and named. Null where there is nowhere to send them without
@@ -113,17 +155,43 @@ fun PassSheet(
                 else -> "Unlimited scans for $groupName"
             },
             Modifier.fillMaxWidth().padding(bottom = 6.dp),
-            color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+            color = c.ink,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
         )
         Text(
             when (mode) {
-                is PassSheetMode.Extend ->
+                is PassSheetMode.Extend -> {
                     "$groupName is Pro until ${mode.currentExpiresOn}. Buying now adds to the end, it does not start over."
-                else ->
-                    "This group has used all 5 free scans. Get a pass and everyone in the group can scan as many receipts as they want."
+                }
+
+                is PassSheetMode.Fresh -> {
+                    when {
+                        // Not fetched yet. Sell the pass on what it does, and claim nothing about a number
+                        // we do not have.
+                        mode.scansLeft == null -> {
+                            "Get a pass and everyone in the group can scan as many receipts as they want."
+                        }
+
+                        mode.scansLeft <= 0 -> {
+                            "This group has used all ${mode.freeLimit} free scans. Get a pass and everyone in " +
+                                "the group can scan as many receipts as they want."
+                        }
+
+                        else -> {
+                            "${mode.scansLeft} of ${mode.freeLimit} free scans left. A pass makes them unlimited " +
+                                "for everyone in the group."
+                        }
+                    }
+                }
+
+                else -> {
+                    ""
+                }
             },
             Modifier.fillMaxWidth().padding(bottom = 14.dp),
-            color = c.ink2, fontSize = 13.5.sp,
+            color = c.ink2,
+            fontSize = 13.5.sp,
         )
 
         if (offers.isEmpty()) {
@@ -132,7 +200,9 @@ fun PassSheet(
             Text(
                 "Prices aren't loading right now. You can still add bills by hand for free.",
                 Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                color = c.ink2, fontSize = 13.5.sp, textAlign = TextAlign.Center,
+                color = c.ink2,
+                fontSize = 13.5.sp,
+                textAlign = TextAlign.Center,
             )
             // A transient price fetch, so the retry is real rather than a Close dressed up as one.
             EvButton(text = "Try again", onClick = onRetryOffers, variant = ButtonVariant.Secondary)
@@ -159,22 +229,34 @@ fun PassSheet(
 
         Box(Modifier.padding(top = 12.dp)) {
             when (phase) {
-                PassSheetPhase.Charged -> EvButton(text = "Turn on Pro", onClick = onRetryActivation)
+                PassSheetPhase.Charged -> {
+                    EvButton(text = "Turn on Pro", onClick = onRetryActivation)
+                }
+
+                // No retry here, on purpose: the server has already given its verdict on this exact
+                // transaction and will give it again. The only live action left is reaching a person.
+                PassSheetPhase.ChargedRefused -> {
+                    EvButton(text = "Get help with this", onClick = onContactSupport ?: onDismiss)
+                }
+
                 // The button carries the AMOUNT, not just the verb. Three tiers four times apart, a
                 // noisy restaurant and no confirmation step after this: a verb with no price on it is
                 // the one control here that must not make someone look back up the screen.
-                else -> EvButton(
-                    text = when {
-                        phase == PassSheetPhase.Working -> "Working…"
-                        mode is PassSheetMode.Extend && extendToLabel != null -> "Extend to $extendToLabel"
-                        selectedOffer != null -> "Get ${selectedOffer.title} for ${selectedOffer.price}"
-                        else -> "Get Pro for $groupName"
-                    },
-                    onClick = onBuy,
-                    // Deliberately live even with nothing selected: tapping picks the highlighted tier
-                    // rather than doing nothing, so the control is never a silent dead end.
-                    enabled = phase != PassSheetPhase.Working,
-                )
+                else -> {
+                    EvButton(
+                        text =
+                            when {
+                                phase == PassSheetPhase.Working -> "Working…"
+                                mode is PassSheetMode.Extend && extendToLabel != null -> "Extend to $extendToLabel"
+                                selectedOffer != null -> "Get ${selectedOffer.title} for ${selectedOffer.price}"
+                                else -> "Get Pro for $groupName"
+                            },
+                        onClick = onBuy,
+                        // Deliberately live even with nothing selected: tapping picks the highlighted tier
+                        // rather than doing nothing, so the control is never a silent dead end.
+                        enabled = phase != PassSheetPhase.Working,
+                    )
+                }
             }
         }
 
@@ -184,49 +266,107 @@ fun PassSheet(
             // "You will not be charged again" is the half of this the buyer actually needs. Without it
             // the sentence creates exactly the fear that stops them tapping, and they end up having paid
             // for nothing. It is true by construction: activation is idempotent on the transaction id.
-            PassSheetPhase.Charged ->
+            PassSheetPhase.Charged -> {
                 Note("Payment went through. Turning on Pro didn't finish. Tap again, you won't be charged twice.", c.warning)
-            is PassSheetPhase.Failed -> Note(phase.message ?: "That didn't go through. Nothing was charged.", c.danger)
-            else -> Unit
-        }
+            }
 
-        Text(
-            "One time. It does not renew. Nothing to cancel.",
-            Modifier.fillMaxWidth().padding(top = 12.dp),
-            color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-        )
-        Text(
-            when (mode) {
-                is PassSheetMode.Extend ->
-                    (mode.holderName?.let { "$it's pass runs to ${mode.currentExpiresOn}. Yours picks up from there." }
-                        ?: "The current pass runs to ${mode.currentExpiresOn}. Yours picks up from there.")
-                // Export is named because a pass DOES cover it: someone who bought a pass and then hit
-                // the export gate would have been sold something they already had.
-                else -> "Covers everyone in this group, scans and export. You can still add bills by hand for free."
-            },
-            Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp),
-            color = c.ink3, fontSize = 12.sp, textAlign = TextAlign.Center,
-        )
-        onSeeSubscription?.let { seePro ->
-            Box(
-                Modifier.fillMaxWidth().clickable(onClick = seePro).padding(top = 10.dp, bottom = 2.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "In more than one group? See Evenly Pro",
-                    color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            // Says the two things a person who has paid and not received actually needs: the money is
+            // accounted for, and tapping again is not the answer. Never "try again later" here, which is
+            // what the old shared state said and what kept saying it on every launch.
+            PassSheetPhase.ChargedRefused -> {
+                Note(
+                    "Payment went through, but we couldn't turn on Pro for this group. " +
+                        "Your payment is recorded and we'll sort it out. Trying again won't change it.",
+                    c.warning,
                 )
             }
+
+            is PassSheetPhase.Failed -> {
+                Note(phase.message ?: "That didn't go through. Nothing was charged.", c.danger)
+            }
+
+            else -> {
+                Unit
+            }
+        }
+
+        // Stacking needs saying (the new pass adds to an existing one rather than starting over); a
+        // fresh purchase does not, so [Fresh] renders no footer line here at all.
+        if (mode is PassSheetMode.Extend) {
+            Text(
+                when {
+                    // Naming the viewer back at themselves ("Bob's pass runs to...") reads as a
+                    // second person's purchase and makes the stacking question harder, not easier.
+                    mode.isMe -> {
+                        "Your pass runs to ${mode.currentExpiresOn}. The new one picks up from there."
+                    }
+
+                    mode.holderName != null -> {
+                        "${mode.holderName}'s pass runs to ${mode.currentExpiresOn}. Yours picks up from there."
+                    }
+
+                    else -> {
+                        "The current pass runs to ${mode.currentExpiresOn}. Yours picks up from there."
+                    }
+                },
+                Modifier.fillMaxWidth().padding(top = 10.dp),
+                color = c.ink3,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
+        onSeeSubscription?.let { seePro ->
+            ProUpsellRow(onClick = seePro, modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
 
+/**
+ * The mirror of the paywall's "Only need it for one trip?": whichever door someone came through, the
+ * other product is one tap away and named. A tinted, bordered row rather than a footer link so it reads
+ * as a real second option, not fine print.
+ */
 @Composable
-private fun Note(text: String, color: androidx.compose.ui.graphics.Color) {
+private fun ProUpsellRow(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(13.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.blueTint)
+            .border(1.dp, c.blueTint2, shape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("In more than one group?", color = c.ink, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Unlimited scans in every group you're in",
+                Modifier.padding(top = 1.dp),
+                color = c.ink2,
+                fontSize = 11.sp,
+            )
+        }
+        Text("›", color = c.blueText, fontSize = 15.sp)
+    }
+}
+
+@Composable
+private fun Note(
+    text: String,
+    color: androidx.compose.ui.graphics.Color,
+) {
     Text(
         text,
         Modifier.fillMaxWidth().padding(top = 8.dp),
-        color = color, fontSize = 12.5.sp, textAlign = TextAlign.Center,
+        color = color,
+        fontSize = 12.5.sp,
+        textAlign = TextAlign.Center,
     )
 }
 
@@ -240,21 +380,37 @@ private fun AlreadyCoveredBody(
     Text(
         "$groupName is already Pro",
         Modifier.fillMaxWidth().padding(bottom = 6.dp),
-        color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+        color = c.ink,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold,
     )
     Text(
         when {
-            mode.isMe -> "Your Evenly Pro subscription covers this group, so there is nothing to buy here."
-            mode.subscriberName != null ->
+            mode.isMe -> {
+                "Your Evenly Pro subscription covers this group, so there is nothing to buy here."
+            }
+
+            mode.subscriberName != null -> {
                 "${mode.subscriberName}'s Evenly Pro subscription covers this group, so there is nothing to buy here."
-            else -> "Someone here subscribes to Evenly Pro, so this group is covered and there is nothing to buy."
+            }
+
+            else -> {
+                "Someone here subscribes to Evenly Pro, so this group is covered and there is nothing to buy."
+            }
         },
         Modifier.fillMaxWidth().padding(bottom = 16.dp),
-        color = c.ink2, fontSize = 13.5.sp,
+        color = c.ink2,
+        fontSize = 13.5.sp,
     )
     EvButton(text = "Back to $groupName", onClick = onDismiss, variant = ButtonVariant.Secondary)
 }
 
+/**
+ * The 1 Week, 2 Week and 1 Month cards are the same length and height as each other by construction:
+ * [flag] renders as a chip pinned to the top border, outside the card's own padding, rather than a row
+ * reserved inside every card. Only the flagged card grows for it, which is deliberate (owner UX review)
+ * rather than a byproduct to fix.
+ */
 @Composable
 private fun TierCard(
     offer: PassOffer,
@@ -265,21 +421,33 @@ private fun TierCard(
 ) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(12.dp)
-    Column(
-        modifier
-            .clip(shape)
-            .background(if (selected) c.blueTint else c.page)
-            .border(if (selected) 1.5.dp else 1.dp, if (selected) c.blue else c.border, shape)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        flag?.let {
-            Text(it, color = c.blueText, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+    Box(modifier) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(if (selected) c.blueTint else c.page)
+                .border(if (selected) 1.5.dp else 1.dp, if (selected) c.blue else c.border, shape)
+                .clickable(onClick = onClick)
+                .padding(vertical = 12.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(offer.title, color = c.ink2, fontSize = 12.sp, textAlign = TextAlign.Center)
+            Text(offer.price, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
-        Text(offer.title, color = c.ink2, fontSize = 12.sp, textAlign = TextAlign.Center)
-        Text(offer.price, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        flag?.let {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-8).dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(c.blue)
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+            ) {
+                Text(it, color = c.onAccent, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp)
+            }
+        }
     }
 }
 
@@ -288,7 +456,8 @@ private fun TierCard(
  * currency and after any dashboard price change, which a "most popular" badge would not. An offer whose
  * package id we do not recognise has no known duration and simply cannot win the flag.
  */
-private fun bestValue(offers: List<PassOffer>): PassOffer? = offers
-    .mapNotNull { offer -> PassTier.byPackageId(offer.packageId)?.let { offer to offer.priceMicros / it.days } }
-    .minByOrNull { it.second }
-    ?.first
+private fun bestValue(offers: List<PassOffer>): PassOffer? =
+    offers
+        .mapNotNull { offer -> PassTier.byPackageId(offer.packageId)?.let { offer to offer.priceMicros / it.days } }
+        .minByOrNull { it.second }
+        ?.first

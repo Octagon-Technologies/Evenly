@@ -1,0 +1,27 @@
+{
+  "name": "evenly-admin",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Evenly's admin dashboard — the waitlist and the feedback queue, behind a server-side allowlist (ADMIN_FEEDBACK_SPEC.md). Its own Vercel project so this bundle is never served to a public visitor.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && svelte-check --threshold error"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.58.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@types/node": "^26.1.2",
+    "svelte": "^5.56.8",
+    "svelte-check": "^4.7.4",
+    "typescript": "^5.7.2",
+    "vite": "^8.2.0"
+  }
+}

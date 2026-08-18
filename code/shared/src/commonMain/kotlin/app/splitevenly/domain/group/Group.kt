@@ -15,6 +15,13 @@ data class Group(
     val adminUserId: UserId?,
     val inviteToken: String,
     val createdAt: Long,
+    /**
+     * Set only when the group is in Recently deleted. Every stream but
+     * [app.splitevenly.domain.repository.GroupRepository.observeGroupIncludingDeleted] filters these
+     * out, so a non-null value here means the caller deliberately asked to see the tombstone.
+     */
+    val deletedAt: Long? = null,
+    val deletedBy: UserId? = null,
 )
 
 /**

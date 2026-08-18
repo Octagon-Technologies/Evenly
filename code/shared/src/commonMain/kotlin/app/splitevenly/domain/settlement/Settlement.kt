@@ -28,7 +28,15 @@ data class Allocation(
  * walks them in order, applying `min(remaining, paymentLeft)` to each and stopping once
  * the payment is exhausted. Shares with no remaining balance produce no allocation.
  *
- * Invariant: `sum(appliedSubunits) == min(paymentAmountSubunits, sum(remainingSubunits))`.
+ * Invariant: `sum(appliedSubunits) == min(paymentAmountSubunits, sum(max(remainingSubunits, 0)))`.
+ *
+ * The `max(…, 0)` is the contract, not a hedge. A negative remaining is a **credit** — the
+ * state `Overpayment` exists to describe — and a payment does not pay a credit down: that
+ * share is skipped, never netted against a sibling. Netting would spend one expense's
+ * overpayment on another expense's debt, which is a decision this allocator does not get to
+ * make. Every production caller filters `remaining > 0` before calling (all three outstanding
+ * queries in `ShareDao` end that way), so the case is latent; the invariant is written to hold
+ * for any input rather than only for a set someone remembered to filter.
  *
  * @throws IllegalArgumentException if the shares span more than one currency — the
  *   same-currency path requires a single uniform currency (the cross-FX path handles
@@ -47,7 +55,7 @@ fun allocateSameCurrency(
     for (share in shares) {
         if (remaining <= 0L) break
         val applied = minOf(remaining, share.remainingSubunits)
-        if (applied > 0L) {
+        if (applied > 0L) { // a share with nothing owed, or holding a credit, is skipped (never netted)
             allocations += Allocation(shareId = share.shareId, appliedSubunits = applied)
             remaining -= applied
         }

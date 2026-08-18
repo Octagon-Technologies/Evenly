@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,7 +46,11 @@ import app.splitevenly.ui.theme.EvenlyTheme
 
 /** `.sc-field` — a label over its content. */
 @Composable
-fun EvField(label: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun EvField(
+    label: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(label, color = EvenlyTheme.colors.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp)
         content()
@@ -53,6 +58,7 @@ fun EvField(label: String, modifier: Modifier = Modifier, content: @Composable (
 }
 
 /** `.sc-input` — editable text field. Strong hairline → 2dp blue ring on focus. */
+@Suppress("LongParameterList") // One styled field stands in for every input in the app.
 @Composable
 fun EvTextField(
     value: String,
@@ -68,6 +74,9 @@ fun EvTextField(
     imeAction: ImeAction = ImeAction.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     isError: Boolean = false,
+    // Set for a field holding an identifier rather than prose (a payment handle, a code). The keyboard
+    // capitalizes the first letter and autocorrects by default, silently rewriting what was typed.
+    identifier: Boolean = false,
 ) {
     val c = EvenlyTheme.colors
     val focusManager = LocalFocusManager.current
@@ -75,14 +84,29 @@ fun EvTextField(
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(12.dp)
     // Focus wins (blue ring); otherwise a required-but-empty field reads red so the gap is obvious.
-    val borderColor = if (focused) c.blue else if (isError) c.danger else c.borderStrong
-    val borderWidth = if (focused) 2.dp else if (isError) 1.5.dp else 1.dp
+    val borderColor =
+        if (focused) {
+            c.blue
+        } else if (isError) {
+            c.danger
+        } else {
+            c.borderStrong
+        }
+    val borderWidth =
+        if (focused) {
+            2.dp
+        } else if (isError) {
+            1.5.dp
+        } else {
+            1.dp
+        }
     // A single-line field's Enter should complete + collapse the keyboard, never insert a newline.
-    val effectiveImeAction = when {
-        imeAction != ImeAction.Default -> imeAction
-        singleLine -> ImeAction.Done
-        else -> ImeAction.Default
-    }
+    val effectiveImeAction =
+        when {
+            imeAction != ImeAction.Default -> imeAction
+            singleLine -> ImeAction.Done
+            else -> ImeAction.Default
+        }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -92,22 +116,30 @@ fun EvTextField(
         cursorBrush = SolidColor(c.blue),
         interactionSource = interaction,
         visualTransformation = visualTransformation,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = effectiveImeAction),
-        keyboardActions = KeyboardActions(
-            onDone = { focusManager.clearFocus() },
-            onGo = { focusManager.clearFocus() },
-            onSend = { focusManager.clearFocus() },
-            onSearch = { focusManager.clearFocus() },
-        ),
+        keyboardOptions =
+            KeyboardOptions(
+                capitalization = if (identifier) KeyboardCapitalization.None else KeyboardCapitalization.Unspecified,
+                autoCorrectEnabled = if (identifier) false else null,
+                keyboardType = keyboardType,
+                imeAction = effectiveImeAction,
+            ),
+        keyboardActions =
+            KeyboardActions(
+                onDone = { focusManager.clearFocus() },
+                onGo = { focusManager.clearFocus() },
+                onSend = { focusManager.clearFocus() },
+                onSearch = { focusManager.clearFocus() },
+            ),
         decorationBox = { inner ->
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = minHeight)
-                    .clip(shape)
-                    .background(c.page)
-                    .border(borderWidth, borderColor, shape)
-                    .padding(horizontal = 14.dp, vertical = if (singleLine) 0.dp else 12.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = minHeight)
+                        .clip(shape)
+                        .background(c.page)
+                        .border(borderWidth, borderColor, shape)
+                        .padding(horizontal = 14.dp, vertical = if (singleLine) 0.dp else 12.dp),
                 verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -137,8 +169,15 @@ fun EvSelectField(
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(12.dp)
     Row(
-        modifier = modifier.fillMaxWidth().heightIn(min = 52.dp).clip(shape).background(c.page)
-            .border(1.dp, c.borderStrong, shape).clickable(onClick = onClick).padding(horizontal = 14.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .clip(shape)
+                .background(c.page)
+                .border(1.dp, c.borderStrong, shape)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -150,25 +189,46 @@ fun EvSelectField(
 
 /** `.sc-toggle` — 48x30 switch. */
 @Composable
-fun EvToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+fun EvToggle(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val c = EvenlyTheme.colors
     val knobX by animateDpAsState(if (checked) 21.dp else 3.dp)
     Box(
-        modifier = modifier.size(width = 48.dp, height = 30.dp).clip(CircleShape)
-            .background(if (checked) c.blue else c.borderStrong).clickable { onCheckedChange(!checked) },
+        modifier =
+            modifier
+                .size(width = 48.dp, height = 30.dp)
+                .clip(CircleShape)
+                .background(if (checked) c.blue else c.borderStrong)
+                .clickable { onCheckedChange(!checked) },
     ) {
-        Box(Modifier.padding(start = knobX, top = 3.dp).size(24.dp).clip(CircleShape).background(androidx.compose.ui.graphics.Color.White))
+        Box(
+            Modifier
+                .padding(start = knobX, top = 3.dp)
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(androidx.compose.ui.graphics.Color.White),
+        )
     }
 }
 
 /** `.sc-radio` — 22dp; selected fills blue. */
 @Composable
-fun EvRadio(selected: Boolean, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+fun EvRadio(
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+) {
     val c = EvenlyTheme.colors
     Box(
-        modifier = modifier.size(22.dp).clip(CircleShape)
-            .then(if (selected) Modifier.background(c.blue) else Modifier.border(2.dp, c.borderStrong, CircleShape))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        modifier =
+            modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .then(if (selected) Modifier.background(c.blue) else Modifier.border(2.dp, c.borderStrong, CircleShape))
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(c.page))
@@ -177,13 +237,20 @@ fun EvRadio(selected: Boolean, modifier: Modifier = Modifier, onClick: (() -> Un
 
 /** `.sc-check` — 24dp rounded checkbox; checked fills blue with a white tick. */
 @Composable
-fun EvCheck(checked: Boolean, modifier: Modifier = Modifier, onCheckedChange: ((Boolean) -> Unit)? = null) {
+fun EvCheck(
+    checked: Boolean,
+    modifier: Modifier = Modifier,
+    onCheckedChange: ((Boolean) -> Unit)? = null,
+) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(8.dp)
     Box(
-        modifier = modifier.size(24.dp).clip(shape)
-            .then(if (checked) Modifier.background(c.blue) else Modifier.border(2.dp, c.borderStrong, shape))
-            .then(if (onCheckedChange != null) Modifier.clickable { onCheckedChange(!checked) } else Modifier),
+        modifier =
+            modifier
+                .size(24.dp)
+                .clip(shape)
+                .then(if (checked) Modifier.background(c.blue) else Modifier.border(2.dp, c.borderStrong, shape))
+                .then(if (onCheckedChange != null) Modifier.clickable { onCheckedChange(!checked) } else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         if (checked) EvIcon(EvIcons.Check, size = 16.dp, tint = c.onAccent)

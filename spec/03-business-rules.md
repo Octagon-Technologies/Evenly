@@ -72,6 +72,13 @@ For `BY_EXACT`: skip `allocate`; use the entered amounts directly. The UI MUST d
 
 ### 1.4 Tax & tip rows (itemized split)
 
+> **Superseded.** The `itemizedShares` function below was implemented, ported to TypeScript, and then
+> called by nothing: the shipped itemized flow is `domain/expense/BillSplit.kt`'s `splitBill`, which
+> derives per-person subtotals from line items and claims instead of taking them as input, and which
+> carries gratuity, other charges, a discount and an unclaimed bucket that this rule never had. It was
+> deleted in the `review/findings-domain.md` D7 pass rather than left reading as live money code. The
+> tax/tip *rules* below still hold; `splitBill` is where they live.
+
 When `expenses.has_tax_row = true` (the itemized restaurant flow):
 
 1. Each participant enters their pre-tax, pre-tip subtotal as `BY_EXACT`.

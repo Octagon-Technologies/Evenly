@@ -35,6 +35,33 @@ import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
 /**
+ * How many automatic attempts a failing upload gets before FAILED becomes terminal. Without a cap a
+ * permanently-bad file (policy rejection, oversized, revoked key) re-uploads on every reconnect and
+ * every WorkManager backoff, forever. A terminal FAILED row stays visible for a manual retry — which
+ * resets the counter ([ReceiptUploadDao.resetForRetry]) — or a cancel.
+ */
+internal const val MAX_AUTO_RETRIES: Int = 5
+
+/** Whether the background pipeline may (re-)claim this outbox row. See [MAX_AUTO_RETRIES]. */
+internal fun ReceiptUploadEntity.isAutoRetryable(): Boolean =
+    when (ReceiptUploadStatus.fromName(status)) {
+        ReceiptUploadStatus.UPLOADING -> false
+
+        // already in flight (e.g. an iOS native task)
+        ReceiptUploadStatus.PENDING -> true
+
+        ReceiptUploadStatus.FAILED -> retryCount < MAX_AUTO_RETRIES
+    }
+
+/**
+ * The RECEIPT_ADDED history id, a pure function of the receipt id. Deterministic on purpose:
+ * [ReceiptUploadManager.reportSuccess] re-runs when a crash landed the publish but not the outbox
+ * delete, and a random id there would mint a duplicate feed row that syncs to everyone forever
+ * (`expense_history` is append-only). Same-id re-runs upsert onto the same row instead.
+ */
+internal fun receiptAddedHistoryId(receiptId: String): String = "${receiptId}__receipt_added"
+
+/**
  * A picked receipt that has been compressed and written to the sandbox but has no expense to belong to
  * yet. It carries everything [ReceiptUploadManager.attach] needs to build the outbox row later, so the
  * bytes are handled exactly once no matter how long the user spends in the editor.
@@ -77,7 +104,6 @@ class ReceiptUploadManager(
     private val tokens: AccessTokenProvider,
     private val clock: Clock = Clock.System,
 ) : ReceiptUploadDriver {
-
     // App-lifetime scope (mirrors SupabaseAuthSession's own scope). Created once; never cancelled.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -110,8 +136,11 @@ class ReceiptUploadManager(
     /**
      * Queue [files] for upload against an expense that already exists. [stage] then [attach].
      */
-    suspend fun enqueue(expenseId: ExpenseId, groupId: GroupId, files: List<PickedFile>): AppResult<Unit> =
-        attach(expenseId, groupId, stage(files))
+    suspend fun enqueue(
+        expenseId: ExpenseId,
+        groupId: GroupId,
+        files: List<PickedFile>,
+    ): AppResult<Unit> = attach(expenseId, groupId, stage(files))
 
     /**
      * Compress [files] and copy them into the sandbox, without recording anything in the outbox.
@@ -122,27 +151,32 @@ class ReceiptUploadManager(
      * the editor costs only [discardStaged]. Runs off the caller's thread — decoding and re-encoding a
      * camera photo is tens of milliseconds of bitmap work, and every caller invokes it from a UI scope.
      */
-    suspend fun stage(files: List<PickedFile>): List<StagedReceipt> = withContext(Dispatchers.Default) {
-        files.mapNotNull { file ->
-            if (file.bytes.isEmpty()) return@mapNotNull null
-            val processed = imageProcessor.compress(file.bytes, file.mimeType)
-            val id = newId()
-            StagedReceipt(
-                id = id,
-                fileName = file.name,
-                mimeType = processed.mimeType,
-                extension = processed.extension,
-                sizeBytes = processed.bytes.size.toLong(),
-                localPath = fileStore.save(id, processed.extension, processed.bytes),
-            )
+    suspend fun stage(files: List<PickedFile>): List<StagedReceipt> =
+        withContext(Dispatchers.Default) {
+            files.mapNotNull { file ->
+                if (file.bytes.isEmpty()) return@mapNotNull null
+                val processed = imageProcessor.compress(file.bytes, file.mimeType)
+                val id = newId()
+                StagedReceipt(
+                    id = id,
+                    fileName = file.name,
+                    mimeType = processed.mimeType,
+                    extension = processed.extension,
+                    sizeBytes = processed.bytes.size.toLong(),
+                    localPath = fileStore.save(id, processed.extension, processed.bytes),
+                )
+            }
         }
-    }
 
     /**
      * Record [staged] receipts as PENDING against [expenseId] and kick the background pipeline. The bytes
      * are already on disk, so this is pure bookkeeping — nothing is re-compressed or copied twice.
      */
-    suspend fun attach(expenseId: ExpenseId, groupId: GroupId, staged: List<StagedReceipt>): AppResult<Unit> {
+    suspend fun attach(
+        expenseId: ExpenseId,
+        groupId: GroupId,
+        staged: List<StagedReceipt>,
+    ): AppResult<Unit> {
         if (staged.isEmpty()) return AppResult.Ok(Unit)
         val uid = auth.currentUserId.value ?: return notSignedIn()
         val now = clock.nowEpochMillis()
@@ -186,11 +220,9 @@ class ReceiptUploadManager(
     /** Bytes of a staged file, for previewing a not-yet-attached PDF in the in-app viewer. */
     suspend fun readStaged(localPath: String): ByteArray? = fileStore.read(localPath)
 
-    /** Re-queue a FAILED upload from the start. */
+    /** Re-queue a FAILED upload from the start, restoring the auto-retry budget (a tap re-arms). */
     suspend fun retry(id: String) {
-        val now = clock.nowEpochMillis()
-        uploadDao.updateStatus(id, ReceiptUploadStatus.PENDING.name, now)
-        uploadDao.updateProgress(id, 0, now)
+        uploadDao.resetForRetry(id, clock.nowEpochMillis())
         scheduler.schedule()
     }
 
@@ -217,28 +249,34 @@ class ReceiptUploadManager(
                 continue
             }
             var lastReported = 0L
-            val result = http.upload(task, bytes) { sent ->
-                // Throttle DB writes: only persist progress on a meaningful jump or at completion.
-                if (sent - lastReported >= PROGRESS_STEP_BYTES || sent >= task.sizeBytes) {
-                    lastReported = sent
-                    reportProgress(task.id, sent)
+            val result =
+                http.upload(task, bytes) { sent ->
+                    // Throttle DB writes: only persist progress on a meaningful jump or at completion.
+                    if (sent - lastReported >= PROGRESS_STEP_BYTES || sent >= task.sizeBytes) {
+                        lastReported = sent
+                        reportProgress(task.id, sent)
+                    }
                 }
-            }
             when (result) {
                 is AppResult.Ok -> reportSuccess(task.id)
                 is AppResult.Err -> reportFailure(task.id, "Upload failed")
             }
         }
-        return uploadDao.all().none { ReceiptUploadStatus.fromName(it.status) != ReceiptUploadStatus.UPLOADING }
+        // "Done" = nothing the pipeline would still auto-claim. Terminally FAILED rows (budget spent)
+        // don't count — they wait for a manual retry/cancel, and rescheduling for them is the loop
+        // this cap exists to stop.
+        return uploadDao.all().none { it.isAutoRetryable() }
     }
 
     // ── ReceiptUploadDriver ───────────────────────────────────────────────────
     override suspend fun claimPending(): List<PreparedUpload> {
         val token = tokens.token() ?: return emptyList() // not signed in / no session yet — try again later
         val now = clock.nowEpochMillis()
-        return uploadDao.all()
-            // Skip rows already in flight (e.g. an iOS native task) so we never double-send.
-            .filter { ReceiptUploadStatus.fromName(it.status) != ReceiptUploadStatus.UPLOADING }
+        return uploadDao
+            .all()
+            // Skip rows in flight (never double-send) and FAILED rows whose auto-retry budget is spent
+            // (they wait for a manual retry, which resets the budget).
+            .filter { it.isAutoRetryable() }
             .map { row ->
                 uploadDao.updateStatus(row.id, ReceiptUploadStatus.UPLOADING.name, now)
                 PreparedUpload(
@@ -252,7 +290,10 @@ class ReceiptUploadManager(
             }
     }
 
-    override suspend fun reportProgress(id: String, bytesUploaded: Long) {
+    override suspend fun reportProgress(
+        id: String,
+        bytesUploaded: Long,
+    ) {
         uploadDao.updateProgress(id, bytesUploaded, clock.nowEpochMillis())
     }
 
@@ -276,7 +317,9 @@ class ReceiptUploadManager(
         )
         historyDao.upsert(
             HistoryEventEntity(
-                id = newId(),
+                // Deterministic (see receiptAddedHistoryId): a crash between this write and the outbox
+                // delete re-runs the whole publish, and a random id here duplicated the feed row.
+                id = receiptAddedHistoryId(row.id),
                 expenseId = row.expenseId,
                 groupId = row.groupId,
                 actorUserId = row.uploadedBy,
@@ -289,7 +332,10 @@ class ReceiptUploadManager(
         fileStore.delete(row.localPath)
     }
 
-    override suspend fun reportFailure(id: String, error: String?) {
+    override suspend fun reportFailure(
+        id: String,
+        error: String?,
+    ) {
         uploadDao.markFailed(id, ReceiptUploadStatus.FAILED.name, error, clock.nowEpochMillis())
     }
 
@@ -302,10 +348,10 @@ class ReceiptUploadManager(
             sizeBytes = sizeBytes,
             bytesUploaded = bytesUploaded,
             status = ReceiptUploadStatus.fromName(status),
+            lastError = lastError,
         )
 
-    private fun notSignedIn(): AppResult<Nothing> =
-        AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
+    private fun notSignedIn(): AppResult<Nothing> = AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
 
     private companion object {
         const val PROGRESS_STEP_BYTES = 16 * 1024L

@@ -23,8 +23,8 @@ cd web && npm test
 
 ## Adding a case
 
-1. Write the **inputs** into the right group (`allocate`, `itemizedShares`, `splitBill`) with
-   `"expect": {}`, plus a `"name"` and a `"source"` saying where the case comes from.
+1. Write the **inputs** into the right group (`allocate`, `splitBill`) with `"expect": {}`, plus a
+   `"name"` and a `"source"` saying where the case comes from.
 2. Record the expectations **from Kotlin**, which is the authority:
 
    ```bash
@@ -42,14 +42,19 @@ which must land in Kotlin *and* TS in the same commit, or a regression.
 
 ## What the cases cover
 
-The `source` field traces most of them to the Kotlin test they were lifted from
-(`AllocatorTest.kt`, `ItemizedAllocatorTest.kt`, `BillSplitTest.kt`). The rest exist because §7 names
+The `source` field traces most of them to the Kotlin test they were lifted from (`AllocatorTest.kt`,
+`BillSplitTest.kt`). The rest exist because §7 names
 them as where a hand-port goes wrong: penny remainders on odd splits, `EVEN` vs `PROPORTIONAL` tip,
 gratuity and discount, over-assignment (`OVERCLAIMED`), partial assignment (`UNCLAIMED`),
 multi-portion lines, explicit portions beating the legacy shared set, a zero-quantity line, an
 all-free bill, an intermediate product too large for a double, and extras riding on the whole bill's
 subtotal rather than only the claimed part — plus the spec's own scenario, a twelve-person dinner
 claimed down to the penny.
+
+The last group traces to `review/findings-domain.md` and pins the engine's **preconditions**: an
+oversized discount, a negative line total, a comped bill that is nonetheless finished, a priced line
+with no units, and a portion list in the wrong order. Those five are the shapes where the parts still
+summed to something and the money was still wrong.
 
 Expectations are recorded in full (`owedByUser`, `breakdownByUser`, `perItemByUser`, `items`), so a
 port that gets the total right by getting two parts wrong still fails.

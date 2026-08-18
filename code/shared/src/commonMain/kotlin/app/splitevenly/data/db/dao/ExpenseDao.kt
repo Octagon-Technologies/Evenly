@@ -4,14 +4,21 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
+import app.splitevenly.data.db.entity.ConflictEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import kotlinx.coroutines.flow.Flow
 
+/** One expense's re-split inside a retroactive-member sweep. See [ExpenseDao.applyRetroactiveMember]. */
+data class RetroactiveResplit(
+    val expense: ExpenseEntity,
+    val shares: List<ShareEntity>,
+    val removedShareIds: List<String>,
+)
+
 /** DAO for `expenses` (02 §3.7). Owns the expense+shares write transactions (02 §7.5). */
 @Dao
 interface ExpenseDao {
-
     @Upsert
     suspend fun upsert(expense: ExpenseEntity)
 
@@ -42,13 +49,9 @@ interface ExpenseDao {
         SELECT * FROM expenses
         WHERE group_id = :groupId AND deleted_at IS NULL
         ORDER BY expense_date DESC, id DESC
-        """
+        """,
     )
     fun observeByGroup(groupId: String): Flow<List<ExpenseEntity>>
-
-    /** Persist the recomputed denormalized status (02 §7.5). */
-    @Query("UPDATE expenses SET status = :status, updated_at = :updatedAt WHERE id = :id")
-    suspend fun updateStatus(id: String, status: String, updatedAt: Long)
 
     // Payer reassignment and the post-merge split_version touch live in [PlaceholderMergeDao]: they are
     // steps of the placeholder merge and have to run inside its transaction, not next to it.
@@ -60,17 +63,26 @@ interface ExpenseDao {
 
     /** Tombstone the shares an edit removed (Rule 1): soft-delete so the removal syncs, never hard-delete. */
     @Query("UPDATE shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE id IN (:ids)")
-    suspend fun softDeleteSharesByIds(ids: List<String>, ts: Long)
+    suspend fun softDeleteSharesByIds(
+        ids: List<String>,
+        ts: Long,
+    )
 
     /** Soft-delete an expense (04 §2.3 `delete_expense`); status becomes DELETED, version bumps. */
     @Query("UPDATE expenses SET deleted_at = :ts, status = 'DELETED', updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
-    suspend fun softDelete(id: String, ts: Long)
+    suspend fun softDelete(
+        id: String,
+        ts: Long,
+    )
 
     // --- Transactions ---------------------------------------------------------------------------
 
     /** Insert an expense and its shares atomically (AC-INV-001 enforced by the caller). */
     @Transaction
-    suspend fun insertWithShares(expense: ExpenseEntity, shares: List<ShareEntity>) {
+    suspend fun insertWithShares(
+        expense: ExpenseEntity,
+        shares: List<ShareEntity>,
+    ) {
         upsert(expense)
         upsertShares(shares)
     }
@@ -93,22 +105,15 @@ interface ExpenseDao {
         upsertShares(shares)
     }
 
-    /**
-     * Force local cache back to the server's canonical expense + shares after our edit was PARKED
-     * (lost the optimistic-concurrency race). The rejected optimistic-only shares are tombstoned
-     * (not hard-deleted) and won't re-push since the expense now matches the server. This is
-     * local-cache reconciliation toward the server's truth, not a user-data deletion — the rejected
-     * edit itself is preserved server-side in `expense_edit_conflicts`.
-     */
-    @Transaction
-    suspend fun overwriteFromServer(expense: ExpenseEntity, serverShares: List<ShareEntity>, now: Long) {
-        upsert(expense)
-        softDeleteLocalSharesNotIn(expense.id, serverShares.map { it.id }, now)
-        upsertShares(serverShares)
-    }
-
-    @Query("UPDATE shares SET deleted_at = :now, updated_at = :now WHERE expense_id = :expenseId AND deleted_at IS NULL AND id NOT IN (:keepIds)")
-    suspend fun softDeleteLocalSharesNotIn(expenseId: String, keepIds: List<String>, now: Long)
+    /** Tombstone the local shares the server's canonical set no longer contains (adoption cleanup). */
+    @Query(
+        "UPDATE shares SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 WHERE expense_id = :expenseId AND deleted_at IS NULL AND id NOT IN (:keepIds)",
+    )
+    suspend fun softDeleteLocalSharesNotIn(
+        expenseId: String,
+        keepIds: List<String>,
+        now: Long,
+    )
 
     /**
      * Conditional adoption (versioning #8): overwrite from the server's canonical ONLY if the local
@@ -132,13 +137,47 @@ interface ExpenseDao {
         return true
     }
 
+    /** Conflict upsert declared here so [applyRetroactiveMember] can write the whole sweep atomically. */
+    @Upsert
+    suspend fun upsertConflicts(conflicts: List<ConflictEntity>)
+
+    /**
+     * Apply a whole retroactive-member sweep (03 §8.1) in ONE transaction: every EVEN expense re-split to
+     * include the new member, and a conflict card raised for every expense whose split is not ours to
+     * re-derive (finding R12).
+     *
+     * It was a per-expense loop, each write individually atomic and the loop as a whole not, run from a
+     * navigation-scoped coroutine. Leaving group settings after eight of twenty expenses left the group's
+     * history split at an arbitrary point: both halves internally consistent, both pushing cleanly,
+     * nothing looking broken and nothing ever re-running it, because the only trigger is adding a member
+     * who is now already there. Bounded by the group's expense count, so one transaction is affordable.
+     *
+     * The caller computes every row first; this only writes them.
+     */
+    @Transaction
+    suspend fun applyRetroactiveMember(
+        resplits: List<RetroactiveResplit>,
+        conflicts: List<ConflictEntity>,
+        ts: Long,
+    ) {
+        for (r in resplits) {
+            upsert(r.expense)
+            if (r.removedShareIds.isNotEmpty()) softDeleteSharesByIds(r.removedShareIds, ts)
+            upsertShares(r.shares)
+        }
+        if (conflicts.isNotEmpty()) upsertConflicts(conflicts)
+    }
+
     /**
      * Conditional adoption of just the expense row (versioning #8), for an ITEMIZED bill whose shares are
      * a local derived materialization (adopted by re-running the materializer, not the server set). Skips
      * if a user edit bumped `row_version` during the merge round-trip. Returns true iff it adopted.
      */
     @Transaction
-    suspend fun upsertFromServerIfUnchanged(expectedRowVersion: Long, expense: ExpenseEntity): Boolean {
+    suspend fun upsertFromServerIfUnchanged(
+        expectedRowVersion: Long,
+        expense: ExpenseEntity,
+    ): Boolean {
         val current = getById(expense.id)
         if (current == null || current.rowVersion != expectedRowVersion) return false
         upsert(expense)

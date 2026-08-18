@@ -6,19 +6,22 @@ import app.splitevenly.core.error.asErr
 import app.splitevenly.core.error.asOk
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
+import app.splitevenly.data.db.dao.SignOutWipeDao
 import app.splitevenly.data.db.dao.UserDao
 import app.splitevenly.data.db.entity.UserEntity
 import app.splitevenly.data.remote.supabase.PushController
+import app.splitevenly.data.remote.supabase.SupabaseConfig
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.OAuthProvider
 import app.splitevenly.domain.auth.PLAY_REVIEW_DEMO_EMAIL
-import app.splitevenly.data.remote.supabase.SupabaseConfig
+import app.splitevenly.domain.auth.SignOutOutcome
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AppForeground
-import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.EvAnalytics
+import app.splitevenly.platform.SecureStorage
 import app.splitevenly.platform.isDebugBuild
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.OtpType
@@ -82,9 +85,19 @@ class SupabaseAuthSession(
     // RevenueCat's subscriber identity (PRO_PASS_SPEC.md §9). Optional-ctor-dep like the rest: tests and
     // the offline build pass nothing and the SDK is simply never told who is signed in.
     private val proBilling: ProBilling? = null,
+    // Sign-out's cache wipe (#24). Optional-ctor-dep like the rest: a test that passes nothing gets
+    // the old sign-out behaviour rather than a null-pointer, and production DI always wires it.
+    private val signOutWipeDao: SignOutWipeDao? = null,
+    // Holds the web bill-link plaintext tokens, which are per-session bearer credentials.
+    private val secureStorage: SecureStorage? = null,
 ) : AuthSession {
-
-    private val _currentUserId = MutableStateFlow(client.auth.currentUserOrNull()?.id?.let(::UserId))
+    private val _currentUserId =
+        MutableStateFlow(
+            client.auth
+                .currentUserOrNull()
+                ?.id
+                ?.let(::UserId),
+        )
     override val currentUserId: StateFlow<UserId?> = _currentUserId.asStateFlow()
 
     init {
@@ -96,7 +109,10 @@ class SupabaseAuthSession(
             }
         }
         // A restored session (relaunch) should hydrate from the server immediately.
-        client.auth.currentUserOrNull()?.id?.let { id -> scope.launch { syncEngine?.pull(id) } }
+        client.auth
+            .currentUserOrNull()
+            ?.id
+            ?.let { id -> scope.launch { syncEngine?.pull(id) } }
         // Live sync (F7): prompt push-on-write + Realtime doorbell pull + a periodic safety net,
         // replacing the old fixed 15s heartbeat. Gated on the app being visible so a backgrounded
         // device holds no socket and runs no loops; with no AppForeground wired (tests) it runs
@@ -120,14 +136,15 @@ class SupabaseAuthSession(
         return UserId(user.id)
     }
 
-    override suspend fun signInWithProvider(provider: OAuthProvider): AppResult<Unit> = runCatching {
-        when (provider) {
-            OAuthProvider.GOOGLE -> client.auth.signInWith(Google)
-            OAuthProvider.APPLE -> client.auth.signInWith(Apple)
-            OAuthProvider.FACEBOOK -> client.auth.signInWith(Facebook)
-        }
-        AppResult.Ok(Unit)
-    }.getOrElse { AppError.Unexpected(it).asErr() }
+    override suspend fun signInWithProvider(provider: OAuthProvider): AppResult<Unit> =
+        runCatching {
+            when (provider) {
+                OAuthProvider.GOOGLE -> client.auth.signInWith(Google)
+                OAuthProvider.APPLE -> client.auth.signInWith(Apple)
+                OAuthProvider.FACEBOOK -> client.auth.signInWith(Facebook)
+            }
+            AppResult.Ok(Unit)
+        }.getOrElse { AppError.Unexpected(it).asErr() }
 
     override suspend fun signInWithAppleIdToken(
         idToken: String,
@@ -164,7 +181,10 @@ class SupabaseAuthSession(
      * best-effort on the server side too (Guideline 5.1.1(v) revocation must never block sign-in or
      * account deletion).
      */
-    private suspend fun callAppleEdgeFunction(function: String, body: String) {
+    private suspend fun callAppleEdgeFunction(
+        function: String,
+        body: String,
+    ) {
         val http = httpClient ?: return
         val token = client.auth.currentSessionOrNull()?.accessToken ?: return
         http.post("${SupabaseConfig.URL}/functions/v1/$function") {
@@ -175,10 +195,11 @@ class SupabaseAuthSession(
         }
     }
 
-    override suspend fun sendEmailOtp(email: String): AppResult<Unit> = runCatching {
-        client.auth.signInWith(OTP) { this.email = email.trim() }
-        AppResult.Ok(Unit)
-    }.getOrElse { it.toEmailSendError().asErr() }
+    override suspend fun sendEmailOtp(email: String): AppResult<Unit> =
+        runCatching {
+            client.auth.signInWith(OTP) { this.email = email.trim() }
+            AppResult.Ok(Unit)
+        }.getOrElse { it.toEmailSendError().asErr() }
 
     /**
      * Map an email-send failure to a typed error. Supabase throttles the built-in email service (a few
@@ -196,25 +217,39 @@ class SupabaseAuthSession(
         }
     }
 
-    override suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId> = runCatching {
-        client.auth.verifyEmailOtp(type = OtpType.Email.EMAIL, email = email.trim(), token = token.trim())
-        val user = client.auth.currentUserOrNull() ?: return AppError.SessionExpired.asErr()
-        mirrorCurrentUser()
-        AppResult.Ok(UserId(user.id))
-    }.getOrElse { AppError.Unexpected(it).asErr() }
+    override suspend fun verifyEmailOtp(
+        email: String,
+        token: String,
+    ): AppResult<UserId> =
+        runCatching {
+            client.auth.verifyEmailOtp(type = OtpType.Email.EMAIL, email = email.trim(), token = token.trim())
+            val user = client.auth.currentUserOrNull() ?: return AppError.SessionExpired.asErr()
+            mirrorCurrentUser()
+            AppResult.Ok(UserId(user.id))
+        }.getOrElse { AppError.Unexpected(it).asErr() }
 
-    override suspend fun signInWithPassword(email: String, password: String): AppResult<UserId> {
+    override suspend fun signInWithPassword(
+        email: String,
+        password: String,
+    ): AppResult<UserId> {
         val isPlayReviewDemo = email.trim().equals(PLAY_REVIEW_DEMO_EMAIL, ignoreCase = true)
         if (!isDebugBuild() && !isPlayReviewDemo) return AppError.NotAuthorized.asErr()
         return signInWithPasswordUnguarded(email, password)
     }
 
-    private suspend fun signInWithPasswordUnguarded(email: String, password: String): AppResult<UserId> = runCatching {
-        client.auth.signInWith(Email) { this.email = email.trim(); this.password = password }
-        val user = client.auth.currentUserOrNull() ?: return AppError.SessionExpired.asErr()
-        mirrorCurrentUser()
-        AppResult.Ok(UserId(user.id))
-    }.getOrElse { AppError.Unexpected(it).asErr() }
+    private suspend fun signInWithPasswordUnguarded(
+        email: String,
+        password: String,
+    ): AppResult<UserId> =
+        runCatching {
+            client.auth.signInWith(Email) {
+                this.email = email.trim()
+                this.password = password
+            }
+            val user = client.auth.currentUserOrNull() ?: return AppError.SessionExpired.asErr()
+            mirrorCurrentUser()
+            AppResult.Ok(UserId(user.id))
+        }.getOrElse { AppError.Unexpected(it).asErr() }
 
     override suspend fun hasOnboardedProfile(): Boolean {
         val uid = client.auth.currentUserOrNull()?.id ?: return false
@@ -223,20 +258,82 @@ class SupabaseAuthSession(
         // can't trust local Room here — on a fresh install it's empty (or momentarily "You") until the
         // first pull lands. Best-effort: any network/decode failure → treat as not-onboarded.
         return runCatching {
-            val row = client.from("users")
-                .select(Columns.ALL) { filter { eq("id", uid) } }
-                .decodeList<UserEntity>()
-                .firstOrNull()
+            val row =
+                client
+                    .from("users")
+                    .select(Columns.ALL) { filter { eq("id", uid) } }
+                    .decodeList<UserEntity>()
+                    .firstOrNull()
             val name = row?.displayName?.trim()
             !name.isNullOrBlank() && name != PLACEHOLDER_NAME
         }.getOrDefault(false)
     }
 
-    override fun signOut() {
+    /**
+     * Sign out and clear this device's cache of the account that just left (#24).
+     *
+     * This used to be four lines that touched Room not at all, so signing in as someone else on the
+     * same device left account A's rows in place and the next [SyncEngine.push] sent them up under
+     * account B's session. `group_passes` / `user_subscriptions` are per-user, so Pro rode along too.
+     *
+     * The order below is the whole design, and each step is load-bearing:
+     *
+     * 1. **Push first.** Local writes that never reached the server are real user data; wiping them is
+     *    a silent loss (`data/AGENTS.md` Rule 1).
+     * 2. **Then ask the cache, not the push, whether anything is still pending.** `push()` returning
+     *    `Ok` is *not* "everything reached the server": #8's in-flight-edit guard deliberately leaves an
+     *    expense dirty when a local edit lands during the round trip, and that path throws nothing, so
+     *    the push reports success with a local-only expense still sitting there. The count is the only
+     *    honest question, so it is asked on every sign-out rather than only after a failed push — and
+     *    when the count itself throws it fails **closed** (`UnsyncedChanges(null)`), because a failing
+     *    DB read is not evidence that there is nothing to lose.
+     * 3. **The count and the wipe run inside the sync fence, as one unit.** Closing the fence refuses
+     *    every push and pull for this account *including the ones already queued*, and holding the sync
+     *    lock across both means nothing can dirty a row between counting and wiping, and nothing can
+     *    re-land the account's rows into the cache we just emptied. Nulling `currentUserId` only stops
+     *    `SyncManager`'s loops; three other launches never gated on it. See [SyncGate].
+     * 4. **Unregister the push token, then sign out of Supabase.** Both need A's session to still
+     *    authenticate, so `client.auth.signOut()` stays last.
+     *
+     * Deliberately NOT reused by [requestAccountDeletion]: a deletion is cancellable within its grace
+     * period, so its local state has to survive (Rule 9), and its failure branch must wipe nothing.
+     */
+    override suspend fun signOut(discardUnsynced: Boolean): SignOutOutcome {
+        val userId = _currentUserId.value?.value
+        val engine = syncEngine
+        if (userId != null && engine != null) {
+            if (!discardUnsynced) engine.push(userId)
+            val question =
+                engine.closeForSignOut(userId) {
+                    // Inside the fence: no push, pull or wipe can interleave with either statement.
+                    val pending =
+                        if (discardUnsynced) 0 else pendingWritesOrUnknown { engine.countPendingLocalWrites() }
+                    val question = unsyncedChangesFor(pending)
+                    // Best-effort: a failure here must not strand the user signed-in-but-wiped. Room is a
+                    // cache of server truth, so the worst case is a stale row that the next account's pull
+                    // overwrites — whereas refusing to sign out because a DELETE failed is a dead end.
+                    if (question == null) runCatching { signOutWipeDao?.wipeSignedOutAccount() }
+                    question
+                }
+            if (question != null) {
+                // Nothing was touched and the user is still signed in, so sync has to resume — otherwise
+                // "Stay signed in" leaves them with a device that never syncs again.
+                engine.reopenSync(userId)
+                return question
+            }
+        }
+
         analytics?.capture(AnalyticsEvents.USER_SIGNED_OUT)
         analytics?.reset()
-        scope.launch { client.auth.signOut() }
         _currentUserId.value = null
+        // While A's session can still authenticate it: otherwise the server goes on believing this
+        // handset is A's, and every push for one of A's groups renders on whoever holds it next.
+        if (userId != null) runCatching { pushController?.unregisterCurrentToken(userId) }
+        // The bill-link plaintext tokens live here, not Room: bearer credentials for one bill each, so
+        // they must not outlive the session that minted them (`data/AGENTS.md`, WebBillLinkRepository).
+        runCatching { secureStorage?.clear() }
+        runCatching { client.auth.signOut() }
+        return SignOutOutcome.SignedOut
     }
 
     override suspend fun requestAccountDeletion(): AppResult<Long> {
@@ -266,16 +363,18 @@ class SupabaseAuthSession(
         )
     }
 
-    override suspend fun cancelAccountDeletion(): AppResult<Unit> = runCatching {
-        client.postgrest.rpc("cancel_account_deletion")
-        analytics?.capture(AnalyticsEvents.ACCOUNT_DELETION_CANCELLED)
-        AppResult.Ok(Unit)
-    }.getOrElse { AppError.Unexpected(it).asErr() }
+    override suspend fun cancelAccountDeletion(): AppResult<Unit> =
+        runCatching {
+            client.postgrest.rpc("cancel_account_deletion")
+            analytics?.capture(AnalyticsEvents.ACCOUNT_DELETION_CANCELLED)
+            AppResult.Ok(Unit)
+        }.getOrElse { AppError.Unexpected(it).asErr() }
 
     override suspend fun pendingDeletionAt(): AppResult<Long?> {
         val uid = client.auth.currentUserOrNull()?.id ?: return AppResult.Ok(null)
         return runCatching {
-            client.from("users")
+            client
+                .from("users")
                 .select(Columns.list("deletion_requested_at")) { filter { eq("id", uid) } }
                 .decodeSingleOrNull<PendingDeletionRow>()
                 ?.deletionRequestedAt
@@ -303,35 +402,53 @@ class SupabaseAuthSession(
         val existing = userDao.getById(user.id)
         when {
             existing == null -> {
-                val fetch = runCatching {
-                    client.from("users").select(Columns.ALL) { filter { eq("id", user.id) } }
-                        .decodeList<UserEntity>()
-                }
+                val fetch =
+                    runCatching {
+                        client
+                            .from("users")
+                            .select(Columns.ALL) { filter { eq("id", user.id) } }
+                            .decodeList<UserEntity>()
+                    }
                 val serverRow = fetch.getOrNull()?.firstOrNull()
                 when {
                     // Returning account → mirror the real profile verbatim (same timestamp, so it can't
                     // out-race a newer edit made elsewhere).
-                    serverRow != null -> userDao.upsert(serverRow)
+                    serverRow != null -> {
+                        userDao.upsert(serverRow)
+                    }
+
                     // Server confirmed no row → brand-new account, seed the default.
-                    fetch.isSuccess -> userDao.upsert(
-                        UserEntity(
-                            id = user.id,
-                            displayName = providerName(user) ?: fallbackName ?: PLACEHOLDER_NAME,
-                            email = user.email,
-                            baseCurrency = "USD",
-                            createdAt = now,
-                            updatedAt = now,
-                        ),
-                    )
+                    fetch.isSuccess -> {
+                        userDao.upsert(
+                            UserEntity(
+                                id = user.id,
+                                displayName = providerName(user) ?: fallbackName ?: PLACEHOLDER_NAME,
+                                email = user.email,
+                                baseCurrency = "USD",
+                                createdAt = now,
+                                updatedAt = now,
+                            ),
+                        )
+                    }
+
                     // Network/decode failure → seed nothing; the pull triggered below hydrates the profile.
-                    else -> Unit
+                    else -> {
+                        Unit
+                    }
                 }
             }
-            existing.email != user.email -> userDao.upsert(existing.copy(email = user.email, updatedAt = now))
+
+            existing.email != user.email -> {
+                userDao.upsert(existing.copy(email = user.email, updatedAt = now))
+            }
         }
         _currentUserId.value = UserId(user.id)
         analytics?.identify(user.id)
         if (wasSignedOut) analytics?.capture(AnalyticsEvents.USER_SIGNED_IN)
+        // This account signing back in on a device it signed out of is the one thing that should lift
+        // sign-out's sync fence, and it is a no-op for anyone else (the fence is keyed by user id, so a
+        // different account's sign-in cannot unblock work still queued for the one that left).
+        syncEngine?.reopenSync(user.id)
         scope.launch { syncEngine?.syncNow(user.id) }
     }
 
@@ -351,6 +468,32 @@ class SupabaseAuthSession(
     }
 }
 
+/**
+ * "We could not tell how much is unsaved." Negative rather than a large positive so it can never be
+ * mistaken for a real count by a caller that only tests `> 0`.
+ */
+internal const val PENDING_UNKNOWN = -1
+
+/**
+ * How many local writes have not reached the server, or [PENDING_UNKNOWN] when the count itself threw.
+ *
+ * **Failing closed is the entire point.** This one read stands between a push we cannot fully trust and
+ * permanently destroying the only copy of someone's expenses, and it used to be
+ * `.getOrDefault(0)` — "nothing pending, safe to wipe" — which is the single most permissive answer
+ * available. A DB read failing is not evidence that there is nothing to lose.
+ */
+internal suspend fun pendingWritesOrUnknown(count: suspend () -> Int): Int = runCatching { count() }.getOrDefault(PENDING_UNKNOWN)
+
+/**
+ * The question sign-out has to ask before wiping, or null when there is nothing to ask and the cache
+ * may go.
+ *
+ * Only an actual zero authorises the wipe. [PENDING_UNKNOWN] becomes `UnsyncedChanges(null)` — we stop
+ * and ask, without inventing a number we were not able to take.
+ */
+internal fun unsyncedChangesFor(pending: Int): SignOutOutcome.UnsyncedChanges? =
+    if (pending == 0) null else SignOutOutcome.UnsyncedChanges(pending.takeIf { it > 0 })
+
 /** Narrow projection of `public.users` for [SupabaseAuthSession.pendingDeletionAt]. */
 @Serializable
 private data class PendingDeletionRow(
@@ -359,4 +502,6 @@ private data class PendingDeletionRow(
 
 /** Body for the `apple-link-token` edge function call in [SupabaseAuthSession.linkAppleToken]. */
 @Serializable
-private data class LinkAppleTokenReq(val authorizationCode: String)
+private data class LinkAppleTokenReq(
+    val authorizationCode: String,
+)

@@ -2,12 +2,13 @@ package app.splitevenly.data.auth
 
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.UserId
-import app.splitevenly.newId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.dao.UserDao
 import app.splitevenly.data.db.entity.UserEntity
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.OAuthProvider
+import app.splitevenly.domain.auth.SignOutOutcome
+import app.splitevenly.newId
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,25 +25,26 @@ class StubAuthSession(
     private val userDao: UserDao,
     private val clock: Clock = Clock.System,
 ) : AuthSession {
-
     private val _currentUserId = MutableStateFlow<UserId?>(null)
     override val currentUserId: StateFlow<UserId?> = _currentUserId.asStateFlow()
 
     override suspend fun signIn(displayName: String): UserId {
         val existing = userDao.findByEmail(STUB_EMAIL)
-        val id = existing?.id ?: run {
-            val now = clock.nowEpochMillis()
-            val user = UserEntity(
-                id = newId(),
-                displayName = displayName.ifBlank { "You" },
-                email = STUB_EMAIL,
-                baseCurrency = "USD",
-                createdAt = now,
-                updatedAt = now,
-            )
-            userDao.upsert(user)
-            user.id
-        }
+        val id =
+            existing?.id ?: run {
+                val now = clock.nowEpochMillis()
+                val user =
+                    UserEntity(
+                        id = newId(),
+                        displayName = displayName.ifBlank { "You" },
+                        email = STUB_EMAIL,
+                        baseCurrency = "USD",
+                        createdAt = now,
+                        updatedAt = now,
+                    )
+                userDao.upsert(user)
+                user.id
+            }
         return UserId(id).also { _currentUserId.value = it }
     }
 
@@ -68,11 +70,15 @@ class StubAuthSession(
 
     override suspend fun sendEmailOtp(email: String): AppResult<Unit> = AppResult.Ok(Unit)
 
-    override suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId> =
-        AppResult.Ok(signIn("You"))
+    override suspend fun verifyEmailOtp(
+        email: String,
+        token: String,
+    ): AppResult<UserId> = AppResult.Ok(signIn("You"))
 
-    override suspend fun signInWithPassword(email: String, password: String): AppResult<UserId> =
-        AppResult.Ok(signIn(email.substringBefore('@').replaceFirstChar { it.uppercase() }))
+    override suspend fun signInWithPassword(
+        email: String,
+        password: String,
+    ): AppResult<UserId> = AppResult.Ok(signIn(email.substringBefore('@').replaceFirstChar { it.uppercase() }))
 
     override suspend fun hasOnboardedProfile(): Boolean {
         // No server in the stub: the single local account counts as onboarded once it has a real name
@@ -81,8 +87,12 @@ class StubAuthSession(
         return !name.isNullOrBlank() && name != "You"
     }
 
-    override fun signOut() {
+    // No server and no second account: the stub's single local account IS the local data, so there is
+    // nothing to push and nothing to leak into a next signed-in user. Wiping here would just destroy
+    // the offline build's only copy of the user's expenses.
+    override suspend fun signOut(discardUnsynced: Boolean): SignOutOutcome {
         _currentUserId.value = null
+        return SignOutOutcome.SignedOut
     }
 
     override suspend fun requestAccountDeletion(): AppResult<Long> {

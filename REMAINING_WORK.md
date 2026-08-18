@@ -168,6 +168,25 @@ coding** (per the CLAUDE.md design gate). The full "When Two Edits Collide" rati
 
 ---
 
+## Deferred — not urgent, do before general release
+
+- **Outbox-safe Room migrations.** `EvenlyDatabase.kt` uses
+  `.fallbackToDestructiveMigration(dropAllTables = true)` — a schema-version bump drops every local
+  table and rebuilds from scratch. Fine for pure server-cache tables (groups, expenses, balances,
+  FX rates — they just re-sync). Not fine for any table that is briefly the *only* copy of data:
+  the receipt-upload outbox, or any offline-created row not yet pushed. If a schema bump ships in
+  the same app update a user installs while one of those rows is unsynced, it's silently deleted
+  with no server copy to recover from.
+  - **Fix, once it matters:** either write real `Migration` objects scoped to the outbox/pending-write
+    tables specifically (not a blanket migration for everything), or make sure nothing outbox-shaped
+    is ever the sole copy of data for longer than necessary (flush to server eagerly; keep the local
+    row only as a retry cache once the server has ack'd receipt).
+  - **Why not now:** app is pre-launch, no real user data at stake yet, and destructive fallback is
+    the right tradeoff during active schema churn (per the note at the top of this doc). Revisit
+    before general release.
+
+---
+
 ## Discovery checklist (do before coding each track)
 - **C3:** `grep -rn "onEditBill\|Route.SplitBill(\|ExpenseDetail" code/shared/.../ui` — map every
   edit-bill entry point; confirm add-person works in the editor.

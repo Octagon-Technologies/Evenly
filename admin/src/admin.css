@@ -1,0 +1,171 @@
+/*
+ * The admin dashboard's whole design system.
+ *
+ * Duplicated from `web/src/marketing.css` rather than extracted into a shared package (spec §2.2,
+ * settled): two small copies beat a package built for two consumers. What is duplicated is the
+ * palette and the wordmark, which are the parts that must not drift. What is NOT duplicated is the
+ * type system: the marketing site's Fraunces + Rethink Sans are two variable font files totalling
+ * ~100KB, downloaded to make an internal tool used by one person look editorial. System fonts here.
+ *
+ * Every selector is `adm-`-prefixed, matching the `site-` convention next door, so a future copy of
+ * a component between the two bundles cannot collide.
+ */
+
+:root {
+  --adm-paper: #ffffff;
+  --adm-paper-2: #f7f8fc;
+  --adm-ink: #16234f;
+  --adm-ink-soft: #55618c;
+  --adm-ink-faint: #9198b8;
+  --adm-line: #e7eaf3;
+  --adm-accent: #2563eb;
+  --adm-accent-press: #1e40af;
+  --adm-accent-tint: #e7edfd;
+  --adm-danger: #b42318;
+  --adm-r: 12px;
+  --adm-r-pill: 999px;
+  --adm-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --adm-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--adm-sans);
+  background: var(--adm-paper-2);
+  color: var(--adm-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--adm-accent); }
+
+/* ── shell ── */
+.adm-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--adm-paper); border-bottom: 1px solid var(--adm-line);
+  padding: 14px 24px; position: sticky; top: 0; z-index: 5;
+}
+.adm-brand { display: flex; align-items: center; gap: 9px; }
+.adm-brand svg { width: 20px; height: 20px; color: var(--adm-accent); }
+.adm-brand span { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.adm-pill {
+  background: var(--adm-accent-tint); color: var(--adm-accent-press);
+  border-radius: var(--adm-r-pill); padding: 3px 10px; font-size: 12px; font-weight: 700;
+}
+.adm-who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--adm-ink-soft); white-space: nowrap; }
+.adm-main { max-width: 1000px; margin: 0 auto; padding: 28px 24px 64px; }
+
+/* ── type ── */
+h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
+h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+.adm-sub { color: var(--adm-ink-soft); font-size: 14px; margin: 0; }
+
+/* ── surfaces ── */
+.adm-card {
+  background: var(--adm-paper); border: 1px solid var(--adm-line);
+  border-radius: var(--adm-r); padding: 18px;
+}
+.adm-card + .adm-card { margin-top: 18px; }
+.adm-card-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin-bottom: 14px;
+}
+
+/* ── controls ── */
+button, .adm-btn {
+  font: inherit; font-weight: 620; cursor: pointer;
+  border-radius: var(--adm-r-pill); border: 1px solid var(--adm-line);
+  background: var(--adm-paper); color: var(--adm-ink); padding: 8px 14px;
+}
+button:hover:not(:disabled) { border-color: var(--adm-ink-faint); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.adm-primary {
+  background: var(--adm-accent); border-color: var(--adm-accent); color: #fff;
+}
+button.adm-primary:hover:not(:disabled) { background: var(--adm-accent-press); border-color: var(--adm-accent-press); }
+button.adm-quiet { background: transparent; border-color: transparent; color: var(--adm-ink-soft); }
+button.adm-quiet:hover { color: var(--adm-ink); border-color: var(--adm-line); }
+
+.adm-seg { display: inline-flex; border: 1px solid var(--adm-line); border-radius: var(--adm-r-pill); overflow: hidden; }
+.adm-seg button {
+  border: 0; border-radius: 0; padding: 6px 14px; font-size: 13px;
+  color: var(--adm-ink-soft); background: var(--adm-paper);
+}
+.adm-seg button + button { border-left: 1px solid var(--adm-line); }
+.adm-seg button.adm-on { background: var(--adm-accent-tint); color: var(--adm-accent-press); }
+
+input[type='search'], input[type='text'] {
+  font: inherit; padding: 9px 13px; border-radius: var(--adm-r-pill);
+  border: 1px solid var(--adm-line); background: var(--adm-paper); color: var(--adm-ink);
+  min-width: 220px;
+}
+input:focus-visible, button:focus-visible {
+  outline: 2px solid var(--adm-accent); outline-offset: 2px;
+}
+
+/* ── table ── */
+/* `min-width` with the wrapper's `overflow-x` on purpose: without it the table shrinks to the
+ * viewport and an address is broken across three lines. A row that scrolls sideways is readable; a
+ * shredded email is not. */
+.adm-table-wrap { overflow-x: auto; }
+table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 14px; }
+th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--adm-ink-faint); font-weight: 700; padding: 0 12px 8px 0; white-space: nowrap;
+}
+td { padding: 10px 12px 10px 0; border-top: 1px solid var(--adm-line); vertical-align: top; }
+td.adm-email { font-family: var(--adm-mono); font-size: 13px; word-break: break-all; }
+td.adm-when { color: var(--adm-ink-soft); white-space: nowrap; }
+.adm-tag {
+  display: inline-block; background: var(--adm-paper-2); border: 1px solid var(--adm-line);
+  border-radius: var(--adm-r-pill); padding: 2px 9px; font-size: 12px; color: var(--adm-ink-soft);
+}
+
+/* ── states ── */
+.adm-empty { text-align: center; padding: 40px 20px; color: var(--adm-ink-soft); font-size: 14px; }
+.adm-error {
+  background: #fef3f2; border: 1px solid #fecdca; color: var(--adm-danger);
+  border-radius: var(--adm-r); padding: 12px 14px; font-size: 14px;
+}
+.adm-spin {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--adm-line); border-top-color: var(--adm-accent);
+  animation: adm-turn 0.7s linear infinite;
+}
+@keyframes adm-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .adm-spin { animation-duration: 2.4s; }
+}
+
+/* ── the centred single-purpose screens: sign-in, no access, unconfigured ── */
+.adm-gate {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center; padding: 24px; gap: 6px;
+}
+.adm-gate .adm-brand { margin-bottom: 18px; }
+.adm-gate p { color: var(--adm-ink-soft); font-size: 14px; max-width: 380px; line-height: 1.55; }
+.adm-gate .adm-actions { margin-top: 18px; display: flex; gap: 10px; }
+.adm-google {
+  display: inline-flex; align-items: center; gap: 10px; padding: 11px 20px; font-size: 15px;
+}
+
+/* ── chart ── */
+.adm-chart { width: 100%; height: auto; display: block; overflow: visible; }
+.adm-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 12.5px; color: var(--adm-ink-soft); }
+.adm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.adm-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.adm-stat-row { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 16px; }
+.adm-stat b { display: block; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+.adm-stat span { font-size: 12px; color: var(--adm-ink-faint); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+
+/* ── narrow ── */
+/* Desktop is where this tool is used, but a phone check on the road should not be broken. The
+ * signed-in address goes first: it is a reminder, not information, and the sign-out button beside it
+ * is the part that has to stay tappable. */
+@media (max-width: 560px) {
+  .adm-bar { padding: 12px 16px; }
+  .adm-who > span { display: none; }
+  .adm-main { padding: 20px 16px 48px; }
+  .adm-card { padding: 14px; }
+}

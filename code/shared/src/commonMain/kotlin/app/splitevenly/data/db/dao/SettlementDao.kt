@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.Flow
 /** DAO for `settlements` + `settlement_allocations` (02 §3.9). Owns the apply/void transactions. */
 @Dao
 interface SettlementDao {
-
     @Upsert
     suspend fun upsert(settlement: SettlementEntity)
 
@@ -37,7 +36,7 @@ interface SettlementDao {
         SELECT * FROM settlements
         WHERE group_id = :groupId AND deleted_at IS NULL
         ORDER BY settled_at DESC
-        """
+        """,
     )
     fun observeByGroup(groupId: String): Flow<List<SettlementEntity>>
 
@@ -58,7 +57,7 @@ interface SettlementDao {
             SELECT 1 FROM settlement_allocations sa2 INNER JOIN shares sh2 ON sh2.id = sa2.share_id
             WHERE sa2.settlement_id = st.id AND sh2.expense_id <> :expenseId)
         ORDER BY st.settled_at DESC
-        """
+        """,
     )
     fun observeByExpense(expenseId: String): Flow<List<SettlementEntity>>
 
@@ -77,7 +76,7 @@ interface SettlementDao {
         INNER JOIN expenses e ON e.id = sh.expense_id
         WHERE sa.group_id = :groupId AND st.deleted_at IS NULL AND e.deleted_at IS NULL
         ORDER BY e.expense_date ASC
-        """
+        """,
     )
     fun observeCoveredTitlesByGroup(groupId: String): Flow<List<SettlementCoveredTitleRow>>
 
@@ -95,7 +94,7 @@ interface SettlementDao {
           AND from_user_id = :fromUserId AND to_user_id = :toUserId AND payment_currency = :currency
         ORDER BY settled_at DESC
         LIMIT 2
-        """
+        """,
     )
     suspend fun lastTwoPaymentAmounts(
         groupId: String,
@@ -107,9 +106,6 @@ interface SettlementDao {
     @Query("SELECT * FROM settlement_allocations WHERE settlement_id = :settlementId")
     suspend fun allocationsForSettlement(settlementId: String): List<SettlementAllocationEntity>
 
-    @Query("SELECT * FROM settlement_allocations WHERE share_id = :shareId")
-    suspend fun allocationsForShare(shareId: String): List<SettlementAllocationEntity>
-
     /** Every local allocation — the push side of sync (allocations are synced ground truth). */
     @Query("SELECT * FROM settlement_allocations")
     suspend fun allAllocationsForSync(): List<SettlementAllocationEntity>
@@ -120,12 +116,15 @@ interface SettlementDao {
         SELECT COALESCE(SUM(sa.applied_amount_subunits), 0)
         FROM settlement_allocations sa INNER JOIN settlements st ON st.id = sa.settlement_id
         WHERE sa.share_id = :shareId AND st.deleted_at IS NULL
-        """
+        """,
     )
     suspend fun sumAppliedToShare(shareId: String): Long
 
     @Query("UPDATE settlements SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
-    suspend fun softDelete(id: String, ts: Long)
+    suspend fun softDelete(
+        id: String,
+        ts: Long,
+    )
 
     // --- Transactions ---------------------------------------------------------------------------
 
@@ -137,7 +136,7 @@ interface SettlementDao {
             INNER JOIN settlements st ON st.id = sa.settlement_id
             WHERE sa.share_id = s.id AND st.deleted_at IS NULL), 0)
         FROM shares s WHERE s.id = :shareId
-        """
+        """,
     )
     suspend fun derivedRemainingForShare(shareId: String): Long?
 
@@ -170,7 +169,50 @@ interface SettlementDao {
      * per-share restore, no status recompute.
      */
     @Transaction
-    suspend fun voidSettlement(settlementId: String, ts: Long) {
+    suspend fun voidSettlement(
+        settlementId: String,
+        ts: Long,
+    ) {
         softDelete(settlementId, ts)
     }
+
+    /**
+     * Correct a payment: void [oldSettlementId] and record [settlement] + [allocations] in ONE
+     * transaction.
+     *
+     * `editSettlement` used to do this as two separate writes. A crash between them left the payment
+     * voided with no replacement — money the debtor had actually paid silently became owed again, and
+     * nothing on either device said so.
+     *
+     * **The order matters and must not be flipped.** Voiding first is what frees the old payment's
+     * allocations, so the over-apply guard below sees the same ceiling the caller validated against.
+     * Writing the new payment *before* voiding the old would look safer on a crash but is worse: the
+     * two would both be live and the expense would read as double-paid, which is the harder error to
+     * notice and the one that stops someone chasing a debt they are still owed.
+     *
+     * Returns false with nothing written (the transaction rolls back, so the old payment survives)
+     * when the guard trips.
+     */
+    @Transaction
+    suspend fun replaceSettlement(
+        oldSettlementId: String,
+        voidedAt: Long,
+        settlement: SettlementEntity,
+        allocations: List<SettlementAllocationEntity>,
+    ): Boolean {
+        softDelete(oldSettlementId, voidedAt)
+        for (a in allocations) {
+            if (a.appliedAmountSubunits > (derivedRemainingForShare(a.shareId) ?: 0L)) {
+                // Roll the void back with it. Room only rolls a @Transaction back on a throw, so the
+                // refusal has to be one — caught by the caller's own guard, never surfaced as a crash.
+                throw SettlementReplaceRefused()
+            }
+        }
+        upsert(settlement)
+        upsertAllocations(allocations)
+        return true
+    }
 }
+
+/** Internal control flow for [SettlementDao.replaceSettlement]'s rollback. Never escapes the DAO layer. */
+internal class SettlementReplaceRefused : Exception("settlement replacement would over-apply")

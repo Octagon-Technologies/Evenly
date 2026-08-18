@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -41,6 +42,7 @@ import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
+import app.splitevenly.ui.components.EvEmojiPicker
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
@@ -58,7 +60,12 @@ import app.splitevenly.ui.theme.EvenlyTheme
  * A member as shown on the Group settings roster. [role] is "Admin", "No account", "Left", or "".
  * "No account" replaced "Placeholder": placeholder is our word for it, not the user's.
  */
-data class MemberRowUi(val userId: String, val name: String, val role: String = "", val isMe: Boolean = false)
+data class MemberRowUi(
+    val userId: String,
+    val name: String,
+    val role: String = "",
+    val isMe: Boolean = false,
+)
 
 /** 17 · Group settings (design/src/screens-settings.jsx). */
 @Composable
@@ -66,18 +73,19 @@ fun GroupSettingsScreen(
     groupName: String = "Tulum Trip",
     groupEmoji: String = "🏝️",
     baseCurrency: String = "USD",
-    members: List<MemberRowUi> = listOf(
-        MemberRowUi("u1", "Alex Rivera", "Admin", isMe = true),
-        MemberRowUi("u2", "Andrew Park", "Admin"),
-        MemberRowUi("u3", "Bob Lin"),
-        MemberRowUi("u4", "Maya Kapoor"),
-        MemberRowUi("u5", "Tyler Reed", "No account"),
-    ),
+    members: List<MemberRowUi> =
+        listOf(
+            MemberRowUi("u1", "Alex Rivera", "Admin", isMe = true),
+            MemberRowUi("u2", "Andrew Park", "Admin"),
+            MemberRowUi("u3", "Bob Lin"),
+            MemberRowUi("u4", "Maya Kapoor"),
+            MemberRowUi("u5", "Tyler Reed", "No account"),
+        ),
     inviteLink: String = "split-evenly.app/j/8Kk2-Tulum",
     storageUsedBytes: Long = 212L * 1024 * 1024,
     onBack: () -> Unit = {},
     onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
-    onRename: (String) -> Unit = {},
+    onRename: (name: String, emoji: String) -> Unit = { _, _ -> },
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
     onRotateInvite: () -> Unit = {},
@@ -97,11 +105,18 @@ fun GroupSettingsScreen(
     onExportCsv: () -> Unit = {},
     onArchive: () -> Unit = {},
     onLeave: () -> Unit = {},
+    /**
+     * What deleting would cost, counted from the real group. Loaded by the Route when the screen
+     * opens rather than when the sheet does, so the sheet never renders a half-empty set of facts.
+     */
+    deleteImpact: GroupDeleteImpactUi = GroupDeleteImpactUi(),
+    onDelete: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var reminder by remember { mutableStateOf("Weekly") }
     var showAdd by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
+    var showDelete by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<MemberRowUi?>(null) }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
@@ -119,7 +134,10 @@ fun GroupSettingsScreen(
 
             // ── About ──────────────────────────────────────────
             SettingsGroup("About") {
-                SettingsRow(icon = EvIcons.Sparkle, label = "Emoji & name", value = "$groupEmoji $groupName", onClick = { showRename = true })
+                SettingsRow(icon = EvIcons.Sparkle, label = "Emoji & name", value = if (groupEmoji.isBlank()) groupName else "$groupEmoji $groupName", onClick = {
+                    showRename =
+                        true
+                })
                 SettingsRow(icon = EvIcons.Globe, label = "Base currency", value = baseCurrency, last = true)
             }
             Text(
@@ -137,7 +155,10 @@ fun GroupSettingsScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(
-                            Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(c.surface)
+                            Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(c.surface)
                                 .border(1.dp, c.border, RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -195,10 +216,12 @@ fun GroupSettingsScreen(
                 }
                 members.forEachIndexed { i, m ->
                     Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .then(if (i > 0 || unclaimedNameCount > 0) Modifier.topHairline(c.border) else Modifier)
-                            .clickable(enabled = !m.isMe) { removeTarget = m }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .then(if (i > 0 || unclaimedNameCount > 0) Modifier.topHairline(c.border) else Modifier)
+                                .clickable(enabled = !m.isMe) { removeTarget = m }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -210,21 +233,24 @@ fun GroupSettingsScreen(
                         if (m.role.isNotEmpty()) {
                             EvChip(
                                 m.role,
-                                variant = when (m.role) {
-                                    "Admin" -> ChipVariant.Blue
-                                    "Left" -> ChipVariant.Red
-                                    else -> ChipVariant.Amber
-                                },
+                                variant =
+                                    when (m.role) {
+                                        "Admin" -> ChipVariant.Blue
+                                        "Left" -> ChipVariant.Red
+                                        else -> ChipVariant.Amber
+                                    },
                             )
                         }
                         EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)
                     }
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth()
-                        .then(if (members.isNotEmpty()) Modifier.topHairline(c.border) else Modifier)
-                        .clickable { showAdd = true }
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .then(if (members.isNotEmpty()) Modifier.topHairline(c.border) else Modifier)
+                            .clickable { showAdd = true }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -237,11 +263,13 @@ fun GroupSettingsScreen(
             SettingsGroup("Conflict reminders") {
                 listOf("Off", "Daily", "Weekly").forEachIndexed { i, r ->
                     Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
-                            .clickable { reminder = r }
-                            .heightIn(min = 56.dp)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
+                                .clickable { reminder = r }
+                                .heightIn(min = 56.dp)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -263,7 +291,13 @@ fun GroupSettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Receipts & images", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text(
+                            "Receipts & images",
+                            color = c.ink,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
                         Text("${formatBytes(storageUsedBytes)} used", color = c.ink2, fontSize = 12.sp, fontFamily = EvenlyTheme.monoFamily)
                     }
                 }
@@ -285,9 +319,32 @@ fun GroupSettingsScreen(
             }
 
             // ── Danger zone ────────────────────────────────────
+            // Each subtitle answers the only question that matters here: WHO does this affect. Archive
+            // is you, Leave is you, Delete is everyone, and nothing about the three labels says so.
             SettingsGroup("Danger zone") {
-                SettingsRow(icon = EvIcons.Archive, label = "Archive group", onClick = onArchive)
-                SettingsRow(icon = EvIcons.Back, label = "Leave group", danger = true, last = true, showChevron = false, onClick = onLeave)
+                SettingsRow(
+                    icon = EvIcons.Archive,
+                    label = "Archive group",
+                    subtitle = "Hides it from your list. Nobody else is affected.",
+                    onClick = onArchive,
+                )
+                SettingsRow(
+                    icon = EvIcons.Back,
+                    label = "Leave group",
+                    subtitle = "You leave. The group stays for everyone else.",
+                    danger = true,
+                    showChevron = false,
+                    onClick = onLeave,
+                )
+                SettingsRow(
+                    icon = EvIcons.Trash,
+                    label = "Delete group",
+                    subtitle = "Deletes it for everyone. 30 days to undo.",
+                    danger = true,
+                    last = true,
+                    showChevron = false,
+                    onClick = { showDelete = true },
+                )
             }
 
             Spacer(Modifier.height(24.dp))
@@ -312,28 +369,66 @@ fun GroupSettingsScreen(
                 EvToggle(addToPast, { addToPast = it })
             }
             Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                EvButton("Add", { if (name.isNotBlank()) { onAddMember(name.trim(), addToPast); showAdd = false } }, enabled = name.isNotBlank())
+                EvButton("Add", {
+                    if (name.isNotBlank()) {
+                        onAddMember(name.trim(), addToPast)
+                        showAdd = false
+                    }
+                }, enabled = name.isNotBlank())
             }
         }
     }
 
     if (showRename) {
         var draft by remember { mutableStateOf(groupName) }
+        var draftEmoji by remember { mutableStateOf(groupEmoji) }
         EvModalScaffold(onDismiss = { showRename = false }) {
-            Text("Rename group", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            Text("Emoji & name", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            EvField("Emoji") { EvEmojiPicker(selected = draftEmoji, onSelect = { draftEmoji = it }) }
+            Spacer(Modifier.height(16.dp))
             EvField("Name") { EvTextField(draft, { draft = it }, placeholder = "Group name") }
             Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                EvButton("Save", { if (draft.isNotBlank()) { onRename(draft.trim()); showRename = false } }, enabled = draft.isNotBlank())
+                EvButton(
+                    "Save",
+                    {
+                        if (draft.isNotBlank()) {
+                            onRename(draft.trim(), draftEmoji)
+                            showRename = false
+                        }
+                    },
+                    enabled = draft.isNotBlank(),
+                )
             }
         }
     }
 
+    if (showDelete) {
+        DeleteGroupSheet(
+            groupName = groupName,
+            impact = deleteImpact,
+            onDismiss = { showDelete = false },
+            onConfirm = {
+                showDelete = false
+                onDelete()
+            },
+        )
+    }
+
     removeTarget?.let { target ->
         EvModalScaffold(onDismiss = { removeTarget = null }) {
-            Text("Remove ${target.name}?", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+            Text(
+                "Remove ${target.name}?",
+                color = c.ink,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
             Text("They'll be removed from the group. Their past expenses and balances stay intact.", color = c.ink2, fontSize = 13.sp)
             Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                EvButton("Remove", { onRemoveMember(target); removeTarget = null }, variant = ButtonVariant.Danger)
+                EvButton("Remove", {
+                    onRemoveMember(target)
+                    removeTarget = null
+                }, variant = ButtonVariant.Danger)
             }
         }
     }
@@ -352,27 +447,189 @@ private fun formatBytes(bytes: Long): String {
             val tenths = (bytes * 10 + gb / 2) / gb // round to one decimal
             "${tenths / 10}.${tenths % 10} GB"
         }
-        bytes >= mb -> "${(bytes + mb / 2) / mb} MB"
-        bytes >= kb -> "${(bytes + kb / 2) / kb} KB"
-        else -> "$bytes B"
+
+        bytes >= mb -> {
+            "${(bytes + mb / 2) / mb} MB"
+        }
+
+        bytes >= kb -> {
+            "${(bytes + kb / 2) / kb} KB"
+        }
+
+        else -> {
+            "$bytes B"
+        }
     }
 }
 
 /** The JSX `Group` helper — a section label over a clipped `.sc-card` of rows. */
 @Composable
-private fun SettingsGroup(label: String, content: @Composable () -> Unit) {
+private fun SettingsGroup(
+    label: String,
+    content: @Composable () -> Unit,
+) {
     Column {
         EvSectionLabel(label)
         EvCard { content() }
     }
 }
 
-/** The JSX `SetRow` — icon + label + optional value + chevron (or red, chevron-less for danger). */
+/**
+ * The facts a delete confirmation states, all counted from the real group.
+ *
+ * [proPassNote] is pre-formatted by the Route because it carries a date and this screen is DI-free.
+ * It is present only when the group holds a live Evenly Pro pass, and it says the pass is not
+ * refunded, because the pass deliberately survives the purge and its owner deserves to hear that
+ * before the delete rather than after.
+ */
+data class GroupDeleteImpactUi(
+    val memberCount: Int = 0,
+    val expenseCount: Int = 0,
+    val receiptCount: Int = 0,
+    val unsettledCount: Int = 0,
+    val proPassNote: String? = null,
+)
+
+/**
+ * "Delete for everyone", gated behind typing the group's name.
+ *
+ * The friction is deliberate and unconditional. Any active member can delete, the delete removes five
+ * people's shared financial history at once, and the two rows above this one in the danger zone
+ * ("Archive", "Leave") are both harmless and adjacent. Typing the name is the cheapest gate that
+ * cannot be passed by muscle memory.
+ */
+@Composable
+private fun DeleteGroupSheet(
+    groupName: String,
+    impact: GroupDeleteImpactUi,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    var typed by remember { mutableStateOf("") }
+    var showMismatch by remember { mutableStateOf(false) }
+    val matches = typed.trim().equals(groupName.trim(), ignoreCase = true)
+
+    EvModalScaffold(onDismiss = onDismiss) {
+        Text("Delete $groupName?", color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            // Falls back to the count-free wording rather than printing "all 0 members" in the window
+            // between the sheet opening and the counts landing. A confirmation that states a visibly
+            // wrong fact undoes the work the rest of this sheet is doing.
+            if (impact.memberCount > 0) {
+                "This deletes the group for all ${impact.memberCount} " +
+                    "${if (impact.memberCount == 1) "member" else "members"}, not just you."
+            } else {
+                "This deletes the group for everyone in it, not just you."
+            },
+            color = c.ink2,
+            fontSize = 13.5.sp,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 14.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(c.surface)
+                .padding(13.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            // Suppressed entirely on an empty group: "0 expenses go with it" is a true sentence that
+            // reads like a glitch, and the header above already says what deleting costs.
+            if (impact.expenseCount > 0 || impact.receiptCount > 0) {
+                ImpactLine(
+                    EvIcons.Receipt,
+                    "${impact.expenseCount} ${if (impact.expenseCount == 1) "expense" else "expenses"}" +
+                        if (impact.receiptCount > 0) {
+                            " and ${impact.receiptCount} ${if (impact.receiptCount == 1) "receipt" else "receipts"} go with it"
+                        } else {
+                            " go with it"
+                        },
+                )
+            }
+            // Only when money is actually outstanding, and the only line that gets the warning color.
+            if (impact.unsettledCount > 0) {
+                ImpactLine(
+                    EvIcons.Alert,
+                    "${impact.unsettledCount} ${if (impact.unsettledCount == 1) "balance is" else "balances are"} " +
+                        "still unsettled. Nobody will be able to see or settle them.",
+                    tint = c.credit,
+                )
+            }
+            ImpactLine(EvIcons.Clock, "Anyone in the group can restore it for 30 days")
+            ImpactLine(EvIcons.Trash, "After that it is gone for good, including from our servers")
+            impact.proPassNote?.let { ImpactLine(EvIcons.Star, it, tint = c.credit) }
+        }
+
+        Text(
+            "Type $groupName to confirm",
+            color = c.ink2,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
+        )
+        EvTextField(
+            typed,
+            {
+                typed = it
+                showMismatch = false
+            },
+            placeholder = "Group name",
+        )
+        // The button stays live and explains on tap rather than greying out (ui/AGENTS.md: never a
+        // silent dead end). A disabled button here would leave someone tapping a dead control with no
+        // idea the field above it is what is stopping them.
+        if (showMismatch) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                EvIcon(EvIcons.Alert, size = 14.dp, tint = c.danger)
+                Text("That does not match. Type $groupName exactly.", color = c.danger, fontSize = 12.5.sp)
+            }
+        }
+
+        Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            EvButton(
+                "Delete for everyone",
+                { if (matches) onConfirm() else showMismatch = true },
+                variant = ButtonVariant.Danger,
+            )
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Secondary)
+        }
+    }
+}
+
+@Composable
+private fun ImpactLine(
+    icon: ImageVector,
+    text: String,
+    tint: Color = EvenlyTheme.colors.ink3,
+) {
+    val c = EvenlyTheme.colors
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+        EvIcon(icon, size = 15.dp, tint = tint, modifier = Modifier.padding(top = 2.dp))
+        Text(text, color = c.ink2, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+/**
+ * The JSX `SetRow` — icon + label + optional value + chevron (or red, chevron-less for danger).
+ *
+ * [subtitle] exists for the danger zone, where three rows do three very different things to three
+ * different sets of people and the labels alone cannot say which.
+ */
 @Composable
 private fun SettingsRow(
     label: String,
     icon: ImageVector? = null,
     value: String? = null,
+    subtitle: String? = null,
     danger: Boolean = false,
     last: Boolean = false,
     showChevron: Boolean = true,
@@ -381,16 +638,21 @@ private fun SettingsRow(
     val c = EvenlyTheme.colors
     val fg = if (danger) c.danger else c.ink
     Row(
-        modifier = Modifier.fillMaxWidth()
-            .then(if (!last) Modifier.topHairline(c.border) else Modifier)
-            .clickable(onClick = onClick)
-            .heightIn(min = 56.dp)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(if (!last) Modifier.topHairline(c.border) else Modifier)
+                .clickable(onClick = onClick)
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         icon?.let { EvIcon(it, size = 20.dp, tint = if (danger) c.danger else c.ink2) }
-        Text(label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start)
+            subtitle?.let { Text(it, color = c.ink2, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 2.dp)) }
+        }
         value?.let { Text(it, color = c.ink2, fontSize = 14.sp) }
         if (!danger && showChevron) EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)
     }

@@ -169,15 +169,62 @@
 
   .listrow{display:flex; align-items:center; gap:11px; padding:13px 2px; border-bottom:1px solid var(--border)}
   .listrow .ic2{width:32px; height:32px; border-radius:9px; background:var(--surface); display:grid; place-items:center; color:var(--ink-2)}
+  /* subscription paywall (frame 9) — RevenueCat-rendered, drawn here only to agree the content */
+  .pw{position:absolute; inset:0; background:var(--page); padding:16px 16px 0; overflow:hidden}
+  .pw .hero{
+    height:118px; margin:6px 0 0; border-radius:18px; background:var(--blue-tint);
+    display:grid; place-items:center; color:var(--blue-text);
+  }
+  .pw h2{font:800 21px/1.2 inherit; margin:16px 0 6px; letter-spacing:-.02em; text-align:center}
+  .pw .lede{margin:0 0 4px; text-align:center; color:var(--ink-2); font-size:13.5px}
+  .perks{margin:14px 0 0; display:grid; gap:9px}
+  .perk{display:flex; align-items:center; gap:9px; font-size:13.5px}
+  .perk .tick{
+    width:19px; height:19px; border-radius:99px; background:var(--green-tint); color:var(--green);
+    display:grid; place-items:center; font:800 11px/1 inherit; flex:none;
+  }
+  .plan{
+    display:flex; align-items:center; gap:10px; padding:13px 13px;
+    border:1.5px solid var(--border); border-radius:14px; margin-top:9px; background:var(--page);
+  }
+  .plan.sel{border-color:var(--blue); background:var(--blue-tint)}
+  .plan .pn{font:700 14.5px/1.2 inherit}
+  .plan .ps{font-size:12px; color:var(--ink-2); margin-top:3px}
+  .plan .pp{margin-left:auto; text-align:right; font:800 15.5px/1 inherit;
+            font-family:ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:-.02em}
+  .plan.sel .pp{color:var(--blue-text)}
+  .save{
+    background:var(--green-tint); color:var(--green); border-radius:99px;
+    font:800 9.5px/1 inherit; padding:4px 7px; letter-spacing:.02em;
+  }
+  .foot{display:flex; justify-content:center; gap:12px; margin-top:11px; font-size:11px; color:var(--ink-3)}
+  .esc{
+    display:block; text-align:center; margin-top:12px; padding:11px;
+    font:600 13px/1 inherit; color:var(--blue-text);
+    border-top:1px solid var(--border);
+  }
+
+  /* group picker (frame 10) */
+  .pick{display:flex; align-items:center; gap:11px; padding:12px 10px; border-radius:13px; border:1px solid var(--border); margin-bottom:8px}
+  .pick.dim{opacity:.55}
+  .pick .pm{font:600 14.5px/1.2 inherit}
+  .pick .pss{font-size:12px; color:var(--ink-2); margin-top:3px}
+  .pick .pr{margin-left:auto}
+
   svg{display:block}
 </style>
 
 <header>
-  <h1>Evenly Pro — group passes</h1>
+  <h1>Evenly Pro — subscription + group passes</h1>
   <p class="sub">
-    Mockup for <b>PRO_PASS_SPEC.md</b> steps 4 and 5, before any Compose gets written. Colours, radii and
-    type are the real <code>ExtendedColors</code> tokens, so what you see is what the app can render.
-    Prices shown are placeholders: the real ones come from RevenueCat, localized.
+    Mockup for <b>PRO_PASS_SPEC.md</b> (revised 2026-08-11), before any Compose gets written. Colours,
+    radii and type are the real <code>ExtendedColors</code> tokens, so what you see is what the app can
+    render. Prices shown are placeholders: the real ones come from RevenueCat, localized.
+    <br><br>
+    Frames <b>1-7</b> are the group pass, already specced and partly built. Frames <b>8-14</b> are the
+    gap the owner reported: <b>there is no way to see or buy Pro today</b>, and the two gates that exist
+    both dead-end. Frame 9 is the only screen here we do <b>not</b> draw in Compose, because it is built
+    in the RevenueCat editor so it can be redesigned and A/B tested without an app release.
   </p>
   <div class="toggle" role="group" aria-label="Theme">
     <button id="lt" aria-pressed="true">Light</button>
@@ -275,7 +322,7 @@
 
   <!-- 3. PAYWALL -->
   <div class="cell">
-    <p class="cap">3. The paywall <span>· tapped scan at 0 left</span></p>
+    <p class="cap">3. The pass sheet <span>· ours, because RevenueCat cannot render consumables</span></p>
     <div class="phone">
       <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
       <div class="scr">
@@ -488,6 +535,277 @@
       waiting fixes the hourly rate limit and never fixes this, so offering one would be a control that
       cannot do what it says. Manual entry stays reachable, which is what lets the paywall be a choice
       rather than a wall.
+    </p>
+  </div>
+
+  <!-- 8. PROFILE ENTRY -->
+  <div class="cell">
+    <p class="cap">8. Profile <span>· the entry point that does not exist today</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar"><div class="t">Settings</div></div>
+        <div class="prorow" style="border-color:var(--blue); background:var(--blue-tint)">
+          <div style="width:36px;height:36px;border-radius:10px;background:var(--blue);display:grid;place-items:center;flex:none">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+          </div>
+          <div>
+            <div class="rowmain">Evenly Pro</div>
+            <div class="rowsub">Unlimited receipt scans, from $2.99 a month</div>
+          </div>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="lbl" style="margin-top:18px">Account</div>
+        <div class="listrow"><div class="ic2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        </div><div class="rowmain" style="font-weight:500">Your name</div></div>
+        <div class="listrow"><div class="ic2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 8l10 6 10-6"/></svg>
+        </div><div class="rowmain" style="font-weight:500">Payment handles</div></div>
+        <div class="listrow"><div class="ic2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+        </div><div class="rowmain" style="font-weight:500">About Evenly</div></div>
+      </div>
+    </div>
+    <p class="note">
+      One row, above the account list because it is the only one that changes what the app can do.
+      It states the <b>price on the row</b>: a Pro entry that makes you tap to find out what it costs
+      reads as a trap. Tapping opens frame 9, with <b>no group chosen</b> and none needed, which is the
+      thing that makes the subscription simpler to explain than the pass.
+    </p>
+  </div>
+
+  <!-- 9. SUBSCRIPTION PAYWALL -->
+  <div class="cell">
+    <p class="cap">9. The paywall <span>· built in RevenueCat, not in Compose</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr" style="padding:0">
+        <div class="pw">
+          <div style="display:flex"><div class="x" style="margin-left:auto">✕</div></div>
+          <div class="hero">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+          </div>
+          <h2>Scan every receipt</h2>
+          <p class="lede">In every group you're in.</p>
+          <div class="perks">
+            <div class="perk"><span class="tick">✓</span><span>Unlimited receipt scans</span></div>
+            <div class="perk"><span class="tick">✓</span><span>Export any group to a spreadsheet</span></div>
+            <div class="perk"><span class="tick">✓</span><span>Covers every group you're in</span></div>
+          </div>
+          <div class="plan sel">
+            <div>
+              <div class="pn">Yearly <span class="save">SAVE 44%</span></div>
+              <div class="ps">Renews 11 Aug 2027. Cancel anytime.</div>
+            </div>
+            <div class="pp">$19.99</div>
+          </div>
+          <div class="plan">
+            <div>
+              <div class="pn">Monthly</div>
+              <div class="ps">Renews 11 Sep 2026. Cancel anytime.</div>
+            </div>
+            <div class="pp">$2.99</div>
+          </div>
+          <button class="btn" style="margin-top:13px">Subscribe</button>
+          <div class="foot"><span>Terms</span><span>Privacy</span><span>Restore</span></div>
+          <div class="esc">Only need it for one trip?</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      <b>We do not write this screen.</b> It is a RevenueCat paywall rendered by the
+      <code>Paywall()</code> composable, so its layout, copy and price mix are a dashboard change and
+      Experiments can test them without shipping a build. That is the entire reason the product grew a
+      subscription (spec §2.1). Drawn here only to agree the <b>content</b>: the renewal date is stated
+      <b>next to the price, before the charge</b>, not in fine print afterwards, and
+      "Only need it for one trip?" leads to frame 3 so nobody is cornered into a recurring charge for a
+      ski weekend. Terms, Privacy and Restore are App Review requirements, not decoration.
+    </p>
+  </div>
+
+  <!-- 10. GROUP PICKER -->
+  <div class="cell">
+    <p class="cap">10. Which group? <span>· only for a one-off pass</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Pick a group</div>
+        </div>
+        <p style="margin:0 2px 14px; color:var(--ink-2); font-size:13.5px">
+          A pass covers one group, and everyone in it.
+        </p>
+        <div class="pick">
+          <div class="emoji">🎿</div>
+          <div><div class="pm">Ski Trip</div><div class="pss">No free scans left</div></div>
+          <div class="pr"><span class="pill off">PICK</span></div>
+        </div>
+        <div class="pick">
+          <div class="emoji">🏠</div>
+          <div><div class="pm">Flatmates</div><div class="pss">2 of 5 free scans left</div></div>
+          <div class="pr"><span class="pill off">PICK</span></div>
+        </div>
+        <div class="pick dim">
+          <div class="emoji">🍽️</div>
+          <div><div class="pm">Penn Engineers</div><div class="pss">Pro until 16 Aug</div></div>
+          <div class="pr"><span class="pill">PRO</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      Reached <b>only</b> from the profile route, and <b>only</b> for a pass. Each group carries its own
+      state inline, so a group that is already Pro is visibly not worth buying for and is dimmed rather
+      than hidden: hiding it would read as the group having gone missing. Selling someone a second pass
+      for a group they already covered is how a money app loses trust (spec §5.4).
+    </p>
+  </div>
+
+  <!-- 11. GROUP SETTINGS, FREE GROUP -->
+  <div class="cell">
+    <p class="cap">11. Group settings, free group <span>· renders nothing today</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Group settings</div>
+        </div>
+        <div class="grouphdr"><div class="emoji">🎿</div><div><div class="rowmain">Ski Trip</div><div class="rowsub">6 people · USD</div></div></div>
+        <div class="prorow">
+          <div style="width:36px;height:36px;border-radius:10px;background:var(--surface);display:grid;place-items:center;flex:none">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+          </div>
+          <div>
+            <div class="rowmain">Get Pro for Ski Trip</div>
+            <div class="rowsub">No free scans left</div>
+          </div>
+          <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="lbl" style="margin-top:16px">Group</div>
+        <div class="listrow"><div class="ic2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+        </div><div class="rowmain" style="font-weight:500">Rename</div></div>
+        <div class="listrow"><div class="ic2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        </div><div class="rowmain" style="font-weight:500">Export as CSV</div>
+          <span style="margin-left:auto"><span class="pill off">PRO</span></span>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      A bug on its own, separate from the missing paywall:
+      <code>GroupSettingsRoute.kt:70</code> renders the Pro row only when <code>everHadPass</code>, so a
+      group that never bought one <b>sees no Pro surface at all</b>. The row is always present, and on a
+      free group it is the door. The subtitle is the reason to care, not a slogan, so a group with scans
+      left is told that instead.
+    </p>
+  </div>
+
+  <!-- 12. EXPORT -->
+  <div class="cell">
+    <p class="cap">12. Export as CSV <span>· today's dead end, fixed</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Group settings</div>
+        </div>
+        <div class="grouphdr"><div class="emoji">🎿</div><div><div class="rowmain">Ski Trip</div><div class="rowsub">6 people · USD</div></div></div>
+        <div class="scrim"></div>
+        <div class="sheet center">
+          <div style="display:flex"><div class="x">✕</div></div>
+          <div class="badgeic" style="margin-top:8px">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          </div>
+          <h2 style="margin-top:12px">Export needs Pro</h2>
+          <p>Get every expense, who paid and who owes, as a spreadsheet you can open anywhere.</p>
+          <button class="btn" style="margin-top:18px">See Pro</button>
+          <button class="btn text" style="margin-top:4px">Not now</button>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      What happens today: the row says "Pro", tapping it runs the export anyway, the server 402s, the
+      spinner stops and the label becomes <b>"Needs Pro"</b> with nowhere to go
+      (<code>GroupSettingsRoute.kt:126</code>). That is the exact "preparing your file, then nothing"
+      the owner hit. The fix is to <b>check before spending the round trip</b> and open this instead,
+      leading with what export is <i>for</i> rather than with the refusal.
+    </p>
+  </div>
+
+  <!-- 13. SUBSCRIBED -->
+  <div class="cell">
+    <p class="cap">13. Subscribed <span>· manage and restore</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Evenly Pro</div>
+        </div>
+        <div class="prorow" style="border-color:var(--blue)">
+          <div style="width:36px;height:36px;border-radius:10px;background:var(--blue-tint);display:grid;place-items:center;flex:none">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="var(--blue-text)" stroke="none"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+          </div>
+          <div>
+            <div class="rowmain">Yearly, renews 11 Aug 2027</div>
+            <div class="rowsub">$19.99 a year</div>
+          </div>
+          <span style="margin-left:auto"><span class="pill">PRO</span></span>
+        </div>
+        <div class="lbl" style="margin-top:16px">Covers these groups</div>
+        <div class="listrow"><div class="emoji" style="width:30px;height:30px;font-size:15px">🎿</div><div class="rowmain" style="font-weight:500">Ski Trip</div></div>
+        <div class="listrow"><div class="emoji" style="width:30px;height:30px;font-size:15px">🏠</div><div class="rowmain" style="font-weight:500">Flatmates</div></div>
+        <div class="listrow"><div class="emoji" style="width:30px;height:30px;font-size:15px">🍽️</div><div class="rowmain" style="font-weight:500">Penn Engineers</div></div>
+        <button class="btn ghost" style="margin-top:18px">Manage or cancel</button>
+        <button class="btn text" style="margin-top:4px">Restore purchases</button>
+      </div>
+    </div>
+    <p class="note">
+      <b>"Manage or cancel" is not a euphemism and not an in-app imitation</b>: it opens the store's own
+      subscription screen. Cancelling has to be as easy as buying, and a subscriber who cannot find the
+      cancel button writes the 1-star review the original spec was built to avoid. Listing the groups it
+      covers is what makes a personal subscription legible in a group app, and it is the honest answer
+      to "what am I actually paying for?"
+    </p>
+  </div>
+
+  <!-- 14. PRO VIA SOMEONE ELSE -->
+  <div class="cell">
+    <p class="cap">14. Pro because a friend subscribes <span>· the other five phones</span></p>
+    <div class="phone">
+      <div class="status"><span>17:12</span><div class="notch"></div><span>▮</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <div class="t">Group settings</div>
+        </div>
+        <div class="grouphdr"><div class="emoji">🎿</div><div><div class="rowmain">Ski Trip</div><div class="rowsub">6 people · USD</div></div></div>
+        <div class="prorow" style="border-color:var(--blue)">
+          <div style="width:36px;height:36px;border-radius:10px;background:var(--blue-tint);display:grid;place-items:center;flex:none">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="var(--blue-text)" stroke="none"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+          </div>
+          <div>
+            <div class="rowmain">Pro, unlimited scans</div>
+            <div class="rowsub">Sam subscribes to Evenly Pro</div>
+          </div>
+          <span style="margin-left:auto"><span class="pill">PRO</span></span>
+        </div>
+        <div class="lbl" style="margin-top:16px">Group</div>
+        <div class="listrow"><div class="ic2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        </div><div class="rowmain" style="font-weight:500">Export as CSV</div></div>
+      </div>
+    </div>
+    <p class="note">
+      Five people who bought nothing, on five devices, reading this from
+      <code>group_pro_status</code> through the normal pull. <b>No expiry date is shown</b>, unlike the
+      pass in frame 5: Sam's renewal date is Sam's business, and putting a date on someone else's card
+      would invite the group to plan around a charge they have no control over. Naming Sam is the social
+      half of the design; the export row simply loses its PRO tag.
     </p>
   </div>
 

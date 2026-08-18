@@ -39,6 +39,34 @@ foregrounding restarts with a catch-up sync. `App.kt` feeds visibility into the 
 `PushController` stays ungated — background FCM → pull is intended. **Never run these loops from
 `onCreate`, first composition, or for the process lifetime.**
 
+**The gate is not the fence.** Three launches sit on `SupabaseAuthSession`'s process-lifetime scope and do
+*not* read `currentUserId` before working: the restore-pull in `init`, `mirrorCurrentUser`'s `syncNow`, and
+`PushController`'s pull-on-delivered-message. Nulling `currentUserId` cancels `SyncManager`'s loops and none
+of those, so **sign-out's cache wipe is fenced by `SyncGate`, not by the gate.** `SyncEngine.push`/`pull` run
+inside `gate.withSync(userId)`, which checks a per-user "closed" latch **after** taking the sync lock, and
+`signOut` runs the pending-writes count and the wipe together inside `gate.closeForSignOut(userId)`. That
+ordering is the whole point: a pull queued behind sign-out's own push used to acquire the mutex the instant
+that push released it and re-land account A's rows into the just-emptied cache, with A's Supabase session
+still valid. The mutex alone did not prevent it, it *scheduled* it. `SyncGateTest` pins the interleaving.
+
+## One list of synced tables
+
+`SyncEngine.SYNCED_TABLES` is the single source: `SyncManager` drives Room invalidation off it, `push` and
+`countPendingLocalWrites` walk the same `SyncTable` objects (an `init` check crashes on launch if those stop
+matching the list), and `SyncedTablesTest` pins `SignOutWipeDao.WIPED_TABLES` against it. Four hand-kept
+copies is what it was, and two had already drifted. **Adding a table to `push` means adding it here.**
+
+## The client's own clock is not trusted either
+
+`Clock.nowEpochMillis()` — the one function every `*_at` write goes through — passes its reading through
+`ServerClock.clamp`, capping it at the server's clock plus 60s. That mirrors `_clamp_client_ts` in
+`supabase/schema.sql`, and the two constants move together or one side drops writes the other accepted. The
+offset is learned free, from the `Date` header on Supabase responses (`SyncEngine.pull` reads it directly;
+`ServerClockPlugin` covers the app's own Ktor client). With no response seen yet the clamp is the identity
+function, which is also why it is inert in tests. `keepNewer` applies the same horizon on the way in: a
+*local* stamp past it is a wrong clock rather than a later edit, so a row poisoned by someone else's device
+accepts the next honest edit instead of being pinned forever.
+
 ## Synced Room entities double as wire DTOs
 
 snake_case `@ColumnInfo` names mirror the Postgres columns 1:1, the entity is `@Serializable`, and the client
@@ -53,11 +81,27 @@ that table.
 server rehydrates. Fine for now — see the prod gate at the bottom of this file. Schemas export to
 `code/shared/schemas/`; commit them.
 
-**Device-local tables stay out of sync.** Not every Room table is a wire mirror. The receipt-upload outbox
-(`receipt_uploads`), the per-expense `expense_sync_state` tracker, and `group_scan_usage` (a cache of the
-`my_group_scan_usage` RPC, so the free-scan meter is instant and works offline) are local-only: *not*
-`@Serializable`, *not* in `SyncEngine`'s table list, never pushed. They are also the only legitimate hard deletes in the
-codebase (`ReceiptUploadDao.kt:45`, `ExpenseSyncStateDao.kt:21`) — they hold no user data.
+**Device-local tables stay out of sync.** Not every Room table is a wire mirror. Nine are local-only:
+the receipt-upload outbox (`receipt_uploads`), the feedback outbox (`feedback_outbox`), the sync
+bookkeeping (`expense_sync_state`, `row_sync_state`), `superseded_notices`, `group_scan_usage` (a cache of
+the `my_group_scan_usage` RPC, so the free-scan meter is instant and works offline), and the three FX
+tables (`fx_rates`, `fx_baked`, `fx_currencies`). All nine are **absent from
+`SyncEngine.SYNCED_TABLES`** and **none is `@Serializable`** — the annotation is an exact discriminator
+for "is a wire mirror", pinned by `EntitySerializablePartitionTest`, so keep it that way: a new local
+table takes no annotation and a seat in that test's local list.
+
+**Both outboxes hard-delete, and both are exempt from Rule 1 for the same reason.** `ReceiptUploadDao
+.delete` holds no user data at all. `FeedbackOutboxDao.delete` *does* hold user text, so it is the more
+interesting case and is flagged here rather than left to be discovered: a row is removed only once the
+`feedback` edge function has **accepted** it (the ticket now lives server-side in `feedback_tickets`) or
+**permanently refused** it. It is a work queue, not a record, and there is no tombstone for anyone to
+sync. Do not generalize the exemption to a table that is the only home of what it holds.
+
+**An unsent feedback ticket dies with the session.** `SignOutWipeDao` clears `feedback_outbox` with the
+rest of the account's cache. That is deliberate and asymmetric with the receipt outbox: keeping it would
+let the next account on the device flush a stranger's bug report under their own token, which is exactly
+what the edge function refuses to do server-side. `countPendingLocalWrites` does not see it either (it
+walks `SYNCED_TABLES`), so sign-out will not warn about one.
 
 **`group_passes` and `user_subscriptions` are the PULL-ONLY synced tables.** Evenly Pro
 (`PRO_PASS_SPEC.md`) has two routes and the server is the only writer of both, so the client pulls them
@@ -105,7 +149,7 @@ a metadata-only one:
 
 That is the fix for the offline-for-weeks device eating a dozen newer edits: it loses **because it is
 causally behind**, not because of who reached the server last. `merge_expense` returns the merged canonical
-`{expense, shares}` and the client adopts it directly (`ExpenseDao.overwriteFromServer`) — no re-pull. Shares
+`{expense, shares}` and the client adopts it directly (`ExpenseDao.overwriteFromServerIfUnchanged`) — no re-pull. Shares
 ride *with* the expense (the RPC soft-deletes removed ones server-side); soft-deleted expenses are tombstones
 (LWW by `updated_at`).
 
@@ -130,11 +174,16 @@ always 0. Balance and "settled" follow from it (an expense is settled iff every 
   `row_version`).
 - Settlements never mutate a stored remaining. `shares.remaining_subunits` is **vestigial** — read it nowhere.
 - `expenses.status` only ever stores ACTIVE/DELETED.
+- **An expense's `currency` is fixed once a payment has been applied to it.** `editExpense` refuses the
+  change (`ShareDao.appliedAllocationCount`), because the derived remaining subtracts an allocation with no
+  currency predicate: re-denominating would read a $25.00 payment as settling a EUR 25,00 debt, drop the
+  line out of every outstanding filter, and leave the debtor unable to pay the difference. Voiding the
+  payment frees the currency again.
 - **Editing a split no longer wipes payments:** `ExpenseDao.replaceWithShares` + `mergeShares` preserve each
   surviving participant's share `id` (matched by `user_id`) so allocations stay linked.
 - `shares` has `deleted_at` (removed participants soft-delete) plus a partial unique index over active rows.
   The old hard-delete `deleteSharesForExpense` is **gone** — do not reintroduce a `DELETE FROM shares`. The
-  conflict-revert path (`ExpenseDao.overwriteFromServer`) tombstones rejected local shares too.
+  conflict-revert path (`ExpenseDao.overwriteFromServerIfUnchanged`) tombstones rejected local shares too.
 
 Do not reintroduce a stored remaining or a stored SETTLED status; that is the staleness bug this design
 removes. A payment scopes three ways in `NewSettlement`: `expenseId` (one expense), `expenseIds` (a chosen
@@ -163,8 +212,11 @@ claiming ≠ paying.
 
 **Taking someone off a bill must take their claims with them.** The roster row carries no money — owed
 amounts derive from `item_claims`/`item_shares` — so tombstoning it alone leaves the person off the bill and
-still paying for their dishes. `editBill` soft-deletes their claims and portion memberships in the same
-write (units they held return to UNCLAIMED; a slice they shared survives for its remaining members). The
+still paying for their dishes, and the next pull re-derives that debt rather than healing it. "The same
+write" is literal: **`BillWriteDao` owns both bill writes as Room transactions** (`createBill`,
+`applyBillEdit`), because these ran as loose sequences from a navigation-scoped coroutine and a back-tap
+committed the first and dropped the rest. Units a removed person held return to UNCLAIMED; a slice they
+shared survives for its remaining members. The
 reverse case is the deterministic row id: putting the same person back **revives their tombstoned row**, it
 does not insert a second one. `BillRepositoryTest` pins both directions.
 
@@ -202,7 +254,16 @@ treat the undo as causally stale and silently drop it. Two rules that look like 
   a $10.00 line over 3 units hands back $9.99.
 - **First-undo-wins is the conditional `UPDATE` in `PendingItemEditDao.markUndone`,** not a
   read-then-write. Anyone on the bill may undo, so two simultaneous taps must produce one undo and one
-  no-op. Losing the race is an `Ok`: the change is undone, which is what the caller wanted.
+  no-op. Losing the race is an `Ok`: the change is undone, which is what the caller wanted. That stamp is
+  the one thing an undo can spend and not get back, so it and the restore are ONE transaction
+  (`PendingItemEditDao.undoAndRestore`) — split, an interruption between them left the line at the price
+  the payer rejected while every device rendered it as undone, unrepairable because the retry correctly
+  no-ops.
+- **An undo that would leave an illegal bill is refused before anything is written.** A discount entered
+  while a guest's inflated line was live can exceed the bill without it, so the undo would store a negative
+  expense that falls out of every `remaining > 0` filter. The rule is `domain/expense/billTotalProblem`,
+  the same one `createBill`/`editBill` enforce; only a *newly* illegal total is refused, so a bill that
+  arrived broken can still have its cosmetic changes taken back.
 
 Undoing a REMOVE in-app restores the line but **not** the claims that removal killed — the app cannot
 tell them apart from claims their owners dropped at the same moment. The server's `undo_web_bill_edit`
@@ -213,6 +274,9 @@ line and leaving the claiming to the table is the safe direction to be wrong in.
 "three people never claimed" (spec E17): one NEW `item_shares` portion per line carrying only that
 line's leftover units, under a deterministic `"<item>__remainder"` id, so it needs no `join_item_portion`
 (nobody's existing claim is being rewritten) and running it twice converges instead of double-billing.
+It computes the leftover **excluding that portion**, and drops former members who are not in the new set,
+so a second call with different people re-assigns rather than reading zero left and silently doing
+nothing.
 
 **`WebBillLinkRepository` is deliberately NOT local-first**, the only repository here that isn't. A
 bill link is a server-side authorisation: minting one offline hands out a QR nothing can validate, and
@@ -232,12 +296,19 @@ tapped did not get what they asked for.
 ## Placeholders, members, and names
 
 A placeholder is a `users` row (`is_placeholder=1` + `placeholder_group_id`) **plus** a `members` row —
-`addPlaceholder` creates both. When merged into a real user (reconcile, *or* a joiner picking it on the Join
+`addPlaceholder` creates both in ONE `UserDao.createPlaceholder` transaction, because every read that
+matters JOINs them and a `users` row alone is invisible everywhere with no way to remove it. When merged into a real user (reconcile, *or* a joiner picking it on the Join
 sheet), soft-leave it **and** stamp `placeholder_claim_completed_at`.
 `UserDao.observePlaceholdersInGroup` (the source for both the Reconcile picker and
 the Join-sheet identity picker) JOINs `members` and filters `status='ACTIVE' AND placeholder_claim_completed_at
 IS NULL`, so a claimed placeholder stops appearing as a pickable identity. **Do not revert it to a users-only
 query** — that resurrects the merged placeholder.
+
+**A claim in flight is parked durably before the server is asked.** `claim_placeholder` retires the
+placeholder server-side, so dying between that RPC and the local merge strands the name's whole history
+where no picker will offer it again. `PlaceholderClaimCoordinator` writes a `PendingClaimStore` record
+first and clears it only once `reconcilePlaceholder` returns; `resumePending()` (called when a group screen
+opens) finishes anything left over. Both halves are idempotent, so a resume that was not needed is free.
 
 **The merge is ONE transaction, in `PlaceholderMergeDao`.** Every table the retired name appears in moves
 together: `shares`, the parent `expenses` (payer + causal `split_version`), `settlements`,
@@ -320,6 +391,11 @@ keeps the promise that with no keys there is no paywall, no pass sheet, no meter
 behave exactly as they do today; same contract as the app being fully usable with Supabase
 unconfigured. A `getOrNull` here would move that question into every call site.
 
+The parked pass activation in `ProPurchaseCoordinator` is **keyed by group**. One un-scoped record meant a
+stuck charge in group A answered the pass sheet opened in group B, activating A and dismissing itself as
+though B were Pro. `hasPendingActivation`/`retryPendingActivation` take a `groupId`; the others are
+retried in the background and never reported on a sheet that does not own them.
+
 `Purchases.logIn` is bound to `currentUserId` in `SupabaseAuthSession.init`, beside the sync and push
 binds, so the RevenueCat app user id **is** our user id — that is what makes webhook attribution and
 support lookups possible. The sign-out half is not optional: without `logOut`, one device's
@@ -359,15 +435,13 @@ None of these may ship to a real user. Refuse to mark the app prod-ready while a
 1. **Kill destructive Room migration** (`EvenlyDatabase.kt:146`). In prod one schema bump drops every
    local table and every unsynced offline write with it. Replace with hand-written, tested `Migration`
    objects for every version step, keep `exportSchema = true`, and test each against a *populated* DB.
-2. **Tighten RLS to membership-scoped.** `supabase/schema.sql` generates `for all to authenticated using
-   (true) with check (true)` for every table via the loop at `schema.sql:591` — any authenticated (incl.
-   anonymous) user can read, overwrite, **or delete every row**. See `supabase/AGENTS.md`.
-   **Policies alone will not close this: RLS does not apply to TRUNCATE.** Supabase grants ALL on a new
-   public table to `anon`/`authenticated`, and a live grants query (2026-08-09) shows all 32 tables still
-   granting TRUNCATE to `authenticated` — including the zero-policy ones (`web_bill_links`,
-   `web_sessions`, `apple_oauth_tokens`), whose "no policies" is not the protection it reads as. Any
-   signed-in user can empty any table in one statement. `group_passes` revokes it; the sweep is
-   `revoke truncate on all tables in schema public from anon, authenticated;`.
+2. ~~**Tighten RLS to membership-scoped.**~~ **Done (2026-08-17).** All 20 app tables are scoped to ACTIVE
+   members of the row's group, and the TRUNCATE sweep ran alongside (RLS does not apply to TRUNCATE, and
+   Supabase grants ALL on a new public table, so policies alone would not have closed it). Rules for
+   anything you add — never a permissive policy, always via `is_group_member`, never filter `deleted_at`
+   in a policy — are in `supabase/AGENTS.md`. **Still open, and not closed by this:** the `receipts`
+   Storage bucket is `public = true`, so receipt *bytes* are readable by anyone with the URL. That needs
+   signed URLs, which is a client change.
 3. **Add the audit log + triggers** (Rule 4) — there is none today. `expense_history` logs *events*, not
    before-images, so a bad mutation is currently unrecoverable from app data alone.
 4. **Close the soft-delete gaps** (Rule 1): `conflicts` has no `deleted_at`. (`shares` and `users` now
@@ -375,6 +449,15 @@ None of these may ship to a real user. Refuse to mark the app prod-ready while a
    ephemeral non-financial data.)
 5. **Add concurrency guards to push** (Rule 5). Pull is guarded by `keepNewer`; push is still blind.
 6. **Turn on Supabase PITR + scheduled backups, and rehearse a restore** (Rule 12).
+7. **Schedule the group purge** — blocked on #6, and the reason #6 is now a hard blocker rather than
+   good hygiene. `purge_deleted_groups()` is written, applied, verified, and **deliberately not
+   scheduled**: it is the only hard delete of real user data in the project, so the header on it
+   refuses to run without a recovery path. It was scheduled on the live project on 2026-08-17 and
+   unscheduled the same day once that contradiction was noticed. Until it runs, deleted groups keep
+   their tombstones past 30 days server-side and the delete confirm sheet's promise that a group is
+   "gone for good, including from our servers" is **not true**. Nothing user-facing breaks meanwhile
+   (the client purges its own copy on day 30 regardless), which is exactly why this is easy to forget.
+   The one-liner to enable it is commented beside the function in `supabase/schema.sql`.
 
 ## The rules
 
@@ -392,9 +475,27 @@ pull.
 **Forbidden — flag before writing, never add silently:** `@Delete` or `@Query("DELETE FROM …")` on a
 user-data DAO; a Postgrest `.delete()` from client code on a user-data table.
 
-**The one hard delete to convert before prod:** `UserDao.kt:29` (`DELETE FROM users`) — see Rule 11. The
-other two (`ReceiptUploadDao.kt:45`, `ExpenseSyncStateDao.kt:21`) are device-local tables holding no user
-data and are legitimately exempt.
+**The one hard delete to convert before prod:** `UserDao.delete` (`DELETE FROM users`; sole caller is the
+offline `StubAuthSession`) — see Rule 11. The other one (`ReceiptUploadDao.delete`) is a device-local
+outbox holding no user data and is legitimately exempt.
+
+**The one sanctioned hard delete of real user data is the group purge** (`GroupPurgeDao` here,
+`purge_deleted_groups()` in `supabase/schema.sql`), added 2026-08-17 by explicit owner decision. Do not
+read it as precedent and do not generalise it — it is exempt only because every part of the argument
+holds at once: the group was deleted **for every member**, no member has any surface left that can
+reach it, and the **30 days** they had to undo it have elapsed. Past that point a tombstone nobody can
+read is not a record, it is a copy of private financial data we told people we had deleted. Anything
+short of all three conditions is an ordinary soft delete. Both halves run the same 30-day rule off the
+same `groups.deleted_at`, and the constant lives in `domain/group/RecentlyDeleted.WINDOW_DAYS` — if the
+client's window ever exceeds the server's, the app offers a restore for rows the server already erased.
+
+**Delete/restore themselves are ordinary local-first Room writes**, not RPCs: `groups.deleted_at` /
+`deleted_by` ride the existing `SyncEngine` push like any other tombstone, which is what makes both work
+offline. Two things carry that and must not be "tidied":
+`members` rows stay **ACTIVE** through a delete (soft-leaving them makes `is_group_member` false, which
+revokes the RLS grant on the very row a member needs to restore *and* drops the group out of
+`pull`'s `activeGroupIds`, so no other device ever learns of the delete), and the RLS policies never
+filter `deleted_at`. `GroupDeleteTest` pins both.
 
 If a table lacks `deleted_at`/`deleted_by` and you're asked to delete from it: **stop and flag it.** Adding a
 hard delete as a workaround is itself a violation.

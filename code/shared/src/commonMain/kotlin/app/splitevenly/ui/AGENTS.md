@@ -40,6 +40,14 @@ arg does. This is the single most repeated iOS-only crash in this repo.
 group is a full-screen push *over* the shell. There is **no standalone `Route.Profile`** — reach the profile
 via the Settings tab, not a Home avatar.
 
+**A push disposes the destination underneath, so `remember` in a Route wrapper does not survive Back.**
+Anything a wrapper must keep across a push (a one-shot gate's answer, a completed check) belongs in a
+ViewModel scoped to that back-stack entry, which lives until the entry is popped. `HomeGateRoute`'s
+pending-deletion check held its result in `remember` and so re-ran on *every* Back into Home, blanking the
+screen behind a network call each time — the window background reads as black on iOS. The related rule:
+**a route wrapper must never render nothing while it waits.** Draw the `page` color, or the window shows
+through.
+
 ## System bars blend via the theme, edge-to-edge
 
 `StatusBarScrim` (in `EvBars.kt`) paints the `page` color behind the status bar, and

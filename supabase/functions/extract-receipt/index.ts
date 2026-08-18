@@ -12,7 +12,11 @@
 //
 //   POST { "files": [{ "data": "<base64>", "mediaType": "image/jpeg" | "application/pdf" }, ...] }  // multi-page
 //     or { "imageBase64": "...", "mediaType"?: "image/jpeg" }     // single image inline (legacy)
-//     or { "storagePath": "receipts/abc.jpg" }                    // already in the receipts bucket
+//     or { "storagePath": "abc.jpg" }                             // object path in the `receipts` bucket
+//
+// `storagePath` names an OBJECT ONLY. The bucket is always `receipts`, hardcoded — a leading
+// `receipts/` is tolerated for older clients and stripped. The caller cannot choose the bucket: this
+// download runs with the service role, so a caller-named bucket would read any private bucket.
 //
 // `files` may mix several photos and/or PDFs — they're read together as ONE bill, so a multi-page
 // receipt yields a single item list. PDFs go in as document blocks; images as image blocks.
@@ -275,10 +279,13 @@ Deno.serve(async (req) => {
   }
   if (pages.length === 0 && payload.storagePath) {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const slash = payload.storagePath.indexOf("/");
-    const bucket = slash > 0 ? payload.storagePath.slice(0, slash) : "receipts";
-    const path = slash > 0 ? payload.storagePath.slice(slash + 1) : payload.storagePath;
-    const { data, error } = await supabase.storage.from(bucket).download(path);
+    // The bucket is OURS, never the caller's: this download runs with the service role, so letting the
+    // path name its own bucket would be a read primitive for every private bucket in the project.
+    const path = payload.storagePath.replace(/^\/+/, "").replace(/^receipts\//, "");
+    if (path.length === 0 || path.split("/").includes("..")) {
+      return json({ error: "invalid storagePath" }, 400);
+    }
+    const { data, error } = await supabase.storage.from("receipts").download(path);
     if (error || !data) return json({ error: `download failed: ${error?.message ?? "no data"}` }, 400);
     pages = [{ data: b64encode(new Uint8Array(await data.arrayBuffer())), mediaType: data.type || "image/jpeg" }];
   }

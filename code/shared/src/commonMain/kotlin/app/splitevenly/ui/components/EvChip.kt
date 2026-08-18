@@ -27,29 +27,69 @@ import app.splitevenly.ui.theme.EvenlyTheme
 
 enum class ChipVariant { Neutral, Blue, Solid, Amber, Red, Green, Credit, Ghost, Owe, Owed }
 
-private data class ChipColors(val bg: Color, val fg: Color, val border: Color)
+private data class ChipColors(
+    val bg: Color,
+    val fg: Color,
+    val border: Color,
+)
 
 @Composable
 private fun chipColors(variant: ChipVariant): ChipColors {
     val c = EvenlyTheme.colors
     return when (variant) {
-        ChipVariant.Neutral -> ChipColors(c.surface, c.ink2, c.border)
-        ChipVariant.Blue -> ChipColors(c.blueTint, c.blue, c.blueTint2)
-        ChipVariant.Solid -> ChipColors(c.blue, c.onAccent, Color.Transparent)
-        ChipVariant.Amber -> ChipColors(c.warningTint, c.warning, c.warning.copy(alpha = 0.18f))
-        ChipVariant.Red -> ChipColors(c.dangerTint, c.danger, c.danger.copy(alpha = 0.22f))
-        ChipVariant.Green -> ChipColors(c.settledTint, c.settled, c.settled.copy(alpha = 0.20f))
-        ChipVariant.Credit -> ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
-        ChipVariant.Ghost -> ChipColors(Color.Transparent, c.ink2, c.border)
+        ChipVariant.Neutral -> {
+            ChipColors(c.surface, c.ink2, c.border)
+        }
+
+        // `blueText`, not `blue`: this is a FOREGROUND (see `ui/AGENTS.md`). The fill-tuned cobalt
+        // reaches only 3.1:1 against `blueTint` on the dark page, short of the 4.5:1 a 13sp label needs.
+        // Identical in light mode, where `blueText == blue`.
+        ChipVariant.Blue -> {
+            ChipColors(c.blueTint, c.blueText, c.blueTint2)
+        }
+
+        ChipVariant.Solid -> {
+            ChipColors(c.blue, c.onAccent, Color.Transparent)
+        }
+
+        ChipVariant.Amber -> {
+            ChipColors(c.warningTint, c.warning, c.warning.copy(alpha = 0.18f))
+        }
+
+        ChipVariant.Red -> {
+            ChipColors(c.dangerTint, c.danger, c.danger.copy(alpha = 0.22f))
+        }
+
+        ChipVariant.Green -> {
+            ChipColors(c.settledTint, c.settled, c.settled.copy(alpha = 0.20f))
+        }
+
+        ChipVariant.Credit -> {
+            ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
+        }
+
+        ChipVariant.Ghost -> {
+            ChipColors(Color.Transparent, c.ink2, c.border)
+        }
+
         // Balance amounts — you-owe (blue) / you're-owed (amber). In DARK they render as outlined pills
         // (transparent fill + colored ring + colored text) so the amount stands clearly apart from the
         // near-black background; in LIGHT they stay the original filled tint chips (identical to before).
-        ChipVariant.Owe ->
-            if (c.isDark) ChipColors(Color.Transparent, c.owe, c.owe)
-            else ChipColors(c.blueTint, c.blue, c.blueTint2)
-        ChipVariant.Owed ->
-            if (c.isDark) ChipColors(Color.Transparent, c.credit, c.credit)
-            else ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
+        ChipVariant.Owe -> {
+            if (c.isDark) {
+                ChipColors(Color.Transparent, c.owe, c.owe)
+            } else {
+                ChipColors(c.blueTint, c.blue, c.blueTint2)
+            }
+        }
+
+        ChipVariant.Owed -> {
+            if (c.isDark) {
+                ChipColors(Color.Transparent, c.credit, c.credit)
+            } else {
+                ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
+            }
+        }
     }
 }
 
@@ -64,12 +104,13 @@ fun EvChip(
     val cc = chipColors(variant)
     val radius = if (large) 10.dp else 8.dp
     Row(
-        modifier = modifier
-            .height(if (large) 34.dp else 28.dp)
-            .clip(RoundedCornerShape(radius))
-            .background(cc.bg)
-            .then(if (cc.border == Color.Transparent) Modifier else Modifier.border(1.dp, cc.border, RoundedCornerShape(radius)))
-            .padding(horizontal = if (large) 14.dp else 10.dp),
+        modifier =
+            modifier
+                .height(if (large) 34.dp else 28.dp)
+                .clip(RoundedCornerShape(radius))
+                .background(cc.bg)
+                .then(if (cc.border == Color.Transparent) Modifier else Modifier.border(1.dp, cc.border, RoundedCornerShape(radius)))
+                .padding(horizontal = if (large) 14.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -116,13 +157,14 @@ fun EvParticipantChip(
     // so untinted leading/trailing icons (the check, star, wallet) follow the foreground automatically.
     val fg = if (selected) c.onAccent else c.ink
     Row(
-        modifier = modifier
-            .height(38.dp)
-            .clip(CircleShape)
-            .background(if (selected) c.blue else c.surface)
-            .border(1.dp, if (selected) c.blue else c.border, CircleShape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 12.dp),
+        modifier =
+            modifier
+                .height(38.dp)
+                .clip(CircleShape)
+                .background(if (selected) c.blue else c.surface)
+                .border(1.dp, if (selected) c.blue else c.border, CircleShape)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

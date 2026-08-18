@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
  * OAuth + magic-link sessions arrive **asynchronously** (browser redirect / email tap), so callers
  * react to [currentUserId] rather than awaiting the launch call.
  */
+
 /**
  * The Google Play review demo account — the one email allowed to sign in with a password in
  * release builds (see [AuthSession.signInWithPassword]), since a real reviewer can't complete an
@@ -54,7 +55,10 @@ interface AuthSession {
     suspend fun sendEmailOtp(email: String): AppResult<Unit>
 
     /** Verify the 6-digit [token] emailed to [email]; on success [currentUserId] becomes non-null. */
-    suspend fun verifyEmailOtp(email: String, token: String): AppResult<UserId>
+    suspend fun verifyEmailOtp(
+        email: String,
+        token: String,
+    ): AppResult<UserId>
 
     /**
      * Email + password sign-in. Used for seeded test accounts (no email round-trip), so QA can switch
@@ -65,7 +69,10 @@ interface AuthSession {
      * inbox that doesn't exist. [app.splitevenly.data.auth.SupabaseAuthSession] fails closed with
      * [app.splitevenly.core.error.AppError.NotAuthorized] for every other email in release.
      */
-    suspend fun signInWithPassword(email: String, password: String): AppResult<UserId>
+    suspend fun signInWithPassword(
+        email: String,
+        password: String,
+    ): AppResult<UserId>
 
     /**
      * True when the signed-in user **already has a finished profile on the server** — i.e. they've
@@ -76,7 +83,21 @@ interface AuthSession {
      */
     suspend fun hasOnboardedProfile(): Boolean
 
-    fun signOut()
+    /**
+     * Sign out, and clear this device's cache of the account that just left.
+     *
+     * Clearing is the point, not a tidy-up: without it the next account to sign in on this device
+     * inherits the previous one's rows and pushes them up under its own session (#24). Pro made that
+     * worse — passes and subscriptions are per-user.
+     *
+     * The cache may hold local writes that never reached the server, and those are real user data
+     * (`data/AGENTS.md` Rule 1). So the flow is: push first; if everything lands, wipe and return
+     * [SignOutOutcome.SignedOut]; if the push fails AND something is still pending, return
+     * [SignOutOutcome.UnsyncedChanges] having done NOTHING — still signed in, nothing wiped — so the
+     * caller can tell the user what they are about to lose. Calling again with [discardUnsynced] `=
+     * true` is the user's answer.
+     */
+    suspend fun signOut(discardUnsynced: Boolean = false): SignOutOutcome
 
     /**
      * Start the 30-day account-deletion countdown server-side (`request_account_deletion` RPC), then
@@ -98,3 +119,23 @@ interface AuthSession {
 
 /** OAuth identity providers offered on the sign-in screen. */
 enum class OAuthProvider { GOOGLE, APPLE, FACEBOOK }
+
+/** What [AuthSession.signOut] did. */
+sealed interface SignOutOutcome {
+    /** Signed out and the device's cache is clear. */
+    data object SignedOut : SignOutOutcome
+
+    /**
+     * Nothing happened: local changes could not be pushed, and signing out would discard them. The user
+     * is still signed in and the cache is untouched. Ask, then call `signOut(discardUnsynced = true)` if
+     * they say go ahead.
+     *
+     * [pendingWrites] is **null when the count itself could not be taken** — a DB read failing is not
+     * evidence that nothing is pending, and the one read standing between a failed push and destroying
+     * someone's only copy of their expenses has to fail closed. The dialog says "some of what you did"
+     * rather than inventing a number.
+     */
+    data class UnsyncedChanges(
+        val pendingWrites: Int?,
+    ) : SignOutOutcome
+}

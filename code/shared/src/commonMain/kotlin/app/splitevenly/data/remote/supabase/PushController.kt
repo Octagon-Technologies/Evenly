@@ -39,7 +39,10 @@ class PushController(
     private val client: SupabaseClient,
     private val clock: Clock = Clock.System,
 ) {
-    fun bind(scope: CoroutineScope, currentUserId: StateFlow<UserId?>) {
+    fun bind(
+        scope: CoroutineScope,
+        currentUserId: StateFlow<UserId?>,
+    ) {
         // Register the current token whenever a user becomes known (sign-in / restored session).
         scope.launch {
             currentUserId.collect { uid -> if (uid != null) registerCurrentToken(uid.value) }
@@ -61,11 +64,44 @@ class PushController(
         }
     }
 
-    private suspend fun upsert(userId: String, token: String) {
+    private suspend fun upsert(
+        userId: String,
+        token: String,
+    ) {
         runCatching {
             client.from("device_tokens").upsert(
                 DeviceTokenRow(id = token, userId = userId, platform = PLATFORM, updatedAt = clock.nowEpochMillis()),
             )
+        }
+    }
+
+    /**
+     * Drop this device's `device_tokens` row for [userId], so notifications for the account that just
+     * signed out stop arriving here.
+     *
+     * Registration only ever *upserts*, so before this existed the server went on believing this handset
+     * belonged to A after A signed out. Every push for one of A's groups then rendered A's group name,
+     * expense title and amount on the lock screen of a phone A no longer had a session on — and, until
+     * B's sign-in completed and re-registered the token, on B's phone. It also woke
+     * `PushController.bind`'s pull, which is the vector the sign-out fence exists to close.
+     *
+     * Must run while A's session can still authenticate the delete, i.e. before `client.auth.signOut()`.
+     * Best-effort like the rest of sign-out: a failure here self-heals at the next registration, and
+     * refusing to sign out because a DELETE failed is a dead end. A hard delete is correct and
+     * deliberate here — `device_tokens` is the one table `data/AGENTS.md` names as ephemeral,
+     * non-financial data that carries no tombstone.
+     */
+    suspend fun unregisterCurrentToken(userId: String) {
+        val token = (pushService.currentToken() as? AppResult.Ok)?.value ?: return
+        runCatching {
+            client.from("device_tokens").delete {
+                filter {
+                    eq("id", token)
+                    // Scoped to the departing account as well as the token: if the row has somehow already
+                    // been claimed by whoever signs in next, it is theirs and must not be deleted.
+                    eq("user_id", userId)
+                }
+            }
         }
     }
 

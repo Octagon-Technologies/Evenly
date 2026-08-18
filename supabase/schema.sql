@@ -288,6 +288,10 @@ create index if not exists item_shares_expense_idx on public.item_shares (expens
 create index if not exists item_shares_group_idx on public.item_shares (group_id);
 -- A person can be in more than one portion of the same line at once (per-serving assignment: solo on
 -- one serving, shared with someone else on another) — the uniqueness key is per-portion, not per-item.
+-- The per-ITEM index below it replaced is already gone from this file, so a from-scratch apply is clean;
+-- this drop is only for a legacy environment reapplying the file, where the old index would still be
+-- live and would reject exactly the per-serving assignment the new one is here to allow.
+drop index if exists item_shares_item_user_active_uidx;
 create unique index if not exists item_shares_item_user_portion_active_uidx
   on public.item_shares (item_id, user_id, portion_id) where deleted_at is null;
 
@@ -477,9 +481,9 @@ create index if not exists device_tokens_user_idx on public.device_tokens (user_
 -- per-user rate limit (20 scans/hour) against the paid, Claude-vision-backed OCR endpoint.
 create table if not exists public.receipt_scan_log (
   id uuid primary key default gen_random_uuid(),
-  -- ON DELETE CASCADE so delete_my_account() (which deletes the auth.users row) doesn't FK-violate once
-  -- scan rows exist. A rate-limit log is ephemeral operational data, not financial history, so a hard
-  -- cascade here is correct (P1 #12). The migration below re-adds the FK with the cascade on live DBs.
+  -- ON DELETE CASCADE so purge_deleted_accounts() (which deletes the auth.users row after the 30-day
+  -- grace) doesn't FK-violate once scan rows exist. A rate-limit log is ephemeral operational data, not
+  -- financial history, so a hard cascade is correct (P1 #12). The migration below re-adds it on live DBs.
   user_id uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
@@ -613,23 +617,221 @@ alter table public.pro_orphan_purchases enable row level security;
 -- Deliberately no policies: it holds a stranger's purchase record and no client has business reading it.
 revoke all on public.pro_orphan_purchases from anon, authenticated;
 
--- ── Row-Level Security ──────────────────────────────────────────────────────────────────────────
--- PERMISSIVE policies so sync works immediately for testing: any authenticated (incl. anonymous)
--- user can read/write every row. NOT safe for real multi-user data — see the membership-scoped sketch
--- at the bottom before going further than a personal test.
+-- ── Row-Level Security: membership-scoped ───────────────────────────────────────────────────────
+-- A row is reachable only by ACTIVE members of its group. This replaced a `for all to authenticated
+-- using (true) with check (true)` loop over these same 20 tables, under which any signed-in account
+-- could read, overwrite, or delete every other group's ledger.
+--
+-- ⚠️ If you are adding a table here, do NOT reintroduce a permissive policy "just for testing".
+-- Permissive policies OR together, so a single surviving `using (true)` silently defeats every policy
+-- in this section.
+--
+-- "Member" means status = 'ACTIVE', matching `SyncEngine.activeGroupIds` (a departed member's device
+-- already stops pulling the group) and the four policies that predate this section.
+--
+-- NOTE: no policy here filters `deleted_at is null`, deliberately. Deletions travel as soft-deleted
+-- rows; hiding tombstones would stop deletions reaching other devices and the data would resurrect on
+-- the next pull (AGENTS.md §4.5).
+
+-- SECURITY DEFINER is load-bearing: a membership policy ON `members` that selects FROM `members`
+-- recurses infinitely. A definer function is not subject to the caller's policies, so it terminates.
+-- `search_path` is pinned because a definer function with a mutable one lets the caller shadow
+-- `members` with a relation of their own.
+--
+-- `(select auth.uid())` rather than a bare `auth.uid()`: the scalar subquery is evaluated once per
+-- statement instead of once per row, which is the difference between a usable sync and an unusable one.
+create or replace function public.is_group_member(p_group_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.members m
+    where m.group_id = p_group_id
+      and m.user_id = (select auth.uid())::text
+      and m.status = 'ACTIVE'
+  );
+$$;
+
+-- `shares` is the ONLY app table with no `group_id`, so it reaches the group through its parent
+-- expense. Kept as a definer helper so the join lives in one place and `expenses`' own RLS is not
+-- re-evaluated inside `shares`' policy.
+create or replace function public.can_access_expense(p_expense_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.expenses e
+    join public.members m on m.group_id = e.group_id
+    where e.id = p_expense_id
+      and m.user_id = (select auth.uid())::text
+      and m.status = 'ACTIVE'
+  );
+$$;
+
+revoke all on function public.is_group_member(text) from public, anon;
+revoke all on function public.can_access_expense(text) from public, anon;
+grant execute on function public.is_group_member(text) to authenticated;
+grant execute on function public.can_access_expense(text) to authenticated;
+
+-- Every policy below drives off (user_id, group_id) with status ACTIVE. `members_user_idx` alone makes
+-- that a scan of every group the user belongs to; this makes it one index lookup.
+create index if not exists members_user_group_active_idx
+  on public.members (user_id, group_id) where status = 'ACTIVE';
+
+-- Retire the permissive policies. These must be DROPPED, not merely supplemented.
 do $$
 declare t text;
 begin
-  foreach t in array array['users','groups','members','expenses','shares','settlements','settlement_allocations','conflicts','expense_edit_conflicts','comments','expense_blocked_users','receipts','categories','expense_history','device_tokens','expense_items','item_claims','item_shares','bill_participants']
+  foreach t in array array[
+    'users','groups','members','expenses','shares','settlements','settlement_allocations',
+    'conflicts','expense_edit_conflicts','comments','expense_blocked_users','receipts','categories',
+    'expense_history','device_tokens','expense_items','item_claims','item_shares',
+    'bill_participants'
+  ]
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists %I on public.%I;', t || '_rw', t);
+  end loop;
+end $$;
+
+-- The plainly group-scoped tables: each carries its own `not null group_id`, so each is one helper
+-- call against an indexed column. `pending_item_edits` belongs to this set but is created ~1100 lines
+-- below, so it repeats this exact policy shape at its own definition rather than here.
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'expenses','settlements','settlement_allocations','conflicts','expense_edit_conflicts',
+    'comments','expense_blocked_users','receipts','categories','expense_history',
+    'expense_items','item_claims','item_shares','bill_participants'
+  ]
+  loop
+    execute format('drop policy if exists %I on public.%I;', t || '_member_rw', t);
     execute format(
-      'create policy %I on public.%I for all to authenticated using (true) with check (true);',
-      t || '_rw', t
+      'create policy %I on public.%I for all to authenticated '
+      'using (public.is_group_member(group_id)) '
+      'with check (public.is_group_member(group_id));',
+      t || '_member_rw', t
     );
   end loop;
 end $$;
+
+-- The INSERT arm is why this is not a plain `is_group_member(id)`: `SyncEngine.push` sends the roster
+-- as users → groups → members, so when a newly created group is inserted its creator still has no
+-- membership row on the server. `created_by` is the only thing that can vouch for that write.
+drop policy if exists groups_member_rw on public.groups;
+create policy groups_member_rw on public.groups
+  for all to authenticated
+  using (public.is_group_member(id))
+  with check (
+    public.is_group_member(id)
+    or created_by = (select auth.uid())::text
+  );
+
+-- The `user_id = auth.uid()` arm carries three flows the membership arm cannot:
+--   read   : `SyncEngine.pull` step 1 selects this table by user_id BEFORE it knows any group, and
+--            deliberately lands the LEFT rows too — `is_group_member` is false for those.
+--   insert : joining a group. The membership being created is the thing being checked, so nothing else
+--            could authorise it. Costs: anyone holding a group's id (UUIDv7, ~74 random bits, never
+--            exposed to non-members) can add themselves. That is the join mechanism.
+--   update : leaving. A self-leave writes status = 'LEFT', which the membership arm would reject.
+drop policy if exists members_member_rw on public.members;
+create policy members_member_rw on public.members
+  for all to authenticated
+  using (
+    public.is_group_member(group_id)
+    or user_id = (select auth.uid())::text
+  )
+  with check (
+    public.is_group_member(group_id)
+    or user_id = (select auth.uid())::text
+  );
+
+-- `merge_expense` is SECURITY INVOKER, so this policy is evaluated inside it. `can_access_expense` is
+-- a definer function and therefore sees the expense row the same transaction just inserted.
+drop policy if exists shares_member_rw on public.shares;
+create policy shares_member_rw on public.shares
+  for all to authenticated
+  using (public.can_access_expense(expense_id))
+  with check (public.can_access_expense(expense_id));
+
+-- Read: myself, or anyone I share a group with. Scoping this to `id = auth.uid()` would make every
+-- co-member and every placeholder invisible and blank out every name in the app.
+--
+-- `them` is deliberately NOT filtered to ACTIVE while `me` is: a claimed placeholder and a departed
+-- member are both soft-left, and their names still have to resolve on historical expenses and shares.
+--
+-- Write: my own profile, or a placeholder belonging to a group I am in (creating and renaming
+-- placeholders are ordinary group actions). This arm closes the sharpest hole in the old policy —
+-- under `using (true)` any signed-in account could rewrite anyone's payment handles, which is a route
+-- to being paid in their place.
+drop policy if exists users_member_rw on public.users;
+create policy users_member_rw on public.users
+  for all to authenticated
+  using (
+    id = (select auth.uid())::text
+    or exists (
+      select 1
+      from public.members me
+      join public.members them on them.group_id = me.group_id
+      where me.user_id = (select auth.uid())::text
+        and me.status = 'ACTIVE'
+        and them.user_id = users.id
+    )
+  )
+  with check (
+    id = (select auth.uid())::text
+    or (is_placeholder and public.is_group_member(placeholder_group_id))
+  );
+
+-- Per-user, not per-group: an FCM/APNs token is a route to one person's lock screen and has no group
+-- scope at all. `PushController` only ever writes the signed-in user's own row.
+drop policy if exists device_tokens_member_rw on public.device_tokens;
+create policy device_tokens_member_rw on public.device_tokens
+  for all to authenticated
+  using (user_id = (select auth.uid())::text)
+  with check (user_id = (select auth.uid())::text);
+
+-- ⚠️ RLS DOES NOT APPLY TO TRUNCATE. Supabase grants ALL on every new public table to
+-- anon/authenticated, so without this sweep every policy above is one `TRUNCATE` away from
+-- irrelevant. Re-run it after adding a table.
+revoke truncate on all tables in schema public from anon, authenticated;
+
+-- ── Join-by-link: the one read that CANNOT be membership-scoped ──────────────────────────────────
+-- `GroupRepositoryImpl.joinByToken` resolves an invite token against `groups` for a user who is not a
+-- member yet, by definition. An RLS predicate cannot see the query's WHERE clause, so no policy can
+-- express "allow this row because they supplied its token" — any policy permitting that read permits
+-- reading every group in the database. Hence a definer RPC: the token match happens inside the
+-- function, where it IS the authorisation check rather than a filter the caller chose.
+--
+-- It leaks nothing the token does not already grant, and the token is a UUIDv7 (~74 random bits), so
+-- it is not enumerable. Returns the whole row so the client decodes `GroupEntity` unchanged.
+-- `SupabaseRemoteGroupGateway.resolveByToken` is the only caller; a plain select there returns zero
+-- rows now and would silently break cross-device join.
+create or replace function public.resolve_group_by_invite_token(p_token text)
+returns setof public.groups
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select g.*
+  from public.groups g
+  where g.invite_token = p_token
+    and g.deleted_at is null
+  limit 1;
+$$;
+
+revoke all on function public.resolve_group_by_invite_token(text) from public, anon;
+grant execute on function public.resolve_group_by_invite_token(text) to authenticated;
 
 -- ── Realtime: the per-group DOORBELL (replaces per-table CDC) ────────────────────────────────────
 -- The client IGNORES realtime payloads: an event only ever means "something changed, pull now".
@@ -778,17 +980,15 @@ begin
   end loop;
 end $$;
 
--- ── Tightening RLS later (sketch — do NOT ship the permissive policies above) ────────────────────
--- A row should be visible only to members of its group. e.g. for expenses:
---   create policy expenses_member_read on public.expenses for select to authenticated
---   using (exists (select 1 from public.members m
---                  where m.group_id = expenses.group_id and m.user_id = auth.uid()::text));
--- Mirror per table (members/shares/settlements/conflicts key off group_id; shares via its expense).
--- `users` is trickier (you may expose only co-members' profiles). See spec/04 for the full model.
-
 -- ── Storage: the `receipts` bucket (F5) ──────────────────────────────────────────────────────────
 -- Receipt bytes live in a PUBLIC bucket so the client's `publicUrl(path)` renders without signing.
--- (Permissive, like the table policies above — tighten to membership-scoped before real multi-user.)
+--
+-- ⚠️ OPEN, and NOT closed by the membership-scoped RLS above: `public = true` means the four
+-- `storage.objects` policies below are decorative. Anyone holding (or guessing) an object URL reads
+-- that receipt photo without authenticating at all — a receipt carries names, amounts, and often a
+-- card's last four. Closing it means a private bucket plus signed URLs, which is a client change
+-- (`publicUrl` has no expiry to renew), so it is deliberately out of scope here rather than
+-- half-done. This is the last known read hole in the project.
 insert into storage.buckets (id, name, public)
 values ('receipts', 'receipts', true)
 on conflict (id) do update set public = true;
@@ -805,10 +1005,54 @@ begin
   create policy receipts_obj_delete on storage.objects for delete to authenticated using (bucket_id = 'receipts');
 end $$;
 
--- ── Account deletion (F8): caller deletes their own profile + device tokens + auth record ────────
--- security definer so it can touch auth.users; conservative scope (leaves shared group data — a full
--- cascade / admin-ownership-transfer is a separate product decision).
-create or replace function public.delete_my_account()
+-- ── Account deletion: request → 30-day grace → nightly anonymizing purge (Rule 9) ────────────────
+-- Replaces the old hard-delete `delete_my_account()` (Play Store "Delete account URL" requirement;
+-- rationale in `data/AGENTS.md` Rule 9). These definitions were applied to the live project on
+-- 2026-08-08 and folded back into this file on 2026-08-16 (review finding B1) — the file had kept
+-- shipping the superseded function while the app called RPCs the file never mentioned, so a
+-- from-scratch apply produced a database where account deletion 404s at the first tap.
+
+-- The two columns the flow rides on. Additive per §"Applying changes"; nullable, so no defaults race.
+alter table public.users add column if not exists deletion_requested_at bigint;
+alter table public.users add column if not exists deleted_at bigint;
+
+-- Sign-in email uniqueness (review B3): the Room mirror has always declared UNIQUE on email and its
+-- KDoc claimed the server enforced it — now it does. Partial over non-null so placeholders (no email)
+-- stay unlimited; lower() matches the client's COLLATE NOCASE lookup semantics for ASCII emails.
+create unique index if not exists users_email_lower_uidx
+  on public.users (lower(email)) where email is not null;
+
+-- Stamp only — nothing is deleted yet, so the request is cancellable for the whole grace period.
+-- Returns the epoch-ms instant the purge becomes eligible, for the client's "deletes on <date>" copy.
+create or replace function public.request_account_deletion()
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid text := auth.uid()::text;
+  requested_at bigint := (extract(epoch from now()) * 1000)::bigint;
+  purge_at bigint;
+  grace_period_ms constant bigint := 30::bigint * 24 * 60 * 60 * 1000;
+begin
+  if uid is null then
+    raise exception 'not authenticated';
+  end if;
+  update public.users
+    set deletion_requested_at = requested_at, updated_at = requested_at
+    where id = uid and deleted_at is null
+    returning deletion_requested_at + grace_period_ms into purge_at;
+  if purge_at is null then
+    raise exception 'account not found or already deleted';
+  end if;
+  return purge_at;
+end;
+$$;
+revoke all on function public.request_account_deletion() from public, anon;
+grant execute on function public.request_account_deletion() to authenticated;
+
+create or replace function public.cancel_account_deletion()
 returns void
 language plpgsql
 security definer
@@ -819,13 +1063,103 @@ begin
   if uid is null then
     raise exception 'not authenticated';
   end if;
-  delete from public.device_tokens where user_id = uid;
-  delete from public.users where id = uid;
-  delete from auth.users where id = uid::uuid;
+  update public.users
+    set deletion_requested_at = null, updated_at = (extract(epoch from now()) * 1000)::bigint
+    where id = uid and deleted_at is null;
 end;
 $$;
-revoke all on function public.delete_my_account() from public;
-grant execute on function public.delete_my_account() to authenticated;
+revoke all on function public.cancel_account_deletion() from public, anon;
+grant execute on function public.cancel_account_deletion() to authenticated;
+
+-- The nightly purge: anonymize (never row-delete) every account whose grace period has elapsed.
+-- Admin is handed off to the longest-tenured other ACTIVE member first; memberships soft-leave;
+-- device_tokens (ephemeral, non-financial) hard-delete; the auth.users credential is removed last.
+-- Each target runs in its own exception block so one bad row can't abort the whole batch.
+-- The day-count seeds as an explicit ::bigint — 30 * 24 * 60 * 60 * 1000 overflows int4 before
+-- Postgres promotes it. Service-role/cron only: no caller context, and EXECUTE is revoked below.
+create or replace function public.purge_deleted_accounts()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_id text;
+  grp record;
+  now_ms bigint;
+  grace_period_ms constant bigint := 30::bigint * 24 * 60 * 60 * 1000;
+begin
+  now_ms := (extract(epoch from now()) * 1000)::bigint;
+  for target_id in
+    select id from public.users
+    where deletion_requested_at is not null
+      and deletion_requested_at < now_ms - grace_period_ms
+      and deleted_at is null
+  loop
+    begin
+      for grp in
+        select g.id as group_id, m2.user_id as new_admin
+        from public.members m1
+        join public.groups g on g.id = m1.group_id
+        join lateral (
+          select user_id from public.members m2
+          where m2.group_id = m1.group_id and m2.status = 'ACTIVE' and m2.user_id <> target_id
+          order by m2.joined_at asc
+          limit 1
+        ) m2 on true
+        where m1.user_id = target_id and m1.status = 'ACTIVE' and g.admin_user_id = target_id
+      loop
+        update public.groups set admin_user_id = grp.new_admin, updated_at = now_ms
+          where id = grp.group_id;
+        update public.members set is_admin = true, updated_at = now_ms
+          where user_id = grp.new_admin and group_id = grp.group_id;
+      end loop;
+
+      update public.members
+        set status = 'LEFT', left_at = now_ms, updated_at = now_ms
+        where user_id = target_id and status = 'ACTIVE';
+
+      delete from public.device_tokens where user_id = target_id;
+
+      update public.users
+        set display_name = 'Deleted user',
+            email = null,
+            avatar_url = null,
+            venmo_handle = null,
+            cashapp_handle = null,
+            paypal_handle = null,
+            zelle_handle = null,
+            preferred_payment_app = null,
+            deleted_at = now_ms,
+            updated_at = now_ms
+        where id = target_id;
+
+      delete from auth.users where id = target_id::uuid;
+    exception when others then
+      raise warning 'purge_deleted_accounts: failed for user %: %', target_id, sqlerrm;
+    end;
+  end loop;
+end;
+$$;
+revoke all on function public.purge_deleted_accounts() from public, anon, authenticated;
+
+-- Nightly at 03:00 UTC. Guarded so the file still applies on a project without pg_cron enabled;
+-- cron.schedule upserts by jobname, so re-running this file never duplicates the job.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('purge-deleted-accounts', '0 3 * * *', 'select public.purge_deleted_accounts()');
+  else
+    raise notice 'pg_cron not installed - schedule purge-deleted-accounts manually';
+  end if;
+end $$;
+
+-- DESTRUCTIVE OPERATION: removes a callable grant, zero rows touched.
+-- Pre-checks (true as of 2026-08-16): no app version ever shipped calling delete_my_account (the
+-- shipped client calls request/cancel_account_deletion only — grep SupabaseAuthSession.kt); the live
+-- project already has no such function (verified via pg_proc, it was dropped when the RPCs above were
+-- applied on 2026-08-08). Recovery: recreate from git history of this file.
+drop function if exists public.delete_my_account();
 
 -- ── Optimistic-concurrency commit for expenses (versioning + parked conflicts) ───────────────────
 -- The client routes every expense create/edit through commit_expense() instead of a blind upsert.
@@ -835,6 +1169,28 @@ grant execute on function public.delete_my_account() to authenticated;
 -- Outcome is order-independent: swap who commits first and you still get one canonical row + one
 -- parked conflict. Shares are replaced atomically with the expense — removed participants are
 -- soft-deleted (Rule 1), never hard-deleted, so the tombstone propagates on the next pull.
+-- Defaults for `shares`, same contract as _expense_defaults() below: adding a defaulted column to
+-- `shares` means adding it here in the same migration.
+create or replace function public._share_defaults()
+returns public.shares
+language plpgsql
+stable
+as $$
+declare r public.shares;
+begin
+  r.remaining_subunits := 0;
+  r.row_version        := 1;
+  return r;
+end;
+$$;
+
+-- These four helpers are pure and fully schema-qualified inside, so pinning an EMPTY search_path costs
+-- nothing and keeps them off the `function_search_path_mutable` advisor. Do the same for any new one.
+alter function public._clamp_client_ts(bigint)      set search_path = '';
+alter function public._clamp_expense_payload(jsonb) set search_path = '';
+alter function public._expense_defaults()           set search_path = '';
+alter function public._share_defaults()             set search_path = '';
+
 create or replace function public._replace_expense_shares(p_expense_id text, p_shares jsonb, p_now bigint)
 returns void language plpgsql as $$
 declare
@@ -849,8 +1205,10 @@ begin
      and deleted_at is null
      and id <> all(v_ids);
 
+  -- Base row, not null: see _expense_defaults() for why. `shares.row_version` is `not null default 1`,
+  -- so a payload without it becomes an explicit NULL and the whole share set fails to insert.
   insert into public.shares as sh
-    select * from jsonb_populate_recordset(null::public.shares, p_shares)
+    select * from jsonb_populate_recordset(public._share_defaults(), p_shares)
   on conflict (id) do update set
     user_id              = excluded.user_id,
     share_owed_subunits  = excluded.share_owed_subunits,
@@ -860,6 +1218,91 @@ begin
     updated_at           = excluded.updated_at,
     deleted_at           = excluded.deleted_at,
     row_version          = sh.row_version + 1;
+end;
+$$;
+
+-- ── Client clocks are UNTRUSTED input ───────────────────────────────────────────────────────────
+-- Every timestamp in `commit_expense` / `merge_expense` arrives inside the client payload, and neither
+-- RPC authenticates `p_actor`. A device with a wound-forward clock (or a crafted payload) that stamps
+-- `title_updated_at = 2099` wins `greatest(...)` forever: the field silently stops accepting any later
+-- edit from anybody, with nothing on screen to say why. Clamping to the SERVER clock is what makes a
+-- bad clock a bounded annoyance instead of permanent damage.
+--
+-- The 60s of slack is deliberate: it absorbs ordinary device skew, and the client's own last-write-wins
+-- guards compare against these values, so clamping to exactly `now()` would make a marginally-fast
+-- phone lose its own writes. Ties still go to whoever the causal `split_version` says, not the clock.
+create or replace function public._clamp_client_ts(p_ts bigint)
+returns bigint
+language sql
+stable  -- NOT immutable: it reads now(), which is fixed per transaction but not across them.
+as $$
+  select least(coalesce(p_ts, 0), (extract(epoch from now()) * 1000)::bigint + 60000);
+$$;
+
+-- Clamp the timestamps INSIDE the payload, so the create path is covered too.
+--
+-- Clamping only at the point of comparison is not enough and was the first version of this fix: the
+-- `not found` branch of both RPCs inserts via `jsonb_populate_record`, which copies `title_updated_at`
+-- and friends straight out of the payload. A poisoned stamp on a brand-NEW expense therefore sailed
+-- past a clamp that only guarded the merge branch, and the field was locked from birth. Sanitising the
+-- jsonb once, before anything reads it, is what makes that impossible to get wrong again.
+--
+-- Keys absent from the payload stay absent — this must not resurrect the NULL-over-default bug that
+-- `_expense_defaults()` exists to fix, so it only rewrites keys that are actually present.
+create or replace function public._clamp_expense_payload(p_expense jsonb)
+returns jsonb
+language sql
+stable
+as $$
+  select coalesce(
+    (select jsonb_object_agg(
+              key,
+              case when key in ('updated_at', 'created_at', 'deleted_at',
+                                'title_updated_at', 'notes_updated_at',
+                                'category_updated_at', 'date_updated_at')
+                    and jsonb_typeof(value) = 'number'
+                   then to_jsonb(public._clamp_client_ts((value #>> '{}')::bigint))
+                   else value
+              end)
+       from jsonb_each(p_expense)),
+    p_expense);
+$$;
+
+-- ── The base row `jsonb_populate_record` fills in from ──────────────────────────────────────────
+-- `jsonb_populate_record(base, payload)` takes each field from `payload` when the key is PRESENT and
+-- from `base` when it is absent. Both expense RPCs used to pass `null::public.expenses`, so every
+-- column the client did not send became an explicit NULL — the column default never ran.
+--
+-- Every defaulted column on `expenses` is `not null default X`, so that NULL is not a quiet wrong
+-- number: it is a not-null violation that fails the INSERT and takes that expense's sync down
+-- entirely. Which is the additive-migration promise broken exactly where it is relied on most: add a
+-- column server-side first (as the rule requires), and every client that has not shipped the matching
+-- field yet stops being able to create expenses at all. Before finding #25 that surfaced as "you're
+-- offline".
+--
+-- **Adding a column with a default to `expenses` means adding it here, in the same migration.** That
+-- is the whole maintenance burden of this function, and it is why the defaults are spelled out by name
+-- rather than derived positionally from the catalog.
+create or replace function public._expense_defaults()
+returns public.expenses
+language plpgsql
+stable
+as $$
+declare r public.expenses;
+begin
+  r.kind                   := 'EXPENSE';
+  r.has_tax_row            := false;
+  r.tax_subunits           := 0;
+  r.tip_subunits           := 0;
+  r.tip_split_mode         := 'PROPORTIONAL';
+  r.gratuity_subunits      := 0;
+  r.discount_subunits      := 0;
+  r.other_charges_subunits := 0;
+  r.is_auto_refund         := false;
+  r.status                 := 'ACTIVE';
+  r.row_version            := 1;
+  r.split_version          := 1;
+  return r;
 end;
 $$;
 
@@ -875,9 +1318,12 @@ create or replace function public.commit_expense(
 language plpgsql
 as $$
 declare
-  v_id text := p_expense->>'id';
-  v_group_id text := p_expense->>'group_id';
-  v_now bigint := coalesce((p_expense->>'updated_at')::bigint, 0);
+  -- Sanitise the client's clocks ONCE, before anything reads them (#19). Everything below uses
+  -- v_exp, never p_expense, so the create path gets the same clamp as the merge path.
+  v_exp jsonb := public._clamp_expense_payload(p_expense);
+  v_id text := v_exp->>'id';
+  v_group_id text := v_exp->>'group_id';
+  v_now bigint := coalesce((v_exp->>'updated_at')::bigint, 0);
   v_current public.expenses%rowtype;
   v_new_version bigint;
   v_conflict_id text;
@@ -889,25 +1335,25 @@ begin
 
   if not found then
     insert into public.expenses
-      select * from jsonb_populate_record(null::public.expenses, p_expense);
+      select * from jsonb_populate_record(public._expense_defaults(), v_exp);
     update public.expenses set last_editor = p_actor where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
-    return jsonb_build_object('status', 'created', 'version', coalesce((p_expense->>'row_version')::bigint, 1));
+    return jsonb_build_object('status', 'created', 'version', coalesce((v_exp->>'row_version')::bigint, 1));
   end if;
 
   if v_current.row_version = p_base_version and v_current.deleted_at is null then
     v_new_version := p_base_version + 1;
     update public.expenses set
-      title              = p_expense->>'title',
-      notes              = p_expense->>'notes',
-      amount_subunits    = (p_expense->>'amount_subunits')::bigint,
-      currency           = p_expense->>'currency',
-      expense_date       = p_expense->>'expense_date',
-      payer_user_id      = p_expense->>'payer_user_id',
-      payer_outside_name = p_expense->>'payer_outside_name',
-      split_mode         = p_expense->>'split_mode',
-      category_id        = p_expense->>'category_id',
-      subcategory_id     = p_expense->>'subcategory_id',
+      title              = v_exp->>'title',
+      notes              = v_exp->>'notes',
+      amount_subunits    = (v_exp->>'amount_subunits')::bigint,
+      currency           = v_exp->>'currency',
+      expense_date       = v_exp->>'expense_date',
+      payer_user_id      = v_exp->>'payer_user_id',
+      payer_outside_name = v_exp->>'payer_outside_name',
+      split_mode         = v_exp->>'split_mode',
+      category_id        = v_exp->>'category_id',
+      subcategory_id     = v_exp->>'subcategory_id',
       updated_at         = v_now,
       row_version        = v_new_version,
       last_editor        = p_actor
@@ -930,16 +1376,16 @@ begin
     where s->>'deleted_at' is null;
 
   v_same := v_current.deleted_at is null
-    and v_current.title              is not distinct from p_expense->>'title'
-    and v_current.notes              is not distinct from p_expense->>'notes'
-    and v_current.amount_subunits    is not distinct from (p_expense->>'amount_subunits')::bigint
-    and v_current.currency           is not distinct from p_expense->>'currency'
-    and v_current.expense_date       is not distinct from p_expense->>'expense_date'
-    and v_current.payer_user_id      is not distinct from p_expense->>'payer_user_id'
-    and v_current.payer_outside_name is not distinct from p_expense->>'payer_outside_name'
-    and v_current.split_mode         is not distinct from p_expense->>'split_mode'
-    and v_current.category_id        is not distinct from p_expense->>'category_id'
-    and v_current.subcategory_id     is not distinct from p_expense->>'subcategory_id'
+    and v_current.title              is not distinct from v_exp->>'title'
+    and v_current.notes              is not distinct from v_exp->>'notes'
+    and v_current.amount_subunits    is not distinct from (v_exp->>'amount_subunits')::bigint
+    and v_current.currency           is not distinct from v_exp->>'currency'
+    and v_current.expense_date       is not distinct from v_exp->>'expense_date'
+    and v_current.payer_user_id      is not distinct from v_exp->>'payer_user_id'
+    and v_current.payer_outside_name is not distinct from v_exp->>'payer_outside_name'
+    and v_current.split_mode         is not distinct from v_exp->>'split_mode'
+    and v_current.category_id        is not distinct from v_exp->>'category_id'
+    and v_current.subcategory_id     is not distinct from v_exp->>'subcategory_id'
     and v_current_shares = v_incoming_shares;
 
   if v_same then
@@ -952,7 +1398,7 @@ begin
     rejected_expense, rejected_shares, created_at)
   values (
     v_conflict_id, v_group_id, v_id, p_base_version, v_current.row_version, p_actor, v_current.last_editor,
-    p_expense::text, p_shares::text, v_now)
+    v_exp::text, p_shares::text, v_now)
   on conflict (id) do nothing;
   return jsonb_build_object('status', 'conflict', 'server_version', v_current.row_version, 'conflict_id', v_conflict_id);
 end;
@@ -981,11 +1427,14 @@ create or replace function public.merge_expense(
 language plpgsql
 as $$
 declare
-  v_id text := p_expense->>'id';
-  v_group_id text := p_expense->>'group_id';
-  v_now bigint := coalesce((p_expense->>'updated_at')::bigint, 0);
+  -- Sanitise the client's clocks ONCE, before anything reads them (#19). Everything below uses
+  -- v_exp, never p_expense, so the create path gets the same clamp as the merge path.
+  v_exp jsonb := public._clamp_expense_payload(p_expense);
+  v_id text := v_exp->>'id';
+  v_group_id text := v_exp->>'group_id';
+  v_now bigint := coalesce((v_exp->>'updated_at')::bigint, 0);
   v_cur public.expenses%rowtype;
-  v_client_split_ver bigint := coalesce((p_expense->>'split_version')::bigint, 1);
+  v_client_split_ver bigint := coalesce((v_exp->>'split_version')::bigint, 1);
   v_client_changed boolean;
   v_server_advanced boolean;
   v_status text;
@@ -1000,20 +1449,20 @@ begin
   select * into v_cur from public.expenses where id = v_id for update;
 
   if not found then
-    insert into public.expenses select * from jsonb_populate_record(null::public.expenses, p_expense);
+    insert into public.expenses select * from jsonb_populate_record(public._expense_defaults(), v_exp);
     update public.expenses set split_updated_by = p_actor where id = v_id;
     perform public._replace_expense_shares(v_id, p_shares, v_now);
     return jsonb_build_object(
       'status', 'created',
-      'split_version', coalesce((p_expense->>'split_version')::bigint, 1),
+      'split_version', coalesce((v_exp->>'split_version')::bigint, 1),
       'expense', (select to_jsonb(e) from public.expenses e where e.id = v_id),
       'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id));
   end if;
 
-  if (p_expense->>'deleted_at') is not null then
+  if (v_exp->>'deleted_at') is not null then
     if v_now >= v_cur.updated_at then
       update public.expenses
-         set deleted_at = (p_expense->>'deleted_at')::bigint, status = 'DELETED',
+         set deleted_at = (v_exp->>'deleted_at')::bigint, status = 'DELETED',
              updated_at = v_now, row_version = v_cur.row_version + 1
        where id = v_id;
     end if;
@@ -1024,20 +1473,20 @@ begin
       'shares',  (select coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) from public.shares s where s.expense_id = v_id and s.deleted_at is null));
   end if;
 
-  if coalesce((p_expense->>'title_updated_at')::bigint, 0) > coalesce(v_cur.title_updated_at, 0) then
-    v_title := p_expense->>'title'; v_title_at := (p_expense->>'title_updated_at')::bigint;
+  if coalesce((v_exp->>'title_updated_at')::bigint, 0) > coalesce(v_cur.title_updated_at, 0) then
+    v_title := v_exp->>'title'; v_title_at := coalesce((v_exp->>'title_updated_at')::bigint, 0);
   else v_title := v_cur.title; v_title_at := v_cur.title_updated_at; end if;
 
-  if coalesce((p_expense->>'notes_updated_at')::bigint, 0) > coalesce(v_cur.notes_updated_at, 0) then
-    v_notes := p_expense->>'notes'; v_notes_at := (p_expense->>'notes_updated_at')::bigint;
+  if coalesce((v_exp->>'notes_updated_at')::bigint, 0) > coalesce(v_cur.notes_updated_at, 0) then
+    v_notes := v_exp->>'notes'; v_notes_at := coalesce((v_exp->>'notes_updated_at')::bigint, 0);
   else v_notes := v_cur.notes; v_notes_at := v_cur.notes_updated_at; end if;
 
-  if coalesce((p_expense->>'category_updated_at')::bigint, 0) > coalesce(v_cur.category_updated_at, 0) then
-    v_cat := p_expense->>'category_id'; v_subcat := p_expense->>'subcategory_id'; v_cat_at := (p_expense->>'category_updated_at')::bigint;
+  if coalesce((v_exp->>'category_updated_at')::bigint, 0) > coalesce(v_cur.category_updated_at, 0) then
+    v_cat := v_exp->>'category_id'; v_subcat := v_exp->>'subcategory_id'; v_cat_at := coalesce((v_exp->>'category_updated_at')::bigint, 0);
   else v_cat := v_cur.category_id; v_subcat := v_cur.subcategory_id; v_cat_at := v_cur.category_updated_at; end if;
 
-  if coalesce((p_expense->>'date_updated_at')::bigint, 0) > coalesce(v_cur.date_updated_at, 0) then
-    v_date := p_expense->>'expense_date'; v_date_at := (p_expense->>'date_updated_at')::bigint;
+  if coalesce((v_exp->>'date_updated_at')::bigint, 0) > coalesce(v_cur.date_updated_at, 0) then
+    v_date := v_exp->>'expense_date'; v_date_at := coalesce((v_exp->>'date_updated_at')::bigint, 0);
   else v_date := v_cur.expense_date; v_date_at := v_cur.date_updated_at; end if;
 
   v_client_changed := v_client_split_ver > p_base_split_version;
@@ -1046,18 +1495,18 @@ begin
   if v_client_changed and not v_server_advanced then
     v_status := 'merged';
     update public.expenses set
-      amount_subunits    = (p_expense->>'amount_subunits')::bigint,
-      currency           = p_expense->>'currency',
-      split_mode         = p_expense->>'split_mode',
-      payer_user_id      = p_expense->>'payer_user_id',
-      payer_outside_name = p_expense->>'payer_outside_name',
-      has_tax_row        = coalesce((p_expense->>'has_tax_row')::boolean, false),
-      tax_subunits       = coalesce((p_expense->>'tax_subunits')::bigint, 0),
-      tip_subunits       = coalesce((p_expense->>'tip_subunits')::bigint, 0),
-      tip_split_mode     = coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL'),
-      gratuity_subunits  = coalesce((p_expense->>'gratuity_subunits')::bigint, 0),
-      discount_subunits  = coalesce((p_expense->>'discount_subunits')::bigint, 0),
-      other_charges_subunits = coalesce((p_expense->>'other_charges_subunits')::bigint, 0),
+      amount_subunits    = (v_exp->>'amount_subunits')::bigint,
+      currency           = v_exp->>'currency',
+      split_mode         = v_exp->>'split_mode',
+      payer_user_id      = v_exp->>'payer_user_id',
+      payer_outside_name = v_exp->>'payer_outside_name',
+      has_tax_row        = coalesce((v_exp->>'has_tax_row')::boolean, false),
+      tax_subunits       = coalesce((v_exp->>'tax_subunits')::bigint, 0),
+      tip_subunits       = coalesce((v_exp->>'tip_subunits')::bigint, 0),
+      tip_split_mode     = coalesce(v_exp->>'tip_split_mode', 'PROPORTIONAL'),
+      gratuity_subunits  = coalesce((v_exp->>'gratuity_subunits')::bigint, 0),
+      discount_subunits  = coalesce((v_exp->>'discount_subunits')::bigint, 0),
+      other_charges_subunits = coalesce((v_exp->>'other_charges_subunits')::bigint, 0),
       split_version      = v_cur.split_version + 1,
       split_updated_by   = p_actor
     where id = v_id;
@@ -1072,17 +1521,17 @@ begin
       into v_current_shares from public.shares where expense_id = v_id and deleted_at is null;
     select coalesce(jsonb_object_agg(s->>'user_id', (s->>'share_owed_subunits')::bigint), '{}'::jsonb)
       into v_incoming_shares from jsonb_array_elements(p_shares) s where s->>'deleted_at' is null;
-    v_same := v_cur.amount_subunits    is not distinct from (p_expense->>'amount_subunits')::bigint
-      and v_cur.currency           is not distinct from p_expense->>'currency'
-      and v_cur.split_mode         is not distinct from p_expense->>'split_mode'
-      and v_cur.payer_user_id      is not distinct from p_expense->>'payer_user_id'
-      and v_cur.payer_outside_name is not distinct from p_expense->>'payer_outside_name'
-      and v_cur.tax_subunits       is not distinct from coalesce((p_expense->>'tax_subunits')::bigint, 0)
-      and v_cur.tip_subunits       is not distinct from coalesce((p_expense->>'tip_subunits')::bigint, 0)
-      and v_cur.tip_split_mode     is not distinct from coalesce(p_expense->>'tip_split_mode', 'PROPORTIONAL')
-      and v_cur.gratuity_subunits  is not distinct from coalesce((p_expense->>'gratuity_subunits')::bigint, 0)
-      and v_cur.discount_subunits  is not distinct from coalesce((p_expense->>'discount_subunits')::bigint, 0)
-      and v_cur.other_charges_subunits is not distinct from coalesce((p_expense->>'other_charges_subunits')::bigint, 0)
+    v_same := v_cur.amount_subunits    is not distinct from (v_exp->>'amount_subunits')::bigint
+      and v_cur.currency           is not distinct from v_exp->>'currency'
+      and v_cur.split_mode         is not distinct from v_exp->>'split_mode'
+      and v_cur.payer_user_id      is not distinct from v_exp->>'payer_user_id'
+      and v_cur.payer_outside_name is not distinct from v_exp->>'payer_outside_name'
+      and v_cur.tax_subunits       is not distinct from coalesce((v_exp->>'tax_subunits')::bigint, 0)
+      and v_cur.tip_subunits       is not distinct from coalesce((v_exp->>'tip_subunits')::bigint, 0)
+      and v_cur.tip_split_mode     is not distinct from coalesce(v_exp->>'tip_split_mode', 'PROPORTIONAL')
+      and v_cur.gratuity_subunits  is not distinct from coalesce((v_exp->>'gratuity_subunits')::bigint, 0)
+      and v_cur.discount_subunits  is not distinct from coalesce((v_exp->>'discount_subunits')::bigint, 0)
+      and v_cur.other_charges_subunits is not distinct from coalesce((v_exp->>'other_charges_subunits')::bigint, 0)
       and v_current_shares = v_incoming_shares;
     if v_same then
       v_status := 'merged'; -- canonical already equals the incoming split; adopt it, log nothing
@@ -1094,7 +1543,7 @@ begin
       values (
         v_id || ':' || p_base_split_version::text || ':' || p_actor,
         v_group_id, v_id, p_base_split_version, v_cur.split_version, p_actor,
-        p_expense::text, p_shares::text, v_now)
+        v_exp::text, p_shares::text, v_now)
       on conflict (id) do nothing;
     end if;
   else
@@ -1270,10 +1719,21 @@ create index if not exists pending_item_edits_group_idx on public.pending_item_e
 -- the server lacks breaks ALL sync for this table, not just this column.
 alter table public.pending_item_edits add column if not exists previous_line_total_subunits bigint;
 
+-- RLS: membership-scoped by `group_id`, identical in shape to the loop in the Row-Level Security
+-- section above. It is repeated here only because this table is created ~1100 lines after that
+-- section, so the loop cannot reach it on a from-scratch apply.
+--
+-- It previously declared its own copy of the permissive `_rw` policy, which is exactly how a
+-- tightening sweep misses a table: the loop gets audited and the lone straggler does not. If you add a
+-- table down here, add its policy down here too.
 alter table public.pending_item_edits enable row level security;
 drop policy if exists pending_item_edits_rw on public.pending_item_edits;
-create policy pending_item_edits_rw on public.pending_item_edits
-  for all to authenticated using (true) with check (true);
+drop policy if exists pending_item_edits_member_rw on public.pending_item_edits;
+create policy pending_item_edits_member_rw on public.pending_item_edits
+  for all to authenticated
+  using (public.is_group_member(group_id))
+  with check (public.is_group_member(group_id));
+revoke truncate on public.pending_item_edits from anon, authenticated;
 
 -- Doorbell: a guest's pending edit must wake the payer's app (spec §5.6). Same statement-level
 -- AFTER INSERT/UPDATE pattern as every other synced table — added to the existing trigger loop.
@@ -2274,18 +2734,22 @@ begin
   alter table public.group_passes add constraint group_passes_tier_check
     check (tier in ('week_1', 'week_2', 'month_1'));
   alter table public.group_passes drop constraint if exists group_passes_store_check;
+  -- `test_store` is RevenueCat's Test Store (simulated money, no store product needed). It is a real
+  -- row in every other respect, so it is a distinct value rather than folded into `promo`: a test pass
+  -- must never read as revenue, and must stay findable when the test config is torn down. The edge
+  -- function gates it behind `PRO_ALLOW_TEST_STORE`, so widening this constraint grants nothing on its own.
   alter table public.group_passes add constraint group_passes_store_check
-    check (store in ('app_store', 'play_store', 'promo'));
+    check (store in ('app_store', 'play_store', 'promo', 'test_store'));
 end $$;
 
 create unique index if not exists group_passes_txn_idx on public.group_passes (store, store_txn_id);
 create index if not exists group_passes_group_idx on public.group_passes (group_id, expires_at desc);
 
--- ⚠️ DELIBERATELY OUTSIDE the permissive `_rw` loop above, and it must stay outside even after that
--- loop is tightened. Under `for all to authenticated using (true) with check (true)` any authenticated
--- user — including an anonymous one — could insert themselves a pass expiring in 2099. That is free
--- unlimited paid Claude-vision calls for anyone who reads the anon key out of the APK, so this is the
--- one table that could not wait for the pre-prod RLS work.
+-- ⚠️ DELIBERATELY OUTSIDE the membership loop above, and it must stay outside. Membership-scoped
+-- WRITES are not enough here: every arm of that loop grants insert/update to any ACTIVE member, so a
+-- member of their own one-person group could still insert themselves a pass expiring in 2099. That is
+-- free unlimited paid Claude-vision calls for anyone who reads the anon key out of the APK. This table
+-- is read-only to clients, full stop — which is why it could not wait for the pre-prod RLS work.
 alter table public.group_passes enable row level security;
 
 -- Read: members of the group only. Members need this to render the Pro badge and to know who paid.
@@ -2310,10 +2774,10 @@ revoke insert, update, delete on public.group_passes from anon, authenticated;
 -- therefore still leaves any signed-in user able to wipe the entire table in one statement, read-policy
 -- or not. Verified against a live grants query, not assumed.
 --
--- ⚠️ This is true of EVERY table in this schema right now, including the zero-policy ones
--- (superseded_split_edits, web_bill_links, web_sessions, apple_oauth_tokens). That is a project-wide
--- P0 for the pre-prod RLS work, not something this table's migration should fix behind everyone's back:
---   revoke truncate on all tables in schema public from anon, authenticated;
+-- This used to be true of EVERY table here, including the zero-policy ones (superseded_split_edits,
+-- web_bill_links, web_sessions, apple_oauth_tokens), whose "no policies" was not the protection it
+-- read as. The project-wide sweep now runs in the Row-Level Security section above; this table keeps
+-- its own revoke so it stays covered even if that sweep is ever reordered.
 revoke truncate, references, trigger on public.group_passes from anon, authenticated;
 
 -- Doorbell, so the buyer's purchase wakes the other five phones (same statement-level AFTER
@@ -2356,8 +2820,9 @@ create table if not exists public.user_subscriptions (
 do $$
 begin
   alter table public.user_subscriptions drop constraint if exists user_subscriptions_store_check;
+  -- See the note on group_passes_store_check.
   alter table public.user_subscriptions add constraint user_subscriptions_store_check
-    check (store in ('app_store', 'play_store', 'promo'));
+    check (store in ('app_store', 'play_store', 'promo', 'test_store'));
   alter table public.user_subscriptions drop constraint if exists user_subscriptions_period_check;
   alter table public.user_subscriptions add constraint user_subscriptions_period_check
     check (period in ('monthly', 'annual'));
@@ -2571,3 +3036,372 @@ $$;
 
 revoke execute on function public.my_group_scan_usage(text) from public, anon;
 grant execute on function public.my_group_scan_usage(text) to authenticated;
+
+-- ── waitlist_signups ───────────────────────────────────────────────────────────────────────────
+-- Pre-launch email capture for split-evenly.app/waitlist. Deliberately not app data: no group_id, no
+-- user_id, no `updated_at`, and nothing syncs it to a device. It is a list of strangers, so it never
+-- joins the sync tables and must never be added to the `supabase_realtime` publication.
+--
+-- RLS is enabled with NO policies, which denies anon and authenticated outright. The only writer is
+-- the `waitlist` edge function holding the service key. That is the whole authorisation model, and it
+-- is the reason a leaked anon key cannot dump the list -- the same boundary `web-claim` relies on.
+create table if not exists public.waitlist_signups (
+  id            uuid primary key default gen_random_uuid(),
+  -- What they typed, kept for display and for the eventual "Hi Sam" mail merge.
+  email         text not null,
+  -- Lowercased and trimmed. Unique, so a double-tap or a second visit is a no-op rather than a
+  -- duplicate send later. Dedupe lives here rather than in the function so a race can't beat it.
+  email_norm    text not null,
+  -- Which surface sent them, for attribution once ads are running.
+  source        text,
+  created_at    timestamptz not null default now(),
+  constraint waitlist_signups_email_norm_key unique (email_norm)
+);
+
+alter table public.waitlist_signups enable row level security;
+
+-- Belt and braces on top of "no policies": revoke the table grants PostgREST relies on, so a future
+-- permissive policy added by mistake still does not expose the list to the anon key. Verified: anon
+-- gets 42501 permission denied on both select and insert.
+revoke all on public.waitlist_signups from anon, authenticated;
+
+-- ══════════════════════════════════════════════════════════════════════════════════════════════
+-- Admin dashboard & feedback (ADMIN_FEEDBACK_SPEC.md)
+--
+-- Three tables and one aggregation RPC, all with the same posture as `waitlist_signups` above: RLS
+-- enabled, NO policies, grants revoked from anon/authenticated. Nothing here is app data, nothing
+-- here syncs to a device, and nothing here may ever be added to the `supabase_realtime` publication.
+-- The only readers/writers are the `admin` and `feedback` edge functions holding the service key.
+-- ══════════════════════════════════════════════════════════════════════════════════════════════
+
+-- ── admin_users ────────────────────────────────────────────────────────────────────────────────
+-- The allowlist. Signing in with Google is necessary but not sufficient: a row here is what grants
+-- access, and revoking an admin is deleting one row with no shared secret to rotate.
+--
+-- Allowlisting by EMAIL, never by domain (spec §2.1), and the reason is worth keeping next to the
+-- table so nobody "simplifies" into it later: the owner account is a gmail.com address, and a domain
+-- rule on gmail.com admits every Google account on earth.
+--
+-- There is deliberately no bootstrap path in code. The first row is inserted by hand after the first
+-- sign-in attempt creates the auth.users row (see `admin/README.md`); an env-var-seeded "if the table
+-- is empty, trust this email" branch in the edge function would be a permanent backdoor to save a
+-- one-time SQL statement.
+create table if not exists public.admin_users (
+  user_id     uuid primary key references auth.users(id) on delete cascade,
+  -- Denormalized from auth.users so the dashboard can show who is on the list without a join into
+  -- the auth schema. Display only: the gate matches on user_id, never on this column.
+  email       text not null,
+  added_at    timestamptz not null default now(),
+  added_by    uuid references auth.users(id)
+);
+
+alter table public.admin_users enable row level security;
+-- Deliberately no policies. An authenticated non-admin being able to read this table would hand them
+-- the exact list of accounts worth phishing.
+revoke all on public.admin_users from anon, authenticated;
+
+-- ── feedback_tickets ───────────────────────────────────────────────────────────────────────────
+-- One table behind three entry points (in-app, /feedback on the web, the guest claim flow).
+--
+-- v1 is WRITE-ONLY from the client: nothing reads a ticket back into the app. That is what keeps this
+-- table out of the sync engine entirely. If a "your past tickets" screen is ever built it becomes a
+-- synced entity and lands under `data/AGENTS.md`'s rules and the schema-before-entity hook, which is
+-- a much bigger decision than it looks.
+create table if not exists public.feedback_tickets (
+  id              uuid primary key default gen_random_uuid(),
+  -- Null for web/anonymous submissions. NOT a foreign key: if someone deletes their account you still
+  -- want the bug report, so this holds the id and tolerates a dangling one. `text` rather than `uuid`
+  -- because the app's own user ids are text everywhere else in this schema.
+  user_id         text,
+  submitter_name  text,          -- web only, optional
+  submitter_email text,          -- web only, the address a manual reply goes to (spec §5.1)
+  type            text not null,
+  category        text not null,
+  message         text not null,
+  title           text,          -- null in v1; auto-titles are §4.4, and deliberately not built
+  status          text not null default 'new',
+  -- Internal, and never shown to the submitter. Stated in the schema as well as the spec because that
+  -- is exactly the kind of thing that leaks once a "your ticket" screen gets built.
+  admin_note      text,
+  source          text not null,
+  app_version     text,          -- app only; half of triaging a bug is knowing if it is already fixed
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+-- Enumerations as check constraints rather than Postgres enums: adding a category later is an `alter
+-- ... drop constraint` + `add constraint` in an idempotent migration, where an enum needs `alter type`
+-- and cannot drop a value at all. The submit function validates the same lists; this is the backstop
+-- that makes a bug there a 500 instead of a garbage row.
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_type_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_type_chk
+  check (type in ('problem', 'suggestion', 'question'));
+
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_category_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_category_chk
+  check (category in ('payments', 'account', 'missing_expense', 'splitting', 'design', 'other'));
+
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_status_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_status_chk
+  check (status in ('new', 'in_progress', 'resolved', 'wont_fix', 'duplicate'));
+
+alter table public.feedback_tickets drop constraint if exists feedback_tickets_source_chk;
+alter table public.feedback_tickets add constraint feedback_tickets_source_chk
+  check (source in ('app_ios', 'app_android', 'web', 'web_claim'));
+
+-- The queue's default view is `new` only (spec §5), newest first. Partial index so that read stays
+-- cheap regardless of how large the resolved pile gets.
+create index if not exists feedback_tickets_open_idx
+  on public.feedback_tickets (created_at desc) where status = 'new';
+create index if not exists feedback_tickets_created_idx
+  on public.feedback_tickets (created_at desc);
+
+alter table public.feedback_tickets enable row level security;
+-- Deliberately no policies: user-submitted text including email addresses, readable only through the
+-- admin function's service key after its allowlist check.
+revoke all on public.feedback_tickets from anon, authenticated;
+
+-- ── public_write_log — rate limiting for the unauthenticated endpoints (spec §8) ────────────────
+-- 30 submissions per hour per principal, on `waitlist` and `feedback`. Mirrors `web_claim_write_log`
+-- and `receipt_scan_log`: insert-only, service-role-only, counted in a rolling window.
+--
+-- `principal_hash` is sha256(kind + ':' + ip-or-user-id) and never the address itself. An IP is
+-- personal data under the "no PII in logs" rule (§8), and this table only ever needs to answer "have
+-- I seen this same caller 30 times in the last hour", which a hash answers exactly as well.
+create table if not exists public.public_write_log (
+  id             uuid primary key default gen_random_uuid(),
+  kind           text not null,  -- 'waitlist' | 'feedback'
+  principal_hash text not null,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists public_write_log_window_idx
+  on public.public_write_log (kind, principal_hash, created_at desc);
+
+alter table public.public_write_log enable row level security;
+-- Deliberately no policies -- only the edge functions' service key touches this table.
+revoke all on public.public_write_log from anon, authenticated;
+
+-- ── admin_waitlist_stats — the growth chart, aggregated in SQL (spec §3.2) ──────────────────────
+-- Aggregation happens here and never by shipping every row to the browser to count there. Invisible
+-- at a thousand rows and five lines either way, so there is no reason to write the version that stops
+-- working.
+--
+-- Returns one object so the chart is one round trip:
+--   baseline -- signups strictly before the window, the starting height of the cumulative line
+--   total    -- every signup ever, for the headline number
+--   days     -- DENSE, one entry per calendar day in the window including the zeros. Pre-launch there
+--               are genuine zero days and a chart that silently omits them draws a lie.
+--   bySource -- sparse (day, source, n), for the stacked breakdown. Dense here would be days x
+--               sources rows to carry mostly zeros the caller can infer.
+--
+-- `security definer` with a pinned `search_path`, and EXECUTE revoked from every client role: the
+-- only caller is the admin edge function's service key, after its allowlist check.
+create or replace function public.admin_waitlist_stats(p_from timestamptz default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from  timestamptz;
+  v_today date := (now() at time zone 'utc')::date;
+  v_result jsonb;
+begin
+  -- Null `p_from` is the "all" toggle: start at the first signup, or today if there are none yet.
+  v_from := coalesce(
+    p_from,
+    (select min(created_at) from public.waitlist_signups),
+    now()
+  );
+
+  select jsonb_build_object(
+    'from', v_from,
+    'baseline', (select count(*) from public.waitlist_signups where created_at < v_from),
+    'total',    (select count(*) from public.waitlist_signups),
+    'days', coalesce((
+      -- `d.day::date` matters: generate_series over dates yields TIMESTAMPS, and an un-cast value
+      -- serializes as "2026-08-16T00:00:00", which the chart parses as an invalid date.
+      select jsonb_agg(jsonb_build_object('day', d.day::date, 'n', coalesce(c.n, 0)) order by d.day)
+      from generate_series((v_from at time zone 'utc')::date, v_today, interval '1 day') as d(day)
+      left join (
+        select (created_at at time zone 'utc')::date as day, count(*) as n
+        from public.waitlist_signups
+        where created_at >= v_from
+        group by 1
+      ) c on c.day = d.day::date
+    ), '[]'::jsonb),
+    'bySource', coalesce((
+      select jsonb_agg(jsonb_build_object('day', s.day, 'source', s.source, 'n', s.n) order by s.day)
+      from (
+        select (created_at at time zone 'utc')::date as day,
+               coalesce(source, 'unknown') as source,
+               count(*) as n
+        from public.waitlist_signups
+        where created_at >= v_from
+        group by 1, 2
+      ) s
+    ), '[]'::jsonb)
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+revoke execute on function public.admin_waitlist_stats(timestamptz) from public, anon, authenticated;
+
+-- ── Group deletion: delete for everyone → 30-day Recently deleted → nightly purge ────────────────
+-- A group can now be deleted, not only left. Deleting is for EVERYONE (that is the whole point: the
+-- alternative was messaging five people individually to abandon a duplicate group), so it is
+-- deliberately recoverable for 30 days by ANY member from Home → Recently deleted.
+--
+-- The delete and the restore are NOT RPCs. They are ordinary local-first Room writes to
+-- `groups.deleted_at`/`deleted_by` that ride the existing `SyncEngine` push like every other
+-- soft-delete in the app, which is what makes both work offline. Two existing properties carry them:
+--   • RLS is membership-scoped and never filters `deleted_at`, so a deleted group stays readable and
+--     writable by its members — that is what lets any of them restore it.
+--   • `members` rows stay ACTIVE on delete. Soft-leaving them (the obvious-looking move) would make
+--     `is_group_member` false and revoke everyone's access to the very row they need to restore, AND
+--     drop the group out of `SyncEngine.pull`'s `activeGroupIds`, so no other device would ever learn
+--     it was deleted. Do not "tidy" that up.
+--
+-- Only the purge needs the server, because only the server can act 30 days later.
+
+alter table public.groups add column if not exists deleted_by text;
+
+-- The nightly scan reads only tombstones; without this it is a seq scan of every group forever.
+create index if not exists groups_deleted_at_idx
+  on public.groups (deleted_at) where deleted_at is not null;
+
+-- DESTRUCTIVE OPERATION — the one sanctioned hard delete of user data in this schema.
+--
+-- What it does: 30 days after a group was deleted, permanently removes that group and all 23 of its
+-- row sets (listed in order below), its placeholder `users` rows, and its receipt bytes under the
+-- `receipts/<group_id>/` prefix.
+--
+-- Why this is exempt from `data/AGENTS.md` Rule 1 (never hard-delete user data), decided by the owner
+-- 2026-08-17: a soft delete exists so a deletion can propagate and be undone. Here it is already
+-- deleted for every member, no member has any surface that can reach it, and the 30 days to change
+-- their mind have elapsed. A tombstone nobody can read is not a record, it is a copy of private
+-- financial data we promised to delete and then kept.
+--
+-- Pre-checks (true as of 2026-08-17):
+--   • Which app versions read these rows after a purge? None. No shipped version has group delete at
+--     all, and from this version on a client purges its own local copy on the same 30-day rule, so it
+--     never asks the server for a purged group (`SyncEngine.pull` scopes to ACTIVE memberships, and
+--     the `members` rows are gone).
+--   • Is anything of value lost that lives nowhere else? Yes, deliberately and by request — this is
+--     the point of the feature, and it is gated behind a for-everyone delete, a typed group-name
+--     confirmation, a push to every member, and 30 days in Recently deleted.
+--   • Recovery path: Supabase PITR, once P0 #6 is done. Until then, none. That is stated plainly
+--     rather than dressed up: this function must not be scheduled on a project without PITR.
+--
+-- NOT purged, on purpose:
+--   • `group_passes` — an Evenly Pro pass is a PURCHASE, not group content. Support and finance need
+--     the record after the group is gone, and a member deleting a group must never quietly destroy
+--     what another member paid for. Its `group_id` is left dangling by design. The confirm sheet
+--     tells the deleter the pass is not refunded.
+--   • `receipt_scan_log` — the per-scan cost ledger and rate-limit history. It is operational and
+--     per-USER; erasing it on group delete would also hand anyone a way to reset their own scan quota.
+--   • `user_subscriptions`, `users` (real accounts) — per-person, and shared across groups.
+create or replace function public.purge_deleted_groups()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_id text;
+  purged int := 0;
+  now_ms bigint;
+  grace_period_ms constant bigint := 30::bigint * 24 * 60 * 60 * 1000;
+begin
+  now_ms := (extract(epoch from now()) * 1000)::bigint;
+
+  for target_id in
+    select id from public.groups
+    where deleted_at is not null
+      and deleted_at < now_ms - grace_period_ms
+  loop
+    -- Per-group nested block, matching purge_deleted_accounts(): one unpurgeable group must not
+    -- abort the whole nightly batch and leave every later group un-purged forever.
+    begin
+      -- `shares` is the only table with no `group_id`; it reaches the group through its expense, so
+      -- it must go BEFORE the expenses that identify it.
+      delete from public.shares
+        where expense_id in (select id from public.expenses where group_id = target_id);
+
+      delete from public.item_claims            where group_id = target_id;
+      delete from public.item_shares            where group_id = target_id;
+      delete from public.expense_items          where group_id = target_id;
+      delete from public.bill_participants      where group_id = target_id;
+      delete from public.pending_item_edits     where group_id = target_id;
+      delete from public.settlement_allocations where group_id = target_id;
+      delete from public.settlements            where group_id = target_id;
+      delete from public.comments               where group_id = target_id;
+      delete from public.expense_blocked_users  where group_id = target_id;
+      delete from public.receipts               where group_id = target_id;
+      delete from public.expense_history        where group_id = target_id;
+      delete from public.conflicts              where group_id = target_id;
+      delete from public.expense_edit_conflicts where group_id = target_id;
+      delete from public.superseded_split_edits where group_id = target_id;
+      delete from public.expenses               where group_id = target_id;
+      delete from public.categories             where group_id = target_id;
+      delete from public.placeholder_claim_answers where group_id = target_id;
+
+      -- The web-claim trio. The write log keys on token_hash only, so it has to be resolved through
+      -- the links before those are removed.
+      delete from public.web_claim_write_log
+        where token_hash in (select token_hash from public.web_bill_links where group_id = target_id);
+      delete from public.web_bill_links         where group_id = target_id;
+      delete from public.web_sessions           where group_id = target_id;
+
+      -- Placeholders are group-private by construction (`is_placeholder` + `placeholder_group_id`),
+      -- so they die with the group. Real accounts are never touched here.
+      delete from public.users
+        where is_placeholder and placeholder_group_id = target_id;
+
+      -- Receipt bytes. Prefix-scoped to this one group (`ReceiptUploadManager` writes
+      -- `<group_id>/<expense_id>/<receipt_id>.<ext>`), never bucket-wide.
+      delete from storage.objects
+        where bucket_id = 'receipts' and name like target_id || '/%';
+
+      delete from public.group_activity         where group_id = target_id;
+      delete from public.members                where group_id = target_id;
+      delete from public.groups                 where id = target_id;
+
+      purged := purged + 1;
+    exception when others then
+      raise warning 'purge_deleted_groups: failed for group %: %', target_id, sqlerrm;
+    end;
+  end loop;
+
+  if purged > 0 then
+    raise notice 'purge_deleted_groups: purged % group(s)', purged;
+  end if;
+end;
+$$;
+
+-- Supabase auto-grants EXECUTE to anon/authenticated at creation time, independent of `revoke from
+-- public`. This one is cron-only and must be callable by nobody else.
+revoke all on function public.purge_deleted_groups() from public, anon, authenticated;
+
+-- ⚠️ DELIBERATELY NOT SCHEDULED. The function above exists and is correct; nothing calls it.
+--
+-- Its own header says it "must not be scheduled on a project without PITR", and P0 #6 in
+-- `data/AGENTS.md` (Point-in-Time Recovery + a rehearsed restore) is still open. It WAS scheduled on
+-- the live project on 2026-08-17 and unscheduled the same day once that contradiction was spotted —
+-- do not re-add the schedule here to "fix" the gap it leaves.
+--
+-- What the gap actually is: deleted groups accumulate tombstones past 30 days instead of being
+-- erased. Delete, restore, and Recently deleted all work exactly as designed; the client still purges
+-- its own local copy on day 30, so no user ever sees a group they cannot restore. The only thing not
+-- happening is the server-side erase we promise in the confirm sheet ("gone for good, including from
+-- our servers"), which makes turning this on a prerequisite for launch rather than a nice-to-have.
+--
+-- To enable, once PITR is on and a test restore has actually been performed:
+--
+--   select cron.schedule('purge-deleted-groups', '15 3 * * *', 'select public.purge_deleted_groups()');
+--
+-- 03:15 UTC is deliberate: 15 minutes after `purge-deleted-accounts` so the two never interleave on
+-- the same `members` rows. `cron.schedule` upserts by jobname, so running it twice is safe.

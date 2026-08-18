@@ -7,7 +7,7 @@
    *
    * The copy is benefit-first and never mentions "downloading".
    */
-  import { storeUrl } from '../lib/format.ts';
+  import { storeUrl, PRE_LAUNCH } from '../lib/format.ts';
 
   interface Props {
     benefit: string;
@@ -18,5 +18,5 @@
 
 <p class="appline">
   {benefit}<br />
-  <a href={storeUrl()} rel="noopener noreferrer">Get Evenly →</a>
+  <a href={storeUrl()} rel="noopener noreferrer">{PRE_LAUNCH ? 'Get early access →' : 'Get Evenly →'}</a>
 </p>

@@ -23,7 +23,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,18 +32,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.domain.settlement.PaymentApp
+import app.splitevenly.domain.settlement.paymentHandlesAreSaveable
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvListCard
+import app.splitevenly.ui.components.EvPaymentHandleFields
 import app.splitevenly.ui.components.EvSelectField
 import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvToggle
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
+import kotlinx.coroutines.launch
 
 /**
  * 3 · First-launch onboarding carousel (design/src/screens-auth.jsx).
@@ -62,7 +65,7 @@ fun OnboardingScreen(
     // Suspends over the system prompt. The answer isn't reported back: a refusal is a normal outcome,
     // not an error, and onboarding finishes either way.
     onEnableNotifications: suspend () -> Unit = {},
-    onFinish: (name: String, baseCurrency: String) -> Unit = { _, _ -> },
+    onFinish: (name: String, baseCurrency: String, handles: Map<PaymentApp, String>) -> Unit = { _, _, _ -> },
 ) {
     val c = EvenlyTheme.colors
     val scope = rememberCoroutineScope()
@@ -72,76 +75,172 @@ fun OnboardingScreen(
     var currency by remember { mutableStateOf(initialCurrency) }
     var analytics by remember { mutableStateOf(true) }
     var asking by remember { mutableStateOf(false) }
+    var handles by remember { mutableStateOf(emptyMap<PaymentApp, String>()) }
+    // Flips on the first Continue tap. Until then an incomplete handle stays quiet instead of flashing
+    // red at every keystroke; see EvPaymentHandleFields.
+    var handlesChecked by remember { mutableStateOf(false) }
     val cur = steps[step]
-    fun next() { if (step < steps.lastIndex) step++ else onFinish(name, currency) }
-    fun back() { if (step > 0) step-- }
 
-    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding().padding(horizontal = 24.dp)) {
+    fun advance() {
+        if (step < steps.lastIndex) step++ else onFinish(name, currency, handles)
+    }
+
+    // Continue validates on tap and shows what is wrong rather than going dead (ui/AGENTS.md). Skip
+    // bypasses it deliberately: a half-typed handle someone walked away from is not an error.
+    fun next() {
+        if (cur == "handle" && !paymentHandlesAreSaveable(handles)) {
+            handlesChecked = true
+            return
+        }
+        advance()
+    }
+
+    fun back() {
+        if (step > 0) step--
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(c.page)
+            .systemBarsPadding()
+            .padding(horizontal = 24.dp),
+    ) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (step > 0) {
                 EvIconButton(EvIcons.Back, { back() }, modifier = Modifier.padding(end = 4.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 steps.indices.forEach { i ->
-                    Box(Modifier.width(if (i == step) 22.dp else 7.dp).height(7.dp).clip(CircleShape).background(if (i == step) c.blue else c.borderStrong))
+                    Box(
+                        Modifier
+                            .width(
+                                if (i ==
+                                    step
+                                ) {
+                                    22.dp
+                                } else {
+                                    7.dp
+                                },
+                            ).height(7.dp)
+                            .clip(CircleShape)
+                            .background(if (i == step) c.blue else c.borderStrong),
+                    )
                 }
             }
             Spacer(Modifier.weight(1f))
             if (step < steps.lastIndex && cur != "name") {
-                EvButton("Skip", { next() }, variant = ButtonVariant.Text)
+                EvButton("Skip", { advance() }, variant = ButtonVariant.Text)
             }
         }
 
         OnbBody(
             modifier = Modifier.weight(1f),
-            icon = when (cur) { "name" -> EvIcons.User; "currency" -> EvIcons.Globe; "handle" -> EvIcons.Wallet; "analytics" -> EvIcons.Chart; else -> EvIcons.Bell },
-            title = when (cur) {
-                "name" -> "What should we call you?"
-                "currency" -> "Pick your base currency"
-                "handle" -> "Add a payment handle"
-                "analytics" -> "Help improve Evenly"
-                else -> "Stay in the loop"
-            },
-            text = when (cur) {
-                "name" -> "This is how friends see you in groups."
-                "currency" -> "Used as the default for new groups. You can change it per group."
-                "handle" -> "So friends can pay you back in one tap. Optional, you can skip."
-                "analytics" -> "Share anonymous usage data. No expense details, ever."
-                else -> "Get notified when someone adds an expense or pays you back."
-            },
+            icon =
+                when (cur) {
+                    "name" -> EvIcons.User
+                    "currency" -> EvIcons.Globe
+                    "handle" -> EvIcons.Wallet
+                    "analytics" -> EvIcons.Chart
+                    else -> EvIcons.Bell
+                },
+            title =
+                when (cur) {
+                    "name" -> "What should we call you?"
+                    "currency" -> "Pick your base currency"
+                    "handle" -> "Add a payment handle"
+                    "analytics" -> "Help improve Evenly"
+                    else -> "Stay in the loop"
+                },
+            text =
+                when (cur) {
+                    "name" -> "This is how friends see you in groups."
+                    "currency" -> "Used as the default for new groups. You can change it per group."
+                    "handle" -> "So friends can pay you back in one tap. Optional, you can skip."
+                    "analytics" -> "Share anonymous usage data. No expense details, ever."
+                    else -> "Get notified when someone adds an expense or pays you back."
+                },
         ) {
             when (cur) {
-                "name" -> EvField("Display name") { EvTextField(name, { name = it }) }
-                "currency" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    EvSelectField("Search currency…", {}, leading = { EvIcon(EvIcons.Search, size = 18.dp, tint = c.ink3) }, trailingIcon = EvIcons.Search, valueColor = c.ink3)
-                    EvListCard(items = listOf("USD" to "US Dollar", "EUR" to "Euro", "GBP" to "British Pound", "MXN" to "Mexican Peso")) { (code, label) ->
-                        Row(Modifier.fillMaxWidth().clickable { currency = code }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(code, color = c.ink, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily, modifier = Modifier.width(44.dp))
-                            Text(label, color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                            if (code == currency) EvIcon(EvIcons.Check, size = 20.dp, tint = c.blueText)
+                "name" -> {
+                    EvField("Display name") { EvTextField(name, { name = it }) }
+                }
+
+                "currency" -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        EvSelectField("Search currency…", {
+                        }, leading = {
+                            EvIcon(
+                                EvIcons.Search,
+                                size = 18.dp,
+                                tint = c.ink3,
+                            )
+                        }, trailingIcon = EvIcons.Search, valueColor = c.ink3)
+                        EvListCard(
+                            items = listOf("USD" to "US Dollar", "EUR" to "Euro", "GBP" to "British Pound", "MXN" to "Mexican Peso"),
+                        ) { (code, label) ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        currency = code
+                                    }.padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    code,
+                                    color = c.ink,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = EvenlyTheme.monoFamily,
+                                    modifier = Modifier.width(44.dp),
+                                )
+                                Text(label, color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                                if (code == currency) EvIcon(EvIcons.Check, size = 20.dp, tint = c.blueText)
+                            }
                         }
                     }
                 }
-                "handle" -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Venmo", "Cash App", "Zelle", "PayPal").forEach { app ->
-                        EvSelectField(app, {}, leading = { EvIcon(EvIcons.Wallet, size = 18.dp, tint = c.ink2) }, trailingIcon = EvIcons.Plus)
+
+                "handle" -> {
+                    EvPaymentHandleFields(
+                        values = handles,
+                        onValuesChange = { handles = it },
+                        showErrors = handlesChecked,
+                    )
+                }
+
+                "analytics" -> {
+                    EvCard(padded = true) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Anonymous analytics", color = c.ink, fontWeight = FontWeight.SemiBold)
+                                Text("On by default", color = c.ink2, fontSize = 12.sp)
+                            }
+                            EvToggle(analytics, { analytics = it })
+                        }
                     }
                 }
-                "analytics" -> EvCard(padded = true) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Anonymous analytics", color = c.ink, fontWeight = FontWeight.SemiBold)
-                            Text("On by default", color = c.ink2, fontSize = 12.sp)
+
+                else -> {
+                    EvCard(padded = true) {
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Box(
+                                Modifier.size(56.dp).clip(RoundedCornerShape(20.dp)).background(c.blueTint),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                EvIcon(EvIcons.Bell, size = 28.dp, tint = c.blueText)
+                            }
+                            Text(
+                                "We'll ask your device for permission next.",
+                                color = c.ink2,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                            )
                         }
-                        EvToggle(analytics, { analytics = it })
-                    }
-                }
-                else -> EvCard(padded = true) {
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(Modifier.size(56.dp).clip(RoundedCornerShape(20.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                            EvIcon(EvIcons.Bell, size = 28.dp, tint = c.blueText)
-                        }
-                        Text("We'll ask your device for permission next.", color = c.ink2, fontSize = 12.sp, textAlign = TextAlign.Center)
                     }
                 }
             }

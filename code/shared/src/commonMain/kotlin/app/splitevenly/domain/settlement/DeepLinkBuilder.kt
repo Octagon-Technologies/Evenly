@@ -26,7 +26,8 @@ data class DeepLinkResult(
  * - PAYPAL:   `https://paypal.me/<handle>/<dollars>USD`
  * - ZELLE:    no URL (null) — clipboard only.
  *
- * Only the note is URL-encoded (§5.1); handles are inserted verbatim per the templates.
+ * The note is URL-encoded (§5.1) and the handle is escaped for URL *structure* only — see
+ * [escapeHandle]. Handles otherwise ride verbatim per the templates.
  */
 fun buildDeepLink(
     app: PaymentApp,
@@ -37,13 +38,25 @@ fun buildDeepLink(
 ): DeepLinkResult {
     val dollars = formatUsd(amountUsdSubunits)
     val note = "Evenly: $groupName · $expenseTitle"
-    val url = when (app) {
-        PaymentApp.VENMO ->
-            "venmo://paycharge?txn=pay&recipients=$handle&amount=$dollars&note=${percentEncode(note)}"
-        PaymentApp.CASH_APP -> "https://cash.app/$handle/$dollars"
-        PaymentApp.PAYPAL -> "https://paypal.me/$handle/${dollars}USD"
-        PaymentApp.ZELLE -> null
-    }
+    val safeHandle = escapeHandle(handle)
+    val url =
+        when (app) {
+            PaymentApp.VENMO -> {
+                "venmo://paycharge?txn=pay&recipients=$safeHandle&amount=$dollars&note=${percentEncode(note)}"
+            }
+
+            PaymentApp.CASH_APP -> {
+                "https://cash.app/$safeHandle/$dollars"
+            }
+
+            PaymentApp.PAYPAL -> {
+                "https://paypal.me/$safeHandle/${dollars}USD"
+            }
+
+            PaymentApp.ZELLE -> {
+                null
+            }
+        }
     return DeepLinkResult(
         url = url,
         clipboardFallback = "$handle  $dollars USD", // literal two-space separator (§5.2)
@@ -59,6 +72,38 @@ private fun formatUsd(amountUsdSubunits: Long): String {
     val dollars = amountUsdSubunits / 100
     val cents = amountUsdSubunits % 100
     return "$dollars.${cents.toString().padStart(2, '0')}"
+}
+
+/** The characters a handle could use to end its own value and start a new part of the URL. */
+private const val URL_STRUCTURAL = "%&=?#/\\"
+
+/**
+ * Percent-encodes only what a handle could use to change a URL's SHAPE — [URL_STRUCTURAL] plus space
+ * and control characters. Everything else passes through byte-identical.
+ *
+ * A handle is user-supplied free text (`ProfileRepository.updatePaymentHandles` takes it raw) and it is
+ * interpolated into a URL that also carries the amount. `bob&amount=99.99` produced a second `amount`
+ * parameter, and which one the payment app honours is its parser's choice, not ours, so the figure the
+ * payer confirms could differ from the one Evenly recorded; `bob/99.99USD#` does the same to the
+ * Cash App and PayPal path templates. §5.1's "verbatim" was a statement about the template's shape, not
+ * a decision to let a stored string extend it.
+ *
+ * Escaping the structure and nothing else — rather than the full RFC 3986 pass [percentEncode] does —
+ * is deliberate: `@`, `$`, `.`, `-`, `_` and `+` are what real Venmo, Cash App and PayPal handles are
+ * made of, and encoding them would rewrite every link in the wild today to buy no safety at all.
+ */
+private fun escapeHandle(handle: String): String {
+    val sb = StringBuilder(handle.length)
+    for (ch in handle) {
+        // Every character escaped here is ASCII, so one byte each — no UTF-8 expansion to do.
+        if (ch in URL_STRUCTURAL || ch <= ' ' || ch == '\u007F') {
+            val v = ch.code
+            sb.append('%').append(v.toString(16).uppercase().padStart(2, '0'))
+        } else {
+            sb.append(ch)
+        }
+    }
+    return sb.toString()
 }
 
 /** RFC 3986 unreserved characters — kept verbatim when percent-encoding. */

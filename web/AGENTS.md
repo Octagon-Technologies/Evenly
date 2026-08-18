@@ -12,8 +12,50 @@ offline. If you are adding a second *claim* screen that is not in `design/web-cl
 stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
 mockup (the "Finy-inspired" home/privacy/terms artifact) — a new marketing page is in scope there.
 
-`src/lib/money/` is the ported split math; `src/screens/` is the claim flow's Svelte surface, frames
-1-9. `src/marketing/` is the home/privacy/terms pages, styled by `src/marketing.css` (`site-`-prefixed
+**Pre-launch, `/` *is* the waitlist, and the page is prerendered.** As of 2026-08-18 `resolveRoute`
+sends `/`, `/waitlist` and every unknown path to `Waitlist.svelte`; the editorial home page is parked
+at `/home`, unlinked and `noindex`, and comes back to `/` on launch day via `PRE_LAUNCH` in
+`format.ts`. There is no app to install yet, so a landing page whose job is to send people to a store
+sends them nowhere.
+
+Three things follow, and each is load-bearing:
+ - **`lib/seo.ts` is the one table of title/description/canonical/robots**, applied at runtime by
+   `App.svelte` and at build time by `prerender.mjs`. `index.html` hard-codes the *landing* row of
+   that table; if you edit one you edit both, or a crawler that runs scripts and one that does not
+   read two different pages. `/` and `/waitlist` are the same component, so both canonicalise to `/`.
+ - **`npm run build` is `vite build && node prerender.mjs`.** The second half compiles the marketing
+   components for the server (`src/prerender-entry.ts`) and writes one real HTML file per route into
+   `dist/`, plus `dist/app.html` — an empty-`#app`, `noindex` shell that `/b/:token` and `/admin`
+   are rewritten to. A static SPA that ships `<div id="app"></div>` asks a crawler to run the bundle
+   before it sees a word; this one does not. It is a **prerender, not hydration**: `main.ts` empties
+   `#app` before mounting, so no markup mismatch is possible on a page whose hero is an animation.
+ - **The route table now lives in three files that must agree**: `lib/router.ts` (client),
+   `prerender-entry.ts`'s `PRERENDERED` (which files get written), and `vercel.json` +
+   `public/_redirects` (which path serves which file). Adding a marketing route means all three.
+
+**`/waitlist` is a second visual system inside `src/marketing/`, on purpose.** Home, privacy and
+terms are the editorial one: white paper, Fraunces serif accents, hairline rules. The waitlist is
+not — cool ground, no white page, one bloom colour per card, sans-only display at 58px. Its mockup is
+`design/waitlist-bevel.html` (the join pill's skin comes from `design/waitlist-pill-variations.html`);
+`design/waitlist-final.html` is the *previous* design of the same page and is history, not a target.
+Everything it owns lives under "§2 onwards" in `marketing.css`. Do not harmonise the two systems
+without being asked: the divergence was the decision, not an oversight.
+
+**The hero is now a third system, and it is animated.** As of 2026-08-18 the page opens with
+`§0 landing hero` in `marketing.css` plus `src/marketing/heroLoop.ts`, ported from
+`design/landing-hero-v2.html`; the editorial serif hero it replaced is gone. Cards fly into the
+phone and their results fly out. **Every constant in `heroLoop.ts` was measured off a screen
+capture of the reference site, not chosen** — lane convergence, perspective scale, the velocity
+ramp, the pair dwell, the concurrency mix. `design/landing-hero-cards.html` is the working that
+produced them and is the thing to read before retuning any of them. Two traps that already cost a
+debugging pass: a hidden tab throttles animations but not timers, so the scheduler must check
+`document.hidden` or cards pile up behind the phone; and headless Chrome enforces a minimum window
+width, so a narrow-viewport screenshot is not evidence of a mobile bug — measure `scrollWidth` in a
+real browser instead.
+
+`src/lib/money/` is the ported split math; `src/screens/` is mostly the claim flow's Svelte surface,
+frames 1-9, plus `ThankYouScreen.svelte` (feedback build-order step 5, `ADMIN_FEEDBACK_SPEC.md` §10) —
+standalone and unrouted until step 6 wires up `/feedback` itself. `src/marketing/` is the home/privacy/terms pages, styled by `src/marketing.css` (`site-`-prefixed
 selectors, tokens scoped under `.site-root` — never `:root` — so they can never collide with
 `app.css`'s claim-flow tokens in the same bundle). `src/lib/mock.ts` is the claim flow's walkthrough
 fixture behind `?mock` and is dead code in a build.
@@ -26,8 +68,9 @@ found once already; don't reintroduce it.
 ## The money port is a copy, and the copy is gated
 
 `src/lib/money/` is a hand-port of the Kotlin split math — `allocate.ts` ← `Allocator.kt`,
-`billSplit.ts` ← `BillSplit.kt`, `itemizedShares.ts` ← `ItemizedAllocator.kt`, `fromApi.ts` ←
-`BillMaterializer.kt`'s row adapters.
+`billSplit.ts` ← `BillSplit.kt`, `fromApi.ts` ← `BillMaterializer.kt`'s row adapters. (`itemizedShares`
+was a *third* engine, ported and vector-pinned but called by nothing on either side; it was deleted with
+its vectors rather than left reading as live money code.)
 
 **Kotlin is the authority.** This port is authoritative for what the guest *sees* and never for what
 the ledger *records*. If they disagree, Kotlin wins and the web is stale by one poll.

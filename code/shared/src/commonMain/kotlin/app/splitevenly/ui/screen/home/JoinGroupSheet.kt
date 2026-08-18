@@ -39,12 +39,16 @@ import app.splitevenly.ui.components.EvCheck
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvTopBar
+import app.splitevenly.ui.components.groupIconLabel
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /** A claimable placeholder identity offered on the Join sheet: the joiner can pick "I'm this person". */
-data class JoinPlaceholderOption(val id: String, val name: String)
+data class JoinPlaceholderOption(
+    val id: String,
+    val name: String,
+)
 
 /** 20 · Join group sheet (design/src/screens-home.jsx). Wired by `JoinRoute` from an invite token. */
 @Composable
@@ -69,13 +73,29 @@ fun JoinGroupSheet(
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         EvTopBar(title = "", navIcon = { EvIconButton(EvIcons.Back, onClick = onDismiss) }, showDivider = false)
         Column(
-            Modifier.fillMaxSize().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
+            Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 28.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Box(Modifier.size(80.dp).clip(RoundedCornerShape(24.dp)).background(c.surface).border(1.dp, c.border, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
-                    Text(if (found) emoji else "🔗", fontSize = 42.sp)
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(
+                            80.dp,
+                        ).clip(RoundedCornerShape(24.dp))
+                        .background(c.surface)
+                        .border(1.dp, c.border, RoundedCornerShape(24.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(if (found) groupIconLabel(emoji, groupName) else "🔗", fontSize = 42.sp, color = c.ink)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(if (found) groupName else "Group not found", color = c.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -92,42 +112,60 @@ fun JoinGroupSheet(
                         EvAvatarStack(names = memberNames, size = AvatarSize.Sm)
                         Text(
                             "${memberNames.size} ${if (memberNames.size == 1) "member" else "members"}",
-                            color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            color = c.ink2,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
                 when {
-                    !found -> EvButton("Close", onDismiss, variant = ButtonVariant.Text)
-                    already -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        EvChip("You're already in this group", variant = ChipVariant.Blue, leadingIcon = EvIcons.Check)
-                        EvButton("Open group", onOpen, leadingIcon = EvIcons.ChevR)
+                    !found -> {
+                        EvButton("Close", onDismiss, variant = ButtonVariant.Text)
                     }
-                    else -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        // Identity picker: if the group has been tracking placeholders, let the joiner
-                        // claim one ("I'm Dave") so its history merges onto them on join, instead of
-                        // forcing a separate Reconcile trip in Group settings.
-                        if (placeholders.isNotEmpty()) {
-                            IdentityPicker(
-                                placeholders = placeholders,
-                                selectedId = claimId,
-                                onSelect = { claimId = it },
-                            )
-                        }
-                        val claimName = placeholders.firstOrNull { it.id == claimId }?.name
-                        EvButton(
-                            text = if (claimName != null) "Join as $claimName" else "Join group",
-                            onClick = { onJoin(claimId) },
-                            leadingIcon = EvIcons.Users,
-                        )
-                        // "Not now" mirrors Join's full width + centering, but sits on a muted fill
-                        // (a hair off the white sheet) so it reads as a quiet escape, not a tap target
-                        // you'd hit by reflex.
-                        Box(
-                            Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(14.dp))
-                                .background(c.surface).clickable(onClick = onDismiss),
-                            contentAlignment = Alignment.Center,
+
+                    already -> {
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text("Not now", color = c.ink2, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            EvChip("You're already in this group", variant = ChipVariant.Blue, leadingIcon = EvIcons.Check)
+                            EvButton("Open group", onOpen, leadingIcon = EvIcons.ChevR)
+                        }
+                    }
+
+                    else -> {
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Identity picker: if the group has been tracking placeholders, let the joiner
+                            // claim one ("I'm Dave") so its history merges onto them on join, instead of
+                            // forcing a separate Reconcile trip in Group settings.
+                            if (placeholders.isNotEmpty()) {
+                                IdentityPicker(
+                                    placeholders = placeholders,
+                                    selectedId = claimId,
+                                    onSelect = { claimId = it },
+                                )
+                            }
+                            val claimName = placeholders.firstOrNull { it.id == claimId }?.name
+                            EvButton(
+                                text = if (claimName != null) "Join as $claimName" else "Join group",
+                                onClick = { onJoin(claimId) },
+                                leadingIcon = EvIcons.Users,
+                            )
+                            // "Not now" mirrors Join's full width + centering, but sits on a muted fill
+                            // (a hair off the white sheet) so it reads as a quiet escape, not a tap target
+                            // you'd hit by reflex.
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(c.surface)
+                                    .clickable(onClick = onDismiss),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("Not now", color = c.ink2, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -150,15 +188,19 @@ private fun IdentityPicker(
 ) {
     val c = EvenlyTheme.colors
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .border(1.dp, c.border, RoundedCornerShape(16.dp)).padding(12.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(1.dp, c.border, RoundedCornerShape(16.dp))
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("Are you one of these?", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 "Pick the name you've been tracked under. We'll merge its expenses onto you.",
-                color = c.ink2, fontSize = 12.sp,
+                color = c.ink2,
+                fontSize = 12.sp,
             )
         }
         placeholders.forEach { p ->
@@ -170,11 +212,18 @@ private fun IdentityPicker(
 
 /** One identity row: check + avatar (or a person glyph for the "new" option) + name. */
 @Composable
-private fun IdentityRow(name: String, selected: Boolean, isNew: Boolean, onClick: () -> Unit) {
+private fun IdentityRow(
+    name: String,
+    selected: Boolean,
+    isNew: Boolean,
+    onClick: () -> Unit,
+) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(12.dp)
     Row(
-        Modifier.fillMaxWidth().clip(shape)
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
             .background(if (selected) c.selectionTint else c.surface)
             .border(if (selected) 2.dp else 1.dp, if (selected) c.selectionStroke else c.border, shape)
             .clickable(onClick = onClick)
@@ -185,7 +234,9 @@ private fun IdentityRow(name: String, selected: Boolean, isNew: Boolean, onClick
         EvCheck(checked = selected)
         if (isNew) {
             Box(
-                Modifier.size(AvatarSize.Sm.dp).clip(RoundedCornerShape(50))
+                Modifier
+                    .size(AvatarSize.Sm.dp)
+                    .clip(RoundedCornerShape(50))
                     .border(1.dp, c.border, RoundedCornerShape(50)),
                 contentAlignment = Alignment.Center,
             ) {

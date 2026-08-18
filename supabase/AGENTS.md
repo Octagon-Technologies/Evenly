@@ -35,6 +35,24 @@ soft-deletes removed shares server-side.
 Never replace this with a blind upsert or a whole-expense compare-and-swap. The full model and its rationale
 are in the client-side `data/AGENTS.md`.
 
+**A new defaulted column on `expenses` or `shares` must be added to `_expense_defaults()` /
+`_share_defaults()` in the same migration.** Both RPCs insert via `jsonb_populate_record(base, payload)`,
+which takes a field from the payload when the key is present and from `base` when it is absent. Passing
+`null::public.expenses` as that base — which is what they did — turned every column an older client
+doesn't send into an explicit NULL, so the column default never ran. Every defaulted column here is
+`not null default X`, so that is not a quiet wrong number: it is a not-null violation that fails the
+INSERT and takes that expense's sync down completely. It breaks the additive-migration promise at
+exactly the moment it is being relied on — add the column server-side first, as the rule requires, and
+every not-yet-updated client stops being able to create expenses.
+
+**Client timestamps are untrusted; clamp them with `_clamp_client_ts()`.** Every timestamp in
+`commit_expense`/`merge_expense` arrives inside the client payload and neither RPC authenticates
+`p_actor`, so a wound-forward clock or a crafted payload stamping `title_updated_at = 2099` wins
+`greatest(...)` **forever** — that field silently never accepts another edit from anyone. The clamp is
+`min(value, server_now + 60s)`: the 60s absorbs ordinary device skew (clamping to exactly `now()` makes
+a marginally-fast phone lose its own writes), and it turns permanent damage into a 60-second annoyance.
+Any new client-supplied `*_updated_at` goes through it too.
+
 The older `commit_expense` RPC and the `expense_edit_conflicts` parking table are **inert** — nothing
 populates them, and they are slated for removal once the current branch settles. Don't build on them.
 
@@ -62,6 +80,46 @@ target's purge runs in its own nested `BEGIN...EXCEPTION` block so one bad row c
 nightly batch. All grace-period arithmetic is `bigint` epoch-millis (matching `users.created_at`/
 `updated_at`) — seed the day-count constant as an explicit `::bigint` literal, since
 `30 * 24 * 60 * 60 * 1000` overflows `int4` before Postgres ever promotes it.
+
+## Group deletion — the only hard delete of user data in this schema
+
+A group can be deleted **for everyone**, by any ACTIVE member, recoverable for 30 days from Home →
+Recently deleted. The delete and the restore are **not RPCs**: they are local-first Room writes to
+`groups.deleted_at` / `deleted_by` (added 2026-08-17) that ride the normal `SyncEngine` push, so both
+work offline. Two existing properties are what carry them, and neither may be "tidied":
+
+- **RLS never filters `deleted_at`** (rule 3 below), so a deleted group stays readable and writable by
+  its members. That is what lets any of them restore it.
+- **`members` rows stay ACTIVE through a delete.** Soft-leaving them is the obvious-looking move and
+  breaks two things silently: `is_group_member` goes false, revoking the grant on the row the member
+  needs to restore, and `pull`'s `activeGroupIds` drops the group, so no other device ever learns it
+  was deleted.
+
+Only the purge needs the server, because only the server can act 30 days later.
+`purge_deleted_groups()` carries a `-- DESTRUCTIVE OPERATION` header with its pre-checks filled in per
+Rule 8, is revoked from `anon` **and** `authenticated`, and hard-deletes the group plus all 23 of its
+row sets, its placeholder `users` rows, and its receipt bytes under the `receipts/<group_id>/` prefix
+(never bucket-wide).
+
+**It exists but is NOT scheduled, on purpose.** Its own header forbids scheduling on a project without
+PITR, and P0 #6 in `data/AGENTS.md` is still open; it was scheduled on the live project on 2026-08-17
+and unscheduled the same day. Do not re-add the `cron.schedule` call to close the gap it leaves — the
+one-liner to enable it, and what the gap costs, are commented at that spot in `schema.sql`. Until it
+runs, tombstones simply accumulate past 30 days. Nothing user-facing breaks (the client still purges
+its own copy on day 30), but the confirm sheet's promise that a group is "gone for good, including
+from our servers" is not yet true server-side, which makes this a **launch blocker, not a nice-to-have**.
+
+**Three tables are deliberately NOT purged**, and each for a different reason: `group_passes` (an
+Evenly Pro pass is a *purchase* — support and finance need the record, and one member deleting a group
+must never destroy what another paid for; the confirm sheet tells the deleter it is not refunded),
+`receipt_scan_log` (per-USER cost ledger and rate-limit history; erasing it on group delete would also
+hand anyone a way to reset their own scan quota), and `users`/`user_subscriptions` for real accounts
+(per-person, shared across groups). `group_passes.group_id` is left dangling by design.
+
+The client runs the **same 30-day rule on its own timer** (`GroupPurgeDao`, triggered from Home) rather
+than following the server, because after the server purge there is nothing left to follow: the group
+stops appearing in any pull response, and `land()` only ever upserts what came back. The two windows
+are the same number in two places (`domain/group/RecentlyDeleted.WINDOW_DAYS`) and must move together.
 
 ## The guest's Zone-2 write path — the one thing `merge_expense` cannot do
 
@@ -112,15 +170,19 @@ rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
 - **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
   policies: only the `web-claim` edge function's service key ever touches it.
 - **`web_bill_links`** — the 72h revocable bill token, stored hashed. RLS enabled, **zero policies,
-  permanently.** Step 6 was planned to add a membership-scoped table policy and deliberately did not:
-  RLS is still `using (true)` app-wide, so *any* policy here makes `token_hash` readable by every
-  authenticated user, and that hash is the entire authorisation check `web-claim` performs. The app
-  reaches the table only through the `security definer` RPCs below, none of which return the hash.
+  permanently.** Step 6 was planned to add a membership-scoped table policy and deliberately did not,
+  and tightening the rest of the schema did **not** change that: `token_hash` is the entire
+  authorisation check `web-claim` performs, so a member-readable policy would hand every member of a
+  group a working bearer token for its bills. Zero policies is the design, not a gap left to fill. The
+  app reaches the table only through the `security definer` RPCs below, none of which return the hash.
 - **`pending_item_edits`** — the bill's change log: a guest's add/relabel/reprice/requantify/remove,
   written **already `APPLIED`**. The name predates the drop of the approval gate
   (`WEB_CLAIM_PATCH_PLAN.md`) and the table is synced, so renaming it costs more than it explains.
-  **Synced**, so it carries the same permissive `for all to authenticated` policy as the rest of this
-  schema, and is in the doorbell trigger loop. `previous_line_total_subunits` is what an undo restores;
+  **Synced**, so it is membership-scoped by `group_id` like the rest of the schema, and is in the
+  doorbell trigger loop. Its policy is declared at its own definition rather than in the RLS section's
+  loop, because the table is created ~1100 lines after that loop runs — it carried the *permissive*
+  policy for the same reason, and that is precisely how the first tightening pass nearly missed it.
+  `previous_line_total_subunits` is what an undo restores;
   `previous_unit_price_subunits` is display only and rebuilding a line total from it loses a penny.
 - **`join_item_portion(item_id, joiner_user_id, portion_id, now, over_claim_ack)`** — the write a
   client can never safely make itself: converting someone else's solo `item_claims` row into a shared
@@ -181,6 +243,14 @@ Claude-vision calls for anyone who reads the anon key out of the APK.
 retry, and the reconciliation sweep all race to insert the same purchase; one wins, the rest no-op.
 Without it one $0.99 charge becomes three stacked passes.
 
+**`store = 'test_store'` is RevenueCat's Test Store, and `PRO_ALLOW_TEST_STORE` is its off switch.**
+The Test Store runs the whole purchase round trip over simulated money with no App Store Connect or Play
+Console product, which is the only way this feature was verifiable end to end before those existed. Its
+public SDK key ships inside every build configured with it, so `mapStore` refuses `test_store` unless
+`PRO_ALLOW_TEST_STORE=true` — an ungated path would make a leaked test key worth unlimited paid vision
+calls. **Unset that secret before launch**, and keep the value distinct from `promo`: a simulated pass
+must never read as revenue, and must stay findable once the test config is gone.
+
 **`user_subscriptions` is the second route to Pro** (`PRO_PASS_SPEC.md` §5.2): a personal, auto-renewing
 subscription, one row per *person* (renewals update it; billing history stays in RevenueCat). Same
 server-owned, pull-only, outside-the-`_rw`-loop shape as `group_passes`, but read is scoped to *people you
@@ -203,10 +273,10 @@ status rule so a badge costs no round trip, and only `extract-receipt` enforces.
 
 **`revoke insert, update, delete` is not enough — RLS does not apply to TRUNCATE.** Supabase grants ALL
 on a new public table to `anon`/`authenticated`, so a signed-in user could wipe the table in one
-statement regardless of policies. `group_passes` revokes TRUNCATE explicitly. **Every other table in
-this schema still grants it** (verified by a live grants query, 32 tables including the zero-policy
-`web_bill_links` / `apple_oauth_tokens`) — fold `revoke truncate on all tables in schema public from
-anon, authenticated;` into the RLS tightening below.
+statement regardless of policies. The project-wide sweep (`revoke truncate on all tables in schema
+public from anon, authenticated;`) now runs in the RLS section of `schema.sql`, and a live grants query
+returns zero tables still granting it. **It is not automatic for a table you add later** — Supabase
+grants ALL at creation time, so re-run the sweep, or revoke on the new table as `group_passes` does.
 
 **`my_group_scan_usage(group_id)` is the only way a client learns its group's scan count.**
 `receipt_scan_log`'s RLS is `user_id = auth.uid()`, so a member querying the table sees only the scans
@@ -253,14 +323,52 @@ only in edge-function env; the apps carry the public SDK keys.
   want the retry". Unconfigured means **refusing**, not accepting: an unauthenticated writer here could
   hand any account a subscription.
 
-## RLS — currently permissive, and that is a P0 before prod
+## RLS — membership-scoped
 
-The loop at `schema.sql:591` generates `for all to authenticated using (true) with check (true)` for every
-table. That means **any authenticated user, including an anonymous one, can read, overwrite, or delete every
-row in the database.** It is deliberate for testing and it is a one-account mass-data-loss vector.
+Every one of the 20 app tables is scoped to **ACTIVE** members of the row's group. This replaced a loop
+generating `for all to authenticated using (true) with check (true)`, under which any signed-in account could
+read, overwrite, or delete every other group's ledger. Proven, not assumed: as a signed-in non-member, all 20
+tables return 0 rows of another group's data, and update/delete/insert against them affect 0 rows or raise.
 
-Tighten to membership-scoped before any non-test user exists; the policy sketch is already in `schema.sql`
-(see the commented `expenses_member_read` example around line 610).
+Four rules govern anything you add here:
+
+1. **Never add a permissive policy, not even "just for testing".** Permissive policies OR together, so one
+   surviving `using (true)` silently defeats every policy beside it. That is also why the old `_rw` loop had
+   to be deleted rather than supplemented.
+2. **Go through `is_group_member(group_id)`**, the `security definer` helper with a pinned `search_path`.
+   Definer is load-bearing: a membership policy *on* `members` that selects *from* `members` recurses
+   forever. `shares` is the only table with no `group_id` and uses `can_access_expense(expense_id)` instead.
+3. **Never filter `deleted_at is null` in a policy.** Deletions travel as soft-deleted rows; hiding
+   tombstones stops them reaching other devices and the data resurrects on the next pull.
+4. **Wrap `auth.uid()` as `(select auth.uid())`** so it is evaluated once per statement, not once per row.
+
+Four tables are deliberately *not* plain membership scoping, and each arm is load-bearing:
+
+- **`groups`** — insert also accepts `created_by = auth.uid()`. `SyncEngine.push` sends users → groups →
+  members, so a newly created group is inserted before its creator has a membership row.
+- **`members`** — also accepts `user_id = auth.uid()`, which is what carries pull step 1 (it selects by
+  user_id before knowing any group, and lands LEFT rows), joining, and leaving.
+- **`users`** — read is "me, or anyone I share a group with"; scoping it to `id = auth.uid()` would blank out
+  every co-member and placeholder name in the app. The co-member arm does **not** filter the other side to
+  ACTIVE: claimed placeholders and departed members are soft-left and their names still have to resolve on
+  historical rows. Write is my own row, or a placeholder in one of my groups.
+- **`device_tokens`** — per-user (`user_id = auth.uid()`), never group-scoped. It is a route to one person's
+  lock screen.
+
+**Membership gates which group you may write to, not which row inside it.** Any ACTIVE member can edit or
+soft-delete any expense, settlement, or comment in their groups, including ones they did not create. That
+matches how the app already behaves. Per-actor rules (only the payer may edit their settlement) would be a
+separate design.
+
+**`merge_expense` and `commit_expense` are SECURITY INVOKER**, so these policies are enforced *inside* them.
+`can_access_expense` is a definer function and therefore sees the expense row the same transaction just
+inserted. Check the security mode before assuming a new RPC bypasses anything.
+
+**Join-by-link cannot be a policy.** An RLS predicate cannot see the query's `WHERE`, so nothing can express
+"allow this row because they supplied its token" — any policy permitting that read permits reading every
+group. `resolve_group_by_invite_token` (definer) is the only path, and
+`SupabaseRemoteGroupGateway.resolveByToken` is its only caller. A plain select on `groups` there returns zero
+rows and breaks cross-device join silently.
 
 **Any view over an RLS-protected table needs `with (security_invoker = true)`.** A plain `create view`
 defaults to `SECURITY DEFINER`, which runs as the view owner and bypasses the underlying table's RLS
@@ -280,8 +388,14 @@ the service-role client is never the default; if a task genuinely needs it, say 
 
 ## Storage
 
-Receipts live in a **public** bucket `receipts`; object policies are currently permissive and should be
-tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its Storage object
+Receipts live in a **public** bucket `receipts`. **This is the last known read hole in the project, and
+membership-scoped RLS did not close it:** `public = true` makes the bucket's four `storage.objects` policies
+decorative, so anyone holding an object URL reads that receipt photo without authenticating at all — names,
+amounts, often a card's last four. Closing it means a private bucket plus signed URLs, and `publicUrl` has no
+expiry to renew, so it is a **client** change and was deliberately left out of the RLS work rather than
+half-done. The `receipts` *table* is membership-scoped; only the bytes are open.
+
+A soft-deleted `receipts` row best-effort deletes its Storage object
 (`ActivityRepositoryImpl.deleteReceipt`). **Never** issue a bucket-wide or prefix-wide delete.
 
 ## Edge functions
@@ -300,6 +414,40 @@ tightened alongside RLS. A soft-deleted `receipts` row best-effort deletes its S
 | `sync-subscriber`           | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
 | `activate-pass`             | Deployed but **inert** until `REVENUECAT_SECRET_KEY` is set  |
 | `revenuecat-webhook`        | Deployed; **refuses every request** until `REVENUECAT_WEBHOOK_SECRET` is set; `verify_jwt = false` |
+| `admin`                     | The admin dashboard's whole security boundary; `verify_jwt = false` (own gate) |
+| `feedback`                  | Feedback submission from all three entry points; `verify_jwt = false` (two are anonymous) |
+
+`admin` and `feedback` are `ADMIN_FEEDBACK_SPEC.md`, build-order steps 1 to 4. Both carry
+`verify_jwt = false`, and for `admin` that is the opposite of what it looks like: platform-level
+verification would 401 the CORS preflight before the function's own gate runs, and it accepts the
+project **anon key** as a valid JWT, which proves nothing about who is calling. The real check is
+`requireAdmin` — verify the token against the auth server, look the user up in `admin_users`, **403
+before touching any data** — and it runs on every action with no exceptions. `admin_users` is an
+**email allowlist, never a domain rule**: the owner account is a `gmail.com` address, so a domain rule
+admits every Google account on earth. There is no bootstrap branch in code; the first row is inserted
+by hand (`admin/README.md`).
+
+`feedback` takes an **optional** Authorization header (in-app is signed in, `/feedback` and the claim
+flow are strangers). A present-but-invalid token is a 401 and never a silent downgrade to anonymous,
+so an expired session cannot file someone's bug report under "some stranger". `feedback_tickets` is
+**write-only from the client** in v1 — nothing reads a ticket back — which is what keeps it out of the
+sync engine entirely. A "your past tickets" screen would make it a synced entity under `data/AGENTS.md`'s
+rules and the schema-before-entity hook.
+
+Rate limiting for the public endpoints (`waitlist`, `feedback`) is `_shared/rateLimit.ts`: 30 per hour
+per principal, counted in `public_write_log`, mirroring `web_claim_write_log`. It stores
+`sha256(kind:ip)` and never the address — an IP is PII and the only question the table answers is
+"same caller again?". It **fails closed on a broken count and open on a missing IP**: a failed query
+means the limiter cannot do its job, but turning a header quirk into a blanket refusal would take the
+endpoint down for everyone rather than protecting it.
+
+`_shared/slack.ts` is the two-channel webhook helper: `SLACK_ALERT_WEBHOOK_URL` for ops,
+`SLACK_FEEDBACK_WEBHOOK_URL` for support, deliberately separate channels. **Feedback is never behind
+the `ops_alerts` cooldown.** That cooldown exists so one failing receipt scan cannot spam a channel;
+every ticket is a distinct human, and dropping the fifth because four arrived that minute is silently
+losing your users' words. Inbound rate limiting is the lever for that. `extract-receipt` and
+`revenuecat-webhook` still carry inline copies of the cooldown helper — migrate them next time either
+is touched for its own reasons, not as a standalone redeploy.
 
 `apple-link-token`/`apple-revoke-token` (Apple Sign In native plan §5 P4, Guideline 5.1.1(v)) exchange a
 native Apple authorization code for a refresh token on sign-in and revoke it on account deletion, stored
