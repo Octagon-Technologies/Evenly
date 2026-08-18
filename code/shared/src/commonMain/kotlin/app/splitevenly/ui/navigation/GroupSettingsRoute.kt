@@ -23,6 +23,7 @@ import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.platform.PlatformShare
 import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.pro.ExportNeedsProSheet
+import app.splitevenly.ui.screen.settings.GroupDeleteImpactUi
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.screen.settings.ProStatusUi
@@ -55,6 +56,27 @@ fun GroupSettingsRoute(
     val share = koinInject<PlatformShare>()
     val inviteToken = group?.inviteToken
     val inviteLink = inviteToken?.let { "split-evenly.app/j/$it" } ?: "Generating link…"
+
+    // The delete confirm sheet's facts. Loaded when the screen opens rather than when the sheet does,
+    // so the sheet never renders half-empty; five indexed counts, re-read whenever the roster or the
+    // expense list changes underneath so a stale "24 expenses" can't outlive the group it describes.
+    var deleteImpact by remember(gid) { mutableStateOf(GroupDeleteImpactUi()) }
+    LaunchedEffect(gid, members.size, storageUsedBytes) {
+        val impact = groups.deleteImpact(gid)
+        deleteImpact =
+            GroupDeleteImpactUi(
+                memberCount = impact.memberCount,
+                expenseCount = impact.expenseCount,
+                receiptCount = impact.receiptCount,
+                unsettledCount = impact.unsettledCount,
+                // The pass is a purchase: it deliberately survives the purge, and it is not refunded.
+                // Whoever is about to delete hears that before, not after.
+                proPassNote =
+                    impact.proPassExpiresAt?.let {
+                        "This group has Evenly Pro until ${shortDate(it)}. Deleting it does not refund that."
+                    },
+            )
+    }
 
     // Drives the claim row inside the Members card: hidden when there is nothing left to answer, so it
     // never sends anyone to an empty screen.
@@ -213,7 +235,7 @@ fun GroupSettingsRoute(
                 }
             }
         },
-        onRename = { name -> scope.launch { groups.renameGroup(gid, name) } },
+        onRename = { name, emoji -> scope.launch { groups.renameGroup(gid, name, emoji) } },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
         onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },
         onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
@@ -226,6 +248,12 @@ fun GroupSettingsRoute(
         },
         onLeave = {
             userId?.let { me -> scope.launch { if (groups.leaveGroup(gid, me) is AppResult.Ok) onLeft() } }
+        },
+        deleteImpact = deleteImpact,
+        onDelete = {
+            // Same exit as leaving: the group is gone from this device's list, so staying on its
+            // settings screen would leave the user inside something that no longer exists.
+            userId?.let { me -> scope.launch { if (groups.deleteGroup(gid, me) is AppResult.Ok) onLeft() } }
         },
     )
 

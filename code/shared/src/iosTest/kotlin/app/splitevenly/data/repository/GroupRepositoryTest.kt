@@ -115,6 +115,40 @@ class GroupRepositoryTest {
         }
 
     @Test
+    fun renameGroup_changesEmoji_andLeavesItAloneWhenNull() =
+        runTest {
+            val group = create()
+            val withEmoji = repo.renameGroup(group.id, "Ski Trip", "🎿")
+            assertTrue(withEmoji is AppResult.Ok)
+            assertEquals("🎿", withEmoji.value.emoji)
+
+            val nameOnly = repo.renameGroup(group.id, "Ski Trip 2")
+            assertTrue(nameOnly is AppResult.Ok)
+            assertEquals("🎿", nameOnly.value.emoji)
+            assertEquals("Ski Trip 2", nameOnly.value.name)
+        }
+
+    @Test
+    fun renameGroup_blankEmoji_clearsIt() =
+        runTest {
+            val group = create()
+            val cleared = repo.renameGroup(group.id, "Ski Trip", "")
+            assertTrue(cleared is AppResult.Ok)
+            assertEquals("", cleared.value.emoji)
+            assertEquals("", repo.observeGroup(group.id).first()?.emoji)
+        }
+
+    @Test
+    fun renameGroup_rejectsASentenceAsTheEmoji() =
+        runTest {
+            val group = create()
+            val result = repo.renameGroup(group.id, "Ski Trip", "not actually an emoji at all, is it")
+            assertTrue(result is AppResult.Err)
+            assertTrue((result.error as AppError.Validation).fieldErrors.containsKey("emoji"))
+            assertEquals("💸", repo.observeGroup(group.id).first()?.emoji)
+        }
+
+    @Test
     fun joinByToken_addsMemberFromLocalCache() =
         runTest {
             val group = create()

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evenly — join pill, three variations</title>
+<style>
+/*
+ * Three skins for the waitlist page's sticky join pill. Shape, copy, and the white button hard
+ * right are fixed and identical across all three; only the black artwork behind the blue changes.
+ *
+ * Construction, three layers deep in every variation:
+ *   1. a lifted navy base (--base)
+ *   2. black artwork (--art) on that base, occupying only the right portion
+ *   3. a flat blue veil at 60% alpha over both
+ *
+ * The base is deliberately lifted rather than left black. A 60% veil passes only 40% of what is
+ * beneath it, so black-artwork-on-black-base arrives as a ~6/255 difference — technically present,
+ * invisible in practice. Lifting the base to #35446B widens that gap to ~30/255, which is what
+ * makes the artwork actually read through the blue. The blue is #4E7CF0: brand #3762E3 lifted,
+ * because at 60% over a dark base the brand value alone lands too close to black.
+ *
+ * Two placement rules the first pass got wrong and every variation now follows:
+ *  - The artwork must live in the GAP between the copy and the button, not only behind the button.
+ *    The button is opaque white and 130px wide; art centred under it is art nobody sees.
+ *  - The mark runs off the right edge rather than fitting inside. A mark that fits reads as an icon
+ *    someone placed; one that is cut reads as a surface the pill was stamped out of.
+ */
+:root{
+  --ink:#131A2B; --ink-2:#5A6479; --ink-3:#98A1B4;
+  --ground:#F3F6F7; --surface:#EBF0F8;
+  --base:#35446B;      /* lifted navy the artwork sits on */
+  --art:#05070C;       /* the black artwork itself */
+  --veil:78,124,240;   /* #4E7CF0 — brand blue, lifted */
+  --font:'Rethink Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+@font-face{
+  font-family:'Rethink Sans';font-weight:400 800;font-style:normal;font-display:swap;
+  src:url('../web/public/fonts/rethink-var.woff2') format('woff2');
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--ground);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased}
+.page{max-width:1000px;margin:0 auto;padding:52px 28px 90px}
+h1{font-size:36px;font-weight:600;letter-spacing:-.03em;line-height:1.05}
+.sub{margin-top:14px;font-size:17px;line-height:1.55;color:var(--ink-2);max-width:62ch}
+.row{margin-top:52px}
+.row h2{font-size:15px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.row .why{margin-top:9px;font-size:16px;line-height:1.55;color:var(--ink-2);max-width:64ch}
+.stages{margin-top:20px;display:flex;flex-direction:column;gap:14px}
+.stage{padding:28px 26px;border-radius:20px;background:var(--surface)}
+.stage.on-dark{background:#121826}
+.cap{
+  display:block;margin-bottom:16px;
+  font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+}
+.on-dark .cap{color:#6F7C96}
+.narrow{max-width:390px}
+
+/* ═══ THE PILL ══════════════════════════════════════════════════════════ */
+.pill{
+  position:relative;overflow:hidden;isolation:isolate;
+  min-width:420px;display:flex;align-items:center;gap:24px;
+  padding:15px 15px 15px 22px;border-radius:20px;color:#fff;
+  background:var(--base);
+  box-shadow:0 20px 44px -14px rgba(11,18,32,.55), 0 2px 8px rgba(11,18,32,.3);
+}
+.pill .art{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.pill .art svg{position:absolute;top:50%;right:-16px;transform:translateY(-50%);display:block}
+/* Ripple anchors to the pill's midpoint instead of its right edge, so the rings originate where the
+   copy ends and grow off the right end. Anchoring by percentage rather than a fixed offset is what
+   keeps the origin at the true middle when the pill goes full width on mobile. */
+.pill .art svg.from-mid{left:50%;right:auto}
+/* The veil. One flat colour, 60%, over base and artwork alike. */
+.pill .veil{position:absolute;inset:0;z-index:1;pointer-events:none;background:rgba(var(--veil),.6)}
+/* A hairline where the light would catch, on every variation. */
+.pill .veil::after{
+  content:"";position:absolute;left:0;right:0;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);
+}
+.pill .txt,.pill .go{position:relative;z-index:2}
+.pill .txt b{display:block;font-size:15.5px;font-weight:650;letter-spacing:-.015em}
+.pill .txt span{display:block;font-size:13px;color:rgba(255,255,255,.76);margin-top:4px;font-weight:500}
+.pill .go{
+  margin-left:auto;flex:none;border:0;border-radius:13px;padding:12px 18px;cursor:pointer;
+  font:inherit;font-size:14px;font-weight:650;letter-spacing:-.01em;color:#16224A;
+  background:linear-gradient(180deg,#FFFFFF,#E9EFFC);
+  box-shadow:0 1px 0 rgba(255,255,255,.8) inset, 0 6px 16px -6px rgba(5,10,30,.55);
+}
+.pill .go:hover{background:linear-gradient(180deg,#FFFFFF,#F5F8FF)}
+.pill.wide{min-width:0;width:100%}
+
+@media (max-width:700px){
+  .pill{min-width:0;width:100%}
+  .stage{padding:20px 16px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>The join pill, three ways.</h1>
+  <p class="sub">
+    Same shape, same copy, same white button hard right, no green dot. The only variable is the
+    black artwork behind the blue. Each is shown on the page surface it will sit on, then on dark,
+    then at mobile full width where the gap between copy and button is widest.
+  </p>
+
+  <div class="row">
+    <h2>A &nbsp;&middot;&nbsp; Split</h2>
+    <p class="why">
+      The app's own split glyph, blown up far past icon size and cut by the right edge, with the
+      arrowheads marching into the gap. It is the one mark that already means something specific in
+      this product, and at this scale it stops reading as an icon and starts reading as texture.
+    </p>
+    <div class="stages" data-art="a"></div>
+  </div>
+
+  <div class="row">
+    <h2>B &nbsp;&middot;&nbsp; Receipt</h2>
+    <p class="why">
+      Two receipts sliding in from the right with their torn edges showing and the ledger rules cut
+      back out in the base colour. The most literal of the three, and the one that ties the pill to
+      the thing the page spends its whole length arguing about.
+    </p>
+    <div class="stages" data-art="b"></div>
+  </div>
+
+  <div class="row">
+    <h2>C &nbsp;&middot;&nbsp; Ripple</h2>
+    <p class="why">
+      Rings originating at the pill's midpoint, right where the copy ends, thick at the source and
+      thinning as they grow off the right end. It carries no product meaning at all, which is the
+      argument for it: pure surface, so it never competes with the two words beside it and cannot
+      date the way a drawn receipt can.
+    </p>
+    <div class="stages" data-art="c"></div>
+  </div>
+
+</div>
+
+<!-- Artwork defined once each, cloned into the nine pills below, so the three variations can never
+     drift apart through a copy-paste edit. -->
+<template id="art-a">
+  <svg width="290" height="170" viewBox="0 0 290 170" fill="none" aria-hidden="true">
+    <g stroke="var(--art)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M64 34 30 85l34 51"/>
+      <path d="M150 -12v194"/>
+      <path d="M236 34l34 51-34 51"/>
+    </g>
+    <g stroke="var(--art)" stroke-width="15" stroke-linecap="round" opacity=".45">
+      <path d="M292 6v158"/>
+    </g>
+  </svg>
+</template>
+
+<template id="art-b">
+  <svg width="300" height="170" viewBox="0 0 300 170" fill="none" aria-hidden="true">
+    <!-- back sheet, further right, half off the edge -->
+    <g opacity=".5">
+      <path fill="var(--art)" d="M196 -14h130v142c-9 0-9-11-18-11s-9 11-18 11-9-11-18-11-9 11-18 11-9-11-18-11-9 11-18 11-9-11-18-11-4-4-4-11V-14Z"/>
+    </g>
+    <!-- front sheet, sitting in the gap -->
+    <path fill="var(--art)" d="M44 -14h122v140c-8 0-8-11-16-11s-8 11-16 11-8-11-16-11-8 11-16 11-8-11-16-11-8 11-16 11-10-4-10-11V-14Z"/>
+    <g stroke="var(--base)" stroke-width="9" stroke-linecap="round">
+      <path d="M60 22h74"/><path d="M60 50h90"/><path d="M60 78h60"/>
+    </g>
+  </svg>
+</template>
+
+<template id="art-c">
+  <!-- The ring centre sits at x=0, which the `.from-mid` rule pins to the pill's midpoint. Only the
+       right halves fall inside the viewBox, so they clip to semicircles with no extra masking. -->
+  <svg class="from-mid" width="340" height="300" viewBox="0 -150 340 300" fill="none" aria-hidden="true">
+    <g stroke="var(--art)" fill="none">
+      <circle cx="0" cy="0" r="40" stroke-width="30"/>
+      <circle cx="0" cy="0" r="98" stroke-width="22"/>
+      <circle cx="0" cy="0" r="158" stroke-width="16" opacity=".74"/>
+      <circle cx="0" cy="0" r="216" stroke-width="12" opacity=".5"/>
+      <circle cx="0" cy="0" r="272" stroke-width="9" opacity=".32"/>
+    </g>
+  </svg>
+</template>
+
+<script>
+  // Three stages per variation: page surface, dark, mobile full width.
+  const STAGES = [
+    { cap: 'On the page surface', cls: '',        wrap: '' },
+    { cap: 'On dark',             cls: 'on-dark', wrap: '' },
+    { cap: 'Mobile, full width',  cls: '',        wrap: 'narrow' },
+  ];
+
+  document.querySelectorAll('.stages').forEach((host) => {
+    const art = document.getElementById('art-' + host.dataset.art).innerHTML;
+    host.innerHTML = STAGES.map(({ cap, cls, wrap }) => `
+      <div class="stage ${cls}">
+        <span class="cap">${cap}</span>
+        <div class="${wrap}">
+          <div class="pill ${wrap ? 'wide' : ''}">
+            <span class="art">${art}</span>
+            <span class="veil"></span>
+            <div class="txt"><b>Launching August</b><span>Wanna try it out early?</span></div>
+            <button class="go">Join Waitlist</button>
+          </div>
+        </div>
+      </div>`).join('');
+  });
+</script>
+</body>
+</html>

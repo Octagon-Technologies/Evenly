@@ -36,6 +36,8 @@ sealed interface Route {
 
     @Serializable data object Archived : Route
 
+    @Serializable data object RecentlyDeleted : Route
+
     @Serializable data object JoinByLink : Route // sheet — paste an invite manually
 
     @Serializable data class Join(

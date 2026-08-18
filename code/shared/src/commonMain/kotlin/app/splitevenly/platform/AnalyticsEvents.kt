@@ -18,8 +18,15 @@ object AnalyticsEvents {
     const val GROUP_CREATED = "group_created"
     const val GROUP_JOINED = "group_joined"
     const val GROUP_LEFT = "group_left"
+
+    // Delete/restore are group-wide and any member can do either, so the ratio between these two is
+    // the signal for whether the confirmation friction is set right.
+    const val GROUP_DELETED = "group_deleted"
+    const val GROUP_RESTORED = "group_restored"
+    const val GROUPS_PURGED = "groups_purged"
     const val PLACEHOLDER_ADDED = "placeholder_added"
     const val PLACEHOLDER_NOT_ME = "placeholder_not_me"
+
     // Device-local-deduped snapshot of a group's shape, fired the first time a group is observed each
     // app session (see GroupRepositoryImpl.maybeSnapshotGroup) — the fallback for group-level analysis
     // since the PostHog wrapper's group() associates only ONE current group per user, which doesn't fit

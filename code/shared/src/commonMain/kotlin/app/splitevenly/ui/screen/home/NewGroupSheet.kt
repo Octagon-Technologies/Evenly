@@ -14,12 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,11 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -39,11 +31,14 @@ import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.fx.CurrencyInfo
 import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.ui.components.EvButton
+import app.splitevenly.ui.components.EvEmojiPicker
+import app.splitevenly.ui.components.EvEmojiPresets
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSelectField
 import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvTopBar
+import app.splitevenly.ui.components.groupIconLabel
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
@@ -60,11 +55,7 @@ fun NewGroupSheet(
     onCreate: (name: String, emoji: String, baseCurrency: String) -> Unit = { _, _, _ -> },
 ) {
     val c = EvenlyTheme.colors
-    val emojis = listOf("🏝️", "🏠", "🍝", "✈️", "🎉", "🎂")
-    var sel by remember { mutableStateOf(emojis.first()) }
-    var customEmoji by remember { mutableStateOf<String?>(null) }
-    var editingCustom by remember { mutableStateOf(false) }
-    var customInput by remember { mutableStateOf(TextFieldValue("")) }
+    var sel by remember { mutableStateOf(EvEmojiPresets.first()) }
     var name by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("USD") }
     var showCurrencyPicker by remember { mutableStateOf(false) }
@@ -74,68 +65,30 @@ fun NewGroupSheet(
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         EvTopBar(title = "New group", navIcon = { EvIconButton(EvIcons.Back, onClick = onDismiss) })
         Column(
-            Modifier.fillMaxSize().weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
+            Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(72.dp).clip(RoundedCornerShape(22.dp)).background(c.surface).border(1.dp, c.border, RoundedCornerShape(22.dp)), contentAlignment = Alignment.Center) {
-                    Text(sel, fontSize = 38.sp)
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(
+                            72.dp,
+                        ).clip(RoundedCornerShape(22.dp))
+                        .background(c.surface)
+                        .border(1.dp, c.border, RoundedCornerShape(22.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(groupIconLabel(sel, name), fontSize = 38.sp, color = c.ink)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    emojis.forEach { e ->
-                        EmojiTile(e, selected = e == sel, onClick = {
-                            sel = e
-                            customEmoji = null
-                            editingCustom = false
-                        })
-                    }
-                    if (editingCustom) {
-                        val focusRequester = remember { FocusRequester() }
-                        val keyboard = LocalSoftwareKeyboardController.current
-                        BasicTextField(
-                            value = customInput,
-                            onValueChange = { new ->
-                                customInput = new
-                                if (new.text.isNotEmpty()) {
-                                    customEmoji = new.text
-                                    sel = new.text
-                                    editingCustom = false
-                                    keyboard?.hide()
-                                }
-                            },
-                            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
-                                .background(c.surface)
-                                .border(2.dp, c.blue, RoundedCornerShape(11.dp))
-                                .focusRequester(focusRequester),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 20.sp, textAlign = TextAlign.Center),
-                            singleLine = true,
-                        )
-                        LaunchedEffect(Unit) { focusRequester.requestFocus() }
-                    } else {
-                        val custom = customEmoji
-                        if (custom != null) {
-                            EmojiTile(custom, selected = custom == sel, onClick = {
-                                if (sel == custom) {
-                                    customInput = TextFieldValue(custom, TextRange(0, custom.length))
-                                    editingCustom = true
-                                } else {
-                                    sel = custom
-                                }
-                            })
-                        } else {
-                            Box(
-                                Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
-                                    .background(c.surface)
-                                    .border(1.dp, c.border, RoundedCornerShape(11.dp))
-                                    .clickable {
-                                        customInput = TextFieldValue("")
-                                        editingCustom = true
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) { EvIcon(EvIcons.Plus, size = 16.dp, tint = c.ink2) }
-                        }
-                    }
-                }
+                EvEmojiPicker(selected = sel, onSelect = { sel = it })
             }
             EvField("Group name") { EvTextField(name, { name = it }, placeholder = "e.g. Trip to Puerto Rico") }
             EvField("Base currency") {
@@ -156,7 +109,10 @@ fun NewGroupSheet(
         CurrencyPickerScreen(
             currencies = currencies,
             selected = currency,
-            onSelect = { currency = it; showCurrencyPicker = false },
+            onSelect = {
+                currency = it
+                showCurrencyPicker = false
+            },
             onDismiss = { showCurrencyPicker = false },
         )
     }
@@ -178,14 +134,21 @@ private fun CurrencyPickerScreen(
     val c = EvenlyTheme.colors
     var query by remember { mutableStateOf("") }
     val q = query.trim()
-    val results = if (q.isEmpty()) currencies else currencies.filter {
-        it.code.contains(q, ignoreCase = true) || it.name.contains(q, ignoreCase = true)
-    }
+    val results =
+        if (q.isEmpty()) {
+            currencies
+        } else {
+            currencies.filter {
+                it.code.contains(q, ignoreCase = true) || it.name.contains(q, ignoreCase = true)
+            }
+        }
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         EvTopBar(title = "Base currency", navIcon = { EvIconButton(EvIcons.Back, onClick = onDismiss) })
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             EvTextField(
-                query, { query = it }, minHeight = 44.dp,
+                query,
+                { query = it },
+                minHeight = 44.dp,
                 leading = { EvIcon(EvIcons.Search, size = 18.dp, tint = c.ink3) },
                 placeholder = "Search by code or name",
             )
@@ -211,18 +174,6 @@ private fun CurrencyPickerScreen(
             }
         }
     }
-}
-
-@Composable
-private fun EmojiTile(emoji: String, selected: Boolean, onClick: () -> Unit) {
-    val c = EvenlyTheme.colors
-    Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
-            .background(if (selected) c.blueTint else c.surface)
-            .border(if (selected) 2.dp else 1.dp, if (selected) c.blue else c.border, RoundedCornerShape(11.dp))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { Text(emoji, fontSize = 22.sp) }
 }
 
 @Preview

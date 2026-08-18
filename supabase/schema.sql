@@ -3386,14 +3386,22 @@ $$;
 -- public`. This one is cron-only and must be callable by nobody else.
 revoke all on function public.purge_deleted_groups() from public, anon, authenticated;
 
--- Nightly at 03:15 UTC, 15 minutes after purge-deleted-accounts so the two never interleave on the
--- same `members` rows. Guarded so the file still applies without pg_cron; cron.schedule upserts by
--- jobname, so re-running this file never duplicates the job.
-do $$
-begin
-  if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    perform cron.schedule('purge-deleted-groups', '15 3 * * *', 'select public.purge_deleted_groups()');
-  else
-    raise notice 'pg_cron not installed - schedule purge-deleted-groups manually';
-  end if;
-end $$;
+-- ⚠️ DELIBERATELY NOT SCHEDULED. The function above exists and is correct; nothing calls it.
+--
+-- Its own header says it "must not be scheduled on a project without PITR", and P0 #6 in
+-- `data/AGENTS.md` (Point-in-Time Recovery + a rehearsed restore) is still open. It WAS scheduled on
+-- the live project on 2026-08-17 and unscheduled the same day once that contradiction was spotted —
+-- do not re-add the schedule here to "fix" the gap it leaves.
+--
+-- What the gap actually is: deleted groups accumulate tombstones past 30 days instead of being
+-- erased. Delete, restore, and Recently deleted all work exactly as designed; the client still purges
+-- its own local copy on day 30, so no user ever sees a group they cannot restore. The only thing not
+-- happening is the server-side erase we promise in the confirm sheet ("gone for good, including from
+-- our servers"), which makes turning this on a prerequisite for launch rather than a nice-to-have.
+--
+-- To enable, once PITR is on and a test restore has actually been performed:
+--
+--   select cron.schedule('purge-deleted-groups', '15 3 * * *', 'select public.purge_deleted_groups()');
+--
+-- 03:15 UTC is deliberate: 15 minutes after `purge-deleted-accounts` so the two never interleave on
+-- the same `members` rows. `cron.schedule` upserts by jobname, so running it twice is safe.

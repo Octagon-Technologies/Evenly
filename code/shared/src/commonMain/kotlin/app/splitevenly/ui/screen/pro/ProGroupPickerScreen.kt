@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvTopBar
+import app.splitevenly.ui.components.groupIconLabel
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
@@ -76,19 +77,22 @@ fun ProGroupPickerScreen(
             Text(
                 "A pass covers one group, and everyone in it.",
                 Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
-                color = c.ink2, fontSize = 13.5.sp,
+                color = c.ink2,
+                fontSize = 13.5.sp,
             )
             if (groups.isEmpty()) {
                 Text(
                     "You're not in any groups yet. Make one first, then a pass has something to cover.",
                     Modifier.padding(horizontal = 2.dp),
-                    color = c.ink2, fontSize = 13.5.sp,
+                    color = c.ink2,
+                    fontSize = 13.5.sp,
                 )
             }
             groups.forEach { g ->
                 val shape = RoundedCornerShape(14.dp)
                 Row(
-                    Modifier.fillMaxWidth()
+                    Modifier
+                        .fillMaxWidth()
                         .clip(shape)
                         .background(c.page)
                         .border(1.dp, c.border, shape)
@@ -101,7 +105,7 @@ fun ProGroupPickerScreen(
                     Box(
                         Modifier.clip(RoundedCornerShape(10.dp)).background(c.surface).padding(8.dp),
                         contentAlignment = Alignment.Center,
-                    ) { Text(g.emoji, fontSize = 16.sp) }
+                    ) { Text(groupIconLabel(g.emoji, g.name), fontSize = 16.sp, color = c.ink) }
                     Column(Modifier.weight(1f)) {
                         Text(g.name, color = c.ink, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
                         Text(g.state, color = c.ink2, fontSize = 12.5.sp)

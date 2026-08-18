@@ -33,45 +33,68 @@ class HomeViewModel(
     private val expenses: ExpenseRepository,
     private val auth: AuthSession,
 ) : ViewModel() {
-
     val state: StateFlow<HomeUiState> =
         auth.currentUserId
             .flatMapLatest { uid ->
                 if (uid == null) {
                     flowOf(HomeUiState.Empty)
                 } else {
-                    combine(cardsFlow(uid, archived = false), cardsFlow(uid, archived = true)) { active, archived ->
-                        if (active.isEmpty() && archived.isEmpty()) HomeUiState.Empty
-                        else HomeUiState.Content(active = active, archived = archived)
+                    combine(
+                        cardsFlow(uid, archived = false),
+                        cardsFlow(uid, archived = true),
+                        groups.observeDeletedGroups(uid),
+                    ) { active, archived, deleted ->
+                        // A group in Recently deleted does NOT keep Home out of its Empty state. Someone
+                        // whose only group was deleted should get the welcome screen and a way forward,
+                        // not an otherwise blank page with a trash row on it.
+                        if (active.isEmpty() && archived.isEmpty()) {
+                            HomeUiState.Empty
+                        } else {
+                            HomeUiState.Content(active = active, archived = archived, deletedCount = deleted.size)
+                        }
                     }
                 }
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState.Loading)
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState.Loading)
 
     /** Live cards for the user's active (or archived) groups, each rolled up from its members + balances. */
-    private fun cardsFlow(uid: UserId, archived: Boolean): Flow<List<GroupCardUi>> {
+    private fun cardsFlow(
+        uid: UserId,
+        archived: Boolean,
+    ): Flow<List<GroupCardUi>> {
         val source = if (archived) groups.observeArchivedGroupsForUser(uid) else groups.observeGroupsForUser(uid)
         return source.flatMapLatest { list ->
-            if (list.isEmpty()) flowOf(emptyList())
-            else combine(list.map { cardFlow(it, uid, archived) }) { it.toList() }
+            if (list.isEmpty()) {
+                flowOf(emptyList())
+            } else {
+                combine(list.map { cardFlow(it, uid, archived) }) { it.toList() }
+            }
         }
     }
 
     /** A live card for one group: real member count + the viewer's net (in the group base currency). */
-    private fun cardFlow(group: Group, uid: UserId, archived: Boolean): Flow<GroupCardUi> =
+    private fun cardFlow(
+        group: Group,
+        uid: UserId,
+        archived: Boolean,
+    ): Flow<GroupCardUi> =
         combine(
             groups.observeMembers(group.id),
             expenses.observeBalances(group.id),
             expenses.observeExpenses(group.id),
         ) { members, debts, groupExpenses ->
             // creditor==you → owed to you (+); debtor==you → you owe (−). Sum nets across peers.
-            val netSubunits = if (archived) 0L else debts.sumOf { d ->
-                when (uid) {
-                    d.creditorUserId -> d.amountSubunits
-                    d.debtorUserId -> -d.amountSubunits
-                    else -> 0L
+            val netSubunits =
+                if (archived) {
+                    0L
+                } else {
+                    debts.sumOf { d ->
+                        when (uid) {
+                            d.creditorUserId -> d.amountSubunits
+                            d.debtorUserId -> -d.amountSubunits
+                            else -> 0L
+                        }
+                    }
                 }
-            }
             group.toCard(
                 memberCount = members.size.coerceAtLeast(1),
                 netSubunits = netSubunits,
@@ -79,10 +102,22 @@ class HomeViewModel(
             )
         }
 
+    init {
+        // The client half of the 30-day purge. Home is the right trigger: it is the one screen every
+        // session passes through, it is where Recently deleted is read from, and a device that was
+        // offline for the whole window catches up here on its next launch rather than waiting for a
+        // server that has already purged the rows a pull would have needed to carry the news.
+        viewModelScope.launch { groups.purgeExpiredDeletedGroups() }
+    }
+
     private val _errors = Channel<String>(Channel.BUFFERED)
     val errors = _errors.receiveAsFlow()
 
-    fun createGroup(name: String, emoji: String, onCreated: (String) -> Unit) {
+    fun createGroup(
+        name: String,
+        emoji: String,
+        onCreated: (String) -> Unit,
+    ) {
         val uid = auth.currentUserId.value ?: return
         viewModelScope.launch {
             val input = NewGroup(name = name.ifBlank { "New group" }, baseCurrency = "USD", creatorUserId = uid, emoji = emoji)
@@ -94,24 +129,31 @@ class HomeViewModel(
     }
 }
 
-private fun Group.toCard(memberCount: Int, netSubunits: Long, hasExpenses: Boolean): GroupCardUi = GroupCardUi(
-    id = id.value,
-    emoji = emoji,
-    name = name,
-    members = memberCount,
-    // A group with no expenses yet isn't "settled" — there's nothing to settle. Empty is its own state:
-    // no chip, and an honest subtitle rather than a misleading "All settled up".
-    status = when {
-        !hasExpenses -> GroupBalanceStatus.Empty
-        netSubunits > 0L -> GroupBalanceStatus.Owed
-        netSubunits < 0L -> GroupBalanceStatus.Owe
-        else -> GroupBalanceStatus.Settled
-    },
-    amount = if (netSubunits == 0L) null else abs(netSubunits) / 100.0,
-    last = when {
-        !hasExpenses -> "No expenses yet"
-        netSubunits > 0L -> "You're owed"
-        netSubunits < 0L -> "You owe"
-        else -> "All settled up"
-    },
-)
+private fun Group.toCard(
+    memberCount: Int,
+    netSubunits: Long,
+    hasExpenses: Boolean,
+): GroupCardUi =
+    GroupCardUi(
+        id = id.value,
+        emoji = emoji,
+        name = name,
+        members = memberCount,
+        // A group with no expenses yet isn't "settled" — there's nothing to settle. Empty is its own state:
+        // no chip, and an honest subtitle rather than a misleading "All settled up".
+        status =
+            when {
+                !hasExpenses -> GroupBalanceStatus.Empty
+                netSubunits > 0L -> GroupBalanceStatus.Owed
+                netSubunits < 0L -> GroupBalanceStatus.Owe
+                else -> GroupBalanceStatus.Settled
+            },
+        amount = if (netSubunits == 0L) null else abs(netSubunits) / 100.0,
+        last =
+            when {
+                !hasExpenses -> "No expenses yet"
+                netSubunits > 0L -> "You're owed"
+                netSubunits < 0L -> "You owe"
+                else -> "All settled up"
+            },
+    )

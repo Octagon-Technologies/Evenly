@@ -36,7 +36,10 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /** One group the viewer's subscription covers, for the "what am I actually paying for" list. */
-data class CoveredGroupUi(val emoji: String, val name: String)
+data class CoveredGroupUi(
+    val emoji: String,
+    val name: String,
+)
 
 /** The viewer's own live subscription, already formatted. Null when they hold none. */
 data class MySubscriptionUi(
@@ -75,7 +78,11 @@ fun ProSubscribedScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             EvCard(padded = true) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(11.dp),
+                ) {
                     Box(
                         Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(c.blueTint),
                         contentAlignment = Alignment.Center,
@@ -83,7 +90,9 @@ fun ProSubscribedScreen(
                     Column(Modifier.weight(1f)) {
                         Text(
                             "${subscription.periodLabel}, ${subscription.renewalLine}",
-                            color = c.ink, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold,
+                            color = c.ink,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold,
                         )
                         Text("Unlimited scans in every group you're in", color = c.ink2, fontSize = 12.5.sp)
                     }
@@ -100,7 +109,7 @@ fun ProSubscribedScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Text(g.emoji, fontSize = 16.sp)
+                                if (g.emoji.isNotBlank()) Text(g.emoji, fontSize = 16.sp)
                                 Text(g.name, color = c.ink, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
                             }
                         }
@@ -113,7 +122,10 @@ fun ProSubscribedScreen(
             // expect is how someone cancels twice, or believes the cancel did not take.
             Text(
                 if (isIOS()) "Opens your App Store subscriptions." else "Opens your Google Play subscriptions.",
-                Modifier.fillMaxWidth(), color = c.ink3, fontSize = 12.sp, textAlign = TextAlign.Center,
+                Modifier.fillMaxWidth(),
+                color = c.ink3,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
             )
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 EvButton(
@@ -155,11 +167,16 @@ fun ProUnavailableScreen(onBack: () -> Unit) {
             ) { EvIcon(EvIcons.Star, size = 24.dp, tint = c.ink2) }
             Text(
                 "Pro isn't available yet",
-                color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                color = c.ink,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
             )
             Text(
                 "Everything you use to split a bill is free and stays free. Pro only adds unlimited receipt scanning and spreadsheet export.",
-                color = c.ink2, fontSize = 14.sp, textAlign = TextAlign.Center,
+                color = c.ink2,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             EvButton(text = "Back", onClick = onBack, variant = ButtonVariant.Secondary, fillMaxWidth = false)

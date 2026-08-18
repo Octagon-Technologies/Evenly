@@ -28,13 +28,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import io.github.alexzhirkevich.qrose.rememberQrCodePainter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.domain.expense.ExpenseCategory
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.ChipVariant
@@ -53,9 +53,9 @@ import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
-import app.splitevenly.domain.expense.ExpenseCategory
 import app.splitevenly.ui.theme.EvenlyTheme
 import app.splitevenly.ui.theme.categoryColor
+import io.github.alexzhirkevich.qrose.rememberQrCodePainter
 
 data class ExpenseItemUi(
     val id: String,
@@ -77,7 +77,10 @@ data class ExpenseItemUi(
     val stakeOwedToYou: Boolean = false,
 )
 
-data class ExpenseDayUi(val label: String, val items: List<ExpenseItemUi>)
+data class ExpenseDayUi(
+    val label: String,
+    val items: List<ExpenseItemUi>,
+)
 
 enum class ExpensesState { Loading, Empty, Populated }
 
@@ -142,188 +145,208 @@ fun GroupExpensesTab(
     var claimsExpanded by remember { mutableStateOf(true) }
     // Hoisted above the Column (not just above the scroll Box) so `populated` is still in scope for the
     // toast padding below, which sits outside the Column but inside the outer fillMaxSize Box.
-    val visibleDays = days.mapNotNull { day ->
-        val active = if (sub == "Settled") emptyList() else day.items.filter { !it.settled }
-        val settled = if (sub == "Active") emptyList() else day.items.filter { it.settled }
-        if (active.isEmpty() && settled.isEmpty()) null else VisibleDay(day.label, active, settled)
-    }
+    val visibleDays =
+        days.mapNotNull { day ->
+            val active = if (sub == "Settled") emptyList() else day.items.filter { !it.settled }
+            val settled = if (sub == "Active") emptyList() else day.items.filter { it.settled }
+            if (active.isEmpty() && settled.isEmpty()) null else VisibleDay(day.label, active, settled)
+        }
     val populated = state == ExpensesState.Populated && visibleDays.isNotEmpty()
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().background(c.page)) {
-        EvTopBar(
-            title = groupName,
-            navIcon = {
-                // Emoji is now decorative — tapping a group icon for settings was a hidden affordance.
-                // Settings has its own obvious gear in the actions.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    EvIconButton(EvIcons.Back, onBack)
-                    Text(groupEmoji, fontSize = 22.sp)
-                }
-            },
-            actions = {
-                EvIconButton(EvIcons.Search, onSearch)
-                // Invite/share: the front-door entry to the group's join link (also in Group settings).
-                EvIconButton(EvIcons.Share, { showInvite = true })
-                EvIconButton(EvIcons.Gear, onOpenSettings)
-            },
-        )
-        // Tab island: a segmented pill below the title (not an underline bar in the app bar), with the
-        // advanced-filter funnel beside it so the bar stays uncluttered. This and the top bar are the
-        // *only* fixed chrome on the page; see the scroll surface below.
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            EvSegmented(
-                options = listOf("Active", "All", "Settled"),
-                selected = sub,
-                onSelect = { sub = it },
-                modifier = Modifier.weight(1f),
+        Column(Modifier.fillMaxSize().background(c.page)) {
+            EvTopBar(
+                title = groupName,
+                navIcon = {
+                    // Emoji is now decorative — tapping a group icon for settings was a hidden affordance.
+                    // Settings has its own obvious gear in the actions.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        EvIconButton(EvIcons.Back, onBack)
+                        if (groupEmoji.isNotBlank()) Text(groupEmoji, fontSize = 22.sp)
+                    }
+                },
+                actions = {
+                    EvIconButton(EvIcons.Search, onSearch)
+                    // Invite/share: the front-door entry to the group's join link (also in Group settings).
+                    EvIconButton(EvIcons.Share, { showInvite = true })
+                    EvIconButton(EvIcons.Gear, onOpenSettings)
+                },
             )
-            FilterFunnel(active = filterActive, onClick = onFilter)
-        }
+            // Tab island: a segmented pill below the title (not an underline bar in the app bar), with the
+            // advanced-filter funnel beside it so the bar stays uncluttered. This and the top bar are the
+            // *only* fixed chrome on the page; see the scroll surface below.
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                EvSegmented(
+                    options = listOf("Active", "All", "Settled"),
+                    selected = sub,
+                    onSelect = { sub = it },
+                    modifier = Modifier.weight(1f),
+                )
+                FilterFunnel(active = filterActive, onClick = onFilter)
+            }
 
-        // One scroll surface for everything under the tabs. The offline banner, the claim card and the
-        // "Is this you?" card used to be fixed rows above the feed, so with two of them showing the
-        // expense list was left scrolling inside a sliver. They are list items now, and the empty states
-        // are items too rather than a branch that replaces the list: that is what keeps the identity
-        // question present on every sub-tab, under a filter, and when the feed has nothing in it, which
-        // was the reason those cards sat outside the feed in the first place.
-        Box(Modifier.weight(1f)) {
-            LazyColumn(Modifier.fillMaxSize()) {
-                // Every prompt above the feed is *one* item under a fixed key, not one item each. The
-                // bills and the unclaimed names arrive from their own flows a beat after the expenses,
-                // and a LazyColumn anchors on the first visible item's key: as separate items they
-                // prepend, pushing themselves above the viewport, so the group opened part-scrolled with
-                // the claim card already off-screen. A stable first key grows downward instead.
-                item(key = "feed-header") {
-                    Column {
-                        if (offline) EvBanner("Offline. Your changes will sync.")
-                        if (filterActive) FilterChipRow(onClearFilter)
-                        if (unresolvedBills.isNotEmpty()) {
-                            UnresolvedBillsSection(unresolvedBills, claimsExpanded, { claimsExpanded = !claimsExpanded }, onOpenBill)
-                        }
-                        if (identityNames.isNotEmpty()) {
-                            IdentityClaimCard(
-                                names = identityNames,
-                                onThatsMe = onIdentityThatsMe,
-                                onNotMe = onIdentityNotMe,
-                                onNoneOfThese = onIdentityNoneOfThese,
-                                onLater = onIdentityLater,
-                                onSeeAll = onIdentitySeeAll,
-                            )
-                        } else if (identityFinished) {
-                            IdentityClaimDoneNote()
-                        }
-                        // One prompt at a time, identity first: this strip already stacks the offline
-                        // banner, the filter chips, and the unresolved-bills section, and a fifth
-                        // interstitial pushes the first expense off the screen even though the page
-                        // now scrolls.
-                        if (drafts > 0 && !filterActive && sub != "Settled" && identityNames.isEmpty()) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)
-                                    .clip(RoundedCornerShape(12.dp)).background(c.blueTint).clickable { onOpenDrafts() }
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    EvIcon(EvIcons.Edit, size = 16.dp, tint = c.blueText)
-                                    Text("Drafts ($drafts)", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            // One scroll surface for everything under the tabs. The offline banner, the claim card and the
+            // "Is this you?" card used to be fixed rows above the feed, so with two of them showing the
+            // expense list was left scrolling inside a sliver. They are list items now, and the empty states
+            // are items too rather than a branch that replaces the list: that is what keeps the identity
+            // question present on every sub-tab, under a filter, and when the feed has nothing in it, which
+            // was the reason those cards sat outside the feed in the first place.
+            Box(Modifier.weight(1f)) {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    // Every prompt above the feed is *one* item under a fixed key, not one item each. The
+                    // bills and the unclaimed names arrive from their own flows a beat after the expenses,
+                    // and a LazyColumn anchors on the first visible item's key: as separate items they
+                    // prepend, pushing themselves above the viewport, so the group opened part-scrolled with
+                    // the claim card already off-screen. A stable first key grows downward instead.
+                    item(key = "feed-header") {
+                        Column {
+                            if (offline) EvBanner("Offline. Your changes will sync.")
+                            if (filterActive) FilterChipRow(onClearFilter)
+                            if (unresolvedBills.isNotEmpty()) {
+                                UnresolvedBillsSection(unresolvedBills, claimsExpanded, { claimsExpanded = !claimsExpanded }, onOpenBill)
+                            }
+                            if (identityNames.isNotEmpty()) {
+                                IdentityClaimCard(
+                                    names = identityNames,
+                                    onThatsMe = onIdentityThatsMe,
+                                    onNotMe = onIdentityNotMe,
+                                    onNoneOfThese = onIdentityNoneOfThese,
+                                    onLater = onIdentityLater,
+                                    onSeeAll = onIdentitySeeAll,
+                                )
+                            } else if (identityFinished) {
+                                IdentityClaimDoneNote()
+                            }
+                            // One prompt at a time, identity first: this strip already stacks the offline
+                            // banner, the filter chips, and the unresolved-bills section, and a fifth
+                            // interstitial pushes the first expense off the screen even though the page
+                            // now scrolls.
+                            if (drafts > 0 && !filterActive && sub != "Settled" && identityNames.isEmpty()) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(c.blueTint)
+                                        .clickable { onOpenDrafts() }
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Row(
+                                        Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        EvIcon(EvIcons.Edit, size = 16.dp, tint = c.blueText)
+                                        Text("Drafts ($drafts)", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    EvIcon(EvIcons.ChevR, size = 16.dp, tint = c.blueText)
                                 }
-                                EvIcon(EvIcons.ChevR, size = 16.dp, tint = c.blueText)
                             }
                         }
                     }
-                }
 
-                when {
-                    state == ExpensesState.Loading -> item(key = "loading") {
-                        Column(Modifier.padding(top = 8.dp)) { repeat(5) { EvSkeletonRow() } }
-                    }
-
-                    filterActive && visibleDays.isEmpty() -> item(key = "empty-filtered") {
-                        EvEmptyState(
-                            icon = EvIcons.Filter,
-                            title = "No matching expenses",
-                            text = "No expenses match the current filter. Clear it to see everything.",
-                            ctaText = "Clear filters",
-                            onCta = onClearFilter,
-                        )
-                    }
-
-                    state == ExpensesState.Empty -> item(key = "empty") {
-                        EvEmptyState(
-                            icon = EvIcons.Receipt,
-                            title = "No expenses yet",
-                            text = "Add the first expense and Evenly tracks who owes whom.",
-                            ctaText = "Add expense",
-                            onCta = onAdd,
-                        )
-                    }
-
-                    visibleDays.isEmpty() -> item(key = "empty-sub") {
-                        EvEmptyState(
-                            icon = EvIcons.Receipt,
-                            title = "Nothing here",
-                            text = "No ${sub.lowercase()} expenses in this group yet.",
-                            ctaText = "Add expense",
-                            onCta = onAdd,
-                        )
-                    }
-
-                    else -> visibleDays.forEachIndexed { i, day ->
-                        // A plain item, not a stickyHeader: pinned it overlapped the rows it scrolled
-                        // over (its surface band is a near-transparent wash in dark mode). Scrolling with
-                        // the content is the familiar pattern and sidesteps the bleed-through entirely.
-                        // Keyed by position, not by the label: `dayLabel` prints no year, so two expenses
-                        // the same weekday/month/day in different years render the identical string and a
-                        // repeated key is an immediate LazyColumn crash, not a cosmetic clash.
-                        item(key = "day-$i-${day.label}") { EvDayHeader(day.label) }
-                        // Each expense is its own card (side margins + small gap, no hairlines).
-                        itemsIndexed(day.active, key = { _, it -> it.id }) { _, it ->
-                            ExpenseRowFrom(it, onOpenExpense)
+                    when {
+                        state == ExpensesState.Loading -> {
+                            item(key = "loading") {
+                                Column(Modifier.padding(top = 8.dp)) { repeat(5) { EvSkeletonRow() } }
+                            }
                         }
-                        if (day.settled.isNotEmpty()) {
-                            if (sub == "Settled") {
-                                itemsIndexed(day.settled, key = { _, it -> "s-${it.id}" }) { _, it ->
+
+                        filterActive && visibleDays.isEmpty() -> {
+                            item(key = "empty-filtered") {
+                                EvEmptyState(
+                                    icon = EvIcons.Filter,
+                                    title = "No matching expenses",
+                                    text = "No expenses match the current filter. Clear it to see everything.",
+                                    ctaText = "Clear filters",
+                                    onCta = onClearFilter,
+                                )
+                            }
+                        }
+
+                        state == ExpensesState.Empty -> {
+                            item(key = "empty") {
+                                EvEmptyState(
+                                    icon = EvIcons.Receipt,
+                                    title = "No expenses yet",
+                                    text = "Add the first expense and Evenly tracks who owes whom.",
+                                    ctaText = "Add expense",
+                                    onCta = onAdd,
+                                )
+                            }
+                        }
+
+                        visibleDays.isEmpty() -> {
+                            item(key = "empty-sub") {
+                                EvEmptyState(
+                                    icon = EvIcons.Receipt,
+                                    title = "Nothing here",
+                                    text = "No ${sub.lowercase()} expenses in this group yet.",
+                                    ctaText = "Add expense",
+                                    onCta = onAdd,
+                                )
+                            }
+                        }
+
+                        else -> {
+                            visibleDays.forEachIndexed { i, day ->
+                                // A plain item, not a stickyHeader: pinned it overlapped the rows it scrolled
+                                // over (its surface band is a near-transparent wash in dark mode). Scrolling with
+                                // the content is the familiar pattern and sidesteps the bleed-through entirely.
+                                // Keyed by position, not by the label: `dayLabel` prints no year, so two expenses
+                                // the same weekday/month/day in different years render the identical string and a
+                                // repeated key is an immediate LazyColumn crash, not a cosmetic clash.
+                                item(key = "day-$i-${day.label}") { EvDayHeader(day.label) }
+                                // Each expense is its own card (side margins + small gap, no hairlines).
+                                itemsIndexed(day.active, key = { _, it -> it.id }) { _, it ->
                                     ExpenseRowFrom(it, onOpenExpense)
                                 }
-                            } else {
-                                item(key = "settled-$i-${day.label}") { SettledTray(day.settled, onOpenExpense) }
+                                if (day.settled.isNotEmpty()) {
+                                    if (sub == "Settled") {
+                                        itemsIndexed(day.settled, key = { _, it -> "s-${it.id}" }) { _, it ->
+                                            ExpenseRowFrom(it, onOpenExpense)
+                                        }
+                                    } else {
+                                        item(key = "settled-$i-${day.label}") { SettledTray(day.settled, onOpenExpense) }
+                                    }
+                                }
                             }
                         }
                     }
+                    item(key = "tail") { Spacer(Modifier.height(150.dp)) }
                 }
-                item(key = "tail") { Spacer(Modifier.height(150.dp)) }
+                // Hidden behind an empty state, which carries its own "Add expense" button: two primary
+                // add affordances on one screen read as two different actions.
+                if (populated) EvFab(onAdd, Modifier.align(Alignment.BottomEnd).padding(16.dp))
             }
-            // Hidden behind an empty state, which carries its own "Add expense" button: two primary
-            // add affordances on one screen read as two different actions.
-            if (populated) EvFab(onAdd, Modifier.align(Alignment.BottomEnd).padding(16.dp))
         }
-    }
-    // Sits above the FAB when it's showing; the FAB is hidden behind the empty state (see `populated`
-    // above), so the 92dp FAB clearance would otherwise leave a large, unexplained gap above the nav bar.
-    // Swiping the toast away is deliberately not a cancel: only the Undo button is, so a stray gesture
-    // can't quietly decide who someone is.
-    val toastBottomPadding = if (populated) 92.dp else 8.dp
-    val toastModifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = toastBottomPadding)
-    when {
-        undoToastText != null -> EvUndoToast(undoToastText, onUndoClaim, toastModifier)
-        // A claim that lost the race or couldn't be confirmed has to say so. Nothing was written either
-        // way, so the card is still there to try again.
-        claimNoticeText != null -> EvUndoToast(claimNoticeText, onDismissClaimNotice, toastModifier, actionLabel = "Got it")
-    }
-    if (showInvite) {
-        InviteSheet(
-            groupName = groupName,
-            inviteLink = inviteLink,
-            onCopy = onCopyInvite,
-            onShare = onShareInvite,
-            onRotate = onRotateInvite,
-            onDismiss = { showInvite = false },
-        )
-    }
+        // Sits above the FAB when it's showing; the FAB is hidden behind the empty state (see `populated`
+        // above), so the 92dp FAB clearance would otherwise leave a large, unexplained gap above the nav bar.
+        // Swiping the toast away is deliberately not a cancel: only the Undo button is, so a stray gesture
+        // can't quietly decide who someone is.
+        val toastBottomPadding = if (populated) 92.dp else 8.dp
+        val toastModifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = toastBottomPadding)
+        when {
+            undoToastText != null -> EvUndoToast(undoToastText, onUndoClaim, toastModifier)
+
+            // A claim that lost the race or couldn't be confirmed has to say so. Nothing was written either
+            // way, so the card is still there to try again.
+            claimNoticeText != null -> EvUndoToast(claimNoticeText, onDismissClaimNotice, toastModifier, actionLabel = "Got it")
+        }
+        if (showInvite) {
+            InviteSheet(
+                groupName = groupName,
+                inviteLink = inviteLink,
+                onCopy = onCopyInvite,
+                onShare = onShareInvite,
+                onRotate = onRotateInvite,
+                onDismiss = { showInvite = false },
+            )
+        }
     }
 }
 
@@ -365,8 +388,12 @@ private fun InviteSheet(
             }
         }
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface)
-                .border(1.dp, c.border, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 12.dp),
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.surface)
+                .border(1.dp, c.border, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -390,7 +417,10 @@ private fun InviteSheet(
         Spacer(Modifier.height(8.dp))
         EvButton(
             text = if (copied) "Link copied" else "Copy link",
-            onClick = { onCopy(); copied = true },
+            onClick = {
+                onCopy()
+                copied = true
+            },
             variant = ButtonVariant.Secondary,
             leadingIcon = if (copied) EvIcons.Check else EvIcons.Copy,
         )
@@ -406,7 +436,11 @@ private fun InviteSheet(
 }
 
 /** A day section narrowed to the current sub-tab (Active/All/Settled). */
-private data class VisibleDay(val label: String, val active: List<ExpenseItemUi>, val settled: List<ExpenseItemUi>)
+private data class VisibleDay(
+    val label: String,
+    val active: List<ExpenseItemUi>,
+    val settled: List<ExpenseItemUi>,
+)
 
 /** Thin "Filtered · Clear" affordance shown above the feed when a filter is applied. */
 @Composable
@@ -431,11 +465,15 @@ private fun FilterChipRow(onClear: () -> Unit) {
  * so the number that matters to the viewer leads.
  */
 @Composable
-private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
+private fun ExpenseRowFrom(
+    it: ExpenseItemUi,
+    onOpen: (String) -> Unit,
+) {
     val c = EvenlyTheme.colors
     val accent = it.categoryColor ?: c.ink2
     Row(
-        Modifier.fillMaxWidth()
+        Modifier
+            .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clip(ExpenseCardShape)
             .background(c.page)
@@ -446,7 +484,9 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
-            Modifier.size(40.dp).clip(RoundedCornerShape(11.dp))
+            Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(11.dp))
                 .background(if (it.settled) c.settledTint else it.categoryColor?.copy(alpha = 0.14f) ?: c.surface),
             contentAlignment = Alignment.Center,
         ) {
@@ -458,22 +498,39 @@ private fun ExpenseRowFrom(it: ExpenseItemUi, onOpen: (String) -> Unit) {
                 if (it.payerName.isNotBlank()) EvAvatar(it.payerName, me = it.payerIsMe, size = AvatarSize.Xs)
                 Text(
                     if (it.amountLabel.isNotBlank()) "${it.sub} · ${it.amountLabel}" else it.sub,
-                    style = MaterialTheme.typography.bodyMedium, color = c.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = c.ink2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when {
-                it.settled -> EvChip("Settled", variant = ChipVariant.Green, leadingIcon = EvIcons.Check)
-                it.stakeLabel != null && it.stakeAmount != null -> Column(horizontalAlignment = Alignment.End) {
-                    // Owed-to-you → amber (in your favour); you-owe → plain ink (white on dark). Blue as
-                    // the "you owe" amount sank into the dark page; a neutral ink amount reads clearly and
-                    // still lets the amber "you're owed" stand out as the one colour that matters.
-                    val stakeColor = if (it.stakeOwedToYou) c.credit else c.ink
-                    Text(it.stakeLabel, color = stakeColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    Text(it.stakeAmount, color = stakeColor, fontFamily = EvenlyTheme.monoFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                it.settled -> {
+                    EvChip("Settled", variant = ChipVariant.Green, leadingIcon = EvIcons.Check)
                 }
-                it.amountLabel.isNotBlank() -> Text(it.amountLabel, color = c.ink2, fontFamily = EvenlyTheme.monoFamily, fontSize = 14.sp)
+
+                it.stakeLabel != null && it.stakeAmount != null -> {
+                    Column(horizontalAlignment = Alignment.End) {
+                        // Owed-to-you → amber (in your favour); you-owe → plain ink (white on dark). Blue as
+                        // the "you owe" amount sank into the dark page; a neutral ink amount reads clearly and
+                        // still lets the amber "you're owed" stand out as the one colour that matters.
+                        val stakeColor = if (it.stakeOwedToYou) c.credit else c.ink
+                        Text(it.stakeLabel, color = stakeColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            it.stakeAmount,
+                            color = stakeColor,
+                            fontFamily = EvenlyTheme.monoFamily,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                it.amountLabel.isNotBlank() -> {
+                    Text(it.amountLabel, color = c.ink2, fontFamily = EvenlyTheme.monoFamily, fontSize = 14.sp)
+                }
             }
             if (it.unread) EvDot()
             EvIcon(EvIcons.ChevR, size = 16.dp, tint = c.ink3)
@@ -495,14 +552,18 @@ private fun EvDayHeader(label: String) {
 }
 
 @Composable
-private fun SettledTray(items: List<ExpenseItemUi>, onOpen: (String) -> Unit) {
+private fun SettledTray(
+    items: List<ExpenseItemUi>,
+    onOpen: (String) -> Unit,
+) {
     val c = EvenlyTheme.colors
     var open by remember { mutableStateOf(false) }
     Column {
         // A muted (surface-fill) card header so the collapsed settled group reads as secondary to the
         // white active expense cards above it.
         Row(
-            Modifier.fillMaxWidth()
+            Modifier
+                .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp)
                 .clip(ExpenseCardShape)
                 .background(c.surface)
@@ -526,11 +587,15 @@ private fun SettledTray(items: List<ExpenseItemUi>, onOpen: (String) -> Unit) {
 
 /** The advanced-filter funnel that sits beside the tab island; tints when a filter is active. */
 @Composable
-private fun FilterFunnel(active: Boolean, onClick: () -> Unit) {
+private fun FilterFunnel(
+    active: Boolean,
+    onClick: () -> Unit,
+) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(12.dp)
     Box(
-        Modifier.size(44.dp)
+        Modifier
+            .size(44.dp)
             .clip(shape)
             .background(if (active) c.blueTint else c.surface)
             .border(1.dp, if (active) c.blue else c.border, shape)
@@ -542,26 +607,88 @@ private fun FilterFunnel(active: Boolean, onClick: () -> Unit) {
 }
 
 internal object GroupSamples {
-    val days = listOf(
-        ExpenseDayUi("Today", listOf(
-            ExpenseItemUi("1", "Dinner at La Negra", "Andrew paid", EvIcons.Food, 24.0, 96.0, unread = true,
-                payerName = "Andrew", amountLabel = "\$96.00", categoryColor = categoryColor(ExpenseCategory.FOOD),
-                stakeLabel = "you owe", stakeAmount = "\$24.00"),
-            ExpenseItemUi("2", "Airport taxi", "You paid", EvIcons.Car, 14.5, 58.0,
-                payerName = "You", payerIsMe = true, amountLabel = "\$58.00", categoryColor = categoryColor(ExpenseCategory.TRANSPORT),
-                stakeLabel = "you're owed", stakeAmount = "\$14.50", stakeOwedToYou = true),
-        )),
-        ExpenseDayUi("Wed, May 22", listOf(
-            ExpenseItemUi("3", "Beach villa — night 2", "Maya paid", EvIcons.Bed, 0.0, 60.0, settled = true,
-                payerName = "Maya", amountLabel = "\$60.00", categoryColor = categoryColor(ExpenseCategory.LODGING)),
-            ExpenseItemUi("4", "Cenote day trip", "Bob paid", EvIcons.Ticket, 18.0, 72.0,
-                payerName = "Bob", amountLabel = "\$72.00", categoryColor = categoryColor(ExpenseCategory.ENTERTAINMENT),
-                stakeLabel = "you owe", stakeAmount = "\$18.00"),
-            ExpenseItemUi("5", "Supermarket run", "You paid", EvIcons.Cart, 33.2, 41.5,
-                payerName = "You", payerIsMe = true, amountLabel = "\$41.50", categoryColor = categoryColor(ExpenseCategory.GROCERIES),
-                stakeLabel = "you're owed", stakeAmount = "\$33.20", stakeOwedToYou = true),
-        )),
-    )
+    val days =
+        listOf(
+            ExpenseDayUi(
+                "Today",
+                listOf(
+                    ExpenseItemUi(
+                        "1",
+                        "Dinner at La Negra",
+                        "Andrew paid",
+                        EvIcons.Food,
+                        24.0,
+                        96.0,
+                        unread = true,
+                        payerName = "Andrew",
+                        amountLabel = "\$96.00",
+                        categoryColor = categoryColor(ExpenseCategory.FOOD),
+                        stakeLabel = "you owe",
+                        stakeAmount = "\$24.00",
+                    ),
+                    ExpenseItemUi(
+                        "2",
+                        "Airport taxi",
+                        "You paid",
+                        EvIcons.Car,
+                        14.5,
+                        58.0,
+                        payerName = "You",
+                        payerIsMe = true,
+                        amountLabel = "\$58.00",
+                        categoryColor = categoryColor(ExpenseCategory.TRANSPORT),
+                        stakeLabel = "you're owed",
+                        stakeAmount = "\$14.50",
+                        stakeOwedToYou = true,
+                    ),
+                ),
+            ),
+            ExpenseDayUi(
+                "Wed, May 22",
+                listOf(
+                    ExpenseItemUi(
+                        "3",
+                        "Beach villa — night 2",
+                        "Maya paid",
+                        EvIcons.Bed,
+                        0.0,
+                        60.0,
+                        settled = true,
+                        payerName = "Maya",
+                        amountLabel = "\$60.00",
+                        categoryColor = categoryColor(ExpenseCategory.LODGING),
+                    ),
+                    ExpenseItemUi(
+                        "4",
+                        "Cenote day trip",
+                        "Bob paid",
+                        EvIcons.Ticket,
+                        18.0,
+                        72.0,
+                        payerName = "Bob",
+                        amountLabel = "\$72.00",
+                        categoryColor = categoryColor(ExpenseCategory.ENTERTAINMENT),
+                        stakeLabel = "you owe",
+                        stakeAmount = "\$18.00",
+                    ),
+                    ExpenseItemUi(
+                        "5",
+                        "Supermarket run",
+                        "You paid",
+                        EvIcons.Cart,
+                        33.2,
+                        41.5,
+                        payerName = "You",
+                        payerIsMe = true,
+                        amountLabel = "\$41.50",
+                        categoryColor = categoryColor(ExpenseCategory.GROCERIES),
+                        stakeLabel = "you're owed",
+                        stakeAmount = "\$33.20",
+                        stakeOwedToYou = true,
+                    ),
+                ),
+            ),
+        )
 }
 
 @Preview

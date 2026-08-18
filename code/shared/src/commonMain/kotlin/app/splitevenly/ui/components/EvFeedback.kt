@@ -52,11 +52,12 @@ fun EvBanner(
     leadingIcon: ImageVector? = EvIcons.WifiOff,
 ) {
     val c = EvenlyTheme.colors
-    val (bg, fg) = when (variant) {
-        BannerVariant.Offline -> c.bannerOffline to c.bannerOfflineInk
-        BannerVariant.Amber -> c.warningTint to c.warning
-        BannerVariant.Blue -> c.blueTint to c.bluePressed
-    }
+    val (bg, fg) =
+        when (variant) {
+            BannerVariant.Offline -> c.bannerOffline to c.bannerOfflineInk
+            BannerVariant.Amber -> c.warningTint to c.warning
+            BannerVariant.Blue -> c.blueTint to c.bluePressed
+        }
     Row(
         modifier = modifier.fillMaxWidth().background(bg).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -69,7 +70,10 @@ fun EvBanner(
 
 /** `.sc-pending` — the "Pending sync" pill shown under unsynced rows. */
 @Composable
-fun EvPendingPill(text: String = "Pending sync", modifier: Modifier = Modifier) {
+fun EvPendingPill(
+    text: String = "Pending sync",
+    modifier: Modifier = Modifier,
+) {
     val c = EvenlyTheme.colors
     Row(
         modifier = modifier.clip(RoundedCornerShape(6.dp)).background(c.warningTint).padding(horizontal = 7.dp, vertical = 2.dp),
@@ -103,7 +107,14 @@ fun EvEmptyState(
             EvIcon(icon, size = 30.dp, tint = iconTint)
         }
         Text(title, color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-        Text(text, color = c.ink2, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 240.dp))
+        Text(
+            text,
+            color = c.ink2,
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 240.dp),
+        )
         if (ctaText != null && onCta != null) {
             EvButton(ctaText, onCta, modifier = Modifier.widthIn(max = 240.dp).padding(top = 6.dp))
         }
@@ -119,14 +130,31 @@ fun EvProgress(
     fill: Color = EvenlyTheme.colors.blue,
     track: Color = EvenlyTheme.colors.blueTint2,
 ) {
-    Box(modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(99.dp)).background(track)) {
-        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(99.dp)).background(fill))
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .clip(RoundedCornerShape(99.dp))
+            .background(track),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(99.dp))
+                .background(fill),
+        )
     }
 }
 
 /** `.sc-skel` — shimmer placeholder block. */
 @Composable
-fun EvSkeleton(modifier: Modifier = Modifier, width: Dp? = null, height: Dp = 12.dp, radius: Dp = 8.dp) {
+fun EvSkeleton(
+    modifier: Modifier = Modifier,
+    width: Dp? = null,
+    height: Dp = 12.dp,
+    radius: Dp = 8.dp,
+) {
     val c = EvenlyTheme.colors
     val transition = rememberInfiniteTransition()
     val x by transition.animateFloat(
@@ -134,12 +162,23 @@ fun EvSkeleton(modifier: Modifier = Modifier, width: Dp? = null, height: Dp = 12
         targetValue = 1000f,
         animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing), RepeatMode.Restart),
     )
-    val brush = Brush.linearGradient(
-        colors = listOf(c.skeleton1, c.skeleton2, c.skeleton1),
-        start = Offset(x - 300f, 0f),
-        end = Offset(x, 0f),
+    val brush =
+        Brush.linearGradient(
+            colors = listOf(c.skeleton1, c.skeleton2, c.skeleton1),
+            start = Offset(x - 300f, 0f),
+            end = Offset(x, 0f),
+        )
+    Box(
+        (
+            if (width !=
+                null
+            ) {
+                modifier.width(width)
+            } else {
+                modifier.fillMaxWidth()
+            }
+        ).height(height).clip(RoundedCornerShape(radius)).background(brush),
     )
-    Box((if (width != null) modifier.width(width) else modifier.fillMaxWidth()).height(height).clip(RoundedCornerShape(radius)).background(brush))
 }
 
 /** A skeleton mirroring [EvExpenseRow] for list loading states. */
@@ -164,7 +203,11 @@ fun EvSkeletonRow(modifier: Modifier = Modifier) {
 
 /** Small indeterminate spinner (e.g. inside a loading button). */
 @Composable
-fun EvSpinner(modifier: Modifier = Modifier, color: Color = EvenlyTheme.colors.onAccent, size: Dp = 18.dp) {
+fun EvSpinner(
+    modifier: Modifier = Modifier,
+    color: Color = EvenlyTheme.colors.onAccent,
+    size: Dp = 18.dp,
+) {
     CircularProgressIndicator(modifier = modifier.size(size), color = color, strokeWidth = 2.5.dp)
 }
 
@@ -175,6 +218,34 @@ fun EvSpinner(modifier: Modifier = Modifier, color: Color = EvenlyTheme.colors.o
  * been written while this is on screen, so [onUndo] cancels rather than un-does. Dismissing the toast
  * by other means is deliberately NOT a cancel: only the button is.
  */
+
+/**
+ * The same slab as [EvUndoToast] with no action: a plain confirmation of something already done and
+ * not worth undoing. Use it where the action is itself the undo, so offering another one would just be
+ * a loop.
+ */
+@Composable
+fun EvToast(
+    text: String,
+    modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = EvIcons.Check,
+) {
+    val c = EvenlyTheme.colors
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.ink)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        leadingIcon?.let { EvIcon(it, size = 16.dp, tint = c.page) }
+        Text(text, color = c.page, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
 @Composable
 fun EvUndoToast(
     text: String,
@@ -185,11 +256,12 @@ fun EvUndoToast(
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(12.dp)
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(c.ink)
-            .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(c.ink)
+                .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -199,8 +271,11 @@ fun EvUndoToast(
             color = c.page,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onUndo)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier =
+                Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onUndo)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
         )
     }
 }

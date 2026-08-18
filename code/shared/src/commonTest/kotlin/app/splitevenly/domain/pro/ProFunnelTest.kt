@@ -14,9 +14,11 @@ import kotlin.test.assertTrue
  * behaviour rather than to a broken sheet.
  */
 class ProFunnelTest {
-
-    private fun offer(pkg: String, product: String, micros: Long) =
-        PassOffer(packageId = pkg, productId = product, title = pkg, price = "x", priceMicros = micros, currency = "USD")
+    private fun offer(
+        pkg: String,
+        product: String,
+        micros: Long,
+    ) = PassOffer(packageId = pkg, productId = product, title = pkg, price = "x", priceMicros = micros, currency = "USD")
 
     private val week1 = offer("pass_week_1", "app.splitevenly.pass.week1", 990_000)
     private val week2 = offer("pass_week_2", "app.splitevenly.pass.week2", 1_990_000)
@@ -70,6 +72,14 @@ class ProFunnelTest {
     }
 
     @Test
+    fun defaultOrderIsShortestToLongestEvenWhenTheStoreDisagrees() {
+        // The dashboard's own package order is not guaranteed smallest-to-longest, and the sheet promises
+        // it is. With no remote `order`, PassTier's declared order is the fallback, not just the input.
+        val scrambled = listOf(month1, week1, week2)
+        assertEquals(listOf(week1, week2, month1), scrambled.ordered(PassSheetConfig.Default))
+    }
+
+    @Test
     fun missingOrMalformedPayloadFallsBackRatherThanThrowing() {
         // Remote input into a screen that takes money. A dashboard typo must cost us an experiment, not
         // a rendered sheet.
@@ -82,10 +92,11 @@ class ProFunnelTest {
 
     @Test
     fun experimentCanReorderAndPreselect() {
-        val c = PassSheetConfig.from(
-            variant = "cheapest_first",
-            payload = mapOf("preselect" to "cheapest", "order" to listOf("pass_month_1", "pass_week_1")),
-        )
+        val c =
+            PassSheetConfig.from(
+                variant = "cheapest_first",
+                payload = mapOf("preselect" to "cheapest", "order" to listOf("pass_month_1", "pass_week_1")),
+            )
         assertEquals(listOf(month1, week1, week2), all.ordered(c))
         assertEquals(week1, all.preselected(c))
     }

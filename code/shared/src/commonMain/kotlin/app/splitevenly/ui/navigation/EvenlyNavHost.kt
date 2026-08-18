@@ -69,6 +69,7 @@ fun EvenlyNavHost(
                 onNewGroup = { navController.navigate(Route.NewGroup) },
                 onJoin = { navController.navigate(Route.JoinByLink) },
                 onOpenArchived = { navController.navigate(Route.Archived) },
+                onOpenRecentlyDeleted = { navController.navigate(Route.RecentlyDeleted) },
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
@@ -83,6 +84,7 @@ fun EvenlyNavHost(
             )
         }
         composable<Route.Archived> { ArchivedRoute(onBack = { navController.popBackStack() }) }
+        composable<Route.RecentlyDeleted> { RecentlyDeletedRoute(onBack = { navController.popBackStack() }) }
         composable<Route.JoinByLink> {
             JoinByLinkRoute(
                 onDismiss = { navController.popBackStack() },

@@ -36,6 +36,7 @@ import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.PushService
 import app.splitevenly.platform.SecureStorage
+import app.splitevenly.ui.screen.auth.HomeGateViewModel
 import app.splitevenly.ui.screen.group.GroupFilterStore
 import app.splitevenly.ui.screen.home.HomeViewModel
 import io.github.jan.supabase.SupabaseClient
@@ -133,6 +134,9 @@ val authModule =
 val viewModelModule =
     module {
         viewModelOf(::HomeViewModel)
+        // Scoped to the Home back-stack entry so the pending-deletion check runs once per entry to Home,
+        // not once per recomposition (which would blank Home behind a network call on every Back).
+        viewModelOf(::HomeGateViewModel)
         // Ephemeral expense-feed filter (F6), shared between the Filter sheet + the Expenses tab destinations.
         single { GroupFilterStore() }
     }

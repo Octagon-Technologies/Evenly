@@ -47,6 +47,7 @@ fun MainShell(
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
+    onOpenRecentlyDeleted: () -> Unit = {},
     onSignedOut: () -> Unit = {},
     onSignIn: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
@@ -67,6 +68,7 @@ fun MainShell(
                             onNewGroup = onNewGroup,
                             onJoin = onJoin,
                             onOpenArchived = onOpenArchived,
+                            onOpenRecentlyDeleted = onOpenRecentlyDeleted,
                             onOpenSettings = { tab = RootTab.Settings },
                         )
                     }

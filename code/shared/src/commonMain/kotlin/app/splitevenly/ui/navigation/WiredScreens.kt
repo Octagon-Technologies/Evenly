@@ -1,5 +1,8 @@
 package app.splitevenly.ui.navigation
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -8,11 +11,13 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.NotificationPrefs
@@ -20,8 +25,10 @@ import app.splitevenly.domain.auth.OAuthProvider
 import app.splitevenly.domain.auth.ThemeMode
 import app.splitevenly.domain.feedback.FeedbackSubmitter
 import app.splitevenly.domain.fx.FxCurrencyDefaults
+import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.NewGroup
+import app.splitevenly.domain.group.RecentlyDeleted
 import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
@@ -40,13 +47,17 @@ import app.splitevenly.platform.SecureStorage
 import app.splitevenly.platform.UrlOpener
 import app.splitevenly.platform.isDebugBuild
 import app.splitevenly.platform.isIOS
+import app.splitevenly.ui.screen.auth.HomeGateState
+import app.splitevenly.ui.screen.auth.HomeGateViewModel
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.MagicLinkState
 import app.splitevenly.ui.screen.auth.OnboardingScreen
 import app.splitevenly.ui.screen.auth.PendingDeletionScreen
 import app.splitevenly.ui.screen.auth.SignInScreen
 import app.splitevenly.ui.screen.auth.WelcomeScreen
+import app.splitevenly.ui.screen.group.GroupDeletedScreen
 import app.splitevenly.ui.screen.home.ArchivedScreen
+import app.splitevenly.ui.screen.home.DeletedGroupCardUi
 import app.splitevenly.ui.screen.home.HomeScreen
 import app.splitevenly.ui.screen.home.HomeUiState
 import app.splitevenly.ui.screen.home.HomeViewModel
@@ -54,15 +65,18 @@ import app.splitevenly.ui.screen.home.JoinByLinkSheet
 import app.splitevenly.ui.screen.home.JoinGroupSheet
 import app.splitevenly.ui.screen.home.JoinPlaceholderOption
 import app.splitevenly.ui.screen.home.NewGroupSheet
+import app.splitevenly.ui.screen.home.RecentlyDeletedScreen
 import app.splitevenly.ui.screen.settings.PaymentHandlesScreen
 import app.splitevenly.ui.screen.settings.ProEntryUi
 import app.splitevenly.ui.screen.settings.ProfileScreen
 import app.splitevenly.ui.screen.settle.appLabel
+import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import kotlin.time.Clock
 
 /**
  * Stateful wrappers that bind the (stateless, previewable) screens to ViewModels / the auth session.
@@ -278,11 +292,23 @@ fun HomeRoute(
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
     onOpenArchived: () -> Unit,
+    onOpenRecentlyDeleted: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
 ) {
     val vm = koinViewModel<HomeViewModel>()
     val fx = koinInject<FxRepository>()
     val profiles = koinInject<ProfileRepository>()
+    val groups = koinInject<GroupRepository>()
+    val auth = koinInject<AuthSession>()
+    val storage = koinInject<SecureStorage>()
+    val meId by auth.currentUserId.collectAsStateWithLifecycle()
+    val deletedGroups by remember(meId) {
+        meId?.let { groups.observeDeletedGroups(it) } ?: flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
+    // Re-read whenever the tombstone set changes, so returning from Recently deleted clears the banner.
+    val seenAt by produceState(0L, deletedGroups) {
+        value = storage.getString(DELETES_SEEN_KEY)?.toLongOrNull() ?: 0L
+    }
     // Cold-start FX refresh (F2) — best-effort, so foreign-currency balances use today's rate.
     LaunchedEffect(Unit) { fx.refreshIfStale() }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -295,6 +321,8 @@ fun HomeRoute(
         onNewGroup = onNewGroup,
         onJoin = onJoin,
         onOpenArchived = onOpenArchived,
+        onOpenRecentlyDeleted = onOpenRecentlyDeleted,
+        deletedAlert = deletedAlertText(deletedGroups, meId, seenAt),
         onOpenSettings = onOpenSettings,
     )
 }
@@ -365,6 +393,160 @@ fun ArchivedRoute(onBack: () -> Unit) {
     )
 }
 
+/**
+ * Recently deleted, wired. Reads the tombstones directly rather than through [HomeViewModel] (which
+ * only carries a count) and resolves "Deleted by ..." against the signed-in user here, since the
+ * screen is DI-free and cannot tell whose id it is holding.
+ */
+@Composable
+fun RecentlyDeletedRoute(onBack: () -> Unit) {
+    val groups = koinInject<GroupRepository>()
+    val auth = koinInject<AuthSession>()
+    val scope = rememberCoroutineScope()
+    val userId by auth.currentUserId.collectAsStateWithLifecycle()
+    val deleted by remember(userId) {
+        userId?.let { groups.observeDeletedGroups(it) } ?: flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
+    var restoredMessage by remember { mutableStateOf<String?>(null) }
+    val now = Clock.System.nowEpochMillis()
+
+    // Opening this screen IS the acknowledgement, so it clears Home's banner. Keyed on the newest
+    // stamp rather than written once, so a delete that lands while the screen is open also counts as
+    // seen. Worst case the marker is missed and the banner shows once more, the cheap way to fail.
+    val storage = koinInject<SecureStorage>()
+    val newestDelete = deleted.maxOfOrNull { it.deletedAt } ?: 0L
+    LaunchedEffect(newestDelete) {
+        if (newestDelete > 0L) storage.putString(DELETES_SEEN_KEY, newestDelete.toString())
+    }
+
+    RecentlyDeletedScreen(
+        onBack = onBack,
+        groups =
+            deleted.map { g ->
+                val daysLeft = RecentlyDeleted.daysLeft(g.deletedAt, now)
+                DeletedGroupCardUi(
+                    id = g.id.value,
+                    emoji = g.emoji,
+                    name = g.name,
+                    deletedByLabel =
+                        when {
+                            g.deletedBy != null && g.deletedBy == userId -> "Deleted by you"
+
+                            // A name the roster has not synced yet, or a deleter who has since been anonymized
+                            // by account deletion. "Deleted" alone is honest; inventing "a member" is not.
+                            g.deletedByName.isNullOrBlank() -> "Deleted"
+
+                            else -> "Deleted by ${g.deletedByName}"
+                        },
+                    daysLeft = daysLeft,
+                    urgent = daysLeft <= URGENT_DAYS_LEFT,
+                )
+            },
+        onRestore = { id ->
+            val me = userId ?: return@RecentlyDeletedScreen
+            val name = deleted.firstOrNull { it.id.value == id }?.name
+            scope.launch {
+                restoredMessage =
+                    when (groups.restoreGroup(GroupId(id), me)) {
+                        is AppResult.Ok -> "${name ?: "The group"} is back for everyone"
+                        is AppResult.Err -> "Couldn't restore that group. Please try again."
+                    }
+            }
+        },
+        restoredMessage = restoredMessage,
+    )
+}
+
+/** The last week, where the countdown earns its color. */
+private const val URGENT_DAYS_LEFT = 7
+
+/**
+ * Newest group-deletion this device has been shown, as epoch millis. Device-local in [SecureStorage],
+ * exactly like `changesSeenKey`, and for the same reason: a "seen" marker is not financial data and
+ * adding a synced column for a banner would cost that table's sync if it went wrong.
+ *
+ * The tradeoff is the same too, and it is the right way round here: a second device tells you again
+ * that your group was deleted. That is a repeat of news worth hearing, not a nag.
+ */
+private const val DELETES_SEEN_KEY = "groups_deleted_seen_at"
+
+/**
+ * "Andrew deleted Tulum Trip." — the in-app stand-in for a push that cannot be sent yet.
+ *
+ * Only for deletions by SOMEONE ELSE: the person who tapped Delete watched a confirm sheet spell the
+ * consequences out and does not need to be told what they just did.
+ */
+private fun deletedAlertText(
+    deleted: List<DeletedGroup>,
+    me: UserId?,
+    seenAt: Long,
+): String? {
+    val fresh = deleted.filter { it.deletedBy != me && it.deletedAt > seenAt }
+    val newest = fresh.maxByOrNull { it.deletedAt } ?: return null
+    if (fresh.size > 1) return "${fresh.size} of your groups were deleted. Tap to restore them."
+    val who = newest.deletedByName?.takeIf { it.isNotBlank() }
+    return if (who != null) "$who deleted ${newest.name}. Tap to restore it." else "${newest.name} was deleted. Tap to restore it."
+}
+
+/**
+ * The deleted-group gate, wired. Rendered by [app.splitevenly.ui.screen.group.GroupHomeScreen] in place
+ * of its four tabs once the group carries a tombstone.
+ *
+ * The deleter's name comes off the roster this group already has locally rather than a lookup, and
+ * degrades to "This group was deleted" rather than inventing an actor when the row has not synced.
+ */
+@Composable
+fun GroupDeletedRoute(
+    groupId: String,
+    groupName: String,
+    groupEmoji: String,
+    deletedAt: Long,
+    deletedBy: String?,
+    onBackToGroups: () -> Unit,
+) {
+    val groups = koinInject<GroupRepository>()
+    val auth = koinInject<AuthSession>()
+    val scope = rememberCoroutineScope()
+    val gid = remember(groupId) { GroupId(groupId) }
+    val userId by auth.currentUserId.collectAsStateWithLifecycle()
+    val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
+    var restoring by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val deleterName = members.firstOrNull { it.userId.value == deletedBy }?.displayName
+    val on = shortDate(deletedAt)
+    val line =
+        when {
+            deletedBy != null && deletedBy == userId?.value -> "You deleted this group for everyone on $on."
+            !deleterName.isNullOrBlank() -> "$deleterName deleted this group for everyone on $on."
+            else -> "This group was deleted for everyone on $on."
+        }
+
+    GroupDeletedScreen(
+        groupName = groupName,
+        groupEmoji = groupEmoji,
+        deletedByLine = line,
+        daysLeft = RecentlyDeleted.daysLeft(deletedAt, Clock.System.nowEpochMillis()),
+        restoring = restoring,
+        error = error,
+        onRestore = {
+            val me = userId ?: return@GroupDeletedScreen
+            if (restoring) return@GroupDeletedScreen
+            restoring = true
+            error = null
+            scope.launch {
+                // On success the tombstone clears, GroupHomeScreen's flow re-emits, and this gate simply
+                // stops being rendered. No navigation needed.
+                if (groups.restoreGroup(gid, me) is AppResult.Err) {
+                    error = "Couldn't restore this group. Please try again."
+                }
+                restoring = false
+            }
+        },
+        onBackToGroups = onBackToGroups,
+    )
+}
+
 @Composable
 fun NewGroupRoute(
     onDismiss: () -> Unit,
@@ -408,7 +590,13 @@ fun JoinByLinkRoute(
  * session, or finishing onboarding) — the single choke point all three paths land on. A pending
  * deletion (from [AuthSession.pendingDeletionAt]) blocks the shell behind [PendingDeletionScreen]
  * instead: the account just asked to leave, so continuing to add expenses to groups it's about to
- * leave would be confusing. `checked == false` briefly holds blank rather than flashing Home first.
+ * leave would be confusing. [HomeGateState.Checking] briefly holds a blank page rather than flashing
+ * Home first.
+ *
+ * "Every entry to Home" means every entry to the *destination*, not every recomposition of it —
+ * which is why the check lives in [HomeGateViewModel], scoped to the Home back-stack entry. Popping
+ * a pushed screen (a group, Archived, Pro) re-composes this route, and a `remember` here would
+ * restart the check, blanking the screen behind a network call on every Back.
  */
 @Composable
 fun HomeGateRoute(
@@ -416,6 +604,7 @@ fun HomeGateRoute(
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
     onOpenArchived: () -> Unit,
+    onOpenRecentlyDeleted: () -> Unit,
     onSignedOut: () -> Unit,
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
@@ -423,51 +612,32 @@ fun HomeGateRoute(
     onOpenPro: () -> Unit,
 ) {
     val auth = koinInject<AuthSession>()
-    val scope = rememberCoroutineScope()
-    var checked by remember { mutableStateOf(false) }
-    var purgeAt by remember { mutableStateOf<Long?>(null) }
-    var cancelling by remember { mutableStateOf(false) }
-    var cancelError by remember { mutableStateOf<String?>(null) }
+    val gate = koinViewModel<HomeGateViewModel>()
+    val gateState by gate.state.collectAsStateWithLifecycle()
     val signOutFlow = rememberSignOutFlow(auth, onSignedOut)
-    LaunchedEffect(Unit) {
-        purgeAt =
-            when (val result = auth.pendingDeletionAt()) {
-                is AppResult.Ok -> result.value
-                is AppResult.Err -> null
-            }
-        checked = true
-    }
-    when {
-        !checked -> {
-            Unit
+    when (val g = gateState) {
+        // Page-colored, not transparent: an empty Box here would show the window through as black.
+        HomeGateState.Checking -> {
+            Box(Modifier.fillMaxSize().background(EvenlyTheme.colors.page))
         }
 
-        purgeAt != null -> {
+        is HomeGateState.Blocked -> {
             PendingDeletionScreen(
-                purgeAtMillis = purgeAt!!,
-                cancelling = cancelling,
-                error = cancelError,
-                onCancelDeletion = {
-                    cancelling = true
-                    cancelError = null
-                    scope.launch {
-                        when (auth.cancelAccountDeletion()) {
-                            is AppResult.Ok -> purgeAt = null
-                            is AppResult.Err -> cancelError = "Couldn't cancel deletion. Check your connection and try again."
-                        }
-                        cancelling = false
-                    }
-                },
+                purgeAtMillis = g.purgeAtMillis,
+                cancelling = g.cancelling,
+                error = g.error,
+                onCancelDeletion = gate::cancelDeletion,
                 onSignOut = signOutFlow::start,
             )
         }
 
-        else -> {
+        HomeGateState.Allowed -> {
             MainShell(
                 onOpenGroup = onOpenGroup,
                 onNewGroup = onNewGroup,
                 onJoin = onJoin,
                 onOpenArchived = onOpenArchived,
+                onOpenRecentlyDeleted = onOpenRecentlyDeleted,
                 onSignedOut = onSignedOut,
                 onSignIn = onSignIn,
                 onEditPaymentApps = onEditPaymentApps,

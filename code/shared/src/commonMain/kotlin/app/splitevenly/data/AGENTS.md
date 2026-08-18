@@ -449,6 +449,15 @@ None of these may ship to a real user. Refuse to mark the app prod-ready while a
    ephemeral non-financial data.)
 5. **Add concurrency guards to push** (Rule 5). Pull is guarded by `keepNewer`; push is still blind.
 6. **Turn on Supabase PITR + scheduled backups, and rehearse a restore** (Rule 12).
+7. **Schedule the group purge** — blocked on #6, and the reason #6 is now a hard blocker rather than
+   good hygiene. `purge_deleted_groups()` is written, applied, verified, and **deliberately not
+   scheduled**: it is the only hard delete of real user data in the project, so the header on it
+   refuses to run without a recovery path. It was scheduled on the live project on 2026-08-17 and
+   unscheduled the same day once that contradiction was noticed. Until it runs, deleted groups keep
+   their tombstones past 30 days server-side and the delete confirm sheet's promise that a group is
+   "gone for good, including from our servers" is **not true**. Nothing user-facing breaks meanwhile
+   (the client purges its own copy on day 30 regardless), which is exactly why this is easy to forget.
+   The one-liner to enable it is commented beside the function in `supabase/schema.sql`.
 
 ## The rules
 
@@ -469,6 +478,24 @@ user-data DAO; a Postgrest `.delete()` from client code on a user-data table.
 **The one hard delete to convert before prod:** `UserDao.delete` (`DELETE FROM users`; sole caller is the
 offline `StubAuthSession`) — see Rule 11. The other one (`ReceiptUploadDao.delete`) is a device-local
 outbox holding no user data and is legitimately exempt.
+
+**The one sanctioned hard delete of real user data is the group purge** (`GroupPurgeDao` here,
+`purge_deleted_groups()` in `supabase/schema.sql`), added 2026-08-17 by explicit owner decision. Do not
+read it as precedent and do not generalise it — it is exempt only because every part of the argument
+holds at once: the group was deleted **for every member**, no member has any surface left that can
+reach it, and the **30 days** they had to undo it have elapsed. Past that point a tombstone nobody can
+read is not a record, it is a copy of private financial data we told people we had deleted. Anything
+short of all three conditions is an ordinary soft delete. Both halves run the same 30-day rule off the
+same `groups.deleted_at`, and the constant lives in `domain/group/RecentlyDeleted.WINDOW_DAYS` — if the
+client's window ever exceeds the server's, the app offers a restore for rows the server already erased.
+
+**Delete/restore themselves are ordinary local-first Room writes**, not RPCs: `groups.deleted_at` /
+`deleted_by` ride the existing `SyncEngine` push like any other tombstone, which is what makes both work
+offline. Two things carry that and must not be "tidied":
+`members` rows stay **ACTIVE** through a delete (soft-leaving them makes `is_group_member` false, which
+revokes the RLS grant on the very row a member needs to restore *and* drops the group out of
+`pull`'s `activeGroupIds`, so no other device ever learns of the delete), and the RLS policies never
+filter `deleted_at`. `GroupDeleteTest` pins both.
 
 If a table lacks `deleted_at`/`deleted_by` and you're asked to delete from it: **stop and flag it.** Adding a
 hard delete as a workaround is itself a violation.

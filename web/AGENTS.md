@@ -12,6 +12,26 @@ offline. If you are adding a second *claim* screen that is not in `design/web-cl
 stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
 mockup (the "Finy-inspired" home/privacy/terms artifact) — a new marketing page is in scope there.
 
+**`/waitlist` is a second visual system inside `src/marketing/`, on purpose.** Home, privacy and
+terms are the editorial one: white paper, Fraunces serif accents, hairline rules. The waitlist is
+not — cool ground, no white page, one bloom colour per card, sans-only display at 58px. Its mockup is
+`design/waitlist-bevel.html` (the join pill's skin comes from `design/waitlist-pill-variations.html`);
+`design/waitlist-final.html` is the *previous* design of the same page and is history, not a target.
+Everything it owns lives under "§2 onwards" in `marketing.css`. Do not harmonise the two systems
+without being asked: the divergence was the decision, not an oversight.
+
+**The hero is now a third system, and it is animated.** As of 2026-08-18 the page opens with
+`§0 landing hero` in `marketing.css` plus `src/marketing/heroLoop.ts`, ported from
+`design/landing-hero-v2.html`; the editorial serif hero it replaced is gone. Cards fly into the
+phone and their results fly out. **Every constant in `heroLoop.ts` was measured off a screen
+capture of the reference site, not chosen** — lane convergence, perspective scale, the velocity
+ramp, the pair dwell, the concurrency mix. `design/landing-hero-cards.html` is the working that
+produced them and is the thing to read before retuning any of them. Two traps that already cost a
+debugging pass: a hidden tab throttles animations but not timers, so the scheduler must check
+`document.hidden` or cards pile up behind the phone; and headless Chrome enforces a minimum window
+width, so a narrow-viewport screenshot is not evidence of a mobile bug — measure `scrollWidth` in a
+real browser instead.
+
 `src/lib/money/` is the ported split math; `src/screens/` is mostly the claim flow's Svelte surface,
 frames 1-9, plus `ThankYouScreen.svelte` (feedback build-order step 5, `ADMIN_FEEDBACK_SPEC.md` §10) —
 standalone and unrouted until step 6 wires up `/feedback` itself. `src/marketing/` is the home/privacy/terms pages, styled by `src/marketing.css` (`site-`-prefixed

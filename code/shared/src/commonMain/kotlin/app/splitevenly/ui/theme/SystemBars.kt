@@ -13,3 +13,20 @@ import androidx.compose.runtime.Composable
  */
 @Composable
 expect fun SystemBarsAppearance(darkTheme: Boolean)
+
+/**
+ * Force an *embedded native* surface — one the OS renders itself rather than Compose drawing it, e.g.
+ * RevenueCat's `Paywall()` — to honor [darkTheme] instead of independently re-reading the raw OS setting.
+ *
+ * RevenueCat's paywall composable calls `isSystemInDarkTheme()` on its own, which reads the OS setting
+ * directly and ignores [EvenlyTheme]'s `darkTheme` override entirely. A user who picks Light while their
+ * phone is set to Dark (or vice versa) would otherwise see a paywall in the wrong mode. Android overrides
+ * the `Configuration` composition local so the nested Compose read picks it up; iOS overrides the key
+ * window's `overrideUserInterfaceStyle`, since the native paywall there is a real `UIViewController`
+ * outside the Compose tree and inherits its trait collection from the window.
+ */
+@Composable
+expect fun ForceNativeDarkMode(
+    darkTheme: Boolean,
+    content: @Composable () -> Unit,
+)

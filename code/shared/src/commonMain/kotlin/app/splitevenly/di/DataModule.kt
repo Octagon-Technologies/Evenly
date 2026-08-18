@@ -57,6 +57,7 @@ val dataModule: Module =
         // DAOs
         single { get<EvenlyDatabase>().userDao() }
         single { get<EvenlyDatabase>().groupDao() }
+        single { get<EvenlyDatabase>().groupPurgeDao() }
         single { get<EvenlyDatabase>().memberDao() }
         single { get<EvenlyDatabase>().expenseDao() }
         single { get<EvenlyDatabase>().shareDao() }
@@ -110,6 +111,8 @@ val dataModule: Module =
                 remoteGroups = getOrNull<RemoteGroupGateway>(),
                 receiptDao = get(),
                 analytics = getOrNull<EvAnalytics>(),
+                groupPurgeDao = get(),
+                receiptFiles = getOrNull(),
             )
         }
         // ExpenseRepository takes the FX repo + group DAO so balances convert to the group base currency (F2),

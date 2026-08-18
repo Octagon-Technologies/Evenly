@@ -81,6 +81,46 @@ nightly batch. All grace-period arithmetic is `bigint` epoch-millis (matching `u
 `updated_at`) — seed the day-count constant as an explicit `::bigint` literal, since
 `30 * 24 * 60 * 60 * 1000` overflows `int4` before Postgres ever promotes it.
 
+## Group deletion — the only hard delete of user data in this schema
+
+A group can be deleted **for everyone**, by any ACTIVE member, recoverable for 30 days from Home →
+Recently deleted. The delete and the restore are **not RPCs**: they are local-first Room writes to
+`groups.deleted_at` / `deleted_by` (added 2026-08-17) that ride the normal `SyncEngine` push, so both
+work offline. Two existing properties are what carry them, and neither may be "tidied":
+
+- **RLS never filters `deleted_at`** (rule 3 below), so a deleted group stays readable and writable by
+  its members. That is what lets any of them restore it.
+- **`members` rows stay ACTIVE through a delete.** Soft-leaving them is the obvious-looking move and
+  breaks two things silently: `is_group_member` goes false, revoking the grant on the row the member
+  needs to restore, and `pull`'s `activeGroupIds` drops the group, so no other device ever learns it
+  was deleted.
+
+Only the purge needs the server, because only the server can act 30 days later.
+`purge_deleted_groups()` carries a `-- DESTRUCTIVE OPERATION` header with its pre-checks filled in per
+Rule 8, is revoked from `anon` **and** `authenticated`, and hard-deletes the group plus all 23 of its
+row sets, its placeholder `users` rows, and its receipt bytes under the `receipts/<group_id>/` prefix
+(never bucket-wide).
+
+**It exists but is NOT scheduled, on purpose.** Its own header forbids scheduling on a project without
+PITR, and P0 #6 in `data/AGENTS.md` is still open; it was scheduled on the live project on 2026-08-17
+and unscheduled the same day. Do not re-add the `cron.schedule` call to close the gap it leaves — the
+one-liner to enable it, and what the gap costs, are commented at that spot in `schema.sql`. Until it
+runs, tombstones simply accumulate past 30 days. Nothing user-facing breaks (the client still purges
+its own copy on day 30), but the confirm sheet's promise that a group is "gone for good, including
+from our servers" is not yet true server-side, which makes this a **launch blocker, not a nice-to-have**.
+
+**Three tables are deliberately NOT purged**, and each for a different reason: `group_passes` (an
+Evenly Pro pass is a *purchase* — support and finance need the record, and one member deleting a group
+must never destroy what another paid for; the confirm sheet tells the deleter it is not refunded),
+`receipt_scan_log` (per-USER cost ledger and rate-limit history; erasing it on group delete would also
+hand anyone a way to reset their own scan quota), and `users`/`user_subscriptions` for real accounts
+(per-person, shared across groups). `group_passes.group_id` is left dangling by design.
+
+The client runs the **same 30-day rule on its own timer** (`GroupPurgeDao`, triggered from Home) rather
+than following the server, because after the server purge there is nothing left to follow: the group
+stops appearing in any pull response, and `land()` only ever upserts what came back. The two windows
+are the same number in two places (`domain/group/RecentlyDeleted.WINDOW_DAYS`) and must move together.
+
 ## The guest's Zone-2 write path — the one thing `merge_expense` cannot do
 
 `merge_expense` runs as the authenticated caller. The `web-claim` edge function has a service key and

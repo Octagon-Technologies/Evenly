@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -104,13 +105,18 @@ sealed interface PassSheetPhase {
  * The group-pass sheet (`PRO_PASS_SPEC.md` §8.3) — ours, not RevenueCat's, because RevenueCat's paywall
  * editor cannot render consumables (§2.1).
  *
- * Three copy points here are load-bearing rather than decorative:
+ * Two copy points here are load-bearing rather than decorative:
  *  - **The group name is in the headline and on the button.** Buying for the wrong group is the single
  *    mistake this design can produce, so the group is named at the moment of the tap, not just above it.
- *  - **"One time. It does not renew. Nothing to cancel."** sits above the button in ink, not in grey
- *    fine print. It is the entire differentiator from the subscription; burying it wastes it.
- *  - **"You can still add bills by hand for free."** keeps the exit visible, which is what makes this a
- *    choice rather than a wall.
+ *  - **The button carries the price, not just the verb.** "Get 1 Month Pass $3.99" needs no glance back
+ *    up the screen; a bare "Get Pro" does.
+ *
+ * The rest of the footer is deliberately light, per owner UX review: a pricing screen with three tiers
+ * already asks for one decision, and stacking renewal-terms/coverage paragraphs under it is a worse
+ * trade than leaving them out. [PassSheetMode.Fresh] renders no disclaimer line at all; [Extend] still
+ * states what it stacks onto, because that is information a buyer needs, not boilerplate. The
+ * subscription cross-link ([onSeeSubscription]) is a full row rather than a footer link so it does not
+ * read as buried fine print, since it is a real fork for anyone in more than one group.
  *
  * Prices are the store's own localized strings ([PassOffer.price]), never assembled here.
  */
@@ -284,58 +290,69 @@ fun PassSheet(
             }
         }
 
-        Text(
-            "One time. It does not renew. Nothing to cancel.",
-            Modifier.fillMaxWidth().padding(top = 12.dp),
-            color = c.ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            when (mode) {
-                is PassSheetMode.Extend -> {
-                    when {
-                        // Naming the viewer back at themselves ("Bob's pass runs to...") reads as a
-                        // second person's purchase and makes the stacking question harder, not easier.
-                        mode.isMe -> {
-                            "Your pass runs to ${mode.currentExpiresOn}. The new one picks up from there."
-                        }
-
-                        mode.holderName != null -> {
-                            "${mode.holderName}'s pass runs to ${mode.currentExpiresOn}. Yours picks up from there."
-                        }
-
-                        else -> {
-                            "The current pass runs to ${mode.currentExpiresOn}. Yours picks up from there."
-                        }
+        // Stacking needs saying (the new pass adds to an existing one rather than starting over); a
+        // fresh purchase does not, so [Fresh] renders no footer line here at all.
+        if (mode is PassSheetMode.Extend) {
+            Text(
+                when {
+                    // Naming the viewer back at themselves ("Bob's pass runs to...") reads as a
+                    // second person's purchase and makes the stacking question harder, not easier.
+                    mode.isMe -> {
+                        "Your pass runs to ${mode.currentExpiresOn}. The new one picks up from there."
                     }
-                }
 
-                // Export is named because a pass DOES cover it: someone who bought a pass and then hit
-                // the export gate would have been sold something they already had.
-                else -> {
-                    "Covers everyone in this group, scans and export. You can still add bills by hand for free."
-                }
-            },
-            Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp),
-            color = c.ink3,
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-        )
-        onSeeSubscription?.let { seePro ->
-            Box(
-                Modifier.fillMaxWidth().clickable(onClick = seePro).padding(top = 10.dp, bottom = 2.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "In more than one group? See Evenly Pro",
-                    color = c.blueText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+                    mode.holderName != null -> {
+                        "${mode.holderName}'s pass runs to ${mode.currentExpiresOn}. Yours picks up from there."
+                    }
+
+                    else -> {
+                        "The current pass runs to ${mode.currentExpiresOn}. Yours picks up from there."
+                    }
+                },
+                Modifier.fillMaxWidth().padding(top = 10.dp),
+                color = c.ink3,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+            )
         }
+        onSeeSubscription?.let { seePro ->
+            ProUpsellRow(onClick = seePro, modifier = Modifier.padding(top = 10.dp))
+        }
+    }
+}
+
+/**
+ * The mirror of the paywall's "Only need it for one trip?": whichever door someone came through, the
+ * other product is one tap away and named. A tinted, bordered row rather than a footer link so it reads
+ * as a real second option, not fine print.
+ */
+@Composable
+private fun ProUpsellRow(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(13.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.blueTint)
+            .border(1.dp, c.blueTint2, shape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("In more than one group?", color = c.ink, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Unlimited scans in every group you're in",
+                Modifier.padding(top = 1.dp),
+                color = c.ink2,
+                fontSize = 11.sp,
+            )
+        }
+        Text("›", color = c.blueText, fontSize = 15.sp)
     }
 }
 
@@ -388,6 +405,12 @@ private fun AlreadyCoveredBody(
     EvButton(text = "Back to $groupName", onClick = onDismiss, variant = ButtonVariant.Secondary)
 }
 
+/**
+ * The 1 Week, 2 Week and 1 Month cards are the same length and height as each other by construction:
+ * [flag] renders as a chip pinned to the top border, outside the card's own padding, rather than a row
+ * reserved inside every card. Only the flagged card grows for it, which is deliberate (owner UX review)
+ * rather than a byproduct to fix.
+ */
 @Composable
 private fun TierCard(
     offer: PassOffer,
@@ -398,21 +421,33 @@ private fun TierCard(
 ) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(12.dp)
-    Column(
-        modifier
-            .clip(shape)
-            .background(if (selected) c.blueTint else c.page)
-            .border(if (selected) 1.5.dp else 1.dp, if (selected) c.blue else c.border, shape)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        flag?.let {
-            Text(it, color = c.blueText, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+    Box(modifier) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(if (selected) c.blueTint else c.page)
+                .border(if (selected) 1.5.dp else 1.dp, if (selected) c.blue else c.border, shape)
+                .clickable(onClick = onClick)
+                .padding(vertical = 12.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(offer.title, color = c.ink2, fontSize = 12.sp, textAlign = TextAlign.Center)
+            Text(offer.price, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
-        Text(offer.title, color = c.ink2, fontSize = 12.sp, textAlign = TextAlign.Center)
-        Text(offer.price, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        flag?.let {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-8).dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(c.blue)
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+            ) {
+                Text(it, color = c.onAccent, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp)
+            }
+        }
     }
 }
 

@@ -20,6 +20,7 @@ import app.splitevenly.data.db.dao.FxCurrencyDao
 import app.splitevenly.data.db.dao.FxRateDao
 import app.splitevenly.data.db.dao.GroupDao
 import app.splitevenly.data.db.dao.GroupPassDao
+import app.splitevenly.data.db.dao.GroupPurgeDao
 import app.splitevenly.data.db.dao.GroupScanUsageDao
 import app.splitevenly.data.db.dao.HistoryEventDao
 import app.splitevenly.data.db.dao.ItemClaimDao
@@ -118,7 +119,7 @@ import kotlinx.coroutines.Dispatchers
         SupersededNoticeEntity::class,
         FeedbackOutboxEntity::class,
     ],
-    version = 30,
+    version = 31,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -126,6 +127,8 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
 
     abstract fun groupDao(): GroupDao
+
+    abstract fun groupPurgeDao(): GroupPurgeDao
 
     abstract fun memberDao(): MemberDao
 

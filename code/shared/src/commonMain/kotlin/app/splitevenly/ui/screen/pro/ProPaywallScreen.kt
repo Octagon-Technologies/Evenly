@@ -24,6 +24,8 @@ import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
+import app.splitevenly.ui.theme.ForceNativeDarkMode
+import app.splitevenly.ui.theme.LocalIsDarkTheme
 import com.revenuecat.purchases.kmp.models.CustomerInfo
 import com.revenuecat.purchases.kmp.models.Offering
 import com.revenuecat.purchases.kmp.models.StoreTransaction
@@ -111,7 +113,11 @@ fun ProPaywallScreen(
             navIcon = { EvIconButton(EvIcons.Back, onClick = onDismiss) },
             showDivider = false,
         )
-        Box(Modifier.weight(1f)) { Paywall(options) }
+        Box(Modifier.weight(1f)) {
+            // RevenueCat's Paywall() reads the raw OS dark-mode setting itself, ignoring EvenlyTheme's
+            // own darkTheme (see ForceNativeDarkMode's doc), so it must be told explicitly.
+            ForceNativeDarkMode(darkTheme = LocalIsDarkTheme.current) { Paywall(options) }
+        }
         // Measured from the bottom of the screen, not from the navigation-bar inset: the footer is meant
         // to sit tight to the edge. See the note on FOOTER_BOTTOM_MARGIN.
         Column(Modifier.fillMaxWidth().background(c.page).padding(bottom = FOOTER_BOTTOM_MARGIN)) {
