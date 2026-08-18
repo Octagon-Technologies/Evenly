@@ -24,7 +24,7 @@ type PageSeo = {
 
 export const PAGES: Record<PageKind, PageSeo> = {
   waitlist: {
-    title: 'Evenly — Split the bill by item, no app needed for your friends',
+    title: 'Evenly: Tracking group expenses made easy',
     description:
       'Evenly scans the receipt, splits it by item, and lets everyone at the table claim what they ate from a link in the group chat. No downloads, no accounts, no chasing. Join the waitlist for early access.',
     canonical: '/',
