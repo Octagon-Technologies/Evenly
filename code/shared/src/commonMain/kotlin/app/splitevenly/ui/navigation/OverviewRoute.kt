@@ -27,7 +27,7 @@ import kotlin.time.ExperimentalTime
  */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun OverviewRoute(groupId: String, onBack: () -> Unit, onExport: () -> Unit) {
+fun OverviewRoute(groupId: String, onBack: () -> Unit) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
     val categoriesRepo = koinInject<CategoryRepository>()
@@ -58,6 +58,5 @@ fun OverviewRoute(groupId: String, onBack: () -> Unit, onExport: () -> Unit) {
         currencyCode = ui.currencyCode,
         balances = ui.balances,
         onBack = onBack,
-        onExport = onExport,
     )
 }

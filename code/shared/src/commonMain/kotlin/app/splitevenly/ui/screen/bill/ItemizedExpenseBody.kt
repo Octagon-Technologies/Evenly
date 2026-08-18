@@ -30,6 +30,9 @@ import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.screen.expense.PickedReceiptStrip
+import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /**
@@ -41,6 +44,7 @@ class ItemizedBillState {
     var items by mutableStateOf(listOf(editBillItemUi(null, "", 1, 0L)))
     var taxText by mutableStateOf("")
     var gratuityText by mutableStateOf("")
+    var otherChargesText by mutableStateOf("")
     var tipText by mutableStateOf("")
     var discountText by mutableStateOf("")
 
@@ -57,7 +61,7 @@ class ItemizedBillState {
 
     val totalSubunits: Long
         get() = subtotalSubunits + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
-            priceToSubunits(tipText) - priceToSubunits(discountText)
+            priceToSubunits(otherChargesText) + priceToSubunits(tipText) - priceToSubunits(discountText)
 
     /** Save is gated on this: a bill needs at least one named line. */
     val hasItem: Boolean get() = items.any { it.label.trim().isNotEmpty() }
@@ -67,6 +71,7 @@ class ItemizedBillState {
         items = scanned.items
         taxText = scanned.taxText
         gratuityText = scanned.gratuityText
+        otherChargesText = scanned.otherChargesText
         tipText = scanned.tipText
         discountText = scanned.discountText
         showUnverifiedNotice = !scanned.verified
@@ -89,12 +94,16 @@ fun ItemizedExpenseBody(
     state: ItemizedBillState,
     symbol: String,
     currencyCode: String,
-    attachedReceiptCount: Int,
+    attachedReceipts: List<PickedReceiptUi>,
+    onRemoveAttachedReceipt: (Int) -> Unit,
+    onOpenAttachedReceipt: (Int) -> Unit,
     showErrors: Boolean,
     saving: Boolean,
     saveLabel: String,
     onScanClick: () -> Unit,
     onSave: () -> Unit,
+    // Null on every path that has no group context yet, and on Pro groups — see scanMeterFor.
+    scanMeter: ScanMeter? = null,
 ) {
     val c = EvenlyTheme.colors
     // Scan is the marquee action — a hero card at the top. A whisper-soft neutral shadow
@@ -124,23 +133,21 @@ fun ItemizedExpenseBody(
         }
         EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.blueText)
     }
+    // Under the card, not on it: the count is a fact about the group, not a property of the button.
+    ScanQuotaMeter(scanMeter)
     // Sits directly under the scan card, above the items it is talking about.
     if (state.showUnverifiedNotice) {
         UnverifiedReceiptNotice(onDismiss = { state.showUnverifiedNotice = false })
     }
-    if (attachedReceiptCount > 0) {
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.blueTint).padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            EvIcon(EvIcons.Receipt, size = 16.dp, tint = c.blueText)
-            Text(
-                if (attachedReceiptCount == 1) "Receipt attached, saves with the bill"
-                else "$attachedReceiptCount receipt pages attached, save with the bill",
-                color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-            )
-        }
+    if (attachedReceipts.isNotEmpty()) {
+        PickedReceiptStrip(
+            receipts = attachedReceipts,
+            label = if (attachedReceipts.size == 1) "Receipt" else "Receipt pages",
+            caption = "Saves with the bill.",
+            onAddClick = null, // pages come from the scan above, so there is no second way to add one
+            onRemoveReceipt = onRemoveAttachedReceipt,
+            onOpenReceipt = onOpenAttachedReceipt,
+        )
     }
     // A quiet "or add items by hand" divider under the scan hero, then the item list.
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -179,6 +186,7 @@ fun ItemizedExpenseBody(
         currencyCode = currencyCode,
         taxText = state.taxText, onTax = { state.taxText = it },
         gratuityText = state.gratuityText, onGratuity = { state.gratuityText = it },
+        otherChargesText = state.otherChargesText, onOtherCharges = { state.otherChargesText = it },
         tipText = state.tipText, onTip = { state.tipText = it },
         discountText = state.discountText, onDiscount = { state.discountText = it },
     )

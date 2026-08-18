@@ -21,4 +21,11 @@ async function boot() {
 
 void boot();
 
-export default mount(App, { target: document.getElementById('app')! });
+// `prerender.mjs` ships each marketing route's HTML inside `#app` so a crawler (and a slow
+// connection) sees the page without running this bundle. That markup is a *prerender*, not
+// hydration state: empty it, then mount, and the two never have to agree. Hydrating instead would
+// save a few milliseconds and risk a mismatch on a page whose hero is an animation.
+const target = document.getElementById('app')!;
+target.replaceChildren();
+
+export default mount(App, { target });

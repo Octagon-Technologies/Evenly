@@ -514,6 +514,10 @@ async function actionBill(sb: SupabaseClient, body: { token?: string }): Promise
       taxSubunits: ctx.expense.tax_subunits, gratuitySubunits: ctx.expense.gratuity_subunits,
       tipSubunits: ctx.expense.tip_subunits, tipSplitMode: ctx.expense.tip_split_mode,
       discountSubunits: ctx.expense.discount_subunits,
+      // Rides proportionally like tax. Omitting it here would make the guest's instant total short by a
+      // delivery fee while the app's total (which reads the same column) was right — the one thing the TS
+      // port is never allowed to do (web/AGENTS.md: stale by a poll, never disagreeing).
+      otherChargesSubunits: ctx.expense.other_charges_subunits,
       // The causal version the guest read, which she hands back when naming the payer (spec §5.5,
       // E25). It is a *base*, not a claim: the server decides whether it is still current.
       splitVersion: ctx.expense.split_version ?? 1,

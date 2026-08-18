@@ -1,0 +1,10 @@
+# Everything on this site is public except a bill link, which is a capability URL: /b/<token>
+# grants whoever holds it the ability to claim items on someone's dinner. It must never be
+# crawled, and `seo.ts` marks it `noindex, nofollow` at runtime as well.
+User-agent: *
+Allow: /
+Disallow: /b/
+Disallow: /admin
+Disallow: /*?b=
+
+Sitemap: https://split-evenly.app/sitemap.xml

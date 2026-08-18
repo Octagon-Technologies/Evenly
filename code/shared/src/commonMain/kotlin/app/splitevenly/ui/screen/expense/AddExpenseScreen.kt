@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -36,9 +37,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.CategoryDefaults
 import app.splitevenly.domain.expense.GroupCategory
+import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.AvatarSize
+import app.splitevenly.ui.components.BannerVariant
 import app.splitevenly.ui.components.EvAvatar
+import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSelectField
@@ -60,10 +64,11 @@ import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
 
 /** A participant the expense can be split between (real members are passed by the route). */
-data class AddParticipantUi(val userId: String, val name: String, val isMe: Boolean)
-
-/** A locally-picked receipt held on the editor until the expense exists; uploaded in the background on save. */
-data class PickedReceiptUi(val isPdf: Boolean)
+data class AddParticipantUi(
+    val userId: String,
+    val name: String,
+    val isMe: Boolean,
+)
 
 /**
  * 13 · Add / edit expense (design/src/screens-addexpense.jsx) — the full split editor. This file owns the
@@ -83,6 +88,14 @@ fun AddExpenseScreen(
     categories: List<GroupCategory> = CategoryDefaults.all,
     currencyCode: String = "USD",
     saving: Boolean = false,
+    /**
+     * Set when a save the editor could not have predicted came back refused, so the tap says something
+     * instead of just un-sticking the Save button. The one case today is re-denominating an expense that
+     * already carries a recorded payment (R1) — the editor cannot gate the currency chip on it, because
+     * whether anyone has paid is a fact only the repository holds.
+     */
+    notice: String? = null,
+    onDismissNotice: () -> Unit = {},
     prefill: AddExpensePrefill? = null,
     // Who was on the group's most recent expense — defaults a brand-new expense's participant selection
     // to "whoever was actually there last time" instead of the whole group. Ignored when [prefill] is set
@@ -93,9 +106,22 @@ fun AddExpenseScreen(
     // ── itemized ("By what each had") body — only used when creating (editing keeps its single mode) ──
     // The scan pipeline is driven by the route: [scanState] shows progress/errors, [scanned] delivers a
     // completed draft that pre-fills the item list, and the on* callbacks pick/cancel/retry the scan.
+    // Free-scan meter under the scan hero. Null on a Pro group, and until the count is known
+    // (PRO_PASS_SPEC.md §8.1) — the screen never invents one.
+    scanMeter: ScanMeter? = null,
     scanState: ScanUiState = ScanUiState.Idle,
+    // Evenly Pro (PRO_PASS_SPEC.md §8.1): at zero free scans the refusal sheet grows a door. Both are
+    // null in the unconfigured build, and the sheet then reads exactly as it did before.
+    groupName: String? = null,
+    onGetPro: (() -> Unit)? = null,
     scanned: EditBillState? = null,
-    attachedReceiptCount: Int = 0,
+    // The pages that were scanned. They are a receipt in their own right, kept whatever the OCR made of
+    // them, so they get the same strip (and the same viewer) as a hand-picked one.
+    attachedReceipts: List<PickedReceiptUi> = emptyList(),
+    onRemoveAttachedReceipt: (Int) -> Unit = {},
+    // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
+    loadPdfPageCount: suspend (url: String) -> Int = { 0 },
+    renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     onBack: () -> Unit = {},
     onSave: (AddExpenseSubmit) -> Unit = {},
     onSaveItemized: (EditBillSubmit) -> Unit = {},
@@ -116,6 +142,8 @@ fun AddExpenseScreen(
     // Flips true the first time Save is tapped while incomplete — the gaps then turn red.
     var showErrors by remember { mutableStateOf(false) }
     var showReceiptSource by remember { mutableStateOf(false) }
+    // Which staged receipt the full-screen viewer is open on; null = closed.
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
     // Currency is editable (F2): seed from the group base, let the user pick a foreign currency.
     var currency by remember { mutableStateOf(currencyCode) }
     val symbol = currencySymbol(currency)
@@ -128,7 +156,8 @@ fun AddExpenseScreen(
     var selected by remember {
         mutableStateOf(
             prefill?.selectedUserIds
-                ?: lastExpenseParticipantIds.filterTo(HashSet()) { id -> participants.any { it.userId == id } }
+                ?: lastExpenseParticipantIds
+                    .filterTo(HashSet()) { id -> participants.any { it.userId == id } }
                     .takeIf { it.isNotEmpty() }
                 ?: participants.map { it.userId }.toSet(),
         )
@@ -156,17 +185,21 @@ fun AddExpenseScreen(
         }
     }
 
-    val effectivePayerId = participants.firstOrNull { it.userId == payerId }?.userId
-        ?: participants.firstOrNull { it.isMe }?.userId
-        ?: participants.firstOrNull()?.userId
-        ?: ""
+    val effectivePayerId =
+        participants.firstOrNull { it.userId == payerId }?.userId
+            ?: participants.firstOrNull { it.isMe }?.userId
+            ?: participants.firstOrNull()?.userId
+            ?: ""
     val payer = participants.firstOrNull { it.userId == effectivePayerId }
     val isOutsidePayer = !outsidePayerName.isNullOrBlank()
     val payerDisplayName = if (isOutsidePayer) outsidePayerName!! else (payer?.name ?: "You")
     // Auto-select members that appear after a placeholder is added, without re-selecting ones the user deselected.
     LaunchedEffect(participants) {
         val fresh = participants.map { it.userId }.toSet() - known
-        if (fresh.isNotEmpty()) { selected = selected + fresh; known = known + fresh }
+        if (fresh.isNotEmpty()) {
+            selected = selected + fresh
+            known = known + fresh
+        }
     }
 
     val selectedList = participants.filter { it.userId in selected }
@@ -197,24 +230,27 @@ fun AddExpenseScreen(
                     items = itemized.namedItems(),
                     taxSubunits = priceToSubunits(itemized.taxText),
                     gratuitySubunits = priceToSubunits(itemized.gratuityText),
+                    otherChargesSubunits = priceToSubunits(itemized.otherChargesText),
                     tipSubunits = priceToSubunits(itemized.tipText),
                     discountSubunits = priceToSubunits(itemized.discountText),
                     participantIds = selected,
                     payerUserId = if (isOutsidePayer) null else effectivePayerId,
                 ),
             )
-        } else onSave(
-            AddExpenseSubmit(
-                amountSubunits = divide.amountSubunits,
-                title = title.trim(),
-                payerUserId = if (isOutsidePayer) "" else effectivePayerId,
-                payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
-                mode = divide.mode,
-                currency = currency,
-                categoryId = categoryId,
-                shares = divide.shares(ids),
-            ),
-        )
+        } else {
+            onSave(
+                AddExpenseSubmit(
+                    amountSubunits = divide.amountSubunits,
+                    title = title.trim(),
+                    payerUserId = if (isOutsidePayer) "" else effectivePayerId,
+                    payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
+                    mode = divide.mode,
+                    currency = currency,
+                    categoryId = categoryId,
+                    shares = divide.shares(ids),
+                ),
+            )
+        }
     }
 
     // Up-front split-type question: a focused editor beats a toggle you can flip by accident. Until it's
@@ -222,31 +258,55 @@ fun AddExpenseScreen(
     if (splitApproach == null) {
         Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
             EvTopBar(title = "New expense", navIcon = { EvIconButton(EvIcons.Close, onBack) })
-            SplitApproachChooser(onChoose = { splitApproach = it; onSplitApproachChosen(it) })
+            SplitApproachChooser(onChoose = {
+                splitApproach = it
+                onSplitApproachChosen(it)
+            })
         }
         return
     }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         EvTopBar(
-            title = if (editing) "Edit expense" else if (isItemized) "Restaurant bill" else "Split one amount",
-            navIcon = { EvIconButton(if (editing) EvIcons.Close else EvIcons.Back, { if (editing) onBack() else splitApproach = null }) },
+            title =
+                if (editing) {
+                    "Edit expense"
+                } else if (isItemized) {
+                    "Restaurant bill"
+                } else {
+                    "Split one amount"
+                },
+            navIcon = {
+                EvIconButton(
+                    if (editing) EvIcons.Close else EvIcons.Back,
+                    { if (editing) onBack() else splitApproach = null },
+                )
+            },
             actions = {
                 // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
                 val active = !saving
                 val bg = if (active) c.blue else c.blueTint2
                 val fg = if (active) c.onAccent else c.disabledInk
                 Box(
-                    Modifier.clip(RoundedCornerShape(11.dp)).background(bg)
+                    Modifier
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(bg)
                         .then(if (active) Modifier.clickable { submit() } else Modifier)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
             },
         )
+        notice?.let {
+            Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
+                EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
+            }
+        }
         Column(
-            Modifier.fillMaxSize()
+            Modifier
+                .fillMaxSize()
                 .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
-                .verticalScroll(scrollState).padding(16.dp),
+                .verticalScroll(scrollState)
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // ── shared header: title, category, paid by, participants — entered once, both modes ──
@@ -281,7 +341,10 @@ fun AddExpenseScreen(
                         { showPayerDialog = true },
                         leading = {
                             if (isOutsidePayer) {
-                                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                Box(
+                                    Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
+                                    contentAlignment = Alignment.Center,
+                                ) {
                                     EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
                                 }
                             } else {
@@ -301,11 +364,17 @@ fun AddExpenseScreen(
                             leading = {
                                 if (selectedCategory != null) {
                                     val catColor = Color(selectedCategory.colorHex)
-                                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                                    Box(
+                                        Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
                                         EvIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
                                     }
                                 } else {
-                                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                                    Box(
+                                        Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
                                         EvIcon(EvIcons.Tag, size = 15.dp, tint = c.blueText)
                                     }
                                 }
@@ -316,13 +385,16 @@ fun AddExpenseScreen(
                 paidByField()
             }
 
-            // receipt — held locally, uploaded in the background right after the expense is created. Only
-            // in the divide flow; the itemized body attaches the pages you scan instead.
+            // receipt — compressed and on disk the moment it is picked, so it previews here and uploads
+            // once the expense exists. Only in the divide flow; the itemized body shows the scanned pages.
             if (receiptsEnabled && !isItemized) {
                 PickedReceiptStrip(
                     receipts = receipts,
+                    label = "Receipt",
+                    caption = "Uploads when you save.",
                     onAddClick = { showReceiptSource = true },
                     onRemoveReceipt = onRemoveReceipt,
+                    onOpenReceipt = { viewerIndex = it },
                 )
             }
 
@@ -333,12 +405,15 @@ fun AddExpenseScreen(
                         state = itemized,
                         symbol = symbol,
                         currencyCode = currency,
-                        attachedReceiptCount = attachedReceiptCount,
+                        attachedReceipts = attachedReceipts,
+                        onRemoveAttachedReceipt = onRemoveAttachedReceipt,
+                        onOpenAttachedReceipt = { viewerIndex = it },
                         showErrors = showErrors,
                         saving = saving,
                         saveLabel = "Save & assign items",
                         onScanClick = { showScanSource = true },
                         onSave = { submit() },
+                        scanMeter = scanMeter,
                     )
                 } else {
                     DivideSplitBody(
@@ -399,28 +474,57 @@ fun AddExpenseScreen(
         )
     }
 
+    // The staged viewer covers the editor, so it renders last and outside the scrolling Column. Which list
+    // it shows follows the body in view: the divide flow's attachment or the itemized flow's scanned pages.
+    val viewable = if (isItemized) attachedReceipts else receipts
+    // Close it if the receipt it was showing got removed underneath it.
+    LaunchedEffect(viewable.size) {
+        if ((viewerIndex ?: -1) >= viewable.size) viewerIndex = null
+    }
+    viewerIndex?.takeIf { it in viewable.indices }?.let { index ->
+        StagedReceiptViewer(
+            receipts = viewable,
+            initialIndex = index,
+            loadPdfPageCount = loadPdfPageCount,
+            renderPdfPage = renderPdfPage,
+            onClose = { viewerIndex = null },
+        )
+    }
+
     // ── itemized scan sheets: source picker + progress/error, driven by the route's scan state ──
     if (showScanSource) {
         ScanSourceSheet(onScan = onScanReceipt, onDismiss = { showScanSource = false })
     }
     when (val s = scanState) {
-        is ScanUiState.Working -> ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
-        is ScanUiState.Failed -> ScanErrorSheet(
-            kind = s.kind,
-            onManual = onDismissScan,
-            onRetry = onRetryScan,
-            onPickAgain = { onDismissScan(); showScanSource = true },
-        )
+        is ScanUiState.Working -> {
+            ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
+        }
+
+        is ScanUiState.Failed -> {
+            ScanErrorSheet(
+                kind = s.kind,
+                onManual = onDismissScan,
+                onRetry = onRetryScan,
+                onPickAgain = {
+                    onDismissScan()
+                    showScanSource = true
+                },
+                groupName = groupName,
+                onGetPro = onGetPro,
+            )
+        }
+
         ScanUiState.Idle -> {}
     }
 }
 
-private val DemoParticipants = listOf(
-    AddParticipantUi("u1", "You", true),
-    AddParticipantUi("u2", "Andrew", false),
-    AddParticipantUi("u3", "Bob", false),
-    AddParticipantUi("u4", "Maya", false),
-)
+private val DemoParticipants =
+    listOf(
+        AddParticipantUi("u1", "You", true),
+        AddParticipantUi("u2", "Andrew", false),
+        AddParticipantUi("u3", "Bob", false),
+        AddParticipantUi("u4", "Maya", false),
+    )
 
 @Preview
 @Composable

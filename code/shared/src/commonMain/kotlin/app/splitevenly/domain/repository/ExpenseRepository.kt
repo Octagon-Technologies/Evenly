@@ -45,9 +45,11 @@ interface ExpenseRepository {
 
     /**
      * Over-paid pairs the [viewer] is party to (P1 #9) — a debtor→creditor pair whose derived remaining
-     * has gone negative, i.e. the same payment was recorded twice. Drives the "possible double payment"
-     * banner on the Balances tab. Empty when nothing is over-paid; clears the instant the extra payment is
-     * voided (it's derived, never stored). Pass a null viewer to see every over-paid pair in the group.
+     * has gone negative AND whose last two payments were for the same amount, i.e. the same payment was
+     * recorded twice. The amount match rules out the false positive of two different real payments that
+     * simply sum past what was owed. Drives the "possible double payment" banner on the Balances tab.
+     * Empty when nothing is over-paid; clears the instant the extra payment is voided (it's derived,
+     * never stored). Pass a null viewer to see every over-paid pair in the group.
      */
     fun observeOverpayments(groupId: GroupId, viewer: UserId?): Flow<List<Overpayment>>
 

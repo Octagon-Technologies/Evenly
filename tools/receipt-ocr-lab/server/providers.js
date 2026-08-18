@@ -3,47 +3,15 @@
 // provider) means adding one object here, nothing in server/index.js or the
 // frontend needs to change.
 //
-// The prompt + tool schema mirror supabase/functions/extract-receipt/index.ts
-// exactly, so results here are a valid stand-in for what the deployed edge
-// function would produce on the same photo.
+// The prompt, tool schema, and printed-digits -> subunits normalization are IMPORTED from the edge
+// function itself (`supabase/functions/extract-receipt/contract.ts`), not copied. They used to be copied,
+// and by 2026-08-08 the copy had drifted three changes behind: no `is_receipt`, the pre-fix
+// `*_subunits: integer` schema, a stale prompt, and `max_tokens: 2048` with no `thinking` field. A lab
+// that mirrors a version of the function nobody runs is a stand-in for nothing. Import, never copy.
 
-const RECEIPT_TOOL = {
-  name: "record_receipt",
-  description: "Record the structured contents of a restaurant or shop receipt.",
-  input_schema: {
-    type: "object",
-    properties: {
-      currency: { type: "string", description: "ISO 4217 code, e.g. USD, EUR, KES. Best guess from symbols/locale." },
-      items: {
-        type: "array",
-        description: "Every ordered line. Split a '2 Pizza' line into quantity 2 at the per-unit price.",
-        items: {
-          type: "object",
-          properties: {
-            label: { type: "string" },
-            quantity: { type: "integer", minimum: 1 },
-            line_total_subunits: { type: "integer", minimum: 0, description: "The TOTAL price printed for this line (all units combined) in minor units (cents) — not a per-unit price." },
-          },
-          required: ["label", "quantity", "line_total_subunits"],
-        },
-      },
-      tax_subunits: { type: "integer", minimum: 0, description: "Sales tax/VAT total in minor units; 0 if none." },
-      gratuity_subunits: { type: "integer", minimum: 0, description: "Auto service charge / gratuity in minor units; 0 if none. NOT a tip line the customer writes in." },
-      tip_subunits: { type: "integer", minimum: 0, description: "Printed tip in minor units; 0 if blank (tips are usually added by hand later)." },
-      discount_subunits: { type: "integer", minimum: 0, description: "Any discount/comp as a positive magnitude in minor units; 0 if none." },
-      detected_total_subunits: { type: "integer", minimum: 0, description: "The grand total printed on the receipt, in minor units, for reconciliation." },
-    },
-    required: ["currency", "items", "tax_subunits", "gratuity_subunits", "tip_subunits", "discount_subunits", "detected_total_subunits"],
-  },
-};
-
-const EXTRACT_PROMPT =
-  "Read this receipt (which may span several pages/images) and record it as ONE bill with " +
-  "the record_receipt tool. Itemise every ordered line with its quantity and its LINE TOTAL " +
-  "price in minor units (cents) — the total charged for that line as printed, not a computed " +
-  "per-unit price. Separate sales tax, " +
-  "an auto gratuity/service charge, any printed tip, and any discount. If a value isn't on " +
-  "the receipt, use 0. Don't invent items. If unsure of the currency, infer from symbols.";
+import { EXTRACT_PROMPT, RECEIPT_TOOL, normalizeReceipt }
+  from "../../../supabase/functions/extract-receipt/contract.ts";
+import { computeBill } from "../../../supabase/functions/extract-receipt/billMath.ts";
 
 function pageBlock({ mimeType, base64 }) {
   const source = { type: "base64", media_type: mimeType, data: base64 };
@@ -51,10 +19,19 @@ function pageBlock({ mimeType, base64 }) {
 }
 
 /**
- * One Claude-vision call. Returns { receipt, usage } — usage carries raw token
- * counts so the caller computes cost using this provider's own pricing.
+ * One Claude-vision call. Returns the transcription flattened to the subunit shape the app consumes, so
+ * the frontend reads the same numbers the bill editor would be filled with, plus `math` (our arithmetic
+ * over it) and `raw` (what the model literally emitted — the thing there was no record of when the
+ * 2026-08-08 defect had to be diagnosed). `usage` carries raw token counts so the caller computes cost
+ * using this provider's own pricing.
+ *
+ * The model does no arithmetic here either: `computeBill` is the same module the edge function uses.
+ *
+ * `thinking` and `max_tokens` are per-provider and passed through explicitly, mirroring the TIERS table in
+ * index.ts: an omitted `thinking` is not a stable default across models, and max_tokens bounds thinking and
+ * tool output together, which is how a 2048 budget once truncated the receipt JSON mid-object.
  */
-async function callAnthropic({ apiKey, model, pages }) {
+async function callAnthropic({ apiKey, model, pages, maxTokens = 8192, thinking = { type: "disabled" }, effort = "low" }) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -64,7 +41,9 @@ async function callAnthropic({ apiKey, model, pages }) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 2048,
+      max_tokens: maxTokens,
+      thinking,
+      output_config: { effort },
       tools: [RECEIPT_TOOL],
       tool_choice: { type: "tool", name: "record_receipt" },
       messages: [
@@ -82,13 +61,36 @@ async function callAnthropic({ apiKey, model, pages }) {
   }
   const body = await res.json();
   const toolUse = (body.content ?? []).find((b) => b.type === "tool_use");
-  return { receipt: toolUse ? toolUse.input : null, usage: body.usage ?? null };
+  if (!toolUse) {
+    return { receipt: null, raw: null, math: null, truncated: body.stop_reason === "max_tokens", usage: body.usage ?? null };
+  }
+  const transcribed = normalizeReceipt(toolUse.input);
+  const math = computeBill(transcribed);
+  return {
+    receipt: {
+      currency: transcribed.currency,
+      items: transcribed.items,
+      summary: transcribed.summary,
+      tax_subunits: math.extras.tax_subunits,
+      gratuity_subunits: math.extras.gratuity_subunits + math.extras.other_subunits,
+      tip_subunits: math.extras.tip_subunits,
+      discount_subunits: math.extras.discount_subunits,
+      detected_total_subunits: math.printedTotal,
+    },
+    raw: toolUse.input,
+    math,
+    truncated: body.stop_reason === "max_tokens",
+    usage: body.usage ?? null,
+  };
 }
 
 // Pricing per million tokens (input/output), USD. Kept next to the provider
 // definition so cost math travels with the model it prices — update here when
 // Anthropic's price sheet changes. Sonnet 5 intro pricing applies through
 // 2026-08-31; swap to $3/$15 after that date.
+//
+// `primary` and `escalation` are the two tiers the deployed function actually runs (TIERS in index.ts);
+// the bare model entries are for comparing tiers the function does not use.
 const PROVIDERS = [
   {
     id: "haiku-4.5",
@@ -99,12 +101,34 @@ const PROVIDERS = [
     call: (args) => callAnthropic({ ...args, model: "claude-haiku-4-5" }),
   },
   {
-    id: "sonnet-5",
-    label: "Claude Sonnet 5",
+    id: "primary",
+    label: "Sonnet 5 — deployed primary tier",
     model: "claude-sonnet-5",
-    priceInPerMTok: 2.0,
-    priceOutPerMTok: 10.0,
-    call: (args) => callAnthropic({ ...args, model: "claude-sonnet-5" }),
+    priceInPerMTok: 3.0,
+    priceOutPerMTok: 15.0,
+    call: (args) => callAnthropic({
+      ...args, model: "claude-sonnet-5", maxTokens: 8192, thinking: { type: "disabled" }, effort: "low",
+    }),
+  },
+  {
+    id: "sonnet-5-thinking",
+    label: "Sonnet 5 — adaptive thinking, medium",
+    model: "claude-sonnet-5",
+    priceInPerMTok: 3.0,
+    priceOutPerMTok: 15.0,
+    call: (args) => callAnthropic({
+      ...args, model: "claude-sonnet-5", maxTokens: 16000, thinking: { type: "adaptive" }, effort: "medium",
+    }),
+  },
+  {
+    id: "escalation",
+    label: "Opus 5 — deployed escalation tier",
+    model: "claude-opus-5",
+    priceInPerMTok: 5.0,
+    priceOutPerMTok: 25.0,
+    call: (args) => callAnthropic({
+      ...args, model: "claude-opus-5", maxTokens: 16000, thinking: { type: "adaptive" }, effort: "medium",
+    }),
   },
 ];
 

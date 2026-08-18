@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.Flow
  * concurrent claiming needs no conflict resolution.
  */
 interface BillRepository {
-
     /** The bill with its items, live claims, extras, and the derived per-participant tab — the claim screen. */
     fun observeBill(expenseId: ExpenseId): Flow<BillView?>
 
@@ -31,33 +30,28 @@ interface BillRepository {
      * on them survive); removed lines and their claims are tombstoned. Shares re-derive — editing a
      * price mid-claim never disturbs a recorded claim or its settlement allocations.
      */
-    suspend fun editBill(expenseId: ExpenseId, input: EditBill): AppResult<Unit>
+    suspend fun editBill(
+        expenseId: ExpenseId,
+        input: EditBill,
+    ): AppResult<Unit>
 
     /**
      * Set [userId]'s claimed quantity on an item (0 = un-claim, soft-deleting their claim). Re-derives
      * the bill's shares. This is the only write a non-creator makes, and it touches only their own row.
      */
-    suspend fun setClaim(expenseId: ExpenseId, itemId: String, userId: UserId, quantity: Int): AppResult<Unit>
-
-    /**
-     * Add or remove [memberUserId] from an item's **shared split** (the auto-union set). [addedBy] is who
-     * performed it (you adding yourself, or naming a friend). Because the set unions, re-adding is a no-op
-     * and overlapping "shared with" declarations merge automatically. Re-derives the bill's shares.
-     */
-    suspend fun setShareMember(
+    suspend fun setClaim(
         expenseId: ExpenseId,
         itemId: String,
-        memberUserId: UserId,
-        addedBy: UserId,
-        inShare: Boolean,
+        userId: UserId,
+        quantity: Int,
     ): AppResult<Unit>
 
     /**
      * Set a **shared portion** of a line: [memberIds] split [quantity] units evenly, grouped under
      * [portionId]. Multiple distinct portions can coexist on one line (that's what "2 solo, 3 solo, 1
-     * shared, 2 left" needs). Empty members or quantity ≤ 0 removes the portion. A member is moved out of
-     * any other portion of the same line (at most one shared slice per line). [addedBy] is who assigned it.
-     * Re-derives the bill's shares.
+     * shared, 2 left" needs), and a member may hold more than one — uniqueness is
+     * `(item_id, user_id, portion_id)`, per-serving assignment depends on it. Empty members or
+     * quantity ≤ 0 removes the portion. [addedBy] is who assigned it. Re-derives the bill's shares.
      */
     suspend fun setPortion(
         expenseId: ExpenseId,
@@ -99,7 +93,11 @@ interface BillRepository {
     ): AppResult<Unit>
 
     /** Add or remove a participant from a bill (who it's *for*). */
-    suspend fun setParticipant(expenseId: ExpenseId, userId: UserId, included: Boolean): AppResult<Unit>
+    suspend fun setParticipant(
+        expenseId: ExpenseId,
+        userId: UserId,
+        included: Boolean,
+    ): AppResult<Unit>
 
     /**
      * Menu changes web guests made to this bill, oldest first, undone ones included
@@ -116,7 +114,10 @@ interface BillRepository {
      * Anyone on the bill may undo (§2.7); [undoneBy] is recorded, not checked. Undoing something already
      * undone is a no-op, not an error. There is deliberately no bulk variant.
      */
-    suspend fun undoPendingEdit(editId: String, undoneBy: UserId): AppResult<Unit>
+    suspend fun undoPendingEdit(
+        editId: String,
+        undoneBy: UserId,
+    ): AppResult<Unit>
 
     /**
      * Hand every still-unassigned unit on this bill to [memberIds], splitting each line's leftover evenly
@@ -124,14 +125,25 @@ interface BillRepository {
      * line, so the remainder stays visible as a group slice rather than being silently folded into
      * anyone's solo claim. Existing claims are never touched, and a bill with nothing left is a no-op.
      */
-    suspend fun assignRemainder(expenseId: ExpenseId, memberIds: List<UserId>, addedBy: UserId): AppResult<Unit>
+    suspend fun assignRemainder(
+        expenseId: ExpenseId,
+        memberIds: List<UserId>,
+        addedBy: UserId,
+    ): AppResult<Unit>
 
     /** Stamp / clear a participant's "I'm done claiming" marker (a personal nudge-silencer). */
-    suspend fun markDone(expenseId: ExpenseId, userId: UserId, done: Boolean): AppResult<Unit>
+    suspend fun markDone(
+        expenseId: ExpenseId,
+        userId: UserId,
+        done: Boolean,
+    ): AppResult<Unit>
 
     /**
      * A group's unresolved bills — itemized expenses with a line still needing someone, or a participant
      * who hasn't marked done. [viewer] flags the ones where *you* still owe a claim (the home card).
      */
-    fun observeUnresolvedBills(groupId: GroupId, viewer: UserId?): Flow<List<UnresolvedBill>>
+    fun observeUnresolvedBills(
+        groupId: GroupId,
+        viewer: UserId?,
+    ): Flow<List<UnresolvedBill>>
 }

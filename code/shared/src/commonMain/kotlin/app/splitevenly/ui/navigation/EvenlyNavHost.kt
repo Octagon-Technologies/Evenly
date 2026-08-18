@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
+import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.OnboardingScreen
 import app.splitevenly.ui.screen.expense.AddExpenseScreen
@@ -35,7 +36,6 @@ fun EvenlyNavHost(
     modifier: Modifier = Modifier,
 ) {
     NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
-
         // ── Auth ────────────────────────────────────────────────────────
         composable<Route.Welcome> {
             WelcomeRoute(onFinished = {
@@ -64,14 +64,17 @@ fun EvenlyNavHost(
 
         // ── Home / root shell (Groups + Settings tabs) ──────────────────
         composable<Route.Home> {
-            MainShell(
+            HomeGateRoute(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
                 onNewGroup = { navController.navigate(Route.NewGroup) },
                 onJoin = { navController.navigate(Route.JoinByLink) },
                 onOpenArchived = { navController.navigate(Route.Archived) },
+                onOpenRecentlyDeleted = { navController.navigate(Route.RecentlyDeleted) },
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
+                onSendFeedback = { navController.navigate(Route.Feedback) },
+                onOpenPro = { navController.navigate(Route.Pro(ProTriggers.PROFILE)) },
             )
         }
         composable<Route.NewGroup> {
@@ -81,6 +84,7 @@ fun EvenlyNavHost(
             )
         }
         composable<Route.Archived> { ArchivedRoute(onBack = { navController.popBackStack() }) }
+        composable<Route.RecentlyDeleted> { RecentlyDeletedRoute(onBack = { navController.popBackStack() }) }
         composable<Route.JoinByLink> {
             JoinByLinkRoute(
                 onDismiss = { navController.popBackStack() },
@@ -114,7 +118,6 @@ fun EvenlyNavHost(
                 onIncludeNav = { conflictId, expenseId, memberUserId ->
                     navController.navigate(Route.IncludeMember(r.groupId, conflictId, expenseId, memberUserId))
                 },
-                onExport = {},
                 onClaimNames = { navController.navigate(Route.Reconcile(r.groupId)) },
             )
         }
@@ -169,7 +172,9 @@ fun EvenlyNavHost(
         }
         composable<Route.EditExpense> { entry ->
             val r = entry.toRoute<Route.EditExpense>()
-            EditExpenseRoute(groupId = r.groupId, expenseId = r.expenseId, onBack = { navController.popBackStack() }, onSaved = { navController.popBackStack() })
+            EditExpenseRoute(groupId = r.groupId, expenseId = r.expenseId, onBack = {
+                navController.popBackStack()
+            }, onSaved = { navController.popBackStack() })
         }
 
         // ── Split the bill (itemized) ───────────────────────────────────
@@ -255,9 +260,12 @@ fun EvenlyNavHost(
 
         // ── Settings / reconcile ────────────────────────────────────────
         composable<Route.GroupSettings> { entry ->
-            val sgGroupId = entry.toRoute<Route.GroupSettings>().groupId
+            val sgRoute = entry.toRoute<Route.GroupSettings>()
+            val sgGroupId = sgRoute.groupId
             GroupSettingsRoute(
                 groupId = sgGroupId,
+                openPassSheet = sgRoute.openPassSheet,
+                onOpenPro = { trigger -> navController.navigate(Route.Pro(trigger)) },
                 onBack = { navController.popBackStack() },
                 onLeft = { navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } } },
                 onReconcile = { navController.navigate(Route.Reconcile(sgGroupId)) },
@@ -273,6 +281,28 @@ fun EvenlyNavHost(
         }
         composable<Route.PaymentHandles> {
             PaymentHandlesRoute(onBack = { navController.popBackStack() })
+        }
+        composable<Route.Feedback> {
+            FeedbackRoute(onBack = { navController.popBackStack() })
+        }
+        composable<Route.Pro> { entry ->
+            ProRoute(
+                trigger = entry.toRoute<Route.Pro>().trigger,
+                onBack = { navController.popBackStack() },
+                onPickGroupForPass = { navController.navigate(Route.ProGroupPicker) },
+            )
+        }
+        composable<Route.ProGroupPicker> {
+            ProGroupPickerRoute(
+                onBack = { navController.popBackStack() },
+                // Straight to that group's settings, which is where the pass sheet lives. One place owns
+                // the sheet, rather than a second copy of the buy flow hanging off the picker.
+                onPicked = { gid ->
+                    navController.navigate(Route.GroupSettings(gid, openPassSheet = true)) {
+                        popUpTo(Route.ProGroupPicker) { inclusive = true }
+                    }
+                },
+            )
         }
         composable<Route.Reconcile> { entry ->
             val r = entry.toRoute<Route.Reconcile>()

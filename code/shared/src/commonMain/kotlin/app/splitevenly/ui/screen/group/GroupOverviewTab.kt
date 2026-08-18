@@ -31,10 +31,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.ExpenseCategory
-import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.ui.components.DonutSlice
-import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvDebtRow
@@ -67,19 +65,29 @@ fun GroupOverviewTab(
     groupSpend: List<CategorySpendUi> = GroupOverviewSamples.groupSpend,
     personalHistory: List<SpendItemUi> = GroupOverviewSamples.personalHistory,
     groupHistory: List<SpendItemUi> = GroupOverviewSamples.groupHistory,
-    byDay: List<Pair<String, Long>> = listOf("Mon" to 4000L, "Tue" to 9600L, "Wed" to 13200L, "Thu" to 5800L, "Fri" to 21000L, "Sat" to 18000L, "Sun" to 6400L),
-    byMember: List<Pair<String, Long>> = listOf("You" to 19800L, "Andrew" to 26400L, "Bob" to 14200L, "Maya" to 21000L, "Tyler" to 10000L),
+    byDay: List<Pair<String, Long>> =
+        listOf(
+            "Mon" to 4000L,
+            "Tue" to 9600L,
+            "Wed" to 13200L,
+            "Thu" to 5800L,
+            "Fri" to 21000L,
+            "Sat" to 18000L,
+            "Sun" to 6400L,
+        ),
+    byMember: List<Pair<String, Long>> =
+        listOf("You" to 19800L, "Andrew" to 26400L, "Bob" to 14200L, "Maya" to 21000L, "Tyler" to 10000L),
     totalSubunits: Long = 91400L,
     expenseCount: Int = 14,
     perPersonSubunits: Long = 18280L,
     currencyCode: String = "USD",
-    balances: List<Triple<String, String, Long>> = listOf(
-        Triple("Bob", "You", 4200L),
-        Triple("Maya", "Andrew", 9800L),
-        Triple("Tyler", "You", 3100L),
-    ),
+    balances: List<Triple<String, String, Long>> =
+        listOf(
+            Triple("Bob", "You", 4200L),
+            Triple("Maya", "Andrew", 9800L),
+            Triple("Tyler", "You", 3100L),
+        ),
     onBack: () -> Unit = {},
-    onExport: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var mode by remember { mutableStateOf("Personal") }
@@ -90,14 +98,21 @@ fun GroupOverviewTab(
     val maxM = (byMember.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
 
     Column(Modifier.fillMaxSize().background(c.page)) {
-        EvTopBar("Overview", navIcon = { EvIconButton(EvIcons.Back, onBack) }, actions = { EvChip("Export", variant = ChipVariant.Ghost, leadingIcon = EvIcons.Download) })
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        EvTopBar("Overview", navIcon = { EvIconButton(EvIcons.Back, onBack) })
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             // header
             EvCard(padded = true) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(groupEmoji, fontSize = 26.sp)
+                            if (groupEmoji.isNotBlank()) Text(groupEmoji, fontSize = 26.sp)
                             Text(groupName, color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
                         EvChip("May 21 – 27", variant = ChipVariant.Ghost)
@@ -120,27 +135,54 @@ fun GroupOverviewTab(
                     if (spend.isEmpty()) {
                         Text(
                             if (personal) "Nothing attributed to you yet." else "No spending yet.",
-                            color = c.ink2, fontSize = 13.sp,
+                            color = c.ink2,
+                            fontSize = 13.sp,
                         )
                     } else {
                         val totalAmt = spend.sumOf { it.amount }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
                             EvDonut(
                                 slices = spend.map { DonutSlice(it.color, it.fraction) },
                                 center = {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(if (personal) "You" else "Total", color = c.ink2, fontSize = 11.sp)
-                                        Text(money(totalAmt, currencySymbol(currencyCode)), color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = EvenlyTheme.monoFamily)
+                                        Text(
+                                            money(totalAmt, currencySymbol(currencyCode)),
+                                            color = c.ink,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = EvenlyTheme.monoFamily,
+                                        )
                                     }
                                 },
                             )
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 spend.forEach { s ->
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
                                         Box(Modifier.size(10.dp).clip(CircleShape).background(s.color))
-                                        Text(s.label, color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        Text(
+                                            s.label,
+                                            color = c.ink,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.weight(1f),
+                                        )
                                         Text("${(s.fraction * 100).roundToInt()}%", color = c.ink2, fontSize = 12.sp)
-                                        Text(money(s.amount, currencySymbol(currencyCode)), color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily)
+                                        Text(
+                                            money(s.amount, currencySymbol(currencyCode)),
+                                            color = c.ink,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = EvenlyTheme.monoFamily,
+                                        )
                                     }
                                 }
                             }
@@ -155,17 +197,38 @@ fun GroupOverviewTab(
                 if (history.isEmpty()) {
                     Text(
                         if (personal) "You haven't spent anything on this trip yet." else "No expenses yet.",
-                        color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                        color = c.ink2,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                     )
                 } else {
                     history.forEach { item ->
                         EvCard(padded = true) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(c.surface), contentAlignment = Alignment.Center) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Box(
+                                    Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(c.surface),
+                                    contentAlignment = Alignment.Center,
+                                ) {
                                     EvIcon(item.icon, size = 18.dp, tint = c.ink2)
                                 }
-                                Text(item.title, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                Text(moneySubunits(item.amountSubunits, item.currency), color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = EvenlyTheme.monoFamily)
+                                Text(
+                                    item.title,
+                                    color = c.ink,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    moneySubunits(item.amountSubunits, item.currency),
+                                    color = c.ink,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = EvenlyTheme.monoFamily,
+                                )
                             }
                         }
                     }
@@ -177,10 +240,33 @@ fun GroupOverviewTab(
                 EvCard(padded = true) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         EvSectionLabel("Spend by day")
-                        Row(Modifier.fillMaxWidth().height(120.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().height(120.dp),
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             byDay.forEach { (d, v) ->
-                                Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
-                                    Box(Modifier.width(22.dp).height(((v.toFloat() / maxD) * 96f).dp).clip(RoundedCornerShape(6.dp)).background(if (v >= maxD) c.blue else c.blueTint2))
+                                Column(
+                                    Modifier.weight(1f).fillMaxHeight(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Bottom,
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .width(
+                                                22.dp,
+                                            ).height(((v.toFloat() / maxD) * 96f).dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(
+                                                if (v >=
+                                                    maxD
+                                                ) {
+                                                    c.blue
+                                                } else {
+                                                    c.blueTint2
+                                                },
+                                            ),
+                                    )
                                     Text(d, color = c.ink2, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
                                 }
                             }
@@ -191,12 +277,37 @@ fun GroupOverviewTab(
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         EvSectionLabel("Spend by member")
                         byMember.forEach { (n, v) ->
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
                                 Text(n, color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(56.dp))
-                                Box(Modifier.weight(1f).height(22.dp).clip(RoundedCornerShape(6.dp)).background(c.surface)) {
-                                    Box(Modifier.fillMaxWidth(v.toFloat() / maxM).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(c.blue))
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .height(22.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(c.surface),
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth(
+                                                v.toFloat() / maxM,
+                                            ).fillMaxHeight()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(c.blue),
+                                    )
                                 }
-                                Text(moneySubunits(v, currencyCode), color = c.ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+                                Text(
+                                    moneySubunits(v, currencyCode),
+                                    color = c.ink,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = EvenlyTheme.monoFamily,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.width(56.dp),
+                                )
                             }
                         }
                     }
@@ -212,46 +323,71 @@ fun GroupOverviewTab(
                     }
                 }
             }
-
-            EvButton("Export as image", onExport, variant = ButtonVariant.Secondary, leadingIcon = EvIcons.Image)
         }
     }
 }
 
 @Composable
-private fun StatChip(label: String, value: String, modifier: Modifier = Modifier) {
+private fun StatChip(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
     val c = EvenlyTheme.colors
     Column(modifier.clip(RoundedCornerShape(12.dp)).background(c.surface).padding(horizontal = 12.dp, vertical = 10.dp)) {
         Text(label, color = c.ink2, fontSize = 12.sp)
-        Text(value, color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = EvenlyTheme.monoFamily, modifier = Modifier.padding(top = 2.dp))
+        Text(
+            value,
+            color = c.ink,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = EvenlyTheme.monoFamily,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 
 internal object GroupOverviewSamples {
-    val personalSpend = listOf(
-        CategorySpendUi(categoryIcon(ExpenseCategory.LODGING), "Lodging", 84.0, 0.46f, categoryColor(ExpenseCategory.LODGING)),
-        CategorySpendUi(categoryIcon(ExpenseCategory.FOOD), "Food", 53.6, 0.29f, categoryColor(ExpenseCategory.FOOD)),
-        CategorySpendUi(categoryIcon(ExpenseCategory.ENTERTAINMENT), "Entertainment", 28.4, 0.16f, categoryColor(ExpenseCategory.ENTERTAINMENT)),
-        CategorySpendUi(categoryIcon(ExpenseCategory.TRANSPORT), "Transport", 16.8, 0.09f, categoryColor(ExpenseCategory.TRANSPORT)),
-    )
-    val groupSpend = listOf(
-        CategorySpendUi(categoryIcon(ExpenseCategory.LODGING), "Lodging", 420.0, 0.46f, categoryColor(ExpenseCategory.LODGING)),
-        CategorySpendUi(categoryIcon(ExpenseCategory.FOOD), "Food", 268.0, 0.29f, categoryColor(ExpenseCategory.FOOD)),
-        CategorySpendUi(categoryIcon(ExpenseCategory.ENTERTAINMENT), "Entertainment", 142.0, 0.16f, categoryColor(ExpenseCategory.ENTERTAINMENT)),
-        CategorySpendUi(categoryIcon(ExpenseCategory.TRANSPORT), "Transport", 84.0, 0.09f, categoryColor(ExpenseCategory.TRANSPORT)),
-    )
-    val personalHistory = listOf(
-        SpendItemUi("Beachfront villa", 8400L, "USD", categoryIcon(ExpenseCategory.LODGING)),
-        SpendItemUi("Dinner at Hartwood", 3200L, "USD", categoryIcon(ExpenseCategory.FOOD)),
-        SpendItemUi("Cenote tour", 2840L, "USD", categoryIcon(ExpenseCategory.ENTERTAINMENT)),
-        SpendItemUi("Airport taxi", 1680L, "USD", categoryIcon(ExpenseCategory.TRANSPORT)),
-    )
-    val groupHistory = listOf(
-        SpendItemUi("Beachfront villa", 42000L, "USD", categoryIcon(ExpenseCategory.LODGING)),
-        SpendItemUi("Dinner at Hartwood", 16000L, "USD", categoryIcon(ExpenseCategory.FOOD)),
-        SpendItemUi("Cenote tour", 14200L, "USD", categoryIcon(ExpenseCategory.ENTERTAINMENT)),
-        SpendItemUi("Airport taxi", 8400L, "USD", categoryIcon(ExpenseCategory.TRANSPORT)),
-    )
+    val personalSpend =
+        listOf(
+            CategorySpendUi(categoryIcon(ExpenseCategory.LODGING), "Lodging", 84.0, 0.46f, categoryColor(ExpenseCategory.LODGING)),
+            CategorySpendUi(categoryIcon(ExpenseCategory.FOOD), "Food", 53.6, 0.29f, categoryColor(ExpenseCategory.FOOD)),
+            CategorySpendUi(
+                categoryIcon(ExpenseCategory.ENTERTAINMENT),
+                "Entertainment",
+                28.4,
+                0.16f,
+                categoryColor(ExpenseCategory.ENTERTAINMENT),
+            ),
+            CategorySpendUi(categoryIcon(ExpenseCategory.TRANSPORT), "Transport", 16.8, 0.09f, categoryColor(ExpenseCategory.TRANSPORT)),
+        )
+    val groupSpend =
+        listOf(
+            CategorySpendUi(categoryIcon(ExpenseCategory.LODGING), "Lodging", 420.0, 0.46f, categoryColor(ExpenseCategory.LODGING)),
+            CategorySpendUi(categoryIcon(ExpenseCategory.FOOD), "Food", 268.0, 0.29f, categoryColor(ExpenseCategory.FOOD)),
+            CategorySpendUi(
+                categoryIcon(ExpenseCategory.ENTERTAINMENT),
+                "Entertainment",
+                142.0,
+                0.16f,
+                categoryColor(ExpenseCategory.ENTERTAINMENT),
+            ),
+            CategorySpendUi(categoryIcon(ExpenseCategory.TRANSPORT), "Transport", 84.0, 0.09f, categoryColor(ExpenseCategory.TRANSPORT)),
+        )
+    val personalHistory =
+        listOf(
+            SpendItemUi("Beachfront villa", 8400L, "USD", categoryIcon(ExpenseCategory.LODGING)),
+            SpendItemUi("Dinner at Hartwood", 3200L, "USD", categoryIcon(ExpenseCategory.FOOD)),
+            SpendItemUi("Cenote tour", 2840L, "USD", categoryIcon(ExpenseCategory.ENTERTAINMENT)),
+            SpendItemUi("Airport taxi", 1680L, "USD", categoryIcon(ExpenseCategory.TRANSPORT)),
+        )
+    val groupHistory =
+        listOf(
+            SpendItemUi("Beachfront villa", 42000L, "USD", categoryIcon(ExpenseCategory.LODGING)),
+            SpendItemUi("Dinner at Hartwood", 16000L, "USD", categoryIcon(ExpenseCategory.FOOD)),
+            SpendItemUi("Cenote tour", 14200L, "USD", categoryIcon(ExpenseCategory.ENTERTAINMENT)),
+            SpendItemUi("Airport taxi", 8400L, "USD", categoryIcon(ExpenseCategory.TRANSPORT)),
+        )
 }
 
 @Preview

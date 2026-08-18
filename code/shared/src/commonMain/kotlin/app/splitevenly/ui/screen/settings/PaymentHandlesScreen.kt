@@ -24,24 +24,18 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.settlement.PaymentApp
+import app.splitevenly.domain.settlement.canonicalPaymentHandle
+import app.splitevenly.domain.settlement.paymentAppName
+import app.splitevenly.domain.settlement.paymentHandlesAreSaveable
+import app.splitevenly.domain.settlement.resolvePreferredPaymentApp
 import app.splitevenly.ui.components.EvButton
-import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvParticipantChip
-import app.splitevenly.ui.components.EvTextField
+import app.splitevenly.ui.components.EvPaymentHandleFields
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
-
-private data class HandleField(val app: PaymentApp, val label: String, val placeholder: String)
-
-private val HandleFields = listOf(
-    HandleField(PaymentApp.VENMO, "Venmo", "@your-handle"),
-    HandleField(PaymentApp.CASH_APP, "Cash App", "\$yourhandle"),
-    HandleField(PaymentApp.PAYPAL, "PayPal", "paypal.me/you"),
-    HandleField(PaymentApp.ZELLE, "Zelle", "email or phone"),
-)
 
 /**
  * Payment-apps editor (design/src/screens-settings.jsx onboarding handle step). One field per app;
@@ -59,12 +53,18 @@ fun PaymentHandlesScreen(
     onSave: (handles: Map<PaymentApp, String>, preferred: PaymentApp?) -> Unit = { _, _ -> },
 ) {
     val c = EvenlyTheme.colors
-    var values by remember(initial) { mutableStateOf(initial) }
+    // Handles arrive in whatever shape an older client stored them, so they are normalized on read
+    // rather than migrated in place: a sync from that client cannot then resurrect an odd one.
+    var values by remember(initial) {
+        mutableStateOf(initial.mapValues { (app, raw) -> canonicalPaymentHandle(app, raw) })
+    }
     var preferred by remember(initialPreferred) { mutableStateOf(initialPreferred) }
+    var checked by remember { mutableStateOf(false) }
 
-    // Only apps with a non-blank handle can be preferred; keep the selection consistent as fields change.
-    val filled = HandleFields.filter { values[it.app]?.isNotBlank() == true }
-    val effectivePreferred = preferred?.takeIf { p -> filled.any { it.app == p } }
+    // Only apps with a non-blank handle can be preferred. The first one added takes the slot on its
+    // own, and losing its handle hands the slot to the next; see resolvePreferredPaymentApp.
+    val filled = PaymentApp.entries.filter { values[it]?.isNotBlank() == true }
+    val effectivePreferred = resolvePreferredPaymentApp(values, preferred)
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
         EvTopBar(
@@ -77,32 +77,29 @@ fun PaymentHandlesScreen(
         ) {
             Text(
                 "Add the handles people can pay you with. Group members see only the apps you fill in, and pay you in one tap.",
-                color = c.ink2, fontSize = 13.sp,
+                color = c.ink2,
+                fontSize = 13.sp,
             )
-            HandleFields.forEach { f ->
-                EvField(f.label) {
-                    EvTextField(
-                        value = values[f.app].orEmpty(),
-                        onValueChange = { values = values + (f.app to it) },
-                        placeholder = f.placeholder,
-                        mono = true,
-                    )
-                }
-            }
+            EvPaymentHandleFields(
+                values = values,
+                onValuesChange = { values = it },
+                showErrors = checked,
+            )
 
             if (filled.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Preferred method", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Text("The one people see first when they pay you back.", color = c.ink2, fontSize = 12.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        filled.forEach { f ->
-                            val on = f.app == effectivePreferred
+                        filled.forEach { app ->
+                            val on = app == effectivePreferred
                             EvParticipantChip(
-                                f.label,
+                                paymentAppName(app),
                                 selected = on,
                                 leading = { EvIcon(if (on) EvIcons.Star else EvIcons.Wallet, size = 15.dp) },
-                                // Tap the current preferred again to clear it.
-                                onClick = { preferred = if (on) null else f.app },
+                                // No tap-to-clear: one filled app is always the preferred one, so the
+                                // only meaningful tap is on a different one.
+                                onClick = { preferred = app },
                             )
                         }
                     }
@@ -110,7 +107,17 @@ fun PaymentHandlesScreen(
             }
 
             Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                EvButton("Save", { onSave(values, effectivePreferred) }, leadingIcon = EvIcons.Check, enabled = !saving)
+                // Live even when a handle is malformed: tapping reveals what is wrong rather than
+                // greying out with no explanation (ui/AGENTS.md, "never leave a silent dead end").
+                EvButton(
+                    text = "Save",
+                    onClick = {
+                        checked = true
+                        if (paymentHandlesAreSaveable(values)) onSave(values, effectivePreferred)
+                    },
+                    leadingIcon = EvIcons.Check,
+                    enabled = !saving,
+                )
             }
         }
     }
@@ -120,6 +127,9 @@ fun PaymentHandlesScreen(
 @Composable
 private fun PaymentHandlesPreview() {
     EvenlyTheme {
-        PaymentHandlesScreen(initial = mapOf(PaymentApp.VENMO to "@alex-r", PaymentApp.CASH_APP to "\$alexr"), initialPreferred = PaymentApp.VENMO)
+        PaymentHandlesScreen(
+            initial = mapOf(PaymentApp.VENMO to "@alex-r", PaymentApp.CASH_APP to "\$alexr"),
+            initialPreferred = PaymentApp.VENMO,
+        )
     }
 }

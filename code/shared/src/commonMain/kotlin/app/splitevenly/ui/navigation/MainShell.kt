@@ -47,9 +47,12 @@ fun MainShell(
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
+    onOpenRecentlyDeleted: () -> Unit = {},
     onSignedOut: () -> Unit = {},
     onSignIn: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
+    onSendFeedback: () -> Unit = {},
+    onOpenPro: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var tab by rememberSaveable(stateSaver = RootTabSaver) { mutableStateOf(RootTab.Groups) }
@@ -59,19 +62,27 @@ fun MainShell(
         Box(Modifier.fillMaxSize().weight(1f)) {
             Crossfade(targetState = tab, animationSpec = EvMotion.standard()) { current ->
                 when (current) {
-                    RootTab.Groups -> HomeRoute(
-                        onOpenGroup = onOpenGroup,
-                        onNewGroup = onNewGroup,
-                        onJoin = onJoin,
-                        onOpenArchived = onOpenArchived,
-                        onOpenSettings = { tab = RootTab.Settings },
-                    )
-                    RootTab.Settings -> ProfileRoute(
-                        onBack = { tab = RootTab.Groups },
-                        onSignedOut = onSignedOut,
-                        onSignIn = onSignIn,
-                        onEditPaymentApps = onEditPaymentApps,
-                    )
+                    RootTab.Groups -> {
+                        HomeRoute(
+                            onOpenGroup = onOpenGroup,
+                            onNewGroup = onNewGroup,
+                            onJoin = onJoin,
+                            onOpenArchived = onOpenArchived,
+                            onOpenRecentlyDeleted = onOpenRecentlyDeleted,
+                            onOpenSettings = { tab = RootTab.Settings },
+                        )
+                    }
+
+                    RootTab.Settings -> {
+                        ProfileRoute(
+                            onBack = { tab = RootTab.Groups },
+                            onSignedOut = onSignedOut,
+                            onSignIn = onSignIn,
+                            onEditPaymentApps = onEditPaymentApps,
+                            onSendFeedback = onSendFeedback,
+                            onOpenPro = onOpenPro,
+                        )
+                    }
                 }
             }
         }

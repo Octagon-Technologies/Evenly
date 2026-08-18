@@ -25,5 +25,4 @@ export {
   type BillResult,
   type SplitBillInput,
 } from './billSplit.ts';
-export { itemizedShares } from './itemizedShares.ts';
 export { toSplitInput, type BillPayload } from './fromApi.ts';

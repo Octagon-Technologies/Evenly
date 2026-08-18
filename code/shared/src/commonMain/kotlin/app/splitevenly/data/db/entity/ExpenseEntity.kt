@@ -13,8 +13,10 @@ import kotlinx.serialization.Serializable
  * `expense_date` is the local **calendar** date, stored as an ISO-8601 `TEXT` (e.g. "2026-06-08")
  * so it never drifts across time zones — unlike the epoch-ms `Long` used for true timestamps.
  *
- * `status` is denormalized (02 §6). Postgres maintains it by trigger; locally we recompute it in
- * app code on insert/update (02 §7.5) via [app.splitevenly.data.db.computeExpenseStatus].
+ * `status` only ever holds ACTIVE or DELETED. It is NOT a settlement state: a share's `remaining` is
+ * derived on read from the non-voided settlement allocations, and an expense is settled iff every
+ * share's derived remaining is 0 (`data/AGENTS.md`). There is no stored settled flag to go stale, and
+ * `computeExpenseStatus` — which the old wording here pointed at — has never existed.
  */
 @Entity(
     tableName = "expenses",
@@ -78,6 +80,12 @@ data class ExpenseEntity(
 
     @ColumnInfo(name = "discount_subunits")
     val discountSubunits: Long = 0,
+
+    // Printed charges with no other slot: a delivery fee, bottle deposit, bag fee, card surcharge. Splits
+    // proportionally like tax. Landed server-side first (2026-08-08) — the full-row upsert sends every
+    // field, so a column the server lacks breaks ALL expense sync, not just this one value.
+    @ColumnInfo(name = "other_charges_subunits", defaultValue = "0")
+    val otherChargesSubunits: Long = 0,
 
     @ColumnInfo(name = "category_id")
     val categoryId: String? = null,

@@ -8,6 +8,28 @@ architecture. Excludes anything already tracked in CLAUDE.md's "PRODUCTION DATA-
 Each item has a checkbox. Check it off `[x]` only once the fix has actually been implemented and
 verified (compiled + tested per CLAUDE.md's build rules) — not just triaged.
 
+## Status as of 2026-08-15 — all 29 closed
+
+`SECURITY_FIX_HANDOFF.md` re-verified the 14 then-open findings against `feat/pro-passes` @ `daef743`
+and they were fixed on `fix/security-handoff` (one commit per finding, both platforms green).
+
+**#23 is closed too**: the four stranded rows were exported, judged, and marked resolved (see
+`supabase/exports/expense_edit_conflicts-2026-08-15.md`). Removing the dead `expense_edit_conflicts`
+table from `SYNC_TABLES`/`SyncEngine` is still deliberately deferred until the concurrent `RowSyncState`
+work settles — that is a scheduling decision, not an open defect.
+**#27 is closed as WRONG**: acting on it re-creates the 13.9M-message realtime outage.
+
+Two of these are now enforced by machine rather than by this checkbox, which is the point: #20 and #21
+are money invariants asserted over every vector in `test-vectors/bill-split.json` by both the Kotlin and
+the TS runner, so they fail CI rather than silently regressing. A markdown checkbox decays; a vector
+does not.
+
+**Applied to the live Supabase project** (ref `wfpfgbipjmkysalfmyub`) on 2026-08-15, in four migrations:
+`clamp_client_clocks_and_fix_populate_record_defaults`, `commit_expense_use_clamped_payload_and_defaults`,
+`merge_expense_use_clamped_payload_and_defaults`, `pin_search_path_on_new_expense_helpers`. Verified live
+inside a rolled-back transaction: a partial payload keeps its column defaults and a year-2100 stamp is
+clamped, on the create path as well as the merge path.
+
 ---
 
 ## P0 — blocker (silent loss/corruption of money data in routine flows)
@@ -84,48 +106,51 @@ verified (compiled + tested per CLAUDE.md's build rules) — not just triaged.
 
 ## P2 — worth fixing
 
-- [ ] **16. RPC create path (`merge_expense`/`commit_expense`) inserts explicit NULLs for any column absent from the client payload via `jsonb_populate_record`, bypassing column defaults — contradicts the additive-migration rule CLAUDE.md relies on.**
+- [x] **16. RPC create path (`merge_expense`/`commit_expense`) inserts explicit NULLs for any column absent from the client payload via `jsonb_populate_record`, bypassing column defaults — contradicts the additive-migration rule CLAUDE.md relies on.**
   Fix: replace with an explicit column-list insert wrapping post-baseline columns in `coalesce((p_expense->>'col')::type, <default>)`, OR amend CLAUDE.md's migration rule to require new expense columns be nullable. Pick one, update CLAUDE.md in the same commit.
 
-- [ ] **17. `editSettlement` voids and re-records in two separate transactions — a crash between them un-pays a recorded payment with no replacement.**
+- [x] **17. `editSettlement` voids and re-records in two separate transactions — a crash between them un-pays a recorded payment with no replacement.**
   Fix: add a `SettlementDao.replaceSettlement(...)` as one `@Transaction` combining void + apply; call it once. Don't reorder to write-then-void (double-counts on crash instead).
 
-- [ ] **18. `extract-receipt`'s `storagePath` param lets the caller choose the bucket for a service-role download — a private-bucket exfiltration channel the day one exists.**
+- [x] **18. `extract-receipt`'s `storagePath` param lets the caller choose the bucket for a service-role download — a private-bucket exfiltration channel the day one exists.**
   Fix: hardcode `from("receipts")`, treat the whole param as the object path (minus an optional `receipts/` prefix), reject any path containing `..`.
 
-- [ ] **19. Zone-1 merge and tombstone LWW trust client clocks unbounded (`p_actor` and every timestamp are client-supplied, unauthenticated by the RPC); a future-clocked or crafted payload poisons a field's merge permanently via `updated_at = greatest(...)`.**
+- [x] **19. Zone-1 merge and tombstone LWW trust client clocks unbounded (`p_actor` and every timestamp are client-supplied, unauthenticated by the RPC); a future-clocked or crafted payload poisons a field's merge permanently via `updated_at = greatest(...)`.**
   Fix: in `merge_expense`, clamp `v_now` and every incoming `*_updated_at` to `min(value, server_now + 60s)` before use.
 
-- [ ] **20. Even-split tip slices of non-claiming participants are silently dropped** — `splitBill`'s `breakdown`/`owedByUser` are built only from users with an item subtotal, so a bill's shares can sum below `amount_subunits` with no reconciliation signal.
+- [x] **20. Even-split tip slices of non-claiming participants are silently dropped** — `splitBill`'s `breakdown`/`owedByUser` are built only from users with an item subtotal, so a bill's shares can sum below `amount_subunits` with no reconciliation signal.
   Fix: build `breakdown` over `subtotals.keys ∪ tipShares.keys` (default item subtotal 0). Update `BillSplitTest` expectations.
 
-- [ ] **21. A bill's total can be zero or negative with no validation** — an oversized discount produces a negative-amount expense, violating the "always positive" entity invariant, hidden by the `> 0` outstanding filters.
+- [x] **21. A bill's total can be zero or negative with no validation** — an oversized discount produces a negative-amount expense, violating the "always positive" entity invariant, hidden by the `> 0` outstanding filters.
   Fix: in `BillRepositoryImpl.validate`, compute the same `total(...)` and reject `<= 0` with a field error on `discount`.
 
-- [ ] **22. `selectIn` builds one `id=in.(…)` GET per table with every expense id — at ~800-1000 expenses/group the URL exceeds gateway limits and every pull fails wholesale, reported as permanently "unreachable."**
+- [x] **22. `selectIn` builds one `id=in.(…)` GET per table with every expense id — at ~800-1000 expenses/group the URL exceeds gateway limits and every pull fails wholesale, reported as permanently "unreachable."**
   Fix: chunk `values` into batches (e.g. 100 ids) and concatenate results inside the `selectIn` helper. Don't switch to unfiltered full-table selects as a workaround (breaks post-RLS-tightening).
 
-- [ ] **23. Four unresolved `expense_edit_conflicts` rows exist on the live server (verified) and are permanently stranded — `observeEditConflicts` is hard-wired empty, so they're invisible/unresolvable in-app but still synced to every device forever.**
-  Fix: one-time — export the 4 rows (contain full rejected payloads) for the owner's manual keep/apply decision, then mark resolved via SQL. Separately (once the concurrent RowSyncState branch settles, per the existing deferral note): remove `expense_edit_conflicts` from `SyncEngine.pull`/`push` and `SyncManager.SYNC_TABLES`.
+- [x] **23. Closed 2026-08-15.** Four unresolved `expense_edit_conflicts` rows were stranded on the live server: invisible in-app but synced to every device forever.
+  **Not a defect, do not "fix":** `observeEditConflicts` returning empty is deliberate (`data/AGENTS.md:118`) and asserted by `EditConflictResolutionTest.observeEditConflicts_isEmpty_bilateralCardsRetired`.
+  **Done:** all four rows were exported in full, judged individually, and marked `resolution = 'KEEP_SERVER'` (marked, never deleted). Two were seeded demo fixtures; one was a real rejected split edit in a `@sharecost.test` group; one was a self-supersede with an empty share set. The record and the reasoning are in `supabase/exports/expense_edit_conflicts-2026-08-15.md`, the raw payloads beside it in `.json`. No real user's money was involved.
+  **Still deferred by choice:** removing `expense_edit_conflicts` from `SyncEngine.pull`/`push` and `SyncManager.SYNC_TABLES`, until the concurrent `RowSyncState` work settles.
 
-- [ ] **24. Sign-out doesn't clear Room; sign-in as a different account on the same device pushes account A's stale rows to the server under account B's session.**
+- [x] **24. Sign-out doesn't clear Room; sign-in as a different account on the same device pushes account A's stale rows to the server under account B's session.**
   Fix: on `signOut`/`deleteAccount`, clear synced Room tables + `row_sync_state`/`expense_sync_state`, gated on a dirty-check ("unsynced changes will be lost" warning first). Don't wipe unconditionally in the same path that runs when the delete RPC failed.
 
-- [ ] **25. `runCatchingSync` maps every failure (serialization drift, RLS denial, unique-index violation) to generic `Network.Unreachable` — a permanently failing push (e.g. finding #5's wedge) looks identical to airplane mode; `SyncManager` swallows the result entirely.**
+- [x] **25. `runCatchingSync` maps every failure (serialization drift, RLS denial, unique-index violation) to generic `Network.Unreachable` — a permanently failing push (e.g. finding #5's wedge) looks identical to airplane mode; `SyncManager` swallows the result entirely.**
   Fix: map Postgrest/HTTP-status exceptions to `AppError.Backend(status, code)`, keep `Network.Unreachable` for transport failures only; add a `MutableStateFlow<SyncHealth>` (consecutive-failure count + last error kind) observable from Settings/debug UI.
 
 ---
 
 ## P3 — real but small
 
-- [ ] **26. `SyncManager.SYNC_TABLES` omits `categories`** though `SyncEngine.push` includes it — the "mirrors push" comment is false; category edits ride only the 60s fallback tick. Fix: add `"categories"` to the array.
+- [x] **26. `SyncManager.SYNC_TABLES` omits `categories`** though `SyncEngine.push` includes it — the "mirrors push" comment is false; category edits ride only the 60s fallback tick. Fix: add `"categories"` to the array.
 
-- [ ] **27. The realtime publication omits `users`** — profile renames/handle changes propagate to other devices only via the 60s fallback, not near-real-time. Fix: add `'users'` to the publication array via an idempotent migration.
+- [x] **27. ~~The realtime publication omits `users`~~ — WON'T FIX. This finding is wrong and acting on it re-creates a production outage.**
+  `AGENTS.md` §4.3 and `supabase/schema.sql` both forbid adding app tables to the `supabase_realtime` publication. Doing it once fanned out one message *per row per connected client* and burned **13.9M messages against a 5M quota**. Realtime is a one-table doorbell (`group_activity`) and stays that way; the client ignores every payload, so publishing `users` would buy nothing but the outage. Profile renames riding the 60s fallback tick is the intended trade, not a defect. **Do not rediscover this as actionable.** (Closed 2026-08-15.)
 
-- [ ] **28. Doc/code contradictions:** `ExpenseEntity` references a `computeExpenseStatus` + Postgres status trigger that don't exist; `ExpenseDao.updateStatus` has zero callers; CLAUDE.md still describes item-share uniqueness as `(item_id,user_id)` "at most one shared slice per line" when schema/entity now key `(item_id,user_id,portion_id)` and explicitly allow multiple.
+- [x] **28. Doc/code contradictions:** `ExpenseEntity` references a `computeExpenseStatus` + Postgres status trigger that don't exist; `ExpenseDao.updateStatus` has zero callers; CLAUDE.md still describes item-share uniqueness as `(item_id,user_id)` "at most one shared slice per line" when schema/entity now key `(item_id,user_id,portion_id)` and explicitly allow multiple.
   Fix: delete the dead `updateStatus` method and the stale doc references; correct CLAUDE.md's item-share sentence in the same commit as any related code change.
 
-- [ ] **29. `schema.sql` never drops the superseded `item_shares_item_user_active_uidx`** — the live DB had it removed out-of-band, so the file only matches deployed state by accident; any environment reapplying the file from scratch keeps the old index and 409s on multi-portion writes.
+- [x] **29. `schema.sql` never drops the superseded `item_shares_item_user_active_uidx`** — the live DB had it removed out-of-band, so the file only matches deployed state by accident; any environment reapplying the file from scratch keeps the old index and 409s on multi-portion writes.
   Fix: add `drop index if exists item_shares_item_user_active_uidx;` immediately before the new index definition in `schema.sql`.
 
 ---

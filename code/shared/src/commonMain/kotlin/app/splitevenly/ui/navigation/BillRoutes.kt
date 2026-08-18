@@ -1,6 +1,7 @@
 package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,10 +12,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.upload.ReceiptUploadManager
+import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.BillExtrasInput
 import app.splitevenly.domain.expense.BillView
@@ -26,12 +29,15 @@ import app.splitevenly.domain.expense.NewBill
 import app.splitevenly.domain.expense.NewBillItem
 import app.splitevenly.domain.expense.TipSplitMode
 import app.splitevenly.domain.receipt.ReceiptDraft
+import app.splitevenly.domain.pro.scanMeterFor
 import app.splitevenly.domain.receipt.ReceiptOcr
+import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.AnalyticsEvents
+import app.splitevenly.platform.ProTriggers
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
 import app.splitevenly.platform.PickKind
@@ -87,7 +93,12 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     val auth = koinInject<AuthSession>()
     val filePicker = koinInject<FilePicker>()
     val ocr = koinInject<ReceiptOcr>()
+    val pro = koinInject<ProRepository>()
     val gid = remember(groupId) { GroupId(groupId) }
+    // Free-scan meter (PRO_PASS_SPEC.md §8.1): fetched on open, re-read after each scan below.
+    val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
+    LaunchedEffect(gid) { pro.refresh(gid.value) }
+    val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -95,6 +106,7 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
+    val stagedPdf = rememberStagedPdfRenderers(uploadManager)
     val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
@@ -103,11 +115,19 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // The exact pages the user picked. Retained so a failed scan can retry, and — on success — handed to
     // the upload pipeline on Save so the scanned receipt becomes a normal attachment on the expense.
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
-    var attachedReceipts by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    var attachedReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
     // Scan-funnel analytics bookkeeping — see AddExpenseRoute's twin of this pipeline.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
     var scanStartedAt by remember { mutableStateOf(0L) }
+
+    // Staged bytes belong to this editor until a save attaches them. There is no BackHandler here, so
+    // system back and swipe-back leave without ever reaching onBack — clean up on dispose instead, or an
+    // abandoned scan sits in the sandbox forever.
+    var attached by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose { if (!attached) uploadManager?.discardStagedDetached(attachedReceipts) }
+    }
 
     val existing = if (expenseId != null) {
         remember(expenseId) { bills.observeBill(ExpenseId(expenseId)) }.collectAsStateWithLifecycle(null).value
@@ -127,6 +147,14 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             AnalyticsEvents.SCAN_STARTED,
             mapOf("page_count" to files.size, "source" to source.name.lowercase(), "group_id" to gid.value),
         )
+        // The pages the user just photographed ARE the receipt, whatever the OCR makes of them. Stage them
+        // on a job of their own so a cancelled, failed or blocked scan still leaves the receipt attached —
+        // scanJob gets cancelled, and this must not go with it.
+        scope.launch {
+            val superseded = attachedReceipts
+            attachedReceipts = uploadManager?.stage(files).orEmpty()
+            uploadManager?.discardStaged(superseded)
+        }
         scanJob = scope.launch {
             val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
             val outcome = ocr.extract(ocrFiles, groupId = gid.value)
@@ -134,7 +162,6 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             scanState = when (outcome) {
                 is ScanOutcome.Success -> {
                     scanned = outcome.draft.toEditState()
-                    attachedReceipts = files
                     analytics?.capture(
                         AnalyticsEvents.SCAN_COMPLETED,
                         buildMap {
@@ -152,7 +179,12 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                         AnalyticsEvents.SCAN_BLOCKED,
                         mapOf("reason" to outcome.reason, "group_id" to gid.value),
                     )
-                    ScanUiState.Failed(ScanErrorKind.Blocked)
+                    // The group is out of free scans and holds no pass, which no amount of waiting
+                    // fixes. Every other Blocked reason (the hourly rate limit today) does.
+                    val blockedKind =
+                        if (outcome.reason == "quota_exhausted") ScanErrorKind.OutOfScans
+                        else ScanErrorKind.Blocked
+                    ScanUiState.Failed(blockedKind)
                 }
                 else -> {
                     val kind = when (outcome) {
@@ -174,19 +206,53 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                     ScanUiState.Failed(kind)
                 }
             }
+            // A successful scan is what moves the count, so re-read it rather than decrementing
+            // locally: the server is the only place that knows what actually counted. That refreshed
+            // number is also the only honest source for `free_scan_used` (PRO_PASS_SPEC.md §12) —
+            // computing it from the pre-scan value would report a scan the server may not have counted.
+            pro.refresh(gid.value)?.let { count ->
+                analytics?.capture(
+                    AnalyticsEvents.FREE_SCAN_USED,
+                    mapOf(
+                        "group_id" to gid.value,
+                        "scans_used" to count.used,
+                        "scans_remaining" to count.remaining,
+                    ),
+                )
+            }
         }
     }
 
+    // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
+    // navigating away: the person is mid-bill, and taking them off this screen to buy would lose the
+    // photo they just picked.
+    val billing = koinInject<ProBilling>()
+    var showPassSheet by remember { mutableStateOf(false) }
+
     BillEditScreen(
         editing = expenseId != null,
+        groupName = group?.name,
+        onGetPro = if (billing.isAvailable) ({ showPassSheet = true }) else null,
         initial = existing?.toEditState(),
         scanned = scanned,
         currencyCode = currency,
         saving = saving,
+        scanMeter = scanMeter,
         scanState = scanState,
-        attachedReceiptCount = attachedReceipts.size,
+        attachedReceipts = attachedReceipts.map { it.toUi() },
+        onRemoveAttachedReceipt = { i ->
+            val dropped = attachedReceipts.getOrNull(i)
+            attachedReceipts = attachedReceipts.filterIndexed { idx, _ -> idx != i }
+            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+        },
+        loadPdfPageCount = stagedPdf.pageCount,
+        renderPdfPage = stagedPdf.renderPage,
         participants = members.map { ParticipantChipUi(it.userId.value, if (it.userId == userId) "You" else (it.displayName ?: "Someone"), it.userId == userId) },
         initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
+        // A new bill is paid by whoever is entering it, which is who is holding the receipt.
+        initialPayerId = existing?.expense?.payerUserId?.value ?: userId?.value.orEmpty(),
+        initialOutsidePayerName = existing?.expense?.payerOutsideName,
+        claimedItemsByUser = existing?.claimedItemsByUser().orEmpty(),
         onBack = onBack,
         onScanReceipt = { source ->
             // Fires before any cost is incurred — even if the user backs out of the file picker next.
@@ -214,7 +280,14 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             scanState = ScanUiState.Idle
         },
         onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
-        onDismissScan = { scanState = ScanUiState.Idle },
+        onDismissScan = {
+            // The honest counterpart to conversion rate: how many people the gate pushed onto the slow
+            // path. Only fired for the quota refusal, never for an offline or unreadable-photo dismissal.
+            if ((scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
+                analytics?.capture(AnalyticsEvents.MANUAL_ENTRY_AFTER_PAYWALL, mapOf("group_id" to gid.value))
+            }
+            scanState = ScanUiState.Idle
+        },
         onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
         onSave = { submit ->
             val me = userId ?: return@BillEditScreen
@@ -226,7 +299,12 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                     tipSubunits = submit.tipSubunits,
                     tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
                     discountSubunits = submit.discountSubunits,
+                    otherChargesSubunits = submit.otherChargesSubunits,
                 )
+                val outsidePayer = submit.payerOutsideName?.takeIf { it.isNotBlank() }
+                val payer = if (outsidePayer != null) null else submit.payerUserId?.let { UserId(it) }
+                // Neither set means the editor had no "Paid by" row at all, so the bill keeps its payer.
+                val keepPayer = outsidePayer == null && payer == null
                 if (expenseId == null) {
                     val result = bills.createBill(
                         NewBill(
@@ -234,7 +312,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             title = submit.title,
                             currency = currency,
                             expenseDate = Clock.System.todayUtc(),
-                            payerUserId = me,
+                            payerUserId = if (outsidePayer != null) null else (payer ?: me),
+                            payerOutsideName = outsidePayer,
                             createdBy = me,
                             items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
@@ -244,7 +323,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                     when (result) {
                         is AppResult.Ok -> {
                             // The scanned pages ride along as the expense's receipt (background upload).
-                            if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(result.value, gid, attachedReceipts)
+                            attached = true
+                            uploadManager?.attach(result.value, gid, attachedReceipts)
                             reportScanResultEdited(analytics, scanned, submit.items, gid.value)
                             onCreated(result.value.value)
                         }
@@ -256,20 +336,36 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                         EditBill(
                             title = submit.title,
                             expenseDate = existing?.expense?.expenseDate ?: Clock.System.todayUtc(),
-                            payerUserId = existing?.expense?.payerUserId ?: me,
+                            payerUserId = if (keepPayer) (existing?.expense?.payerUserId ?: me) else payer,
+                            payerOutsideName = if (keepPayer) existing?.expense?.payerOutsideName else outsidePayer,
                             items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
                             participantUserIds = submit.participantIds.map { UserId(it) },
                             editedBy = me,
                         ),
                     )
-                    if (attachedReceipts.isNotEmpty()) uploadManager?.enqueue(ExpenseId(expenseId), gid, attachedReceipts)
+                    attached = true
+                    uploadManager?.attach(ExpenseId(expenseId), gid, attachedReceipts)
                     reportScanResultEdited(analytics, scanned, submit.items, gid.value)
                     onBack()
                 }
             }
         },
     )
+
+    if (showPassSheet) {
+        PassSheetHost(
+            groupId = gid.value,
+            groupName = group?.name ?: "this group",
+            trigger = ProTriggers.SCAN,
+            // No subscription link from inside an editor: leaving a half-typed bill to browse a
+            // recurring plan would lose the draft, and a link that costs someone their work is worse
+            // than one that isn't there. The Profile row is the door for that.
+            onSeeSubscription = null,
+            onDismiss = { showPassSheet = false },
+        )
+    }
+
 }
 
 /** The assign screen — "who had what?". Assignments (incl. for people without the app) go through the
@@ -420,6 +516,7 @@ private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
     gratuityText = subunitsToText(gratuitySubunits),
     tipText = subunitsToText(tipSubunits),
     discountText = subunitsToText(discountSubunits),
+    otherChargesText = subunitsToText(otherChargesSubunits),
     verified = verified,
 )
 
@@ -431,4 +528,14 @@ private fun BillView.toEditState(): EditBillState = EditBillState(
     gratuityText = subunitsToText(extras.gratuitySubunits),
     tipText = subunitsToText(extras.tipSubunits),
     discountText = subunitsToText(extras.discountSubunits),
+    otherChargesText = subunitsToText(extras.otherChargesSubunits),
 )
+
+/** How many distinct lines each person holds, counting a solo claim and a shared slice the same. It
+ *  answers one question for the editor: does taking this person off the bill throw anything away? */
+private fun BillView.claimedItemsByUser(): Map<String, Int> {
+    val lines = HashMap<String, MutableSet<String>>()
+    claims.forEach { lines.getOrPut(it.userId.value) { HashSet() }.add(it.itemId) }
+    shares.forEach { lines.getOrPut(it.userId.value) { HashSet() }.add(it.itemId) }
+    return lines.mapValues { (_, items) -> items.size }
+}

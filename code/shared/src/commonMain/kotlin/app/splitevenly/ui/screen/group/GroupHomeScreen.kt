@@ -21,6 +21,7 @@ import app.splitevenly.ui.components.BottomNavItem
 import app.splitevenly.ui.components.EvBottomNav
 import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.navigation.GroupDeletedRoute
 import app.splitevenly.ui.navigation.GroupTab
 import app.splitevenly.ui.navigation.OverviewRoute
 import app.splitevenly.ui.theme.EvMotion
@@ -48,7 +49,6 @@ fun GroupHomeScreen(
     onOpenSettings: () -> Unit = {},
     onSettlePeer: (String) -> Unit = {},
     onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit = { _, _, _ -> },
-    onExport: () -> Unit = {},
     /** "See all N" on the identity card, and the settings row, both open the full-screen list. */
     onClaimNames: () -> Unit = {},
 ) {
@@ -58,6 +58,11 @@ fun GroupHomeScreen(
     var tab by rememberSaveable(stateSaver = GroupTabSaver) { mutableStateOf(initialTab) }
     val groups = koinInject<GroupRepository>()
     val expenses = koinInject<ExpenseRepository>()
+    // Tombstone included: someone else's delete can arrive from sync while this person is standing in
+    // the group, and the tabs below would otherwise render against a group that no longer exists.
+    val group by remember(groupId) {
+        groups.observeGroupIncludingDeleted(GroupId(groupId))
+    }.collectAsStateWithLifecycle(null)
     val conflicts by remember(groupId) { groups.observeConflicts(GroupId(groupId)) }.collectAsStateWithLifecycle(emptyList())
     val editConflicts by remember(groupId) { expenses.observeEditConflicts(GroupId(groupId)) }.collectAsStateWithLifecycle(emptyList())
     // Both kinds of conflict surface in the one Conflicts tab: retroactive-member *and* edit-collisions.
@@ -65,35 +70,72 @@ fun GroupHomeScreen(
     // If the conflicts clear while the tab is open, fall back to Expenses so we don't show a blank tab.
     if (conflictCount == 0 && tab == GroupTab.Conflicts) tab = GroupTab.Expenses
 
+    // The delete gate replaces all four tabs at once, including the Add button: an expense written into
+    // a group every other member has already lost is worse than the blank screen this replaces.
+    val deletedAt = group?.deletedAt
+    if (deletedAt != null) {
+        GroupDeletedRoute(
+            groupId = groupId,
+            groupName = group?.name.orEmpty(),
+            groupEmoji = group?.emoji ?: "💸",
+            deletedAt = deletedAt,
+            deletedBy = group?.deletedBy?.value,
+            onBackToGroups = onBack,
+        )
+        return
+    }
+
     Column(Modifier.fillMaxSize().background(c.page)) {
         StatusBarScrim(c.page)
         Box(Modifier.weight(1f)) {
             Crossfade(targetState = tab, animationSpec = EvMotion.standard()) { current ->
                 when (current) {
-                    GroupTab.Expenses -> GroupExpensesRoute(groupId, onBack, onOpenSettings, onAdd, onOpenExpense, onOpenBill, onSearch, onClaimNames)
-                    GroupTab.Balances -> GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
-                    GroupTab.Conflicts -> GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
-                    GroupTab.Overview -> OverviewRoute(groupId, onBack = onBack, onExport = onExport)
+                    GroupTab.Expenses -> {
+                        GroupExpensesRoute(
+                            groupId,
+                            onBack,
+                            onOpenSettings,
+                            onAdd,
+                            onOpenExpense,
+                            onOpenBill,
+                            onSearch,
+                            onClaimNames,
+                        )
+                    }
+
+                    GroupTab.Balances -> {
+                        GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
+                    }
+
+                    GroupTab.Conflicts -> {
+                        GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
+                    }
+
+                    GroupTab.Overview -> {
+                        OverviewRoute(groupId, onBack = onBack)
+                    }
                 }
             }
         }
-        val items = buildList {
-            add(BottomNavItem("expenses", "Expenses", EvIcons.Receipt))
-            add(BottomNavItem("balances", "Balances", EvIcons.Swap))
-            if (conflictCount > 0) add(BottomNavItem("conflicts", "Review", EvIcons.Flag, badge = conflictCount))
-            add(BottomNavItem("overview", "Overview", EvIcons.Chart))
-        }
+        val items =
+            buildList {
+                add(BottomNavItem("expenses", "Expenses", EvIcons.Receipt))
+                add(BottomNavItem("balances", "Balances", EvIcons.Swap))
+                if (conflictCount > 0) add(BottomNavItem("conflicts", "Review", EvIcons.Flag, badge = conflictCount))
+                add(BottomNavItem("overview", "Overview", EvIcons.Chart))
+            }
         EvBottomNav(
             items = items,
             selectedId = tab.name.lowercase(),
             navBarInset = true,
             onSelect = { id ->
-                tab = when (id) {
-                    "balances" -> GroupTab.Balances
-                    "conflicts" -> GroupTab.Conflicts
-                    "overview" -> GroupTab.Overview
-                    else -> GroupTab.Expenses
-                }
+                tab =
+                    when (id) {
+                        "balances" -> GroupTab.Balances
+                        "conflicts" -> GroupTab.Conflicts
+                        "overview" -> GroupTab.Overview
+                        else -> GroupTab.Expenses
+                    }
             },
         )
     }

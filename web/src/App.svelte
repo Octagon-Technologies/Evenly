@@ -15,28 +15,21 @@
   import Home from './marketing/Home.svelte';
   import Privacy from './marketing/Privacy.svelte';
   import Terms from './marketing/Terms.svelte';
+  import DeleteAccount from './marketing/DeleteAccount.svelte';
+  import Support from './marketing/Support.svelte';
+  import Waitlist from './marketing/Waitlist.svelte';
+  import AdminPlaceholder from './marketing/AdminPlaceholder.svelte';
   import { store } from './lib/store.svelte.ts';
   import { resolveRoute } from './lib/router.ts';
+  import { applySeo } from './lib/seo.ts';
   import { onMount } from 'svelte';
 
   const route = resolveRoute();
 
-  const TITLES = {
-    home: 'Evenly — Split the bill, not the friendship.',
-    privacy: 'Privacy Policy · Evenly',
-    terms: 'Terms of Service · Evenly',
-    bill: 'Claim your items · Evenly',
-  } as const;
-
-  onMount(() => {
-    document.title = TITLES[route.kind];
-    if (route.kind === 'bill') {
-      const meta = document.createElement('meta');
-      meta.name = 'robots';
-      meta.content = 'noindex, nofollow';
-      document.head.appendChild(meta);
-    }
-  });
+  // Title, description, canonical and `robots` all live in `seo.ts`'s one table — including the
+  // `noindex` the claim route needs, which is why this is applied for every route and not just the
+  // marketing ones.
+  onMount(() => applySeo(route.kind));
 </script>
 
 {#if route.kind === 'home'}
@@ -45,6 +38,14 @@
   <Privacy />
 {:else if route.kind === 'terms'}
   <Terms />
+{:else if route.kind === 'delete-account'}
+  <DeleteAccount />
+{:else if route.kind === 'support'}
+  <Support />
+{:else if route.kind === 'waitlist'}
+  <Waitlist />
+{:else if route.kind === 'admin'}
+  <AdminPlaceholder />
 {:else}
   <div class="claim-shell">
     {#if store.phase === 'loading'}

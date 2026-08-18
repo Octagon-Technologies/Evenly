@@ -102,6 +102,7 @@ internal fun ExpenseEntity.toExtras() = BillExtrasInput(
     tipSubunits = tipSubunits,
     tipSplitMode = TipSplitMode.entries.firstOrNull { it.name == tipSplitMode } ?: TipSplitMode.EVEN,
     discountSubunits = discountSubunits,
+    otherChargesSubunits = otherChargesSubunits,
 )
 
 internal fun BillExtrasInput.toEngine() = BillExtras(
@@ -110,6 +111,7 @@ internal fun BillExtrasInput.toEngine() = BillExtras(
     tipSubunits = tipSubunits,
     tipSplitMode = tipSplitMode,
     discountSubunits = discountSubunits,
+    otherChargesSubunits = otherChargesSubunits,
 )
 
 // A line's sharing splits two ways: legacy rows (no portion) feed the old single all-leftover set;

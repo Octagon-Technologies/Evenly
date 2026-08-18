@@ -7,7 +7,7 @@ import app.splitevenly.core.id.UserId
 /**
  * "Split the bill" domain models — the itemized-expense flow. A bill is an expense with `split_mode =
  * "ITEMIZED"`: its line items live in `expense_items`, who-had-what in `item_claims`, and the bill-level
- * extras (tax/gratuity/tip/discount) on the expense row. Each participant's owed share is **derived**
+ * extras (tax/gratuity/tip/discount/other charges) on the expense row. Each participant's owed share is **derived**
  * from those via [splitBill]; it is never typed in directly.
  */
 
@@ -28,13 +28,18 @@ data class EditBillItem(
     val lineTotalSubunits: Long,
 )
 
-/** Bill-level surcharges. Tip defaults to an even split (toggleable); tax & gratuity ride proportionally. */
+/**
+ * Bill-level surcharges. Tip defaults to an even split (toggleable); tax, gratuity, and other charges ride
+ * proportionally. [otherChargesSubunits] is the receipt's delivery fee / bottle deposit / card surcharge —
+ * see [BillExtras] for why it splits the way it does.
+ */
 data class BillExtrasInput(
     val taxSubunits: Long = 0L,
     val gratuitySubunits: Long = 0L,
     val tipSubunits: Long = 0L,
     val tipSplitMode: TipSplitMode = TipSplitMode.EVEN,
     val discountSubunits: Long = 0L,
+    val otherChargesSubunits: Long = 0L,
 )
 
 /** Input to create a bill: the menu + extras + who it's for. Claims arrive later, live. */

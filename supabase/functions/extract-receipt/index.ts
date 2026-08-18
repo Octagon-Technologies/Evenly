@@ -4,14 +4,28 @@
 // money is computed; this function only produces a first draft, never a source of truth.
 //
 // Inert until configured: set the `ANTHROPIC_API_KEY` secret. Without it the function returns 200 +
-// { configured:false } so the client can fall back to manual entry without surfacing an error.
+// { configured:false } so the client can fall back to manual entry without surfacing an error. A
+// 401/403/credit-exhausted response from Anthropic (bad key, revoked key, no funds) routes through
+// that same { configured:false } shape, since it's equally unfixable by the client retrying, and
+// separately best-effort-alerts `SLACK_ALERT_WEBHOOK_URL` (optional; a no-op if unset) so the owner
+// finds out without having to check logs.
 //
 //   POST { "files": [{ "data": "<base64>", "mediaType": "image/jpeg" | "application/pdf" }, ...] }  // multi-page
 //     or { "imageBase64": "...", "mediaType"?: "image/jpeg" }     // single image inline (legacy)
-//     or { "storagePath": "receipts/abc.jpg" }                    // already in the receipts bucket
+//     or { "storagePath": "abc.jpg" }                             // object path in the `receipts` bucket
+//
+// `storagePath` names an OBJECT ONLY. The bucket is always `receipts`, hardcoded — a leading
+// `receipts/` is tolerated for older clients and stripped. The caller cannot choose the bucket: this
+// download runs with the service role, so a caller-named bucket would read any private bucket.
 //
 // `files` may mix several photos and/or PDFs — they're read together as ONE bill, so a multi-page
 // receipt yields a single item list. PDFs go in as document blocks; images as image blocks.
+//
+// `groupId` is REQUIRED (400 without it). It is the Evenly Pro quota key, not just analytics: a group
+// gets 5 successful scans free for its lifetime, after which any member can buy it a pass and the whole
+// group scans without limit until that pass expires. Over the allowance and not Pro returns **402** with
+// `reason: "quota_exhausted"` — deliberately not the 429 below, because "no scans left" opens a paywall
+// and "too fast" opens a wait. Both refusals happen before any paid call. See PRO_PASS_SPEC.md §7.
 //
 // Auth: send the signed-in user's access token as the Bearer (the client does), with the anon key in the
 // `apikey` header. The function REQUIRES a resolvable user (401 otherwise) so the per-user rate limit on
@@ -38,8 +52,28 @@
 //      into a bill with item names and 0.00 everywhere. Nothing checked `stop_reason`, so that truncated
 //      draft was returned as if it were fine. Both are fixed below: thinking is now explicit, max_tokens
 //      has real headroom, and a `max_tokens` stop is treated as a failed pass.
+//
+// THE MODEL DOES NO ARITHMETIC (2026-08-08). It transcribes the receipt; `billMath.ts` adds it up and
+// checks the sum against the PRINTED grand total. Where the two disagree the model gets one verify turn:
+// it is shown our working and asked to correct its READINGS, never to adjust a figure so the sum comes
+// out. Two defects came from ignoring this — a dollars->cents rescale the model did by truncation, and a
+// schema field defined as the sum of its own siblings, which turned the validation gate into a check of
+// the model against itself. See contract.ts and billMath.ts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  EXTRACT_PROMPT,
+  normalizeReceipt,
+  RECEIPT_TOOL,
+  type RawReceipt,
+  type Receipt,
+} from "./contract.ts";
+import {
+  type BillMath,
+  computeBill,
+  describeDiscrepancy,
+  fmt,
+} from "./billMath.ts";
 
 interface ReceiptPart {
   data: string;      // base64-encoded bytes
@@ -54,29 +88,45 @@ interface ExtractRequest {
   groupId?: string | null;
 }
 
-interface ReceiptItem {
-  label: string;
-  quantity: number;
-  line_total_subunits: number;
-}
-
-interface Receipt {
-  currency: string;
-  items: ReceiptItem[];
-  subtotal_subunits: number;
-  tax_subunits: number;
-  gratuity_subunits: number;
-  tip_subunits: number;
-  discount_subunits: number;
-  detected_total_subunits: number;
-  is_receipt: boolean;
-}
-
 /** One model pass. `truncated` means the response stopped on max_tokens, so `receipt` may be a partial object. */
 interface Pass {
   receipt: Receipt | null;
   truncated: boolean;
   usage: { inputTokens: number; outputTokens: number };
+  /** The raw tool_use, replayed verbatim as the assistant turn when we ask the model to re-read. */
+  toolUseId: string | null;
+  rawInput: unknown;
+}
+
+/** The follow-up turn: the model's own draft handed back with our arithmetic over it. See billMath.ts. */
+interface VerifyTurn {
+  toolUseId: string | null;
+  toolInput: unknown;
+  feedback: string;
+}
+
+/**
+ * Thrown by extractWithModel on a non-OK Anthropic response. `retryable` distinguishes a transient
+ * failure (worth trying the next tier / letting the client retry) from an account-level failure that
+ * will fail identically on every future call until a human fixes it (bad/revoked key, exhausted
+ * credit) -- see classifyAnthropicFailure below.
+ */
+class AnthropicCallError extends Error {
+  constructor(message: string, readonly status: number, readonly retryable: boolean) {
+    super(message);
+  }
+}
+
+/**
+ * 401/403 mean the key itself is bad or revoked; a 400 whose body mentions credit/billing means the
+ * account is out of funds. None of these get better on retry, on the next tier (same key), or ever
+ * without a human changing the Anthropic account -- unlike 429 (rate limited) or 5xx (overloaded),
+ * which are worth retrying.
+ */
+function classifyAnthropicFailure(status: number, bodyText: string): boolean {
+  if (status === 401 || status === 403) return false;
+  if (status === 400 && /credit|billing|balance/i.test(bodyText)) return false;
+  return true; // 429, 5xx, and any other 4xx we haven't seen a reason to treat as terminal
 }
 
 // A Claude content block for one receipt page — a PDF renders as a document, everything else as an image.
@@ -86,68 +136,6 @@ function pageBlock(part: ReceiptPart) {
     ? { type: "document", source }
     : { type: "image", source };
 }
-
-// The shape we force Claude to emit. Amounts are integer MINOR units (cents) to match the app's
-// subunit convention — no floating-point money crosses the wire. `is_receipt` is the model's escape
-// hatch: tool_choice FORCES this tool to be called even on a photo that isn't a receipt at all, so
-// without an explicit field to say "this isn't one" the model would have no way to say so — it would
-// just have to invent a plausible-looking but fake structure to comply with the schema.
-const RECEIPT_TOOL = {
-  name: "record_receipt",
-  description: "Record the structured contents of a restaurant or shop receipt.",
-  input_schema: {
-    type: "object",
-    properties: {
-      is_receipt: {
-        type: "boolean",
-        description:
-          "true only if this image is genuinely an itemized purchase receipt or invoice with line items " +
-          "and a total. false for anything else — a photo of a person, a screenshot of an unrelated app, " +
-          "a ride-share trip summary, a random photo, or any document with no itemized purchase charges. " +
-          "If false, leave items empty and every amount at 0 — do not invent a plausible-looking receipt.",
-      },
-      currency: { type: "string", description: "ISO 4217 code, e.g. USD, EUR, KES. Best guess from symbols/locale." },
-      items: {
-        type: "array",
-        description: "Every ordered line. Split a '2 Pizza' line into quantity 2 at the per-unit price.",
-        items: {
-          type: "object",
-          properties: {
-            label: { type: "string" },
-            quantity: { type: "integer", minimum: 1 },
-            line_total_subunits: { type: "integer", minimum: 0, description: "The TOTAL price printed for this line (all units combined) in minor units (cents) — not a per-unit price." },
-          },
-          required: ["label", "quantity", "line_total_subunits"],
-        },
-      },
-      subtotal_subunits: { type: "integer", minimum: 0, description: "The subtotal printed BEFORE tax/gratuity/tip/discount, in minor units. This must equal the sum of every line_total_subunits above. If no subtotal is printed, sum the lines yourself." },
-      tax_subunits: { type: "integer", minimum: 0, description: "Sales tax/VAT total in minor units; 0 if none." },
-      gratuity_subunits: { type: "integer", minimum: 0, description: "Auto service charge / gratuity in minor units; 0 if none. NOT a tip line the customer writes in." },
-      tip_subunits: { type: "integer", minimum: 0, description: "Printed tip in minor units; 0 if blank (tips are usually added by hand later)." },
-      discount_subunits: { type: "integer", minimum: 0, description: "Any discount/comp as a positive magnitude in minor units; 0 if none." },
-      detected_total_subunits: { type: "integer", minimum: 0, description: "The grand total printed on the receipt, in minor units, for reconciliation." },
-    },
-    required: ["is_receipt", "currency", "items", "subtotal_subunits", "tax_subunits", "gratuity_subunits", "tip_subunits", "discount_subunits", "detected_total_subunits"],
-  },
-} as const;
-
-const EXTRACT_PROMPT =
-  "Read this receipt (which may span several pages/images) and record it as ONE bill with " +
-  "the record_receipt tool. First decide is_receipt: only true for an itemized purchase receipt " +
-  "or invoice with line items and a total — false for anything else (a person, an unrelated app " +
-  "screenshot, a ride-share trip summary, a random photo). If true, itemise every ordered line " +
-  "with its quantity and its LINE TOTAL price in minor units (cents) — the total charged for that " +
-  "line as printed, not a computed per-unit price. Separate sales tax, an auto gratuity/service " +
-  "charge, any printed tip, and any discount. If a value isn't on the receipt, use 0. Don't invent " +
-  "items. If unsure of the currency, infer from symbols.\n\n" +
-  "Every line you record must carry its printed price. Never record a line at 0 when a price is " +
-  "printed next to it. If a price is hard to read, give your best reading of the digits rather than " +
-  "falling back to 0. 0 is only correct for a genuinely free or comped line.\n\n" +
-  "Before you record, check your arithmetic against the receipt: the line totals must sum to " +
-  "subtotal_subunits, and subtotal + tax + gratuity + tip - discount must equal " +
-  "detected_total_subunits (the grand total printed on the receipt). If they don't match, re-read " +
-  "the receipt and correct the figures you misread. Report what is actually printed; do not fudge a " +
-  "number to force the arithmetic to balance.";
 
 // Two tiers. The PRIMARY handles the overwhelming majority of scans in one round trip: thinking is
 // explicitly OFF, so the entire token budget goes to the record_receipt JSON and nothing is spent
@@ -196,9 +184,11 @@ function tokenCostMicros(model: string, inputTokens: number, outputTokens: numbe
 // environments don't need reconfiguring); 200/day is a starting default, not a measured number.
 const ESCALATION_DAILY_CAP = Number(Deno.env.get("OPUS_DAILY_CAP") ?? "200");
 
-// Reconciliation slack, in minor units. A real POS total can sit a cent off its own lines through
-// per-line tax rounding, so an exact match is too strict a bar for "the model read this correctly".
-const RECONCILE_TOLERANCE_SUBUNITS = 2;
+// Evenly Pro's free allowance: successful scans a group gets before someone has to buy it a pass
+// (PRO_PASS_SPEC.md §4). Per GROUP and for the life of the group, never reset. Env-overridable so the
+// number can be A/B'd from the dashboard without a redeploy, which is the whole reason the cost ledger
+// exists — 5 is a judgement call and the ledger is what will correct it.
+const FREE_SCANS_PER_GROUP = Number(Deno.env.get("FREE_SCANS_PER_GROUP") ?? "5");
 
 // A label a model reaches for when it gives up and lumps the whole bill into one generic line instead
 // of actually itemizing — the exact "receipt: $47.32" degenerate failure.
@@ -220,15 +210,16 @@ function normalizeLabel(label: string): string {
 
 /**
  * Catches the "gave up and lumped everything into one line" failure mode, which reconciles PERFECTLY
- * (one item priced at exactly the total) and so is invisible to reconciles() alone — this needs its own
- * check. Independent of reconciliation: a receipt can reconcile and still be degenerate.
+ * (one item priced at exactly the total) and so is invisible to the reconciliation alone — this needs its
+ * own check. Independent of it: a receipt can reconcile and still be degenerate.
  */
-function isDegenerate(receipt: Receipt, pageCount: number): boolean {
+function isDegenerate(receipt: Receipt, math: BillMath, pageCount: number): boolean {
   const items = receipt.items ?? [];
   if (items.length === 0) return true;
   if (items.some((it) => GENERIC_LABELS.has(normalizeLabel(it.label)))) return true;
-  const noExtras = !receipt.tax_subunits && !receipt.gratuity_subunits && !receipt.tip_subunits && !receipt.discount_subunits;
-  if (items.length === 1 && noExtras && items[0].line_total_subunits === receipt.detected_total_subunits) return true;
+  const e = math.extras;
+  const noExtras = !e.tax_subunits && !e.gratuity_subunits && !e.tip_subunits && !e.discount_subunits && !e.other_subunits;
+  if (items.length === 1 && noExtras && items[0].line_total_subunits === math.printedTotal) return true;
   // A multi-page bill that collapses to one line is almost certainly a lumping failure, not a real
   // one-item receipt that happened to span several photos.
   if (pageCount > 1 && items.length <= 1) return true;
@@ -236,10 +227,10 @@ function isDegenerate(receipt: Receipt, pageCount: number): boolean {
 }
 
 /**
- * The failure this whole rewrite exists for: a draft that read the item NAMES but none of the prices, so
- * the user lands on a bill of real dishes at 0.00 each. It reconciles at neither end and looks like a
- * successful scan, and the old gate had no check for it at all — a truncated tool_use payload sailed
- * straight through to the client, whose `= 0` field defaults finished the job silently.
+ * A draft that read the item NAMES but none of the prices, so the user lands on a bill of real dishes at
+ * 0.00 each. It looks like a successful scan, and the original gate had no check for it at all — a
+ * truncated tool_use payload sailed straight through to the client, whose `= 0` field defaults finished
+ * the job silently.
  *
  * One priced line is the bar, not all of them: a genuinely comped or free line at 0 is legitimate.
  */
@@ -247,50 +238,23 @@ function hasAmounts(receipt: Receipt): boolean {
   return (receipt.items ?? []).some((it) => (it.line_total_subunits ?? 0) > 0);
 }
 
-/** Sum of every line total. This is what the bill editor shows as "Subtotal", so it's the figure that matters. */
-function itemSum(receipt: Receipt): number {
-  return (receipt.items ?? []).reduce((s, it) => s + (it.line_total_subunits ?? 0), 0);
-}
-
-/** items + tax + gratuity + tip - discount. The editor computes exactly this as the bill's total. */
-function computedTotal(receipt: Receipt): number {
-  return itemSum(receipt)
-    + (receipt.tax_subunits ?? 0)
-    + (receipt.gratuity_subunits ?? 0)
-    + (receipt.tip_subunits ?? 0)
-    - (receipt.discount_subunits ?? 0);
-}
-
 /**
- * A legitimate receipt's printed total is, by construction, the sum of its line items plus extras (the
- * store's own POS generated it that way). So this checks the model's own arithmetic against itself: if
- * items+extras don't sum to the model's own detected total, it misread something. `detected > 0` closes
- * the 0=0 loophole a fully blank/unreadable scan would otherwise slip through as "reconciled".
+ * The three gates. `math.reconciles` is the load-bearing one, and it now compares OUR sum of the model's
+ * readings against the grand total PRINTED on the receipt — two quantities the model cannot bring into
+ * agreement by adjusting one of them, because it does not compute either.
  *
- * Two deliberate relaxations over the original exact-match version, both because it was rejecting good
- * drafts and paying for a whole extra vision pass to replace them with no better answer:
+ * There is exactly one reconciliation branch, on purpose. The previous version had a second: the lines
+ * against the model's own `subtotal` field, whose schema description told the model that field "must equal
+ * the sum of every line_total_subunits above". A model that misread every line still summed its own
+ * misreadings and matched itself, so the branch could not fail — and a bill $9.50 short of its printed
+ * total shipped as `verified: true` on one tier with no warning (receipt_scan_log outcome "ok"). Printed
+ * subtotals are now diagnostics only (`math.printedSubtotals`) and validate nothing.
  *
- *   1. A couple of cents of slack (RECONCILE_TOLERANCE_SUBUNITS). Per-line tax rounding genuinely leaves
- *      a POS total a cent or two off the sum of its own lines.
- *   2. Matching against the model's own `subtotal_subunits` counts too. The single most common near-miss
- *      is a receipt carrying a charge we have no field for (a bottle deposit, a delivery fee, a card
- *      surcharge): the lines and the subtotal agree perfectly, and only the grand total is off by that
- *      one unmodelled charge. Escalating there buys nothing, because the stronger model reads the same
- *      receipt and lands in the same place. The user still sees every item and every amount, and the
- *      grand total is the one thing they can check at a glance.
+ * **Never add a gate whose two sides both come from the model.** It cannot fail, and it will read like
+ * safety in the diff.
  */
-function reconciles(receipt: Receipt): boolean {
-  const detected = receipt.detected_total_subunits ?? 0;
-  const subtotal = receipt.subtotal_subunits ?? 0;
-  const lines = itemSum(receipt);
-
-  if (detected > 0 && Math.abs(computedTotal(receipt) - detected) <= RECONCILE_TOLERANCE_SUBUNITS) return true;
-  if (subtotal > 0 && Math.abs(lines - subtotal) <= RECONCILE_TOLERANCE_SUBUNITS) return true;
-  return false;
-}
-
-function isValidDraft(receipt: Receipt, pageCount: number): boolean {
-  return hasAmounts(receipt) && !isDegenerate(receipt, pageCount) && reconciles(receipt);
+function isValidDraft(receipt: Receipt, math: BillMath, pageCount: number): boolean {
+  return hasAmounts(receipt) && !isDegenerate(receipt, math, pageCount) && math.reconciles;
 }
 
 Deno.serve(async (req) => {
@@ -315,10 +279,13 @@ Deno.serve(async (req) => {
   }
   if (pages.length === 0 && payload.storagePath) {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const slash = payload.storagePath.indexOf("/");
-    const bucket = slash > 0 ? payload.storagePath.slice(0, slash) : "receipts";
-    const path = slash > 0 ? payload.storagePath.slice(slash + 1) : payload.storagePath;
-    const { data, error } = await supabase.storage.from(bucket).download(path);
+    // The bucket is OURS, never the caller's: this download runs with the service role, so letting the
+    // path name its own bucket would be a read primitive for every private bucket in the project.
+    const path = payload.storagePath.replace(/^\/+/, "").replace(/^receipts\//, "");
+    if (path.length === 0 || path.split("/").includes("..")) {
+      return json({ error: "invalid storagePath" }, 400);
+    }
+    const { data, error } = await supabase.storage.from("receipts").download(path);
     if (error || !data) return json({ error: `download failed: ${error?.message ?? "no data"}` }, 400);
     pages = [{ data: b64encode(new Uint8Array(await data.arrayBuffer())), mediaType: data.type || "image/jpeg" }];
   }
@@ -339,9 +306,12 @@ Deno.serve(async (req) => {
   // rate limit was skipped, so anyone with the shipped anon key got unlimited paid calls (P1 #11).
   if (!callerId) return json({ error: "unauthorized" }, 401);
 
-  // Cross-session contract with the client's group-scoped analytics work: an optional groupId the
-  // caller may attach to the scan for cost-per-group breakdowns. Absent is fine — stored as null.
+  // groupId is REQUIRED as of Evenly Pro (PRO_PASS_SPEC.md §7). It began as an optional analytics
+  // attribution field, but it is now the quota key: a nullable quota key is simply a bypass, since
+  // omitting one field would buy unlimited scans. Both in-app call sites already send a real group id
+  // (LedgerRoutes.kt, BillRoutes.kt), so requiring it breaks no shipped client.
   const groupId = payload.groupId ?? null;
+  if (!groupId) return json({ error: "groupId required" }, 400);
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { count, error: countError } = await callerClient
@@ -361,6 +331,63 @@ Deno.serve(async (req) => {
     // Best-effort only (a logging hiccup must not change the 429 the caller already earned).
     await logImmediateOutcome(callerClient, callerId, groupId, pages.length, "rate_limited");
     return json({ error: "Too many scans — try again in a bit." }, 429);
+  }
+
+  // ── Evenly Pro quota (PRO_PASS_SPEC.md §7) ────────────────────────────────────────────────────
+  // Runs AFTER the rate limit and BEFORE the pre-call log insert, so a refused scan neither consumes a
+  // rate-limit slot nor a free scan.
+  //
+  // SERVICE ROLE, not callerClient, and that is not a shortcut: `receipt_scan_log`'s RLS policy is
+  // `user_id = auth.uid()`, so the caller's own client can only ever see the scans THEY did. The
+  // allowance is per GROUP across all its members, so counting through callerClient would give every
+  // member their own private 5 and a six-person group 30 free scans. `group_pro_status` and
+  // `group_free_scans_used` are both revoked from anon/authenticated for the same reason.
+  const serviceClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  // The caller must actually be in the group they are spending its allowance on. Without this, anyone
+  // could pass a Pro group's id and scan on its pass, and the cost ledger would blame that group.
+  const { data: membership, error: memberError } = await serviceClient
+    .from("members")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("user_id", callerId)
+    .eq("status", "ACTIVE")
+    .maybeSingle();
+  // Fail closed, same reasoning as the rate-limit read: an unreadable membership means we cannot say
+  // this scan is allowed, and this endpoint costs real money.
+  if (memberError) return json({ error: "membership check unavailable — try again shortly." }, 503);
+  if (!membership) return json({ error: "not a member of this group" }, 403);
+
+  // No row means not Pro — group_pro_status has no `is_pro = false` row to return.
+  const { data: proRows, error: proError } = await serviceClient
+    .rpc("group_pro_status", { p_group_id: groupId, p_now: Date.now() });
+  if (proError) return json({ error: "pass check unavailable — try again shortly." }, 503);
+  const isPro = Array.isArray(proRows) ? proRows.length > 0 : !!proRows;
+
+  if (!isPro) {
+    const { data: usedRaw, error: usedError } = await serviceClient
+      .rpc("group_free_scans_used", { p_group_id: groupId });
+    if (usedError) return json({ error: "scan count unavailable — try again shortly." }, 503);
+    const used = Number(usedRaw ?? 0);
+    if (used >= FREE_SCANS_PER_GROUP) {
+      // Logged before returning so refused scans are visible in the ledger — we are turning paying-
+      // intent users away and should know how often, and by how much they overshoot.
+      await logImmediateOutcome(callerClient, callerId, groupId, pages.length, "quota_exhausted");
+      // 402, deliberately NOT the 429 above: "you have no scans left" and "you are going too fast" lead
+      // to different screens (a paywall vs a wait), so the client must be able to tell them apart.
+      return json(
+        {
+          error: "This group has used its free scans.",
+          reason: "quota_exhausted",
+          scansUsed: used,
+          freeLimit: FREE_SCANS_PER_GROUP,
+        },
+        402,
+      );
+    }
   }
 
   // Log the scan BEFORE the paid call so the slot is consumed immediately — two concurrent requests can't
@@ -387,7 +414,18 @@ Deno.serve(async (req) => {
   // logged and swallowed, never surfaced to the user — the opposite of the pre-call insert above, which
   // correctly fails closed. The asymmetry is deliberate: that insert protects the rate limit itself, this
   // update is bookkeeping after the paid call already happened.
-  async function finish(outcome: string, body: unknown, status: number): Promise<Response> {
+  //
+  // `raw_draft` / `residual_subunits` / `verified` exist because the 2026-08-08 postmortem could only
+  // INFER what the model had done: the ledger recorded that a scan passed, and nothing recorded what it
+  // returned. `raw_draft` is the tool input verbatim, before normalization, so the next diagnosis is a
+  // query. `residual_subunits` is our computed total minus the printed one, which makes "are misreads
+  // getting worse" answerable across scans rather than one screenshot at a time.
+  async function finish(
+    outcome: string,
+    body: unknown,
+    status: number,
+    ledger?: { rawDraft?: unknown; residual?: number; verified?: boolean },
+  ): Promise<Response> {
     const { error } = await callerClient
       .from("receipt_scan_log")
       .update({
@@ -399,6 +437,9 @@ Deno.serve(async (req) => {
         cost_micros: totalCostMicros,
         duration_ms: Date.now() - scanStartedAt,
         completed_at: new Date().toISOString(),
+        raw_draft: ledger?.rawDraft ?? null,
+        residual_subunits: ledger?.residual ?? null,
+        verified: ledger?.verified ?? null,
       })
       .eq("id", scanId);
     if (error) console.error(`extract-receipt: failed to complete scan log ${scanId} (${outcome}): ${error.message}`);
@@ -410,7 +451,16 @@ Deno.serve(async (req) => {
   // stronger model. A tier whose draft doesn't pass isValidDraft() escalates. The escalation tier is
   // additionally gated by the org-wide circuit breaker.
   let lastReceipt: Receipt | null = null;
+  let lastMath: BillMath | null = null;
+  // The tool input, verbatim, behind whichever reading we ended up keeping — including a verify turn's
+  // correction. This is what gets stored for diagnosis, so it must track the KEPT draft, not the last one
+  // the model happened to produce.
+  let lastRawDraft: unknown = null;
   let lastError: string | null = null;
+  // Set when a tier's call fails in a way retrying (the next tier, or the client hitting "try again")
+  // can never fix — a bad/revoked key or exhausted credit. Both tiers share the one ANTHROPIC_API_KEY,
+  // so once this fires there is no point spending the escalation tier's call too; see the `break` below.
+  let terminalFailure: AnthropicCallError | null = null;
   // We're declining the priciest tier, which is itself worth counting — "how often do we say no". Doesn't
   // short-circuit the response: the primary's best-effort draft (if any) still ships below, same as before
   // this ledger existed — a declined escalation is never a silent dead end for the user.
@@ -431,6 +481,10 @@ Deno.serve(async (req) => {
     } catch (e) {
       lastError = (e as Error).message ?? "extraction failed";
       console.error(`extract-receipt: ${tier.name} (${tier.model}) failed: ${lastError}`);
+      if (e instanceof AnthropicCallError && !e.retryable) {
+        terminalFailure = e;
+        break; // same key on every tier — escalating would just fail the same way
+      }
       continue;
     }
 
@@ -441,10 +495,9 @@ Deno.serve(async (req) => {
     totalOutputTokens += pass.usage.outputTokens;
     totalCostMicros += tokenCostMicros(tier.model, pass.usage.inputTokens, pass.usage.outputTokens);
 
-    const receipt = pass.receipt;
-    if (receipt === null) continue; // no tool_use block at all, so try the next tier
+    if (pass.receipt === null) continue; // no tool_use block at all, so try the next tier
 
-    if (receipt.is_receipt === false) {
+    if (pass.receipt.is_receipt === false) {
       return finish("not_receipt", { configured: true, noReceipt: true }, 200);
     }
 
@@ -464,18 +517,93 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    // ── The verify turn ────────────────────────────────────────────────────────────────────────
+    // We add the transcription up (billMath.ts) and compare it against the grand total PRINTED on the
+    // receipt. Those are two independent quantities: one is our arithmetic over the model's readings, the
+    // other is a number the model only copied. The model cannot bring them into agreement by computing
+    // differently, because it does not compute either of them.
+    //
+    // When they disagree, something was misread — so before paying for a stronger model, show this one our
+    // working and let it look again. It is being asked to fix a READING, which is its job, not to fix a
+    // sum, which is ours. One turn only: a model that has looked twice and still disagrees is not going to
+    // converge by looking a third time, and the escalation tier below is the better spend.
+    let receipt = pass.receipt;
+    let math = computeBill(receipt);
+    let rawDraft: unknown = pass.rawInput;
+    if (!math.reconciles && hasAmounts(receipt)) {
+      console.warn(
+        `extract-receipt: ${tier.name} does not reconcile ` +
+          `(computed=${fmt(math.computedTotal)}, printed=${fmt(math.printedTotal)}, ` +
+          `residual=${fmt(math.residual)}); asking it to re-read`,
+      );
+      try {
+        const retry = await extractWithModel(apiKey, pages, tier, {
+          toolUseId: pass.toolUseId,
+          toolInput: pass.rawInput,
+          feedback: describeDiscrepancy(receipt, math),
+        });
+        tiersUsed.push(`${tier.name}:verify`);
+        totalInputTokens += retry.usage.inputTokens;
+        totalOutputTokens += retry.usage.outputTokens;
+        totalCostMicros += tokenCostMicros(tier.model, retry.usage.inputTokens, retry.usage.outputTokens);
+
+        if (retry.receipt && !retry.truncated) {
+          const retryMath = computeBill(retry.receipt);
+          // Keep the second reading ONLY if it is genuinely closer to the printed total. A model that
+          // "corrects" itself further away has started inventing, and the first reading is the honest one.
+          // An equal residual is not an improvement either — it means nothing was found, and the first
+          // reading is the one that was not made under pressure to change something.
+          if (Math.abs(retryMath.residual) < Math.abs(math.residual)) {
+            console.info(
+              `extract-receipt: ${tier.name} verify turn improved the read ` +
+                `(${fmt(math.residual)} -> ${fmt(retryMath.residual)})`,
+            );
+            receipt = retry.receipt;
+            math = retryMath;
+            rawDraft = retry.rawInput;
+          } else {
+            console.info(`extract-receipt: ${tier.name} verify turn did not improve; keeping the first read`);
+          }
+        }
+      } catch (e) {
+        // The verify turn is an improvement, never a dependency: a failure here leaves the first reading
+        // exactly as it was and the scan continues to the gates below.
+        console.error(`extract-receipt: ${tier.name} verify turn failed: ${(e as Error).message}`);
+      }
+    }
+
     lastReceipt = receipt;
-    if (isValidDraft(receipt, pages.length)) {
-      return finish("ok", { configured: true, receipt, verified: true }, 200);
+    lastMath = math;
+    lastRawDraft = rawDraft;
+    if (isValidDraft(receipt, math, pages.length)) {
+      return finish(
+        "ok",
+        { configured: true, receipt: clientReceipt(receipt, math), verified: true },
+        200,
+        { rawDraft, residual: math.residual, verified: true },
+      );
     }
     console.warn(
       `extract-receipt: ${tier.name} draft not verified ` +
         `(items=${receipt.items?.length ?? 0}, priced=${hasAmounts(receipt)}, ` +
-        `computed=${computedTotal(receipt)}, detected=${receipt.detected_total_subunits ?? 0})`,
+        `computed=${fmt(math.computedTotal)}, printed=${fmt(math.printedTotal)}, ` +
+        `residual=${fmt(math.residual)})`,
     );
   }
 
   if (lastReceipt === null) {
+    // Not "we had bad luck reading a photo" — the account itself can't reach Anthropic at all, and
+    // will fail identically for every user until a human fixes the key/credit. Route it through the
+    // same `configured: false` shape as the "key not set" case above so the client's existing
+    // ScanOutcome.Unavailable handling picks it up (no retry button, straight to manual entry), and
+    // page the owner since this is invisible otherwise.
+    if (terminalFailure) {
+      await alertOpsOnce(
+        "extract_receipt_unavailable",
+        `Evenly: receipt scanning is down (extract-receipt, ${terminalFailure.status}: ${terminalFailure.message}). Check ANTHROPIC_API_KEY / credit balance.`,
+      );
+      return finish("unavailable", { configured: false, reason: terminalFailure.message }, 200);
+    }
     return finish(breakerTripped ? "breaker_open" : "failed", { error: lastError ?? "model did not return structured output" }, 502);
   }
 
@@ -485,15 +613,48 @@ Deno.serve(async (req) => {
   // couldn't-read state as an unreadable photo so the user gets the retry and manual-entry actions.
   if (!hasAmounts(lastReceipt)) {
     console.warn("extract-receipt: best draft had no priced lines; reporting as unreadable");
-    return finish(breakerTripped ? "breaker_open" : "invalid_draft", { configured: true, noReceipt: true }, 200);
+    return finish(
+      breakerTripped ? "breaker_open" : "invalid_draft",
+      { configured: true, noReceipt: true },
+      200,
+      { rawDraft: lastRawDraft, residual: lastMath?.residual, verified: false },
+    );
   }
 
   // Both tiers ran (or the breaker tripped) and neither produced a draft that reconciled. Return the best
   // available guess, from the most capable tier actually reached, flagged as unverified rather than
   // silently trusted. The client always lands on an editable draft (never a dead end); this just tells it
   // to show a "please check the amounts" notice instead of a quiet success.
-  return finish(breakerTripped ? "breaker_open" : "invalid_draft", { configured: true, receipt: lastReceipt, verified: false }, 200);
+  return finish(
+    breakerTripped ? "breaker_open" : "invalid_draft",
+    { configured: true, receipt: clientReceipt(lastReceipt, lastMath!), verified: false },
+    200,
+    { rawDraft: lastRawDraft, residual: lastMath!.residual, verified: false },
+  );
 });
+
+/**
+ * The transcription + our arithmetic -> the wire shape the app speaks. `summary` is an extraction detail
+ * the app never sees; it is flattened here into the bill's five extras. Nothing in this function computes
+ * anything the model was asked to compute — `math` arrived from billMath.ts.
+ *
+ * `other_charges_subunits` carries a printed charge that is none of the other four: a delivery fee, a
+ * bottle deposit, a bag fee, a card surcharge. It briefly had no home and was folded into gratuity to keep
+ * the bill's total honest, which meant the amount was right and the label on the user's screen was a lie.
+ * It is a real column now, end to end, splitting proportionally like tax (domain/AGENTS.md).
+ */
+function clientReceipt(receipt: Receipt, math: BillMath) {
+  return {
+    currency: receipt.currency,
+    items: receipt.items,
+    tax_subunits: math.extras.tax_subunits,
+    gratuity_subunits: math.extras.gratuity_subunits,
+    tip_subunits: math.extras.tip_subunits,
+    discount_subunits: math.extras.discount_subunits,
+    other_charges_subunits: math.extras.other_subunits,
+    detected_total_subunits: math.printedTotal,
+  };
+}
 
 /** True if the org-wide daily escalation cap has been reached. Fails CLOSED (skips the pricey tier) on error. */
 async function checkEscalationBreaker(): Promise<boolean> {
@@ -512,6 +673,44 @@ async function logEscalation(userId: string): Promise<void> {
   await supabase.from("receipt_opus_escalations").insert({ user_id: userId });
 }
 
+const OPS_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+
+/**
+ * Posts `message` to the ops Slack channel, at most once per `kind` per cooldown window — otherwise a
+ * burst of identical failures (every scan, while the key stays broken) would spam the channel once per
+ * scan. Inert until `SLACK_ALERT_WEBHOOK_URL` is set, same optional-config pattern as
+ * `ANTHROPIC_API_KEY`. Best-effort throughout: a failed cooldown check or a failed post must never
+ * change the response already decided for the caller.
+ */
+async function alertOpsOnce(kind: string, message: string): Promise<void> {
+  const webhookUrl = Deno.env.get("SLACK_ALERT_WEBHOOK_URL");
+  if (!webhookUrl) return;
+
+  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const cooldownStart = new Date(Date.now() - OPS_ALERT_COOLDOWN_MS).toISOString();
+  const { count, error } = await supabase
+    .from("ops_alerts")
+    .select("kind", { count: "exact", head: true })
+    .eq("kind", kind)
+    .gt("sent_at", cooldownStart);
+  if (error) {
+    console.error(`extract-receipt: ops_alerts cooldown check failed: ${error.message}`);
+    return; // can't confirm we're outside the cooldown, so don't risk spamming
+  }
+  if ((count ?? 0) > 0) return;
+
+  try {
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: message }),
+    });
+  } catch (e) {
+    console.error(`extract-receipt: Slack alert failed: ${(e as Error).message}`);
+  }
+  await supabase.from("ops_alerts").insert({ kind });
+}
+
 /**
  * One Claude-vision pass over the receipt pages with the given tier. Returns the `record_receipt` tool
  * input (the structured draft) plus whether the response was cut off by the token ceiling. Throws on a
@@ -527,7 +726,25 @@ async function extractWithModel(
   apiKey: string,
   pages: ReceiptPart[],
   tier: (typeof TIERS)[number],
+  verify?: VerifyTurn,
 ): Promise<Pass> {
+  // The first turn is always the photo + the transcription prompt. A verify turn appends the model's own
+  // tool_use and a tool_result carrying our arithmetic, so it re-reads the receipt with its previous
+  // answer in front of it instead of starting cold — a cold re-read reproduces the same misreading.
+  const messages: unknown[] = [
+    { role: "user", content: [...pages.map(pageBlock), { type: "text", text: EXTRACT_PROMPT }] },
+  ];
+  if (verify && verify.toolUseId) {
+    messages.push({
+      role: "assistant",
+      content: [{ type: "tool_use", id: verify.toolUseId, name: RECEIPT_TOOL.name, input: verify.toolInput }],
+    });
+    messages.push({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: verify.toolUseId, content: verify.feedback }],
+    });
+  }
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -542,25 +759,25 @@ async function extractWithModel(
       output_config: { effort: tier.effort },
       tools: [RECEIPT_TOOL],
       tool_choice: { type: "tool", name: "record_receipt" },
-      messages: [
-        {
-          role: "user",
-          content: [...pages.map(pageBlock), { type: "text", text: EXTRACT_PROMPT }],
-        },
-      ],
+      messages,
     }),
   });
 
-  if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const bodyText = await res.text();
+    throw new AnthropicCallError(`anthropic ${res.status}: ${bodyText}`, res.status, classifyAnthropicFailure(res.status, bodyText));
+  }
   const body = await res.json();
   const toolUse = (body.content ?? []).find((b: { type: string }) => b.type === "tool_use");
   return {
-    receipt: toolUse ? (toolUse.input as Receipt) : null,
+    receipt: toolUse ? normalizeReceipt(toolUse.input as RawReceipt) : null,
     truncated: body.stop_reason === "max_tokens",
     usage: {
       inputTokens: body.usage?.input_tokens ?? 0,
       outputTokens: body.usage?.output_tokens ?? 0,
     },
+    toolUseId: toolUse?.id ?? null,
+    rawInput: toolUse?.input ?? null,
   };
 }
 

@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/em-dash-guard.js\""
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/kmp-footgun-guard.js\""
           }
         ]
       },
@@ -16,6 +20,22 @@
           {
             "type": "command",
             "command": "cmd=$(jq -r '.tool_input.command // \"\"' 2>/dev/null); case \"$cmd\" in *\"git commit\"*) cd \"${CLAUDE_PROJECT_DIR:-.}\" 2>/dev/null || exit 0; if ! git diff --cached --name-only 2>/dev/null | grep -qE '(^|/)(AGENTS|CLAUDE)\\.md$'; then printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"Convention checkpoint: no AGENTS.md or CLAUDE.md is staged in this commit. If this change alters a build, test, commit, or architecture convention, update the relevant AGENTS.md (root for project-wide, or the nearest one for the area you touched) in THIS commit so the rules stay in sync. If nothing convention-level changed, proceed.\"}}'; fi ;; esac; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/block-risky-git.js\""
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/schema-before-entity.js\""
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/secret-scan.js\""
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pre-commit-lint.js\""
           }
         ]
       }

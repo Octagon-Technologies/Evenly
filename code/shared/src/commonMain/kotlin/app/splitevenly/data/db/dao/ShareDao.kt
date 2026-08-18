@@ -6,8 +6,8 @@ import androidx.room.Upsert
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.projection.OutstandingItemRow
 import app.splitevenly.data.db.projection.OutstandingShareForPair
-import app.splitevenly.data.db.projection.OverpaymentRow
 import app.splitevenly.data.db.projection.OutstandingShareRow
+import app.splitevenly.data.db.projection.OverpaymentRow
 import app.splitevenly.data.db.projection.ReconcileExpenseRow
 import app.splitevenly.data.db.projection.ShareRow
 import kotlinx.coroutines.flow.Flow
@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.Flow
  */
 @Dao
 interface ShareDao {
-
     @Upsert
     suspend fun upsert(share: ShareEntity)
 
@@ -39,7 +38,10 @@ interface ShareDao {
 
     /** Soft-delete shares removed by an edit (Rule 1): tombstone so the removal syncs, never hard-delete. */
     @Query("UPDATE shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE id IN (:ids)")
-    suspend fun softDeleteByIds(ids: List<String>, ts: Long)
+    suspend fun softDeleteByIds(
+        ids: List<String>,
+        ts: Long,
+    )
 
     /** Active shares of an expense with their **derived** remaining — the detail view. */
     @Query(
@@ -56,7 +58,7 @@ interface ShareDao {
                s.share_exact_subunits AS share_exact_subunits
         FROM shares s INNER JOIN expenses e ON e.id = s.expense_id
         WHERE s.expense_id = :expenseId AND s.deleted_at IS NULL
-        """
+        """,
     )
     fun observeByExpense(expenseId: String): Flow<List<ShareRow>>
 
@@ -78,13 +80,32 @@ interface ShareDao {
                s.share_exact_subunits AS share_exact_subunits
         FROM shares s INNER JOIN expenses e ON e.id = s.expense_id
         WHERE e.group_id = :groupId AND e.deleted_at IS NULL AND s.deleted_at IS NULL
-        """
+        """,
     )
     fun observeByGroup(groupId: String): Flow<List<ShareRow>>
 
     /** AC-INV-001: must equal `expenses.amount_subunits`. `COALESCE` so no-rows returns 0, not null. */
     @Query("SELECT COALESCE(SUM(share_owed_subunits), 0) FROM shares WHERE expense_id = :expenseId AND deleted_at IS NULL")
     suspend fun sumOwed(expenseId: String): Long
+
+    /**
+     * How many non-voided settlement allocations point at this expense's shares — "has anybody actually
+     * paid against this?", asked of the ground truth rather than of a stored flag.
+     *
+     * The caller is `ExpenseRepositoryImpl.editExpense`, which uses it to refuse a **currency** change
+     * (R1). Tombstoned shares count deliberately: their allocations are still live history that a
+     * re-denomination would silently re-interpret. A voided settlement does not, because its allocations
+     * have already stopped offsetting anything (every derived-remaining query filters the same way).
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM settlement_allocations sa
+        INNER JOIN settlements st ON st.id = sa.settlement_id
+        INNER JOIN shares s ON s.id = sa.share_id
+        WHERE s.expense_id = :expenseId AND st.deleted_at IS NULL
+        """,
+    )
+    suspend fun appliedAllocationCount(expenseId: String): Int
 
     /**
      * Outstanding shares across a group, with **derived** remaining (owed − applied), joined to their
@@ -104,7 +125,7 @@ interface ShareDao {
             WHERE e.group_id = :groupId AND e.deleted_at IS NULL AND s.deleted_at IS NULL
               AND (e.payer_user_id IS NULL OR s.user_id <> e.payer_user_id)
         ) WHERE remaining_subunits > 0
-        """
+        """,
     )
     fun observeOutstandingShares(groupId: String): Flow<List<OutstandingShareRow>>
 
@@ -129,7 +150,7 @@ interface ShareDao {
               AND e.payer_user_id IS NOT NULL AND s.user_id <> e.payer_user_id
         ) WHERE remaining_subunits > 0
         ORDER BY expense_date ASC, expense_id ASC
-        """
+        """,
     )
     fun observeOutstandingItems(groupId: String): Flow<List<OutstandingItemRow>>
 
@@ -152,7 +173,7 @@ interface ShareDao {
               AND e.payer_user_id = :toUserId AND s.user_id = :fromUserId
         ) WHERE remaining_subunits > 0
         ORDER BY expense_date ASC, expense_id ASC, id ASC
-        """
+        """,
     )
     suspend fun outstandingForPair(
         groupId: String,
@@ -181,7 +202,7 @@ interface ShareDao {
               AND e.payer_user_id IS NOT NULL AND s.user_id <> e.payer_user_id
         ) WHERE remaining_subunits < 0
         GROUP BY debtor_user_id, creditor_user_id, currency
-        """
+        """,
     )
     fun observeOverpayments(groupId: String): Flow<List<OverpaymentRow>>
 
@@ -201,7 +222,10 @@ interface ShareDao {
         FROM shares s INNER JOIN expenses e ON e.id = s.expense_id
         WHERE s.user_id = :userId AND e.group_id = :groupId AND e.deleted_at IS NULL AND s.deleted_at IS NULL
         ORDER BY e.expense_date ASC
-        """
+        """,
     )
-    suspend fun expensesForUser(groupId: String, userId: String): List<ReconcileExpenseRow>
+    suspend fun expensesForUser(
+        groupId: String,
+        userId: String,
+    ): List<ReconcileExpenseRow>
 }

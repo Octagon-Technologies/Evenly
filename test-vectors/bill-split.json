@@ -191,118 +191,6 @@
       }
     }
   ],
-  "itemizedShares": [
-    {
-      "name": "proportionalTip_noTax_sharesMatchSubtotalRatio",
-      "source": "ItemizedAllocatorTest.kt::proportionalTip_noTax_sharesMatchSubtotalRatio",
-      "subtotals": [
-        {
-          "userId": "a",
-          "subtotal": 6000
-        },
-        {
-          "userId": "b",
-          "subtotal": 4000
-        }
-      ],
-      "taxSubunits": 0,
-      "tipSubunits": 2000,
-      "tipSplitMode": "PROPORTIONAL",
-      "expect": {
-        "a": 7200,
-        "b": 4800
-      }
-    },
-    {
-      "name": "evenTip_noTax_tipSplitEqually",
-      "source": "ItemizedAllocatorTest.kt::evenTip_noTax_tipSplitEqually",
-      "subtotals": [
-        {
-          "userId": "a",
-          "subtotal": 6000
-        },
-        {
-          "userId": "b",
-          "subtotal": 4000
-        }
-      ],
-      "taxSubunits": 0,
-      "tipSubunits": 2000,
-      "tipSplitMode": "EVEN",
-      "expect": {
-        "a": 7000,
-        "b": 5000
-      }
-    },
-    {
-      "name": "proportionalTax_evenTip_finalSharesCorrect",
-      "source": "ItemizedAllocatorTest.kt::proportionalTax_evenTip_finalSharesCorrect",
-      "subtotals": [
-        {
-          "userId": "a",
-          "subtotal": 6000
-        },
-        {
-          "userId": "b",
-          "subtotal": 4000
-        }
-      ],
-      "taxSubunits": 1000,
-      "tipSubunits": 1500,
-      "tipSplitMode": "EVEN",
-      "expect": {
-        "a": 7350,
-        "b": 5150
-      }
-    },
-    {
-      "name": "zeroTaxAndZeroTip_outputMatchesSubtotalsExactly",
-      "source": "ItemizedAllocatorTest.kt::zeroTaxAndZeroTip_outputMatchesSubtotalsExactly",
-      "subtotals": [
-        {
-          "userId": "a",
-          "subtotal": 6000
-        },
-        {
-          "userId": "b",
-          "subtotal": 4000
-        }
-      ],
-      "taxSubunits": 0,
-      "tipSubunits": 0,
-      "tipSplitMode": "PROPORTIONAL",
-      "expect": {
-        "a": 6000,
-        "b": 4000
-      }
-    },
-    {
-      "name": "oddTax_pennyRemainderStaysExact",
-      "source": "ItemizedAllocatorTest.kt AC-INV-012 — sum(out) == sum(subtotals) + tax + tip",
-      "subtotals": [
-        {
-          "userId": "a",
-          "subtotal": 1000
-        },
-        {
-          "userId": "b",
-          "subtotal": 1000
-        },
-        {
-          "userId": "c",
-          "subtotal": 1000
-        }
-      ],
-      "taxSubunits": 100,
-      "tipSubunits": 100,
-      "tipSplitMode": "EVEN",
-      "expect": {
-        "a": 1068,
-        "b": 1066,
-        "c": 1066
-      }
-    }
-  ],
   "splitBill": [
     {
       "name": "individualUnits_exact_andResolved",
@@ -2246,6 +2134,660 @@
             "itemId": "i06-beer",
             "quantity": 6,
             "individualUnits": 4,
+            "hasSharers": true,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "otherCharges_proportional_likeTax",
+      "source": "RECEIPT_OCR_PLAN.md — a delivery fee has no other slot; before this column it was folded into gratuity",
+      "items": [
+        {
+          "itemId": "i1-mains",
+          "lineTotalSubunits": 6000,
+          "quantity": 1
+        },
+        {
+          "itemId": "i2-side",
+          "lineTotalSubunits": 2000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "i1-mains",
+          "userId": "A",
+          "units": 1
+        },
+        {
+          "itemId": "i2-side",
+          "userId": "B",
+          "units": 1
+        }
+      ],
+      "sharedMembers": [],
+      "sharedPortions": [],
+      "participants": [
+        "A",
+        "B"
+      ],
+      "extras": {
+        "taxSubunits": 400,
+        "gratuitySubunits": 0,
+        "tipSubunits": 0,
+        "tipSplitMode": "EVEN",
+        "discountSubunits": 0,
+        "otherChargesSubunits": 500
+      },
+      "expect": {
+        "owedByUser": {
+          "A": 6675,
+          "B": 2225
+        },
+        "breakdownByUser": {
+          "A": {
+            "itemsSubunits": 6000,
+            "taxSubunits": 675,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "B": {
+            "itemsSubunits": 2000,
+            "taxSubunits": 225,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "i1-mains": {
+            "A": 6000
+          },
+          "i2-side": {
+            "B": 2000
+          }
+        },
+        "items": [
+          {
+            "itemId": "i1-mains",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i2-side",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "evenTip_participantWithNoItems_stillOwesTheirSlice",
+      "source": "SECURITY_FIX_HANDOFF.md #20 - C is on the bill and claimed nothing; every line is RESOLVED, so her EVEN tip slice is real money and used to be computed then discarded",
+      "items": [
+        {
+          "itemId": "i1",
+          "lineTotalSubunits": 5000,
+          "quantity": 1
+        },
+        {
+          "itemId": "i2",
+          "lineTotalSubunits": 3000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "i1",
+          "userId": "A",
+          "units": 1
+        },
+        {
+          "itemId": "i2",
+          "userId": "B",
+          "units": 1
+        }
+      ],
+      "sharedMembers": [],
+      "sharedPortions": [],
+      "participants": [
+        "A",
+        "B",
+        "C"
+      ],
+      "extras": {
+        "taxSubunits": 0,
+        "gratuitySubunits": 0,
+        "tipSubunits": 900,
+        "tipSplitMode": "EVEN",
+        "discountSubunits": 0,
+        "otherChargesSubunits": 0
+      },
+      "expect": {
+        "owedByUser": {
+          "A": 5300,
+          "B": 3300,
+          "C": 300
+        },
+        "breakdownByUser": {
+          "A": {
+            "itemsSubunits": 5000,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          },
+          "B": {
+            "itemsSubunits": 3000,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          },
+          "C": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "i1": {
+            "A": 5000
+          },
+          "i2": {
+            "B": 3000
+          }
+        },
+        "items": [
+          {
+            "itemId": "i1",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "i2",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "discountExceedsSubtotal_clampedToTheItemsItRidesOn",
+      "source": "review/findings-domain.md D1 - a $30 voucher on $26 of food; the $9 tip keeps the bill total positive so the total check passes, and the sole claimant used to be handed a NEGATIVE tab that the `remaining > 0` filters then erased",
+      "items": [
+        {
+          "itemId": "dinner",
+          "lineTotalSubunits": 2600,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "dinner",
+          "userId": "b",
+          "units": 1
+        }
+      ],
+      "participants": [
+        "a",
+        "b",
+        "c"
+      ],
+      "extras": {
+        "tipSubunits": 900,
+        "tipSplitMode": "EVEN",
+        "discountSubunits": 3000
+      },
+      "expect": {
+        "owedByUser": {
+          "b": 300,
+          "a": 300,
+          "c": 300
+        },
+        "breakdownByUser": {
+          "b": {
+            "itemsSubunits": 2600,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 2600
+          },
+          "a": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 300,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "dinner": {
+            "b": 2600
+          }
+        },
+        "items": [
+          {
+            "itemId": "dinner",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "negativeLineTotal_costsZeroAndStaysExact",
+      "source": "review/findings-domain.md D4 - a negative line total makes largest-remainder leak a subunit and hands claimants negative shares; the app rejects it, the web guest path does not",
+      "items": [
+        {
+          "itemId": "credit",
+          "lineTotalSubunits": -500,
+          "quantity": 3
+        },
+        {
+          "itemId": "mains",
+          "lineTotalSubunits": 5000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "credit",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "credit",
+          "userId": "b",
+          "units": 1
+        },
+        {
+          "itemId": "credit",
+          "userId": "c",
+          "units": 1
+        },
+        {
+          "itemId": "mains",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 5000,
+          "b": 0,
+          "c": 0
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 5000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "credit": {
+            "a": 0,
+            "b": 0,
+            "c": 0
+          },
+          "mains": {
+            "a": 5000
+          }
+        },
+        "items": [
+          {
+            "itemId": "credit",
+            "quantity": 3,
+            "individualUnits": 3,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "mains",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "compedBill_evenTipStillSplitsAcrossParticipants",
+      "source": "review/findings-domain.md D2 - every line comped and claimed, so the bill IS finished; the even tip slices of the two who took nothing used to be computed and dropped",
+      "items": [
+        {
+          "itemId": "comped-a",
+          "lineTotalSubunits": 0,
+          "quantity": 1
+        },
+        {
+          "itemId": "comped-b",
+          "lineTotalSubunits": 0,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "comped-a",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "comped-b",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "participants": [
+        "a",
+        "b",
+        "c"
+      ],
+      "extras": {
+        "tipSubunits": 3000,
+        "tipSplitMode": "EVEN"
+      },
+      "expect": {
+        "owedByUser": {
+          "a": 1000,
+          "b": 1000,
+          "c": 1000
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 1000,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 1000,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 1000,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "comped-a": {
+            "a": 0
+          },
+          "comped-b": {
+            "a": 0
+          }
+        },
+        "items": [
+          {
+            "itemId": "comped-a",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "comped-b",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "compedBill_discountHasNothingToRideOn",
+      "source": "review/findings-domain.md D2 - the same comped bill with a discount; the `fullSubtotal <= 0` branch used to split a table-wide voucher among CLAIMANTS only, taking the one person who claimed below zero",
+      "items": [
+        {
+          "itemId": "comped-a",
+          "lineTotalSubunits": 0,
+          "quantity": 1
+        },
+        {
+          "itemId": "comped-b",
+          "lineTotalSubunits": 0,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "comped-a",
+          "userId": "a",
+          "units": 1
+        },
+        {
+          "itemId": "comped-b",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "participants": [
+        "a",
+        "b",
+        "c"
+      ],
+      "extras": {
+        "tipSubunits": 500,
+        "tipSplitMode": "EVEN",
+        "discountSubunits": 300
+      },
+      "expect": {
+        "owedByUser": {
+          "a": 167,
+          "b": 167,
+          "c": 166
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 167,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 167,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 0,
+            "taxSubunits": 0,
+            "tipSubunits": 166,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "comped-a": {
+            "a": 0
+          },
+          "comped-b": {
+            "a": 0
+          }
+        },
+        "items": [
+          {
+            "itemId": "comped-a",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          },
+          {
+            "itemId": "comped-b",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pricedZeroQuantityLine_isNotResolved",
+      "source": "review/findings-domain.md D5 - a priced line with no units is claimable by nobody, so $25 vanished from a bill the UI reported as finished (contrast zeroQuantityLine_resolvesAndChargesNobody, the zero-PRICED variant)",
+      "items": [
+        {
+          "itemId": "ghost",
+          "lineTotalSubunits": 2500,
+          "quantity": 0
+        },
+        {
+          "itemId": "beer",
+          "lineTotalSubunits": 1000,
+          "quantity": 1
+        }
+      ],
+      "individualClaims": [
+        {
+          "itemId": "beer",
+          "userId": "a",
+          "units": 1
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 1000
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 1000,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "beer": {
+            "a": 1000
+          }
+        },
+        "items": [
+          {
+            "itemId": "ghost",
+            "quantity": 0,
+            "individualUnits": 0,
+            "hasSharers": false,
+            "status": "UNCLAIMED"
+          },
+          {
+            "itemId": "beer",
+            "quantity": 1,
+            "individualUnits": 1,
+            "hasSharers": false,
+            "status": "RESOLVED"
+          }
+        ]
+      }
+    },
+    {
+      "name": "portions_oddCentFollowsThePortionId_notRowOrder",
+      "source": "review/findings-domain.md D3 - three single-unit portions on a $10.00 line over 3 units; the rows arrive unordered, so whoever came first used to pay the 334. Recorded with the portions REVERSED, so the fix is what makes it pass.",
+      "items": [
+        {
+          "itemId": "dosa",
+          "lineTotalSubunits": 1000,
+          "quantity": 3
+        }
+      ],
+      "sharedPortions": [
+        {
+          "itemId": "dosa",
+          "portionId": "p3",
+          "quantity": 1,
+          "members": [
+            "c"
+          ]
+        },
+        {
+          "itemId": "dosa",
+          "portionId": "p2",
+          "quantity": 1,
+          "members": [
+            "b"
+          ]
+        },
+        {
+          "itemId": "dosa",
+          "portionId": "p1",
+          "quantity": 1,
+          "members": [
+            "a"
+          ]
+        }
+      ],
+      "expect": {
+        "owedByUser": {
+          "a": 334,
+          "b": 333,
+          "c": 333
+        },
+        "breakdownByUser": {
+          "a": {
+            "itemsSubunits": 334,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "b": {
+            "itemsSubunits": 333,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          },
+          "c": {
+            "itemsSubunits": 333,
+            "taxSubunits": 0,
+            "tipSubunits": 0,
+            "discountSubunits": 0
+          }
+        },
+        "perItemByUser": {
+          "dosa": {
+            "a": 334,
+            "b": 333,
+            "c": 333
+          }
+        },
+        "items": [
+          {
+            "itemId": "dosa",
+            "quantity": 3,
+            "individualUnits": 0,
             "hasSharers": true,
             "status": "RESOLVED"
           }

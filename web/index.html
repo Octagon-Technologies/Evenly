@@ -6,13 +6,105 @@
          different design. `viewport-fit=cover` + the safe-area insets in app.css keep the sticky
          footer above the home indicator, which is where "I'm done" lives. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#FFFFFF" />
-    <!-- Indexable by default: this file also serves the marketing site (home, privacy, terms).
-         The claim route (`/b/:token`) is bill-scoped and sensitive, so `App.svelte` adds `noindex`
-         back at runtime for that route only, and only there — a bill link in a chat thread must not
-         render a preview of someone's dinner. -->
-    <meta name="referrer" content="no-referrer" />
-    <title>Evenly — Split the bill, not the friendship.</title>
+    <!-- The waitlist hero's top band, so the mobile browser chrome does not fight the page. -->
+    <meta name="theme-color" content="#DCEAFA" />
+
+    <!--
+      Everything from here to the JSON-LD block is the **landing page's** head, resolved at build
+      time rather than at runtime, because `/` is the waitlist (see `lib/router.ts`) and a crawler
+      that does not execute the bundle must still get a real title, description and preview card.
+      `lib/seo.ts` corrects these on every other route and is the authority — its `PAGES.waitlist`
+      row and the four tags below have to stay in step, or a JS crawler and a non-JS crawler read
+      two different pages.
+
+      `/b/:token` is the exception: `seo.ts` swaps in `noindex, nofollow` there, so a bill link
+      pasted into a chat thread never renders a preview of someone's dinner.
+    -->
+    <title>Evenly — Split the bill by item, no app needed for your friends</title>
+    <meta
+      name="description"
+      content="Evenly scans the receipt, splits it by item, and lets everyone at the table claim what they ate from a link in the group chat. No downloads, no accounts, no chasing. Join the waitlist for early access."
+    />
+    <link rel="canonical" href="https://split-evenly.app/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Evenly" />
+    <meta property="og:locale" content="en" />
+    <meta property="og:url" content="https://split-evenly.app/" />
+    <meta property="og:title" content="Evenly — Split the bill by item, no app needed for your friends" />
+    <meta
+      property="og:description"
+      content="Evenly scans the receipt, splits it by item, and lets everyone at the table claim what they ate from a link in the group chat. No downloads, no accounts, no chasing."
+    />
+    <meta property="og:image" content="https://split-evenly.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Evenly: split the bill by item. Your friends claim their items from a link, with no app." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Evenly — Split the bill by item, no app needed for your friends" />
+    <meta
+      name="twitter:description"
+      content="Scan the receipt, everyone claims what they ate from a link in the group chat, and Evenly does the maths. Join the waitlist."
+    />
+    <meta name="twitter:image" content="https://split-evenly.app/og.png" />
+
+    <!-- `no-referrer` on the *claim* route was the original reason for this: a bill URL carries a
+         capability token and must never leave in a `Referer` header. `origin-when-cross-origin`
+         keeps that (only the origin ever leaves, never the token) while letting an inbound link
+         from a blog or a directory show up as a real referrer in analytics. -->
+    <meta name="referrer" content="origin-when-cross-origin" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Both faces are used above the fold on the landing page, so they are fetched with the HTML
+         rather than after `marketing.css` parses. LCP is the hero headline. -->
+    <link rel="preload" href="/fonts/rethink-var.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preconnect" href="https://wfpfgbipjmkysalfmyub.supabase.co" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://split-evenly.app/#website",
+            "url": "https://split-evenly.app/",
+            "name": "Evenly",
+            "inLanguage": "en",
+            "description": "Split the bill by item. Your friends claim what they ate from a link, with no app and no account.",
+            "publisher": { "@id": "https://split-evenly.app/#org" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://split-evenly.app/#org",
+            "name": "Evenly",
+            "url": "https://split-evenly.app/",
+            "logo": "https://split-evenly.app/og.png",
+            "email": "tech.octagontechnologies@gmail.com"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://split-evenly.app/#app",
+            "name": "Evenly",
+            "applicationCategory": "FinanceApplication",
+            "operatingSystem": "iOS 16+, Android 7+",
+            "url": "https://split-evenly.app/",
+            "description": "Evenly scans a receipt, splits it by item, and lets everyone at the table claim what they ate from a link in the group chat. Friends need no app and no account.",
+            "featureList": [
+              "Receipt scanning that itemizes every line, tax and service charge",
+              "Split evenly, by share, or itemized per expense",
+              "Guests claim their items in a browser, with no download and no account",
+              "Running balances and settle-up per expense"
+            ],
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "publisher": { "@id": "https://split-evenly.app/#org" }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

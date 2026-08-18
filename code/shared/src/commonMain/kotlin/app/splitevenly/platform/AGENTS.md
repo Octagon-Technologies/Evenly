@@ -30,8 +30,37 @@ Current boundaries: `ConnectivityObserver`, `CurrentActivity` (Android only), `F
 `ReceiptFileStore`, `ReceiptUploadScheduler`, `SecureStorage`, `UrlOpener`, plus `data/db/DatabaseBuilder`,
 `di/PlatformModule`, and `ui/theme/SystemBars`.
 
+`PlatformShare` shares **text or a file**. `shareFile` writes to the platform cache and shares that
+(Android `cacheDir`, which is exactly what the manifest's FileProvider `<cache-path>` exposes — anywhere
+else throws `IllegalArgumentException` at share time; iOS `NSTemporaryDirectory`, never Documents, which
+is user-visible in Files and iCloud-backed). Used by the group CSV export: sharing a ledger as text
+technically works and no spreadsheet app can open it.
+
 `SecureStorage` is the device-local key/value store and is already registered as a Koin single — use it
 rather than introducing a second local KV mechanism.
+
+## ⚠️ Image traps that compile clean and corrupt data
+
+**`BitmapFactory` drops EXIF orientation.** It returns raw sensor pixels, so a portrait camera photo
+decodes sideways, and re-encoding to JPEG discards the tag that would have corrected it downstream. Read
+the orientation with `ExifInterface` and bake the rotation in before scaling, as `ImageProcessor.android`
+does. The two below are the Kotlin/Native half of the same lesson.
+
+**Never read a dimension back out of a `CValue` via `useContents` when a local of the same name is in
+scope.** Inside `size.useContents { width to height }`, `width`/`height` bind to the **enclosing
+function's locals** before the `CGSize` receiver's members. `ImageProcessor.ios` did exactly that, got the
+*source* dimensions back, and handed `drawInRect` a rect 2.5x too large — every receipt photo was silently
+stored as its own top-left corner. It type-checks, it runs, and only the pixels are wrong. Keep computed
+dimensions as plain `Double`s and pass those; don't round-trip them through a struct.
+
+**`UIGraphicsImageRenderer`'s default format inherits the screen's contents scale** (3x on device, 1x in a
+Kotlin/Native test binary). A "1600px" target silently produced a 4800px upload on device *and* passed the
+test. Pass an explicit `UIGraphicsImageRendererFormat` with `scale = 1.0` so output pixels equal the size
+you asked for on both.
+
+Both classes of bug are invisible to a compile and to the eye at thumbnail size, so **pin image output with
+a fixture that fails loudly** — `ImageProcessorTest` uses four solid quadrants: a corner crop loses three
+colours, and a scale mistake shows up in the decoded pixel dimensions.
 
 ## ⚠️ A runtime permission is EARNED, never sprung
 

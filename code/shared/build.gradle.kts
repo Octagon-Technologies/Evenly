@@ -95,6 +95,7 @@ kotlin {
             implementation(libs.koin.android)
             // Android-only platform libs (actuals land in androidMain/.../platform)
             implementation(libs.androidx.activity) // ComponentActivity + ActivityResult APIs (FilePicker, E-5)
+            implementation(libs.androidx.exifinterface) // receipt orientation (ImageProcessor)
             implementation(libs.androidx.work)
             implementation(libs.androidx.browser)
             implementation(libs.androidx.credentials)
@@ -154,6 +155,12 @@ kotlin {
 
             // Logging
             implementation(libs.kermit)
+
+            // Evenly Pro (PRO_PASS_SPEC.md §9). The paywall is built in RevenueCat's dashboard and
+            // rendered by `Paywall()` from -ui, which is the whole reason the subscription exists: layout,
+            // copy and price mix stay a dashboard change instead of an app release.
+            implementation(libs.purchases.kmp.core)
+            implementation(libs.purchases.kmp.ui)
 
             // Analytics — common PostHog API; Android/iOS both delegate to the native SDKs underneath.
             // api (not implementation): androidApp/ calls PostHogContext(application) directly from

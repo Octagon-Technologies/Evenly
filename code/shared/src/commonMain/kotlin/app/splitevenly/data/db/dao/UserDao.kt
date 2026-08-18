@@ -2,7 +2,9 @@ package app.splitevenly.data.db.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
+import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.UserEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -15,7 +17,6 @@ import kotlinx.coroutines.flow.Flow
  */
 @Dao
 interface UserDao {
-
     @Upsert
     suspend fun upsert(user: UserEntity)
 
@@ -24,6 +25,30 @@ interface UserDao {
 
     @Query("SELECT * FROM users WHERE id = :id")
     suspend fun getById(id: String): UserEntity?
+
+    /** Member upsert declared here so [createPlaceholder] can write the pair atomically. */
+    @Upsert
+    suspend fun upsertMember(member: MemberEntity)
+
+    /**
+     * Create a placeholder: the `users` row **and** the `members` row that makes it real, in one
+     * transaction (finding R9).
+     *
+     * `data/AGENTS.md` defines the two together — "A placeholder is a `users` row ... **plus** a `members`
+     * row" — and every read that matters JOINs them, [observePlaceholdersInGroup] included. Written
+     * separately from a navigation-scoped coroutine (the add-expense editor's name field), an interruption
+     * between them left a `users` row with no membership: in no roster, no reconcile picker and no
+     * join-sheet identity picker, with no screen offering a way to remove it, and pushed to the server in
+     * that state. Same shape as [GroupDao.createGroupWithAdmin], which is the pattern this copies.
+     */
+    @Transaction
+    suspend fun createPlaceholder(
+        user: UserEntity,
+        member: MemberEntity,
+    ) {
+        upsert(user)
+        upsertMember(member)
+    }
 
     /** Remove a user row (account deletion / local cleanup). */
     @Query("DELETE FROM users WHERE id = :id")
@@ -36,8 +61,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id")
     fun observeById(id: String): Flow<UserEntity?>
 
-    /** Case-insensitive lookup (mirrors `citext`); used to resolve a sign-in email to its user. */
-    @Query("SELECT * FROM users WHERE email = :email COLLATE NOCASE LIMIT 1")
+    /** Case-insensitive sign-in-email lookup. Excludes anonymized accounts: `purge_deleted_accounts`
+     *  stamps `deleted_at` rather than removing the row, and a sign-in must never resolve to one. */
+    @Query("SELECT * FROM users WHERE email = :email COLLATE NOCASE AND deleted_at IS NULL LIMIT 1")
     suspend fun findByEmail(email: String): UserEntity?
 
     /** Set the user's per-payee payment handles in place (Profile editor / onboarding). */
@@ -47,14 +73,25 @@ interface UserDao {
         SET venmo_handle = :venmo, cashapp_handle = :cashapp, paypal_handle = :paypal, zelle_handle = :zelle,
             updated_at = :now, row_version = row_version + 1
         WHERE id = :id
-        """
+        """,
     )
-    suspend fun updatePaymentHandles(id: String, venmo: String?, cashapp: String?, paypal: String?, zelle: String?, now: Long)
+    suspend fun updatePaymentHandles(
+        id: String,
+        venmo: String?,
+        cashapp: String?,
+        paypal: String?,
+        zelle: String?,
+        now: Long,
+    )
 
     /** Set the user's preferred payment app (a [app.splitevenly.domain.settlement.PaymentApp]
      *  name, or null to clear) — the default others see when settling with them. */
     @Query("UPDATE users SET preferred_payment_app = :app, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
-    suspend fun updatePreferredPaymentApp(id: String, app: String?, now: Long)
+    suspend fun updatePreferredPaymentApp(
+        id: String,
+        app: String?,
+        now: Long,
+    )
 
     /** Persist onboarding basics (display name + base currency). */
     @Query(
@@ -62,13 +99,22 @@ interface UserDao {
         UPDATE users
         SET display_name = :name, base_currency = :currency, updated_at = :now, row_version = row_version + 1
         WHERE id = :id
-        """
+        """,
     )
-    suspend fun updateProfile(id: String, name: String, currency: String, now: Long)
+    suspend fun updateProfile(
+        id: String,
+        name: String,
+        currency: String,
+        now: Long,
+    )
 
     /** Rename the user (Profile editor). */
     @Query("UPDATE users SET display_name = :name, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
-    suspend fun updateDisplayName(id: String, name: String, now: Long)
+    suspend fun updateDisplayName(
+        id: String,
+        name: String,
+        now: Long,
+    )
 
     /** Persist the user's notification preferences (Profile editor). */
     @Query(
@@ -77,13 +123,23 @@ interface UserDao {
         SET notify_new_expenses = :newExpenses, notify_payments = :payments,
             notify_conflict_reminders = :conflictReminders, updated_at = :now, row_version = row_version + 1
         WHERE id = :id
-        """
+        """,
     )
-    suspend fun updateNotificationPrefs(id: String, newExpenses: Boolean, payments: Boolean, conflictReminders: Boolean, now: Long)
+    suspend fun updateNotificationPrefs(
+        id: String,
+        newExpenses: Boolean,
+        payments: Boolean,
+        conflictReminders: Boolean,
+        now: Long,
+    )
 
     /** Persist the user's appearance preference (Profile → Appearance). */
     @Query("UPDATE users SET theme_mode = :themeMode, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
-    suspend fun updateThemeMode(id: String, themeMode: String, now: Long)
+    suspend fun updateThemeMode(
+        id: String,
+        themeMode: String,
+        now: Long,
+    )
 
     /**
      * Still-claimable placeholders in a group, name-ordered — feeds the reconcile picker (AC-M1-030)
@@ -102,7 +158,7 @@ interface UserDao {
           AND m.status = 'ACTIVE'
           AND m.placeholder_claim_completed_at IS NULL
         ORDER BY u.display_name COLLATE NOCASE ASC
-        """
+        """,
     )
     fun observePlaceholdersInGroup(groupId: String): Flow<List<UserEntity>>
 
@@ -116,7 +172,10 @@ interface UserDao {
         WHERE is_placeholder = 1
           AND placeholder_group_id = :groupId
           AND display_name = :name COLLATE NOCASE
-        """
+        """,
     )
-    suspend fun countPlaceholderName(groupId: String, name: String): Int
+    suspend fun countPlaceholderName(
+        groupId: String,
+        name: String,
+    ): Int
 }

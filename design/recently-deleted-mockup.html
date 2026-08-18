@@ -1,0 +1,521 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evenly — delete group + Recently deleted mockup</title>
+<style>
+  :root{
+    --blue:#2563EB; --blue-press:#1E40AF; --blue-text:#2563EB;
+    --blue-tint:#EFF4FF; --blue-tint-2:#DBE6FF;
+    --page:#FFFFFF; --surface:#F6F8FB; --border:#E6EAF0; --border-strong:#D6DCE6;
+    --ink:#0B1220; --ink-2:#5B6577; --ink-3:#9AA3B2;
+    --green:#16A34A; --green-tint:#E7F4EC;
+    --credit:#C2410C; --credit-tint:#FFF1E6;
+    --red:#E0686B; --red-tint:#FDEEED;
+    --amber:#687590; --amber-tint:#EEF1F8;
+    --on-accent:#FFFFFF;
+    --shell:#eef1f6; --shell-ink:#0B1220; --shell-ink-2:#5B6577; --shell-card:#ffffff;
+  }
+  body.dark{
+    --blue:#3A52D6; --blue-press:#2C3FA8; --blue-text:#7AA6FF;
+    --blue-tint:rgba(110,155,255,.10); --blue-tint-2:rgba(110,155,255,.16);
+    --page:#000000; --surface:rgba(110,155,255,.06);
+    --border:rgba(110,155,255,.16); --border-strong:rgba(110,155,255,.26);
+    --ink:#E7ECF3; --ink-2:#9BA6B8; --ink-3:#67738A;
+    --green:#4ADE80; --green-tint:#13271B;
+    --credit:#FB923C; --credit-tint:#2A1810;
+    --red:#F0797C; --red-tint:#2A1416;
+    --amber:#8A95AD; --amber-tint:#1B2230;
+    --shell:#101318; --shell-ink:#E7ECF3; --shell-ink-2:#9BA6B8; --shell-card:#171b22;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--shell); color:var(--shell-ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{padding:32px 24px 8px; max-width:1240px; margin:0 auto}
+  h1{font-size:26px; margin:0 0 6px; letter-spacing:-.02em}
+  .sub{color:var(--shell-ink-2); margin:0 0 18px; max-width:76ch}
+  .toggle{display:inline-flex; gap:2px; padding:3px; border-radius:99px; background:var(--shell-card); border:1px solid var(--border)}
+  .toggle button{font:600 13px/1 inherit; padding:8px 16px; border-radius:99px; border:0; background:transparent; color:var(--shell-ink-2); cursor:pointer}
+  .toggle button[aria-pressed=true]{background:var(--blue); color:#fff}
+
+  .grid{max-width:1240px; margin:0 auto; padding:20px 24px 80px; display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:36px 28px}
+  .cell{min-width:0}
+  .cap{font:700 13px/1.4 inherit; margin:0 0 3px; letter-spacing:.01em}
+  .cap span{color:var(--shell-ink-2); font-weight:500}
+  .note{color:var(--shell-ink-2); font-size:13px; margin:9px 2px 0}
+  .note b{color:var(--shell-ink); font-weight:600}
+
+  .phone{
+    width:100%; max-width:340px; aspect-ratio:402/812; margin:10px auto 0;
+    background:var(--page); border-radius:34px; border:1px solid var(--border-strong);
+    overflow:hidden; position:relative; color:var(--ink);
+    box-shadow:0 10px 30px rgba(11,18,32,.09);
+  }
+  body.dark .phone{box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .status{height:34px; display:flex; align-items:center; justify-content:space-between; padding:0 18px 0 20px; font:600 12px/1 inherit; color:var(--ink)}
+  .notch{width:74px; height:20px; border-radius:99px; background:var(--ink); opacity:.92}
+  .scr{padding:0 14px; height:calc(100% - 34px); overflow:hidden; position:relative}
+
+  .navbar{display:flex; align-items:center; gap:10px; padding:6px 2px 12px}
+  .navbar .t{font:700 17px/1.2 inherit; letter-spacing:-.01em}
+  .navbar .t small{display:block; font:500 12px/1.3 inherit; color:var(--ink-2); margin-top:2px}
+  .ib{width:30px; height:30px; border-radius:99px; display:grid; place-items:center; color:var(--ink-2); flex:none}
+
+  .h1{font:800 28px/1.15 inherit; letter-spacing:-.02em}
+  .seclbl{font:700 11.5px/1 inherit; color:var(--ink-3); letter-spacing:.06em; text-transform:uppercase; margin:2px 2px 8px}
+
+  .card{background:var(--page); border:1px solid var(--border); border-radius:16px; overflow:hidden}
+  .card + .card{margin-top:10px}
+  .hair{border-top:1px solid var(--border)}
+
+  /* group row */
+  .grow{display:flex; align-items:center; gap:12px; padding:12px 14px}
+  .em{width:46px; height:46px; border-radius:13px; background:var(--blue-tint); display:grid; place-items:center; font-size:24px; flex:none}
+  .grow .nm{font:600 16px/1.25 inherit}
+  .grow .sb{font-size:13px; color:var(--ink-2); margin-top:2px}
+  .grow .mid{flex:1; min-width:0}
+  .grow .nm,.grow .sb{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+  .chip{font:600 12px/1 inherit; padding:7px 11px; border-radius:99px; border:1px solid var(--border); color:var(--ink-2); background:var(--page); display:inline-flex; align-items:center; gap:5px; flex:none}
+  .chip.blue{background:var(--blue-tint); border-color:transparent; color:var(--blue-text)}
+  .chip.owe{background:var(--blue-tint); border-color:transparent; color:var(--blue-text); font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .chip.green{background:var(--green-tint); border-color:transparent; color:var(--green)}
+
+  /* settings rows */
+  .srow{display:flex; align-items:center; gap:12px; padding:14px; min-height:56px}
+  .srow .lb{font:600 15px/1.25 inherit; flex:1; min-width:0}
+  .srow .lb small{display:block; font:500 12px/1.35 inherit; color:var(--ink-2); margin-top:2px}
+  .srow.danger .lb{color:var(--red)}
+  .srow.danger svg{color:var(--red)}
+  .srow svg{color:var(--ink-2); flex:none}
+
+  /* sheet */
+  .scrim{position:absolute; inset:0; background:rgba(11,18,32,.42)}
+  .sheet{position:absolute; left:0; right:0; bottom:0; background:var(--page); border-radius:24px 24px 0 0; padding:8px 18px 22px; box-shadow:0 -14px 40px rgba(11,18,32,.16)}
+  body.dark .sheet{box-shadow:0 -14px 40px rgba(0,0,0,.6); border-top:1px solid var(--border)}
+  .grab{width:38px; height:4px; border-radius:99px; background:var(--border-strong); margin:0 auto 14px}
+  .sh1{font:700 18px/1.25 inherit; letter-spacing:-.01em}
+  .shp{font-size:13.5px; color:var(--ink-2); margin-top:6px}
+
+  .facts{margin:14px 0 0; padding:12px 13px; border-radius:14px; background:var(--surface); display:grid; gap:9px}
+  .fact{display:flex; gap:9px; align-items:flex-start; font-size:13px; color:var(--ink-2)}
+  .fact b{color:var(--ink); font-weight:600}
+  .fact svg{flex:none; margin-top:1px; color:var(--ink-3)}
+  .fact.warn svg{color:var(--credit)}
+
+  .lbl{font:600 12px/1 inherit; color:var(--ink-2); margin:16px 2px 6px}
+  .field{border:1px solid var(--border); border-radius:12px; padding:12px; color:var(--ink-3); font-size:14px; background:var(--page)}
+  .field.filled{color:var(--ink); font-weight:600; border-color:var(--border-strong)}
+  .field.err{border-color:var(--red); background:var(--red-tint)}
+  .errline{display:flex; gap:6px; align-items:center; color:var(--red); font-size:12.5px; margin:7px 2px 0}
+
+  .btn{margin-top:16px; height:48px; border-radius:14px; display:grid; place-items:center; font:700 15px/1 inherit; background:var(--blue); color:var(--on-accent)}
+  .btn.danger{background:var(--red); color:#fff}
+  .btn.ghost{background:transparent; border:1px solid var(--border); color:var(--ink); margin-top:10px}
+  .btn.quiet{background:var(--surface); color:var(--ink)}
+
+  /* toast */
+  .toast{position:absolute; left:14px; right:14px; bottom:22px; background:var(--ink); color:var(--page); border-radius:14px; padding:13px 14px; display:flex; align-items:center; gap:10px; font:600 13.5px/1.3 inherit; box-shadow:0 10px 26px rgba(11,18,32,.25)}
+  .toast .u{margin-left:auto; color:var(--page); opacity:.75; font-weight:700}
+
+  /* empty state */
+  .empty{display:grid; place-items:center; text-align:center; gap:10px; padding:70px 22px 0}
+  .empty .ic{width:64px; height:64px; border-radius:20px; background:var(--surface); display:grid; place-items:center; color:var(--ink-3)}
+  .empty .t{font:700 16px/1.3 inherit}
+  .empty .p{font-size:13px; color:var(--ink-2); max-width:26ch}
+
+  .footnote{font-size:12px; color:var(--ink-2); text-align:center; padding:14px 10px 0; line-height:1.5}
+
+  /* lockout */
+  .lock{display:grid; place-items:center; text-align:center; gap:12px; padding:96px 18px 0}
+  .lock .em{width:64px; height:64px; border-radius:20px; font-size:32px}
+  .lock .t{font:800 21px/1.25 inherit; letter-spacing:-.02em}
+  .lock .p{font-size:13.5px; color:var(--ink-2); max-width:30ch}
+  .pill{display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:99px; background:var(--credit-tint); color:var(--credit); font:600 12px/1 inherit}
+
+  /* push */
+  .lockscreen{height:100%; background:linear-gradient(160deg,#1b2a4a,#0b1220); display:grid; align-content:start; justify-items:center; padding-top:52px; gap:4px}
+  .lockscreen .time{font:300 62px/1 inherit; color:#fff; letter-spacing:-.03em}
+  .lockscreen .date{color:rgba(255,255,255,.7); font-size:13px; margin-bottom:34px}
+  .push{width:calc(100% - 24px); background:rgba(255,255,255,.94); color:#0B1220; border-radius:18px; padding:12px 13px; display:flex; gap:10px; backdrop-filter:blur(8px)}
+  .push .ic{width:32px; height:32px; border-radius:8px; background:var(--blue); color:#fff; display:grid; place-items:center; font-weight:800; font-size:15px; flex:none}
+  .push .t{font:700 13.5px/1.3 inherit}
+  .push .b{font-size:13px; color:#3d4757; margin-top:1px}
+  .push .w{margin-left:auto; font-size:11px; color:#6b7484; flex:none}
+
+  /* bottom nav */
+  .bnav{position:absolute; left:0; right:0; bottom:0; height:64px; border-top:1px solid var(--border); background:var(--page); display:flex; align-items:center; justify-content:space-around; padding-bottom:6px}
+  .bnav div{display:grid; justify-items:center; gap:3px; font:600 10.5px/1 inherit; color:var(--ink-3)}
+  .bnav div.on{color:var(--blue-text)}
+</style>
+
+<header>
+  <h1>Delete a group, and get it back</h1>
+  <p class="sub">
+    Deleting removes the group for <b>everyone</b>, not just you. It lands in <b>Recently deleted</b> for 30 days,
+    where <b>anyone who was a member</b> can restore it. After 30 days it is permanently erased, including from our servers.
+    Every member is told who deleted it, so a bad delete is visible and one tap from being undone.
+  </p>
+  <div class="toggle" role="group">
+    <button aria-pressed="true" onclick="setTheme(false,this)">Light</button>
+    <button aria-pressed="false" onclick="setTheme(true,this)">Dark</button>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- 1 · Danger zone -->
+  <div class="cell">
+    <p class="cap">1 · Group settings, Danger zone <span>the new row</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <div class="ib">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          </div>
+          <div class="t">Group settings<small>Tulum Trip</small></div>
+        </div>
+
+        <div class="seclbl">Danger zone</div>
+        <div class="card">
+          <div class="srow">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v11a1 1 0 01-1 1H5a1 1 0 01-1-1V8zM3 4h18v4H3zM10 12h4"/></svg>
+            <div class="lb">Archive group<small>Hides it from your list. Nobody else is affected.</small></div>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+          </div>
+          <div class="srow danger hair">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/><path d="M20 12H8"/></svg>
+            <div class="lb">Leave group<small>You leave. The group stays for everyone else.</small></div>
+          </div>
+          <div class="srow danger hair">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M7 7l1 13h8l1-13"/></svg>
+            <div class="lb">Delete group<small>Deletes it for everyone. 30 days to undo.</small></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Three rows that used to be two. Each subtitle answers the only question that matters here: <b>who does this affect.</b>
+      Archive is you, Leave is you, Delete is everyone.</p>
+  </div>
+
+  <!-- 2 · Confirm sheet -->
+  <div class="cell">
+    <p class="cap">2 · Confirm sheet <span>type the name, every time</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <div class="ib">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          </div>
+          <div class="t">Group settings<small>Tulum Trip</small></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh1">Delete Tulum Trip?</div>
+          <div class="shp">This deletes the group for all 5 members, not just you.</div>
+
+          <div class="facts">
+            <div class="fact">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l3 3v13a1 1 0 01-1 1H6a1 1 0 01-1-1V5a1 1 0 011-1zM9 12h6M9 16h4"/></svg>
+              <div><b>24 expenses</b> and <b>6 receipts</b> go with it</div>
+            </div>
+            <div class="fact warn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.5"/><path d="M12 3l9 17H3z"/></svg>
+              <div><b>3 balances are still unsettled.</b> Nobody will be able to see or settle them.</div>
+            </div>
+            <div class="fact">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8.5"/></svg>
+              <div>Anyone in the group can restore it for <b>30 days</b></div>
+            </div>
+            <div class="fact">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M7 7l1 13h8l1-13"/></svg>
+              <div>After that it is <b>gone for good</b>, including from our servers</div>
+            </div>
+          </div>
+
+          <div class="lbl">Type <b>Tulum Trip</b> to confirm</div>
+          <div class="field">Group name</div>
+          <div class="btn danger">Delete for everyone</div>
+          <div class="btn ghost">Cancel</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The facts are <b>counted from the real group</b>, not boilerplate. The unsettled-balance line only appears when money is
+      actually outstanding, and it is the one line that gets the warning color.</p>
+  </div>
+
+  <!-- 3 · Confirm sheet, validated on tap -->
+  <div class="cell">
+    <p class="cap">3 · Tapped without typing <span>live button, validates on tap</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <div class="ib">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          </div>
+          <div class="t">Group settings<small>Tulum Trip</small></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh1">Delete Tulum Trip?</div>
+          <div class="shp">This deletes the group for all 5 members, not just you.</div>
+
+          <div class="facts">
+            <div class="fact">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l3 3v13a1 1 0 01-1 1H6a1 1 0 01-1-1V5a1 1 0 011-1zM9 12h6M9 16h4"/></svg>
+              <div><b>24 expenses</b> and <b>6 receipts</b> go with it</div>
+            </div>
+            <div class="fact warn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.5"/><path d="M12 3l9 17H3z"/></svg>
+              <div><b>3 balances are still unsettled.</b> Nobody will be able to see or settle them.</div>
+            </div>
+            <div class="fact">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8.5"/></svg>
+              <div>Anyone in the group can restore it for <b>30 days</b></div>
+            </div>
+          </div>
+
+          <div class="lbl">Type <b>Tulum Trip</b> to confirm</div>
+          <div class="field err filled" style="color:var(--ink)">Tulum</div>
+          <div class="errline">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16v.5"/></svg>
+            That does not match. Type <b style="margin:0 3px">Tulum Trip</b> exactly.
+          </div>
+          <div class="btn danger">Delete for everyone</div>
+          <div class="btn ghost">Cancel</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Per the house rule, the button is <b>never greyed out</b>. It stays live and explains what is missing on tap, so the
+      screen is never a silent dead end.</p>
+  </div>
+
+  <!-- 4 · Home -->
+  <div class="cell">
+    <p class="cap">4 · Groups tab <span>the entry point</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr" style="padding-bottom:0">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 2px 14px">
+          <div class="h1" style="flex:1">Groups</div>
+          <div style="width:34px;height:34px;border-radius:99px;background:var(--blue);color:#fff;display:grid;place-items:center;font:700 13px/1 inherit">A</div>
+        </div>
+
+        <div class="seclbl">Active groups</div>
+        <div class="card"><div class="grow">
+          <div class="em">🏠</div>
+          <div class="mid"><div class="nm">The Mission Flat</div><div class="sb">3 members · You added Internet</div></div>
+          <div style="text-align:right"><div style="font:600 12px/1 inherit;color:var(--credit);margin-bottom:4px">you're owed</div><span class="chip owe" style="background:var(--credit-tint);color:var(--credit)">$128.40</span></div>
+        </div></div>
+        <div class="card"><div class="grow">
+          <div class="em">🎂</div>
+          <div class="mid"><div class="nm">Dad's 60th</div><div class="sb">6 members · Tyler added Cake · 5d ago</div></div>
+          <div style="text-align:right"><div style="font:600 12px/1 inherit;color:var(--blue-text);margin-bottom:4px">you owe</div><span class="chip owe">$45.00</span></div>
+        </div></div>
+
+        <div class="card" style="margin-top:14px"><div class="srow" style="padding:13px 14px;min-height:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v11a1 1 0 01-1 1H5a1 1 0 01-1-1V8zM3 4h18v4H3zM10 12h4"/></svg>
+          <div class="lb" style="color:var(--ink-2);font-size:14.5px">Archived (2)</div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--ink-3)"><path d="M9 5l7 7-7 7"/></svg>
+        </div></div>
+
+        <div class="card" style="margin-top:10px"><div class="srow" style="padding:13px 14px;min-height:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M7 7l1 13h8l1-13"/></svg>
+          <div class="lb" style="color:var(--ink-2);font-size:14.5px">Recently deleted (1)</div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--ink-3)"><path d="M9 5l7 7-7 7"/></svg>
+        </div></div>
+
+        <div class="bnav">
+          <div class="on">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0111 0"/><circle cx="17" cy="9" r="2.4"/><path d="M15 19a5 5 0 016-3.6"/></svg>
+            Groups
+          </div>
+          <div>
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1V21a2 2 0 11-4 0v-.1A1.6 1.6 0 007.5 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 003 15a2 2 0 010-4 1.6 1.6 0 001.1-2.7l-.1-.1A2 2 0 016.8 5.4l.1.1A1.6 1.6 0 009 5.1 2 2 0 0111 3a2 2 0 014 0 1.6 1.6 0 002.7 1.1l.1-.1a2 2 0 012.8 2.8l-.1.1A1.6 1.6 0 0021 11a2 2 0 010 4z"/></svg>
+            Settings
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">One muted row directly under <b>Archived</b>, same shape, same weight. It only appears when something is in there,
+      so nobody carries a permanent trash can around.</p>
+  </div>
+
+  <!-- 5 · Recently deleted list -->
+  <div class="cell">
+    <p class="cap">5 · Recently deleted <span>the list</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <div class="ib">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          </div>
+          <div class="t">Recently deleted<small>2 groups</small></div>
+        </div>
+
+        <div class="card">
+          <div class="grow">
+            <div class="em" style="background:var(--surface);filter:grayscale(.35);opacity:.85">🏝️</div>
+            <div class="mid">
+              <div class="nm">Tulum Trip</div>
+              <div class="sb">Deleted by Andrew · 27 days left</div>
+            </div>
+            <span class="chip blue">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 010 10h-4"/><path d="M8 5L4 9l4 4"/></svg>
+              Restore
+            </span>
+          </div>
+          <div class="grow hair">
+            <div class="em" style="background:var(--surface);filter:grayscale(.35);opacity:.85">⛷️</div>
+            <div class="mid">
+              <div class="nm">Tahoe 2025</div>
+              <div class="sb" style="color:var(--credit);font-weight:600">Deleted by you · 2 days left</div>
+            </div>
+            <span class="chip blue">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 010 10h-4"/><path d="M8 5L4 9l4 4"/></svg>
+              Restore
+            </span>
+          </div>
+        </div>
+
+        <div class="footnote">
+          Groups here are deleted for everyone. Anyone who was a member can bring one back.
+          After 30 days they are permanently deleted, including from our servers.
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Who deleted it and how long is left</b> is the whole row. The countdown turns orange under 7 days, which is the only
+      urgency signal in the screen. Tapping a row does not open the group, only Restore does anything.</p>
+  </div>
+
+  <!-- 6 · Restored -->
+  <div class="cell">
+    <p class="cap">6 · Restored <span>no second confirmation</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <div class="ib">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          </div>
+          <div class="t">Recently deleted<small>1 group</small></div>
+        </div>
+
+        <div class="card">
+          <div class="grow">
+            <div class="em" style="background:var(--surface);filter:grayscale(.35);opacity:.85">⛷️</div>
+            <div class="mid">
+              <div class="nm">Tahoe 2025</div>
+              <div class="sb" style="color:var(--credit);font-weight:600">Deleted by you · 2 days left</div>
+            </div>
+            <span class="chip blue">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 010 10h-4"/><path d="M8 5L4 9l4 4"/></svg>
+              Restore
+            </span>
+          </div>
+        </div>
+
+        <div class="footnote">
+          Groups here are deleted for everyone. Anyone who was a member can bring one back.
+          After 30 days they are permanently deleted, including from our servers.
+        </div>
+
+        <div class="toast">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          Tulum Trip is back for everyone
+        </div>
+      </div>
+    </div>
+    <p class="note">Restoring is not destructive, so it does not get a confirmation dialog. It restores, the row leaves, everyone else's
+      copy comes back on their next sync, and the toast says <b>for everyone</b> so the restorer knows the blast radius of what they just did.</p>
+  </div>
+
+  <!-- 7 · Someone else deleted it while you were in it -->
+  <div class="cell">
+    <p class="cap">7 · You were inside the group <span>the interception</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr">
+        <div class="lock">
+          <div class="em">🏝️</div>
+          <div class="t">Tulum Trip was deleted</div>
+          <div class="p">Andrew deleted this group for everyone on 17 Aug. Nothing is lost yet.</div>
+          <span class="pill">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8.5"/></svg>
+            27 days left to restore
+          </span>
+          <div style="width:100%;margin-top:6px">
+            <div class="btn">Restore for everyone</div>
+            <div class="btn ghost">Back to groups</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">A member sitting on the group screen when the delete lands gets this instead of a blank screen or a crash. It is the same
+      shape as the pending-account-deletion gate that already exists, and it puts <b>Restore</b> exactly where the confusion is.</p>
+  </div>
+
+  <!-- 8 · Push -->
+  <div class="cell">
+    <p class="cap">8 · What the other four people get <span>never a silent delete</span></p>
+    <div class="phone">
+      <div class="status" style="color:#fff"><span>9:41</span><div class="notch" style="background:#000"></div><span>􀋨􀛨</span></div>
+      <div class="scr" style="padding:0">
+        <div class="lockscreen">
+          <div class="time">9:41</div>
+          <div class="date">Monday, 17 August</div>
+          <div class="push">
+            <div class="ic">E</div>
+            <div>
+              <div class="t">Andrew deleted Tulum Trip</div>
+              <div class="b">It is in Recently deleted for 30 days. Tap to restore it for everyone.</div>
+            </div>
+            <div class="w">now</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">This is the safety net that makes "anyone can delete" survivable. A group never just vanishes: everyone is told who did it,
+      and the notification deep-links straight into Recently deleted.</p>
+  </div>
+
+  <!-- 9 · Empty -->
+  <div class="cell">
+    <p class="cap">9 · Empty state <span>reached from a stale notification</span></p>
+    <div class="phone">
+      <div class="status"><span>9:41</span><div class="notch"></div><span>􀋨􀛨</span></div>
+      <div class="scr">
+        <div class="navbar">
+          <div class="ib">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          </div>
+          <div class="t">Recently deleted</div>
+        </div>
+        <div class="empty">
+          <div class="ic">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M7 7l1 13h8l1-13"/></svg>
+          </div>
+          <div class="t">Nothing deleted</div>
+          <div class="p">Deleted groups wait here for 30 days so anyone in the group can bring them back.</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Also what you see the day after a purge. There is no tombstone row saying "permanently deleted", because at that point
+      there is genuinely nothing left to show.</p>
+  </div>
+
+</div>
+
+<script>
+  function setTheme(dark, btn){
+    document.body.classList.toggle('dark', dark);
+    document.querySelectorAll('.toggle button').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+  }
+</script>

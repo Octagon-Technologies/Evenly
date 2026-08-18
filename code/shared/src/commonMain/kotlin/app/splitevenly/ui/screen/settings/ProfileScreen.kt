@@ -30,6 +30,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.domain.auth.NotificationPrefs
+import app.splitevenly.domain.auth.ThemeMode
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvAvatar
@@ -39,10 +41,8 @@ import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvSectionLabel
 import app.splitevenly.ui.components.EvSegmented
-import app.splitevenly.domain.auth.NotificationPrefs
-import app.splitevenly.domain.auth.ThemeMode
-import app.splitevenly.ui.components.EvToggle
 import app.splitevenly.ui.components.EvTextField
+import app.splitevenly.ui.components.EvToggle
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
@@ -61,6 +61,10 @@ fun ProfileScreen(
     onSignIn: () -> Unit = {},
     onBack: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    // Signing out now saves this device's pending changes to the server before clearing its cache
+    // (#24), so it takes a round trip. Without a visible pending state the row looks dead for a second
+    // or two and people tap it again.
+    signingOut: Boolean = false,
     onEditPaymentApps: () -> Unit = {},
     onEditName: (String) -> Unit = {},
     onSendFeedback: () -> Unit = {},
@@ -72,6 +76,11 @@ fun ProfileScreen(
     themeMode: ThemeMode = ThemeMode.System,
     onThemeModeChange: (ThemeMode) -> Unit = {},
     onDeleteAccount: () -> Unit = {},
+    deleteAccountError: String? = null,
+    // Evenly Pro (PRO_PASS_SPEC.md §8.1). Null hides the row entirely, which is the unconfigured-
+    // RevenueCat build: no paywall, no entry point, nothing that leads anywhere.
+    proEntry: ProEntryUi? = null,
+    onOpenPro: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var analytics by remember { mutableStateOf(true) }
@@ -87,10 +96,19 @@ fun ProfileScreen(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // Evenly Pro, above the account list because it is the only row that changes what the app
+            // can do. It states the price on the row: a Pro entry that makes you tap to find out what
+            // it costs reads as a trap.
+            proEntry?.let { ProEntryRow(it, onOpenPro) }
+
             // ── Account header card ────────────────────────────
             if (isSignedIn) {
                 EvCard(padded = true) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                         EvAvatar(displayName, me = true, size = AvatarSize.Lg)
                         Column(Modifier.weight(1f)) {
                             if (editingName) {
@@ -101,17 +119,30 @@ fun ProfileScreen(
                             }
                         }
                         if (editingName) {
-                            EvIconButton(EvIcons.Check, { onEditName(nameDraft.trim()); editingName = false }, size = 20.dp, tint = c.blueText)
+                            EvIconButton(EvIcons.Check, {
+                                onEditName(nameDraft.trim())
+                                editingName = false
+                            }, size = 20.dp, tint = c.blueText)
                         } else {
-                            EvIconButton(EvIcons.Edit, { nameDraft = displayName; editingName = true }, size = 20.dp, tint = c.ink2)
+                            EvIconButton(EvIcons.Edit, {
+                                nameDraft = displayName
+                                editingName = true
+                            }, size = 20.dp, tint = c.ink2)
                         }
                     }
                 }
             } else {
                 EvCard(padded = true, modifier = Modifier.clickable(onClick = onSignIn)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                         Box(
-                            Modifier.height(56.dp).width(56.dp).background(c.surface, shape = CircleShape)
+                            Modifier
+                                .height(56.dp)
+                                .width(56.dp)
+                                .background(c.surface, shape = CircleShape)
                                 .border(1.dp, c.border, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -154,17 +185,26 @@ fun ProfileScreen(
                         fontSize = 12.sp,
                     )
                 }
-                NotifRow("Someone adds an expense", notifications.newExpenses) { onNotificationsChange(notifications.copy(newExpenses = it)) }
-                NotifRow("Someone pays you", notifications.payments, last = true) { onNotificationsChange(notifications.copy(payments = it)) }
+                NotifRow(
+                    "Someone adds an expense",
+                    notifications.newExpenses,
+                ) { onNotificationsChange(notifications.copy(newExpenses = it)) }
+                NotifRow(
+                    "Someone pays you",
+                    notifications.payments,
+                    last = true,
+                ) { onNotificationsChange(notifications.copy(payments = it)) }
             }
 
             // ── Privacy ────────────────────────────────────────
             ProfileGroup("Privacy") {
                 Row(
-                    modifier = Modifier.fillMaxWidth()
-                        .clickable { analytics = !analytics }
-                        .heightIn(min = 56.dp)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { analytics = !analytics }
+                            .heightIn(min = 56.dp)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -197,8 +237,19 @@ fun ProfileScreen(
 
             // ── Account ────────────────────────────────────────
             ProfileGroup("Account") {
-                ProfileRow(icon = EvIcons.Back, label = "Sign out", onClick = onSignOut)
-                ProfileRow(icon = EvIcons.Trash, label = "Delete account", danger = true, last = true, showChevron = false, onClick = { confirmDelete = true })
+                ProfileRow(
+                    icon = EvIcons.Back,
+                    label = "Sign out",
+                    // Says what the wait is FOR. "Loading" would be true and useless; this is the one
+                    // moment a user needs to know their expenses are being saved before the cache goes.
+                    value = if (signingOut) "Saving your changes" else null,
+                    showChevron = !signingOut,
+                    onClick = if (signingOut) ({}) else onSignOut,
+                )
+                ProfileRow(icon = EvIcons.Trash, label = "Delete account", danger = true, last = true, showChevron = false, onClick = {
+                    confirmDelete =
+                        true
+                })
             }
 
             Text(
@@ -217,12 +268,20 @@ fun ProfileScreen(
         EvModalScaffold(onDismiss = { confirmDelete = false }) {
             Text("Delete account?", color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Text(
-                "This permanently deletes your account and profile. It can't be undone.",
-                color = c.ink2, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                "You'll be signed out now, and your account is fully removed in 30 days. Sign back in " +
+                    "before then to cancel. Your name, email, and photo are deleted. Expenses and " +
+                    "payments you were part of stay in your groups' history so balances stay accurate " +
+                    "for everyone else, shown as \"Deleted user.\"",
+                color = c.ink2,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
             )
+            deleteAccountError?.let {
+                Text(it, color = c.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Secondary, modifier = Modifier.weight(1f))
-                EvButton("Delete", { confirmDelete = false; onDeleteAccount() }, modifier = Modifier.weight(1f))
+                EvButton("Delete", onDeleteAccount, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -230,7 +289,10 @@ fun ProfileScreen(
 
 /** The JSX `Group` helper — a section label over a clipped `.sc-card` of rows. */
 @Composable
-private fun ProfileGroup(label: String, content: @Composable () -> Unit) {
+private fun ProfileGroup(
+    label: String,
+    content: @Composable () -> Unit,
+) {
     Column {
         EvSectionLabel(label)
         EvCard { content() }
@@ -253,11 +315,13 @@ private fun ProfileRow(
     val c = EvenlyTheme.colors
     val fg = if (danger) c.danger else c.ink
     Row(
-        modifier = Modifier.fillMaxWidth()
-            .then(if (!last) Modifier.topHairline(c.border) else Modifier)
-            .clickable(onClick = onClick)
-            .heightIn(min = 56.dp)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(if (!last) Modifier.topHairline(c.border) else Modifier)
+                .clickable(onClick = onClick)
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -273,18 +337,32 @@ private fun ProfileRow(
 
 /** A notification toggle row (`.sc-row`), controlled by the caller so the value persists (F7). */
 @Composable
-private fun NotifRow(label: String, checked: Boolean, last: Boolean = false, onCheckedChange: (Boolean) -> Unit) {
+private fun NotifRow(
+    label: String,
+    checked: Boolean,
+    last: Boolean = false,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     val c = EvenlyTheme.colors
     Row(
-        modifier = Modifier.fillMaxWidth()
-            .then(if (!last) Modifier.topHairline(c.border) else Modifier)
-            .clickable { onCheckedChange(!checked) }
-            .heightIn(min = 56.dp)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(if (!last) Modifier.topHairline(c.border) else Modifier)
+                .clickable { onCheckedChange(!checked) }
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start, modifier = Modifier.weight(1f))
+        Text(
+            label,
+            color = c.ink,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Start,
+            modifier = Modifier.weight(1f),
+        )
         EvToggle(checked, onCheckedChange)
     }
 }

@@ -19,8 +19,7 @@ enum class ReceiptUploadStatus {
     ;
 
     companion object {
-        fun fromName(name: String): ReceiptUploadStatus =
-            entries.firstOrNull { it.name == name } ?: PENDING
+        fun fromName(name: String): ReceiptUploadStatus = entries.firstOrNull { it.name == name } ?: PENDING
     }
 }
 
@@ -37,6 +36,8 @@ data class ReceiptUpload(
     val sizeBytes: Long,
     val bytesUploaded: Long,
     val status: ReceiptUploadStatus,
+    /** Why the last attempt failed, for the FAILED thumbnail's detail — null unless [status] is FAILED. */
+    val lastError: String? = null,
 ) {
     val isPdf: Boolean get() = mimeType.contains("pdf", ignoreCase = true)
 

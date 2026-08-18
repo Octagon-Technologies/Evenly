@@ -40,6 +40,14 @@ arg does. This is the single most repeated iOS-only crash in this repo.
 group is a full-screen push *over* the shell. There is **no standalone `Route.Profile`** — reach the profile
 via the Settings tab, not a Home avatar.
 
+**A push disposes the destination underneath, so `remember` in a Route wrapper does not survive Back.**
+Anything a wrapper must keep across a push (a one-shot gate's answer, a completed check) belongs in a
+ViewModel scoped to that back-stack entry, which lives until the entry is popped. `HomeGateRoute`'s
+pending-deletion check held its result in `remember` and so re-ran on *every* Back into Home, blanking the
+screen behind a network call each time — the window background reads as black on iOS. The related rule:
+**a route wrapper must never render nothing while it waits.** Draw the `page` color, or the window shows
+through.
+
 ## System bars blend via the theme, edge-to-edge
 
 `StatusBarScrim` (in `EvBars.kt`) paints the `page` color behind the status bar, and
@@ -150,6 +158,70 @@ settle screen lists those same lines as checkable targets, and highlights the me
 (the synced `users.preferred_payment_app` column, set in the Payment-apps editor) as the default way to pay
 them.
 
+**The free-scan meter is conditional, and the condition lives in `domain/pro/scanMeterFor`,** not in the
+Composable (`PRO_PASS_SPEC.md` §8.1). Hidden while Pro, hidden until the count is actually known, and
+hidden while more than 3 remain: a new group counting down from 5 reads as a trial with a clock on it.
+`ScanQuotaMeter` renders whatever it is handed and decides nothing. **The scan card stays enabled at
+zero** so tapping it explains rather than doing nothing.
+
+**Export lives in Group settings and nowhere else.** The Overview tab used to carry an "Export as
+image" button wired to an empty lambda and an "Export" chip in its app bar that `EvChip` gives no
+`onClick` at all, so neither could ever do anything. Both are gone. If export returns to Overview it
+ships with a working callback, or it does not ship.
+
+**The subscription paywall is RevenueCat's, not ours** (`PRO_PASS_SPEC.md` §8.2). `ProPaywallScreen`
+renders the `Paywall()` composable against the dashboard's current offering, so layout, copy and price
+mix stay a dashboard change and Experiments can run without a release. Do not reimplement it in Compose,
+and do not hardcode a price anywhere: every price on screen is the store's own localized
+`StoreProduct` string, which App Review requires and a non-US buyer needs. The **group-pass sheet**
+(`ui/screen/pro/PassSheet.kt`) is ours only because RevenueCat cannot render consumables.
+
+**A door that names a group opens the group-scoped product.** Found by the cold `ux-firsttimer` walk,
+and it is the pay/renew direction being ambiguous at the moment of commitment: "Get Pro for Ski Trip"
+opening an all-groups recurring subscription is the worst mislabel this feature can produce. So the
+group-settings row and the out-of-scans sheet open the **pass sheet**, and each product's sheet names
+the other one exit ("Only need it for one trip?" on the paywall, "In more than one group? See Evenly
+Pro" on the pass sheet). That second link is **null inside an editor** rather than dead: leaving a
+half-typed bill to browse a subscription would lose the draft.
+
+**Never offer a pass for a group a subscription already covers** — anyone's, not just your own. A pass
+cannot be cancelled or refunded, so nothing later corrects the mistake, and extending from a
+subscription's expiry would sell dead time against someone else's private renewal date. A group on a
+*pass* is the opposite case and must stay buyable: a second pass extends it.
+
+**A money button carries the amount, not just the verb.** Three tiers four times apart with no
+confirmation step after them; a button reading only "Get Pro" makes someone look back up the screen in
+a noisy restaurant. Same rule for the half-success line: it must say the charge landed **and** that
+tapping again cannot charge twice, which idempotency makes true.
+
+**Both Pro doors emit ONE event spine, separated only by `surface`.** Because the scan gate opens our
+sheet instead of RevenueCat's paywall, RevenueCat's analytics and Experiments never see the
+highest-intent door, and PostHog carries that load instead. `pro_offer_shown` / `pro_offer_selected` /
+`pro_offer_dismissed` / `purchase_started` / `purchase_activated` are shared by both surfaces, built in
+`domain/pro/ProFunnel.kt` so four call sites cannot drift. **Do not add a surface-specific
+`paywall_shown` back** — two event names make "does the pass door convert better?" two reports that
+cannot be laid over each other, which is the one question the routing decision created. Every new event
+also goes in `.posthog-events.json`; a missing catalogue entry is an incomplete change.
+
+`purchase_activated` fires on **activation, not on the charge**: a purchase the server never turned into
+an entitlement is not a conversion, and counting it as one hides the failure the retry flow exists for.
+
+**The pass sheet is remotely tunable through the `pro_pass_sheet` PostHog flag** (order, preselected
+tier, best-value flag), which is the stand-in for the paywall editor RevenueCat cannot point at a
+consumable. Every field defaults to today's behaviour, so a missing flag or a malformed payload renders
+the sheet we would have rendered anyway — a pricing screen must never fail to draw because an experiment
+did not load.
+
+**Every Pro surface is absent, not disabled, when RevenueCat is unconfigured.** The Profile row, the
+scan sheet's Pro button and the paywall all key off `ProBilling.isAvailable`; a door that cannot open is
+worse than no door. `ProStatusRow` is the one exception and is always shown, because a *free group* used
+to render nothing at all there and so had no Pro surface whatsoever.
+
+**There is deliberately no Pro badge in the group top bar.** It was in the approved mock and was removed
+after building it: that bar already carries three actions, and a pill wraps the group's own name onto two
+lines. The Pro fact lives in the Group settings row, which names the buyer. Do not re-add it without
+solving the title width first.
+
 **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
 full-screen `ReceiptViewerScreen` — a `HorizontalPager` over the expense's receipts with a bottom thumbnail
 filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer` platform abstraction
@@ -164,7 +236,7 @@ filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer`
 
 | File                                        | Lines |
 | ------------------------------------------- | ----- |
-| `ui/screen/bill/BillEditScreen.kt`          | 1046  |
+| `ui/screen/bill/BillEditScreen.kt`          | 916   |
 | `ui/screen/expense/ExpenseDetailScreen.kt`  | 850   |
 | `ui/navigation/LedgerRoutes.kt`             | 662   |
 | `ui/screen/auth/WelcomeScreen.kt`           | 639   |
@@ -177,6 +249,14 @@ next to the `ItemEditorRow`/`ExtrasCard` it already borrowed. Each body owns its
 the participant `ids` as an argument, so selection stays owned by the screen. Both bodies emit their rows
 straight into the caller's `Column`, so the caller's `spacedBy` still spaces them. **`BillEditScreen` still
 has its own copy of the item-list body** — unifying the two was deliberately out of scope, not overlooked.
+
+**The bill editor owns the payer and the roster too** (2026-08-08): "Paid by" (`bill/BillPayerRow.kt`,
+reusing the add-expense `PayerSheet`) sits *below* the people, same order as the add-expense editor, and
+the roster moved to `bill/BillPeopleSection.kt`. **A sheet must be rendered outside the editor's scrolling
+`Column`** — inside it, the sheet's own scroller is measured with an unbounded height and Compose throws
+on Native. That is why both files export a row and its sheet separately instead of one self-contained
+component. Taking someone off the bill discards their claims, so that case confirms first; changing the
+payer never does.
 
 The rule for the offenders above is **do not grow them.** When you make a substantial change inside one,
 extract the section you touched on your way out. Do not propose a big speculative rewrite — report the delta, not the

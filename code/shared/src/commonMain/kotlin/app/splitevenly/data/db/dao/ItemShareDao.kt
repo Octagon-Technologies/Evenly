@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.Flow
  */
 @Dao
 interface ItemShareDao {
-
     @Upsert
     suspend fun upsert(share: ItemShareEntity)
 
@@ -28,9 +27,14 @@ interface ItemShareDao {
     @Query("SELECT * FROM item_shares WHERE expense_id = :expenseId AND deleted_at IS NULL")
     fun observeByExpense(expenseId: String): Flow<List<ItemShareEntity>>
 
-    /** This user's active membership in one item's shared split, if any. */
-    @Query("SELECT * FROM item_shares WHERE item_id = :itemId AND user_id = :userId AND deleted_at IS NULL LIMIT 1")
-    suspend fun getActiveShare(itemId: String, userId: String): ItemShareEntity?
+    /** ALL of this user's active portion memberships on one item. A list, never `LIMIT 1`: the
+     *  uniqueness key is `(item_id, user_id, portion_id)`, so one person can hold several portions of
+     *  the same line at once (per-serving assignment) and a single-row read would pick arbitrarily. */
+    @Query("SELECT * FROM item_shares WHERE item_id = :itemId AND user_id = :userId AND deleted_at IS NULL")
+    suspend fun getActiveShares(
+        itemId: String,
+        userId: String,
+    ): List<ItemShareEntity>
 
     /** All active memberships across a group's bills — input to the group-wide unresolved-bills computation. */
     @Query("SELECT * FROM item_shares WHERE group_id = :groupId AND deleted_at IS NULL")
@@ -42,15 +46,41 @@ interface ItemShareDao {
 
     /** Soft-delete memberships (Rule 1): leave a share, or tombstone the shares of a removed item. */
     @Query("UPDATE item_shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE id IN (:ids)")
-    suspend fun softDeleteByIds(ids: List<String>, ts: Long)
+    suspend fun softDeleteByIds(
+        ids: List<String>,
+        ts: Long,
+    )
 
     /** Tombstone every active membership on an item — used when the item is removed from the bill. */
-    @Query("UPDATE item_shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE item_id IN (:itemIds) AND deleted_at IS NULL")
-    suspend fun softDeleteByItems(itemIds: List<String>, ts: Long)
+    @Query(
+        "UPDATE item_shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 WHERE item_id IN (:itemIds) AND deleted_at IS NULL",
+    )
+    suspend fun softDeleteByItems(
+        itemIds: List<String>,
+        ts: Long,
+    )
+
+    /** Tombstone these users' active portion memberships on one bill — taking someone off the bill.
+     *  A slice they were sharing survives with its remaining members; a slice they alone held frees its
+     *  units back to UNCLAIMED. */
+    @Query(
+        "UPDATE item_shares SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 " +
+            "WHERE expense_id = :expenseId AND user_id IN (:userIds) AND deleted_at IS NULL",
+    )
+    suspend fun softDeleteByExpenseAndUsers(
+        expenseId: String,
+        userIds: List<String>,
+        ts: Long,
+    )
 
     /** Zero every active CLAIM on an item — the claims half of the atomic servings rebuild (#15). */
-    @Query("UPDATE item_claims SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 WHERE item_id = :itemId AND deleted_at IS NULL")
-    suspend fun clearClaimsForItem(itemId: String, now: Long)
+    @Query(
+        "UPDATE item_claims SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 WHERE item_id = :itemId AND deleted_at IS NULL",
+    )
+    suspend fun clearClaimsForItem(
+        itemId: String,
+        now: Long,
+    )
 
     /**
      * Atomically re-slice an item into servings (#15): zero its claims, tombstone its existing portions,
@@ -63,7 +93,11 @@ interface ItemShareDao {
      * afterwards — they're a self-healing materialization, not part of this atomic unit.
      */
     @Transaction
-    suspend fun setServings(itemId: String, newPortions: List<ItemShareEntity>, now: Long) {
+    suspend fun setServings(
+        itemId: String,
+        newPortions: List<ItemShareEntity>,
+        now: Long,
+    ) {
         clearClaimsForItem(itemId, now)
         softDeleteByItems(listOf(itemId), now)
         if (newPortions.isNotEmpty()) upsertAll(newPortions)

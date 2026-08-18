@@ -36,6 +36,7 @@ import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.domain.auth.PLAY_REVIEW_DEMO_EMAIL
 import app.splitevenly.ui.theme.EvenlyTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.text.input.KeyboardType
@@ -100,15 +101,18 @@ fun MagicLinkScreen(
                 EvField("Email address") {
                     EvTextField(email, { email = it }, placeholder = "you@email.com", keyboardType = KeyboardType.Email)
                 }
-                // Debug-only: seeded test accounts sign in with a password (no email round-trip). Hidden
-                // in release builds (see isDebugBuild()); leave blank for the normal magic-link / OTP flow.
-                if (allowPassword) {
+                // Debug builds show this for any seeded test account (no email round-trip). In release
+                // it only reveals for PLAY_REVIEW_DEMO_EMAIL, since Play Store reviewers can't complete
+                // an OTP round-trip against a demo inbox that doesn't exist — see SupabaseAuthSession
+                // .signInWithPassword for the matching server-side allowlist.
+                val showPasswordField = allowPassword || email.trim().equals(PLAY_REVIEW_DEMO_EMAIL, ignoreCase = true)
+                if (showPasswordField) {
                     EvField("Password (test accounts, optional)") {
                         EvTextField(password, { password = it }, placeholder = "•••••••", keyboardType = KeyboardType.Password, visualTransformation = PasswordVisualTransformation())
                     }
                 }
                 error?.let { Text(it, color = c.danger, fontSize = 13.sp) }
-                val usePassword = allowPassword && password.isNotEmpty()
+                val usePassword = showPasswordField && password.isNotEmpty()
                 EvButton(
                     onClick = { if (usePassword) onPasswordSignIn(email, password) else onSend(email) },
                     enabled = state != MagicLinkState.Loading && email.contains("@"),
