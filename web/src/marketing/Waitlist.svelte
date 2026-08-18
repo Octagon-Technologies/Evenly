@@ -322,7 +322,9 @@
           <!-- A real capture of the Expenses tab, not a drawing. The hand-built screen this
                replaced showed copy ("You are owed", an Overview/Expenses/Activity tab row) that
                exists nowhere in the app. Recapture with `xcrun simctl io booted screenshot`. -->
-          <img class="site-lh-shot" src="/app/expenses-tab.png" alt="The Lamu Trip group in Evenly, showing six expenses paid by four different people." />
+          <img class="site-lh-shot" src="/app/expenses-tab.png" width="603" height="1311"
+               fetchpriority="high" decoding="async"
+               alt="The Lamu Trip group in Evenly, showing six expenses paid by four different people." />
         </div>
       </div>
     </div>
@@ -350,8 +352,9 @@
     </div>
   </div>
 
-  <!-- ═══ §3 three moves ══════════════════════════════════════════════════ -->
-  <section class="site-wl-sec">
+  <!-- ═══ §3 three moves ══════════════════════════════════════════════════
+       `#how-it-works` is what the sibling pages' header links at, so the id is load-bearing. -->
+  <section class="site-wl-sec" id="how-it-works">
     <div class="site-wl-in">
       <div class="site-wl-head">
         <h2 class="site-wl-d2">Three moves from photograph to settled.</h2>
@@ -371,7 +374,8 @@
             types fourteen dishes in.
           </p>
           <div class="site-wl-gart">
-            <img class="site-wl-shot" src="/app/claim.png" alt="The Tamarind Dhow bill in Evenly, each line showing who claimed it." />
+            <img class="site-wl-shot" src="/app/claim.png" width="603" height="1311"
+                 loading="lazy" decoding="async" alt="The Tamarind Dhow bill in Evenly, each line showing who claimed it." />
           </div>
         </div>
 
@@ -400,7 +404,8 @@
             whatever payment app you already use.
           </p>
           <div class="site-wl-gart">
-            <img class="site-wl-shot" src="/app/balances.png" alt="The Lamu Trip balances in Evenly, showing who owes whom." />
+            <img class="site-wl-shot" src="/app/balances.png" width="603" height="1311"
+                 loading="lazy" decoding="async" alt="The Lamu Trip balances in Evenly, showing who owes whom." />
           </div>
         </div>
       </div>

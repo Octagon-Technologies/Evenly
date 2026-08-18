@@ -24,8 +24,15 @@ export function billUrl(token: string): string {
 /**
  * The site's whole route table, now that it also carries the marketing pages (home, privacy,
  * terms) alongside the claim flow. A bill token, wherever it's found, always wins — a malformed
- * `/b/:token` still isn't a route this table knows, so it falls through to `home` rather than a
- * broken claim screen.
+ * `/b/:token` still isn't a route this table knows, so it falls through to the landing page rather
+ * than a broken claim screen.
+ *
+ * **Pre-launch, `/` *is* the waitlist.** There is no app to install yet, so a landing page whose
+ * job is to send people to a store is a page that sends them nowhere; every visit is worth an
+ * email address instead. `/waitlist` renders the same component so existing links keep working, and
+ * `seo.ts` canonicalises it to `/` so the two URLs are never indexed as duplicates. The editorial
+ * home page is parked at `/home` (kept, unlinked and `noindex`) and comes back to `/` on launch day
+ * with `PRE_LAUNCH` in `format.ts`.
  */
 export type Route =
   | { kind: 'bill'; token: string }
@@ -46,6 +53,7 @@ export function resolveRoute(loc: { pathname: string; search: string } = window.
   if (path === '/delete-account') return { kind: 'delete-account' };
   if (path === '/support') return { kind: 'support' };
   if (path === '/waitlist') return { kind: 'waitlist' };
+  if (path === '/home') return { kind: 'home' };
   if (path === '/admin') return { kind: 'admin' };
-  return { kind: 'home' };
+  return { kind: 'waitlist' };
 }

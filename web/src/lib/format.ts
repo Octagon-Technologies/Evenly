@@ -88,7 +88,10 @@ export function paymentAppName(app: string | null): string {
 export const APP_STORE_URL = 'https://apps.apple.com/app/evenly';
 export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=app.splitevenly';
 
-export const WAITLIST_URL = '/waitlist';
+/** Pre-launch the waitlist *is* the landing page, so this is `/` and not `/waitlist`: both
+ *  URLs render it, but only `/` is canonical and internal links should not point away from
+ *  the URL being indexed. `/waitlist` stays routable for links already in the wild. */
+export const WAITLIST_URL = '/';
 
 /**
  * Neither store listing exists yet, so every "get the app" affordance would be a dead link. While

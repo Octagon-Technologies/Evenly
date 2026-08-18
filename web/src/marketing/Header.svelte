@@ -1,8 +1,10 @@
 <script lang="ts">
   /**
    * Logo left, tabs right — the site's own chrome, on every marketing page. `current` bolds the
-   * tab for the page you're on; "How it works" always points at the home page's feature strip,
-   * same href whether you're already there (browser just scrolls) or arriving from elsewhere.
+   * tab for the page you're on; "How it works" points at the landing page's three-moves
+   * section, same href whether you're already there (browser just scrolls) or arriving from
+   * elsewhere. Pre-launch that landing page is the waitlist, so the anchor lives on `/`, not on the
+   * parked home page's feature strip.
    */
   import { storeUrl, PRE_LAUNCH } from '../lib/format.ts';
 
@@ -20,7 +22,7 @@
       <span>Evenly</span>
     </a>
     <nav class="site-nav">
-      <a href="/#site-features">How it works</a>
+      <a href="/#how-it-works">How it works</a>
       <a href="/support" class={current === 'support' ? 'site-current' : ''}>Support</a>
       <a href="/privacy" class={current === 'privacy' ? 'site-current' : ''}>Privacy</a>
       <a href="/terms" class={current === 'terms' ? 'site-current' : ''}>Terms</a>

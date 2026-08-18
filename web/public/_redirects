@@ -1,4 +1,6 @@
-# Static SPA: every bill link is /b/:token and must serve the same index.html.
-# Netlify / Cloudflare Pages syntax. On another host, use its equivalent rewrite.
-/b/*  /index.html  200
-/*    /index.html  200
+# Netlify / Cloudflare Pages equivalent of vercel.json. `prerender.mjs` writes one HTML file per
+# marketing route, so those are served as files and only the two unindexable routes plus the 404
+# fallback need a rule here.
+/b/*     /app.html    200
+/admin   /app.html    200
+/*       /index.html  200

@@ -2,9 +2,14 @@
 
 One Vite/Svelte bundle, two surfaces. The claim flow is the browser half of `WEB_CLAIM_SPEC.md`: a
 guest scans the payer's QR, claims what they actually ate, and leaves as a real person in the group.
-No app, no account, no password. Alongside it, at the same domain, `src/marketing/` is the home page
-plus Privacy Policy and Terms of Service. `src/lib/router.ts`'s `resolveRoute` picks between them from
-the URL — a bill token (`/b/:token` or `?b=`) always wins; everything else is the marketing site.
+No app, no account, no password. Alongside it, at the same domain, `src/marketing/` is the waitlist
+(which is what `/` serves until launch), the parked home page at `/home`, and the legal pages.
+`src/lib/router.ts`'s `resolveRoute` picks between them from the URL — a bill token (`/b/:token` or
+`?b=`) always wins; everything else is the marketing site.
+
+`npm run build` runs `vite build` and then `prerender.mjs`, which server-renders each marketing route
+into its own HTML file so the site is readable without executing the bundle. `src/lib/seo.ts` holds
+the per-route title, description, canonical and `robots`, and is the file to edit for any of them.
 
 ```
 src/lib/money/

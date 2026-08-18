@@ -7,7 +7,7 @@
    * backgrounds; `variant="dark"` swaps in Apple's white badge for the dark band, matching what
    * Google's badge already renders as (black pill, always).
    */
-  import { APP_STORE_URL, PLAY_STORE_URL } from '../lib/format.ts';
+  import { appStoreLink, playStoreLink } from '../lib/format.ts';
   import appStoreBlack from './assets/app-store-badge.svg';
   import appStoreWhite from './assets/app-store-badge-white.svg';
   import googlePlayBadge from './assets/google-play-badge.png';
@@ -16,14 +16,14 @@
 </script>
 
 <div class="site-badges">
-  <a class="site-badge" href={APP_STORE_URL}>
+  <a class="site-badge" href={appStoreLink()}>
     <img
       src={variant === 'dark' ? appStoreWhite : appStoreBlack}
       alt="Download on the App Store"
       height="40"
     />
   </a>
-  <a class="site-badge" href={PLAY_STORE_URL}>
+  <a class="site-badge" href={playStoreLink()}>
     <img src={googlePlayBadge} alt="Get it on Google Play" height="40" />
   </a>
 </div>

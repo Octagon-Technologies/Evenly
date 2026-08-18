@@ -1,0 +1,14 @@
+{
+  "name": "Evenly — split the bill, not the friendship",
+  "short_name": "Evenly",
+  "description": "Split the bill by item. Your friends claim what they ate from a link, with no app and no account.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F3F6F7",
+  "theme_color": "#3762E3",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

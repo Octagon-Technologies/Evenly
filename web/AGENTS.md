@@ -12,6 +12,27 @@ offline. If you are adding a second *claim* screen that is not in `design/web-cl
 stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
 mockup (the "Finy-inspired" home/privacy/terms artifact) — a new marketing page is in scope there.
 
+**Pre-launch, `/` *is* the waitlist, and the page is prerendered.** As of 2026-08-18 `resolveRoute`
+sends `/`, `/waitlist` and every unknown path to `Waitlist.svelte`; the editorial home page is parked
+at `/home`, unlinked and `noindex`, and comes back to `/` on launch day via `PRE_LAUNCH` in
+`format.ts`. There is no app to install yet, so a landing page whose job is to send people to a store
+sends them nowhere.
+
+Three things follow, and each is load-bearing:
+ - **`lib/seo.ts` is the one table of title/description/canonical/robots**, applied at runtime by
+   `App.svelte` and at build time by `prerender.mjs`. `index.html` hard-codes the *landing* row of
+   that table; if you edit one you edit both, or a crawler that runs scripts and one that does not
+   read two different pages. `/` and `/waitlist` are the same component, so both canonicalise to `/`.
+ - **`npm run build` is `vite build && node prerender.mjs`.** The second half compiles the marketing
+   components for the server (`src/prerender-entry.ts`) and writes one real HTML file per route into
+   `dist/`, plus `dist/app.html` — an empty-`#app`, `noindex` shell that `/b/:token` and `/admin`
+   are rewritten to. A static SPA that ships `<div id="app"></div>` asks a crawler to run the bundle
+   before it sees a word; this one does not. It is a **prerender, not hydration**: `main.ts` empties
+   `#app` before mounting, so no markup mismatch is possible on a page whose hero is an animation.
+ - **The route table now lives in three files that must agree**: `lib/router.ts` (client),
+   `prerender-entry.ts`'s `PRERENDERED` (which files get written), and `vercel.json` +
+   `public/_redirects` (which path serves which file). Adding a marketing route means all three.
+
 **`/waitlist` is a second visual system inside `src/marketing/`, on purpose.** Home, privacy and
 terms are the editorial one: white paper, Fraunces serif accents, hairline rules. The waitlist is
 not — cool ground, no white page, one bloom colour per card, sans-only display at 58px. Its mockup is
