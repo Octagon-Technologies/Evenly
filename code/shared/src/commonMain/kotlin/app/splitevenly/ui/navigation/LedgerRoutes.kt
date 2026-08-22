@@ -373,6 +373,10 @@ fun AddExpenseRoute(
                             createdBy = me,
                             shares = shares,
                             categoryId = submit.categoryId,
+                            // `scanned` is set once a scan draft is loaded and never cleared afterward
+                            // in this composable, so it stays the record of how the items got here even
+                            // if the user went on to edit them by hand.
+                            fromScan = scanned != null,
                         )
                     when (val result = expenses.addExpense(input)) {
                         is AppResult.Ok -> {

@@ -15,6 +15,8 @@ import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.group.ClaimPreview
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.platform.AnalyticsEvents
+import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.screen.reconcile.ClaimLineUi
 import app.splitevenly.ui.screen.reconcile.ReconcileConfirmModal
@@ -22,6 +24,7 @@ import app.splitevenly.ui.screen.reconcile.ReconcilePerson
 import app.splitevenly.ui.screen.reconcile.ReconcileScreen
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /**
@@ -37,11 +40,18 @@ import org.koin.compose.koinInject
  * the deliberate, went-looking path, and it closes on confirm, which would flush the window anyway.
  */
 @Composable
-fun ReconcileRoute(groupId: String, onBack: () -> Unit, onDone: () -> Unit) {
+fun ReconcileRoute(
+    groupId: String,
+    source: String,
+    onBack: () -> Unit,
+    onDone: () -> Unit,
+) {
     val groups = koinInject<GroupRepository>()
     val shareDao = koinInject<ShareDao>()
     val snooze = koinInject<IdentityPromptSnooze>()
     val auth = koinInject<AuthSession>()
+    val koin = getKoin()
+    val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -53,10 +63,11 @@ fun ReconcileRoute(groupId: String, onBack: () -> Unit, onDone: () -> Unit) {
     // Each card = a name + the expenses it's booked into (one suspend fetch per name).
     var people by remember { mutableStateOf<List<ReconcilePerson>>(emptyList()) }
     LaunchedEffect(unclaimed) {
-        people = unclaimed.map { n ->
-            val expenses = shareDao.expensesForUser(groupId, n.userId.value).map { it.title to (it.amountSubunits / 100.0) }
-            ReconcilePerson(id = n.userId.value, name = n.displayName, expenses = expenses)
-        }
+        people =
+            unclaimed.map { n ->
+                val expenses = shareDao.expensesForUser(groupId, n.userId.value).map { it.title to (it.amountSubunits / 100.0) }
+                ReconcilePerson(id = n.userId.value, name = n.displayName, expenses = expenses)
+            }
     }
 
     var pendingConfirm by remember { mutableStateOf<ClaimPreview?>(null) }
@@ -99,8 +110,10 @@ fun ReconcileRoute(groupId: String, onBack: () -> Unit, onDone: () -> Unit) {
             name = preview.name,
             owed = preview.owed.map { ClaimLineUi(it.title, moneySubunits(it.amountSubunits, it.currency)) },
             paid = preview.paid.map { ClaimLineUi(it.title, moneySubunits(it.amountSubunits, it.currency)) },
-            owedTotalLabel = preview.currency?.takeIf { preview.owed.isNotEmpty() }
-                ?.let { moneySubunits(preview.owedTotalSubunits, it) },
+            owedTotalLabel =
+                preview.currency
+                    ?.takeIf { preview.owed.isNotEmpty() }
+                    ?.let { moneySubunits(preview.owedTotalSubunits, it) },
             onConfirm = {
                 val me = userId
                 val ids = pendingIds
@@ -108,7 +121,13 @@ fun ReconcileRoute(groupId: String, onBack: () -> Unit, onDone: () -> Unit) {
                 pendingIds = emptyList()
                 if (me != null) {
                     scope.launch {
-                        ids.forEach { groups.reconcilePlaceholder(gid, UserId(it), me) }
+                        ids.forEach {
+                            groups.reconcilePlaceholder(gid, UserId(it), me)
+                            analytics?.capture(
+                                AnalyticsEvents.PLACEHOLDER_CLAIMED,
+                                mapOf("group_id" to groupId, "claim_source" to source),
+                            )
+                        }
                         snooze.markFinished(gid)
                         onDone()
                     }

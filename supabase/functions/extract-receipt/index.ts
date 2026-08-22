@@ -74,6 +74,7 @@ import {
   describeDiscrepancy,
   fmt,
 } from "./billMath.ts";
+import { captureServerEvent } from "../_shared/posthogServer.ts";
 
 interface ReceiptPart {
   data: string;      // base64-encoded bytes
@@ -443,6 +444,21 @@ Deno.serve(async (req) => {
       })
       .eq("id", scanId);
     if (error) console.error(`extract-receipt: failed to complete scan log ${scanId} (${outcome}): ${error.message}`);
+    // Mirrors this same row into PostHog (ANALYTICS_PLAN_C_JOURNEY_AND_CLAIMING.md §4) so cost, latency,
+    // and fallback rate are visible in PostHog's LLM observability dashboards without a Supabase query.
+    // Best-effort and inert with no POSTHOG_API_KEY set, same as the ledger write above it — written right
+    // beside it so the two can't drift apart from a partial edit.
+    await captureServerEvent(callerId, "scan_model_completed", {
+      scan_id: scanId,
+      group_id: groupId,
+      outcome,
+      tiers_used: tiersUsed,
+      is_fallback: tiersUsed.length > 1,
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens,
+      cost_micros: totalCostMicros,
+      duration_ms: Date.now() - scanStartedAt,
+    });
     return json({ ...(body as Record<string, unknown>), scanId }, status);
   }
 

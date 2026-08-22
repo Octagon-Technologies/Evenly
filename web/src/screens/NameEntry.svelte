@@ -51,7 +51,7 @@
   }
 
   async function acceptSuggestion(candidate: Candidate) {
-    const { won } = await store.claimPlaceholder(candidate.userId);
+    const { won } = await store.claimPlaceholder(candidate.userId, 'name_entry_suggestion');
     if (won) await store.enterClaiming();
   }
 

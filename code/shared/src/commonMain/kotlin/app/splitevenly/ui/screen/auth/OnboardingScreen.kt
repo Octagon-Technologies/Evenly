@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +67,10 @@ fun OnboardingScreen(
     // not an error, and onboarding finishes either way.
     onEnableNotifications: suspend () -> Unit = {},
     onFinish: (name: String, baseCurrency: String, handles: Map<PaymentApp, String>) -> Unit = { _, _, _ -> },
+    // Analytics stays out of this DI-free screen; the Route wrapper captures these against the same
+    // step ids this list defines, so a reorder or insertion here needs no separate analytics-side edit.
+    onStepViewed: (step: String) -> Unit = {},
+    onStepCompleted: (step: String) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val scope = rememberCoroutineScope()
@@ -81,7 +86,10 @@ fun OnboardingScreen(
     var handlesChecked by remember { mutableStateOf(false) }
     val cur = steps[step]
 
+    LaunchedEffect(cur) { onStepViewed(cur) }
+
     fun advance() {
+        onStepCompleted(cur)
         if (step < steps.lastIndex) step++ else onFinish(name, currency, handles)
     }
 

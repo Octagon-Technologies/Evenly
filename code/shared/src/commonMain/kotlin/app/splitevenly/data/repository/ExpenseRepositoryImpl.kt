@@ -279,7 +279,11 @@ class ExpenseRepositoryImpl(
         recordHistory(expenseId, input.groupId.value, HistoryEventType.CREATED, input.createdBy.value, now)
         analytics?.capture(
             AnalyticsEvents.EXPENSE_ADDED,
-            mapOf("split_mode" to input.splitMode, "group_id" to input.groupId.value),
+            mapOf(
+                "split_mode" to input.splitMode,
+                "group_id" to input.groupId.value,
+                "entry_method" to if (input.fromScan) "scan" else "manual",
+            ),
         )
         return expense.toDomain().asOk()
     }

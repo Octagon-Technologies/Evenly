@@ -20,6 +20,21 @@
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/auth/SupabaseAuthSession.kt"
   },
   {
+    "event_name": "onboarding_step_viewed",
+    "event_description": "Fires when a step of the welcome/onboarding flow is shown. Properties: step (welcome_slides | name | currency | handle | analytics | notify).",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/WiredScreens.kt"
+  },
+  {
+    "event_name": "onboarding_step_completed",
+    "event_description": "Fires when a step of the welcome/onboarding flow is passed (Continue or Skip). Properties: step, same values as onboarding_step_viewed.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/WiredScreens.kt"
+  },
+  {
+    "event_name": "onboarding_completed",
+    "event_description": "Fires once, when OnboardingScreen finishes and the user lands on the main app for the first time. Guarded by the ONBOARDING_COMPLETED_KEY SecureStorage flag so a later re-open never repeats it.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/WiredScreens.kt"
+  },
+  {
     "event_name": "group_created",
     "event_description": "Fires when a user creates a new expense-splitting group. Properties: group_id, member_count (always 1 at creation).",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
@@ -45,13 +60,18 @@
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
+    "event_name": "placeholder_claimed",
+    "event_description": "Fires when GroupRepositoryImpl.reconcilePlaceholder merges a placeholder identity onto a real user. Properties: group_id, claim_source (group_join | group_home | group_settings) — see PlaceholderClaimSources.",
+    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
+  },
+  {
     "event_name": "group_snapshot",
     "event_description": "Occasional (once per group per app session) snapshot of a group's shape, since the PostHog wrapper's group() associates only one current group per user and doesn't fit a member belonging to many groups. Properties: group_id, member_count, expense_count, age_days.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/GroupRepositoryImpl.kt"
   },
   {
     "event_name": "expense_added",
-    "event_description": "Fires when a user adds a new expense to a group. Properties: split_mode, group_id.",
+    "event_description": "Fires when a user adds a new expense to a group. Properties: split_mode, group_id, entry_method (manual | scan).",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/data/repository/ExpenseRepositoryImpl.kt"
   },
   {
@@ -115,6 +135,11 @@
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/LedgerRoutes.kt"
   },
   {
+    "event_name": "scan_model_completed",
+    "event_description": "Server-side mirror of the receipt_scan_log row for a finished scan (ANALYTICS_PLAN_C_JOURNEY_AND_CLAIMING.md §4). Properties: scan_id, group_id, outcome (ok | not_receipt | invalid_draft | failed | rate_limited | breaker_open), tiers_used (['primary'] or ['primary','escalation']), is_fallback, input_tokens, output_tokens, cost_micros, duration_ms. Sent via the HTTP capture endpoint directly (not posthog-node) since a batched SDK can lose events when the edge function's isolate tears down before its next flush; inert with no POSTHOG_API_KEY set.",
+    "file": "supabase/functions/extract-receipt/index.ts"
+  },
+  {
     "event_name": "free_scan_used",
     "event_description": "Fires after a successful receipt scan on a free group, carrying the count the SERVER settled on (scans_used, scans_remaining) rather than a locally decremented one.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/BillRoutes.kt"
@@ -153,5 +178,40 @@
     "event_name": "manual_entry_after_paywall",
     "event_description": "Someone hit the out-of-scans refusal and typed the bill in by hand instead. The honest counterpart to conversion rate: how many people the gate pushed onto the slow path.",
     "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/BillRoutes.kt"
+  },
+  {
+    "event_name": "claim_page_viewed",
+    "event_description": "Web claim flow only. Fires once per ClaimStore instance when the claim link first resolves. No bill-identifying properties: neither BillHeader nor the pre-bill-load resolve responses expose a safe, non-bearer id (the bill token itself is a live credential and must never be sent to an analytics vendor).",
+    "file": "web/src/lib/store.svelte.ts"
+  },
+  {
+    "event_name": "web_candidates_shown",
+    "event_description": "Web claim flow. Fires when the resolve response is state=pick_name, i.e. this guest was offered a list of existing unclaimed placeholders before being allowed to type a new name. Properties: candidate_count. The exposure denominator for the anti-duplication design (ANALYTICS_PLAN_C_JOURNEY_AND_CLAIMING.md §5a).",
+    "file": "web/src/lib/store.svelte.ts"
+  },
+  {
+    "event_name": "web_identity_resolved",
+    "event_description": "Web claim flow. Fires once the guest's identity is settled, either path. Properties: outcome (claimed_placeholder | created_new), source (pick_name_list | name_entry_suggestion | pick_name_declined | name_entry_direct). pick_name_declined means she saw the candidate list and typed a new name anyway; name_entry_direct means there was never a placeholder to offer her.",
+    "file": "web/src/lib/store.svelte.ts"
+  },
+  {
+    "event_name": "web_claim_race_lost",
+    "event_description": "Web claim flow. Fires when claimPlaceholder returns won:false — two guests tapped the same placeholder and this one lost the first-claim-wins race.",
+    "file": "web/src/lib/store.svelte.ts"
+  },
+  {
+    "event_name": "claim_item_selected",
+    "event_description": "Web claim flow. Fires from setClaim when quantity > 0 (a claim, not an unclaim). Properties: expense_id, item_id.",
+    "file": "web/src/lib/store.svelte.ts"
+  },
+  {
+    "event_name": "claim_undone",
+    "event_description": "Web claim flow. Fires from undoChange. Properties: expense_id.",
+    "file": "web/src/lib/store.svelte.ts"
+  },
+  {
+    "event_name": "claim_submitted",
+    "event_description": "Web claim flow. Fires from setDone(true) — the guest tapped 'I'm done'. Properties: expense_id, item_count (this guest's own claimed line count).",
+    "file": "web/src/lib/store.svelte.ts"
   }
 ]

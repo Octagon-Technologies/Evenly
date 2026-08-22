@@ -16,6 +16,7 @@ import { api, ApiError, type BillHeader, type BillResponse, type Candidate, type
 import { clearSessionToken, saveSessionToken, tokenForBill, tokenForGroup } from './session.ts';
 import { splitBill, toSplitInput, type BillResult, type ItemStatus } from './money/index.ts';
 import { buildChanges, buildLines, claimProgress, type ChangeView, type LineView } from './lines.ts';
+import { capture } from './analytics.ts';
 
 export type Phase =
   | 'loading'
@@ -123,7 +124,15 @@ export class ClaimStore {
    * bill resolves in one call; otherwise resolve cold, learn the group name, and try that group's
    * token. A brand-new guest costs one call either way.
    */
+  /** Guards claim_page_viewed to once per store instance — resolve() re-runs after a lost claim race
+   *  and after release(), and neither is a fresh page view. */
+  #viewed = false;
+
   async resolve(): Promise<void> {
+    if (!this.#viewed) {
+      this.#viewed = true;
+      capture('claim_page_viewed');
+    }
     const stored = tokenForBill(this.billToken);
     try {
       let res = await api.resolve(this.billToken, stored);
@@ -151,6 +160,7 @@ export class ClaimStore {
         case 'pick_name':
           this.candidates = res.candidates;
           this.phase = 'pick_name';
+          capture('web_candidates_shown', { candidate_count: res.candidates.length });
           break;
         case 'name_entry':
           this.candidates = [];
@@ -210,16 +220,24 @@ export class ClaimStore {
 
   // ── identity ─────────────────────────────────────────────────────────────────────────────
 
-  /** "That's me" on the evidence list. First claim wins; the loser re-picks (E3). */
-  async claimPlaceholder(placeholderUserId: string): Promise<{ won: boolean }> {
+  /**
+   * "That's me" on the evidence list, or accepting a fuzzy-match suggestion while typing a new name.
+   * First claim wins; the loser re-picks (E3). `source` is one of "pick_name_list" (the evidence-list
+   * tap) or "name_entry_suggestion" (accepted mid-typing) — see ANALYTICS_PLAN_C_JOURNEY_AND_CLAIMING.md
+   * §5a for why this exists: it's the anti-duplication design (one identity per real person) actually
+   * being measured.
+   */
+  async claimPlaceholder(placeholderUserId: string, source: 'pick_name_list' | 'name_entry_suggestion'): Promise<{ won: boolean }> {
     return this.#write(async () => {
       const res = await api.claimPlaceholder(this.billToken, placeholderUserId);
       if (!res.won) {
         this.error = 'Someone already claimed that name. Pick another, or add a new one.';
+        capture('web_claim_race_lost');
         await this.resolve();
         return { won: false };
       }
       this.#adopt(res.sessionToken, res.userId, res.name, res.header);
+      capture('web_identity_resolved', { outcome: 'claimed_placeholder', source });
       return { won: true };
     }, { won: false });
   }
@@ -236,6 +254,12 @@ export class ClaimStore {
       if ('blocked' in res) return { kind: 'blocked' as const, suggestions: res.suggestions };
       if ('suggestion' in res) return { kind: 'suggestion' as const, candidate: res.suggestion };
       this.#adopt(res.sessionToken, res.userId, name, res.header);
+      // candidates.length > 0 means she was shown the evidence list and typed a new name anyway
+      // ("I'm none of these"); zero means there was never a placeholder to offer her.
+      capture('web_identity_resolved', {
+        outcome: 'created_new',
+        source: this.candidates.length > 0 ? 'pick_name_declined' : 'name_entry_direct',
+      });
       return { kind: 'created' as const };
     }, { kind: 'blocked' as const, suggestions: [] });
   }
@@ -266,6 +290,7 @@ export class ClaimStore {
   async setClaim(itemId: string, quantity: number): Promise<void> {
     await this.#write(async () => {
       await api.claim(this.billToken, this.sessionToken!, itemId, quantity);
+      if (quantity > 0) capture('claim_item_selected', { expense_id: this.bill?.expense.id, item_id: itemId });
       await this.refresh();
     }, undefined);
   }
@@ -356,6 +381,7 @@ export class ClaimStore {
   async undoChange(editId: string): Promise<void> {
     await this.#write(async () => {
       await api.undo(this.billToken, this.sessionToken!, editId);
+      capture('claim_undone', { expense_id: this.bill?.expense.id });
       await this.refresh();
     }, undefined);
   }
@@ -383,6 +409,11 @@ export class ClaimStore {
   async setDone(done: boolean): Promise<void> {
     await this.#write(async () => {
       await api.done(this.billToken, this.sessionToken!, done);
+      if (done) {
+        const me = this.identity?.userId;
+        const itemCount = me ? this.bill?.claims.filter((c) => c.user_id === me && c.quantity > 0).length ?? 0 : 0;
+        capture('claim_submitted', { expense_id: this.bill?.expense.id, item_count: itemCount });
+      }
       await this.refresh();
       this.phase = done ? 'summary' : 'claiming';
     }, undefined);

@@ -44,6 +44,7 @@ import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.newId
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
+import app.splitevenly.platform.PlaceholderClaimSources
 import app.splitevenly.platform.ReceiptFileStore
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -244,6 +245,10 @@ class GroupRepositoryImpl(
             val placeholder = userDao.getById(claimPlaceholderId.value)
             if (placeholder?.isPlaceholder == true && placeholder.placeholderGroupId == group.id) {
                 reconcilePlaceholder(GroupId(group.id), claimPlaceholderId, userId)
+                analytics?.capture(
+                    AnalyticsEvents.PLACEHOLDER_CLAIMED,
+                    mapOf("group_id" to group.id, "claim_source" to PlaceholderClaimSources.GROUP_JOIN),
+                )
             }
         }
         analytics?.capture(AnalyticsEvents.GROUP_JOINED, mapOf("group_id" to group.id))

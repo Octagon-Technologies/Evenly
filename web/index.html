@@ -105,6 +105,24 @@
         ]
       }
     </script>
+
+    <!-- Async, non-blocking analytics for the claim flow (ANALYTICS_PLAN_C_JOURNEY_AND_CLAIMING.md §5).
+         A dynamic import so an unset VITE_POSTHOG_KEY costs zero network/JS — posthog-js is never even
+         fetched — matching this codebase's "inert until configured" convention (ANTHROPIC_API_KEY,
+         Slack webhooks). Loaded from a CDN rather than as an npm dependency: `web/AGENTS.md`'s
+         zero-runtime-dependencies rule is about the bundled Vite build, and this never enters it. -->
+    <script type="module">
+      const posthogKey = import.meta.env.VITE_POSTHOG_KEY;
+      if (posthogKey) {
+        import('https://esm.sh/posthog-js@1').then(({ default: posthog }) => {
+          posthog.init(posthogKey, {
+            api_host: import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com',
+            capture_pageview: false,
+          });
+          window.__posthog = posthog;
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>
