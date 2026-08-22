@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -27,7 +28,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
@@ -42,15 +45,17 @@ import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
-import app.splitevenly.ui.theme.ExtendedColors
 import app.splitevenly.ui.theme.EvenlyTheme
+import app.splitevenly.ui.theme.ExtendedColors
 import kotlinx.coroutines.launch
 
 /**
  * First-launch welcome carousel (design/ "Evenly Onboarding"). Five swipeable slides that pitch
  * the product before sign-in: fair splitting, receipt scan, tap-to-assign, add-anyone, and per-person
- * balances. Each slide pairs a headline with an illustrative mock card. Dismissing (Skip or Get
- * started) marks the flow seen so it never shows again — that persistence lives in the Route wrapper.
+ * balances. Each slide pairs a headline with an illustrative mock card, glowing with a soft halo tint
+ * unique to that slide (mockup-approved direction: corner-anchored, 190dp-equivalent spread, dimmed
+ * opacity — see the "welcome screen gradient" design review). Dismissing (Skip or Get started) marks
+ * the flow seen so it never shows again — that persistence lives in the Route wrapper.
  *
  * Stateless + previewable: takes a single [onFinish] callback, no DI.
  */
@@ -69,31 +74,55 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
             contentPadding = PaddingValues(0.dp),
         ) { page ->
             when (page) {
-                0 -> WelcomeSlide(
-                    title = "Group costs, kept ", accent = "fair.",
-                    body = "Split what you share and keep a clear record, so nothing gets lost or argued about later.",
-                    cardOnTop = false,
-                ) { GroupCard() }
-                1 -> WelcomeSlide(
-                    title = "Scan a receipt, ", accent = "done.",
-                    body = "Snap the bill and we pull out every line item. You just confirm before we split it.",
-                    cardOnTop = true,
-                ) { ReceiptCard() }
-                2 -> WelcomeSlide(
-                    title = "Everyone taps ", accent = "what they had.",
-                    body = "Assign items in seconds. One person can sort the whole bill, no back-and-forth.",
-                    cardOnTop = false,
-                ) { WhoHadWhatCard() }
-                3 -> WelcomeSlide(
-                    title = "Add anyone, ", accent = "even before they join.",
-                    body = "Split with people who aren't here yet. When they join, they claim their spot, no re-entry.",
-                    cardOnTop = true,
-                ) { ClaimCard() }
-                else -> WelcomeSlide(
-                    title = "Always know ", accent = "where you stand.",
-                    body = "See who owes what, per person, never netted into one confusing number.",
-                    cardOnTop = false,
-                ) { BalancesCard() }
+                0 -> {
+                    WelcomeSlide(
+                        title = "Group costs, kept ",
+                        accent = "fair.",
+                        body = "Split what you share and keep a clear record, so nothing gets lost or argued about later.",
+                        cardOnTop = false,
+                        haloTint = c.blue,
+                    ) { GroupCard() }
+                }
+
+                1 -> {
+                    WelcomeSlide(
+                        title = "Scan a receipt, ",
+                        accent = "done.",
+                        body = "Snap the bill and we pull out every line item. You just confirm before we split it.",
+                        cardOnTop = true,
+                        haloTint = HaloTealTint,
+                    ) { ReceiptCard() }
+                }
+
+                2 -> {
+                    WelcomeSlide(
+                        title = "Everyone taps ",
+                        accent = "what they had.",
+                        body = "Assign items in seconds. One person can sort the whole bill, no back-and-forth.",
+                        cardOnTop = false,
+                        haloTint = HaloLilacTint,
+                    ) { WhoHadWhatCard() }
+                }
+
+                3 -> {
+                    WelcomeSlide(
+                        title = "Add anyone, ",
+                        accent = "even before they join.",
+                        body = "Split with people who aren't here yet. When they join, they claim their spot, no re-entry.",
+                        cardOnTop = true,
+                        haloTint = HaloPeachTint,
+                    ) { ClaimCard() }
+                }
+
+                else -> {
+                    WelcomeSlide(
+                        title = "Always know ",
+                        accent = "where you stand.",
+                        body = "See who owes what, per person, never netted into one confusing number.",
+                        cardOnTop = false,
+                        haloTint = c.settled,
+                    ) { BalancesCard() }
+                }
             }
         }
 
@@ -163,6 +192,7 @@ private fun WelcomeSlide(
     accent: String,
     body: String,
     cardOnTop: Boolean,
+    haloTint: Color,
     card: @Composable () -> Unit,
 ) {
     val c = EvenlyTheme.colors
@@ -197,7 +227,14 @@ private fun WelcomeSlide(
             Box(
                 Modifier.fillMaxWidth().weight(1f).padding(horizontal = 26.dp),
                 contentAlignment = Alignment.Center,
-            ) { card() }
+            ) {
+                // Card sits at the bottom of the art area when the header leads (cardOnTop = false),
+                // so the halo anchors to its bottom-right; when the card leads, top-left instead —
+                // in both cases the corner nearest the headline.
+                HaloBehindCard(tint = haloTint, corner = if (cardOnTop) Alignment.TopStart else Alignment.BottomEnd) {
+                    card()
+                }
+            }
         }
         if (cardOnTop) {
             art()
@@ -209,11 +246,61 @@ private fun WelcomeSlide(
     }
 }
 
+/**
+ * A soft, blurred radial glow tucked behind one corner of [content], bleeding past its edge into
+ * the page. Mockup-approved "less spread" treatment: ~180dp diameter, dimmed opacity so the tint
+ * reads as ambient light rather than a coloured shape. Never sits under [content] itself — the
+ * card's own background fully occludes it, so line-item contrast is untouched.
+ *
+ * Alpha is theme-aware, not a straight port of the mockup's numbers: the mockup's ground was a
+ * pale grey (`#f3f6f7`), but the app's actual light page is pure white, and the mockup's dimmed
+ * opacity all but disappeared against it on a real device — confirmed by running this on the iOS
+ * simulator. Dark mode's near-black page gave the same numbers plenty of contrast already, so only
+ * light mode needed boosting.
+ */
+@Composable
+private fun HaloBehindCard(
+    tint: Color,
+    corner: Alignment,
+    content: @Composable () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    val haloOffset = if (corner == Alignment.BottomEnd) 26.dp else (-26).dp
+    val (peakAlpha, midAlpha) = if (c.isDark) 0.44f to 0.18f else 0.7f to 0.32f
+    Box(contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .align(corner)
+                .offset(x = haloOffset, y = haloOffset)
+                .size(180.dp)
+                .blur(30.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors =
+                            listOf(
+                                tint.copy(alpha = peakAlpha),
+                                tint.copy(alpha = midAlpha),
+                                tint.copy(alpha = 0f),
+                            ),
+                    ),
+                ),
+        )
+        content()
+    }
+}
+
+private val HaloTealTint = Color(0xFF83E3DE)
+private val HaloLilacTint = Color(0xFFB9A6FF)
+private val HaloPeachTint = Color(0xFFFFAB94)
+
 // ── Shared card primitives ─────────────────────────────────────────────────
 
 /** The floating white mock card the slides show their product moments inside. */
 @Composable
-private fun MockCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun MockCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     val c = EvenlyTheme.colors
     Box(
         modifier
@@ -253,12 +340,19 @@ private fun Avatar(
 }
 
 @Composable
-private fun Mono(text: String, color: Color, size: Int = 13, weight: FontWeight = FontWeight.Normal) {
+private fun Mono(
+    text: String,
+    color: Color,
+    size: Int = 13,
+    weight: FontWeight = FontWeight.Normal,
+) {
     Text(text, color = color, fontFamily = EvenlyTheme.monoFamily, fontSize = size.sp, fontWeight = weight)
 }
 
 private fun ExtendedColors.avatarBlue() = blue
+
 private fun ExtendedColors.avatarLight() = blueTint2
+
 private fun ExtendedColors.avatarDeep() = bluePressed
 
 // ── Slide 1 · Group costs ───────────────────────────────────────────────────
@@ -294,7 +388,11 @@ private fun GroupCard() {
 
             Spacer(Modifier.height(14.dp))
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(14.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.surface)
+                    .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
@@ -315,7 +413,10 @@ private fun GroupCard() {
 }
 
 @Composable
-private fun ExpenseRow(label: String, amount: String) {
+private fun ExpenseRow(
+    label: String,
+    amount: String,
+) {
     val c = EvenlyTheme.colors
     Row(
         Modifier.fillMaxWidth().padding(vertical = 7.dp, horizontal = 2.dp),
@@ -337,13 +438,22 @@ private fun ReceiptCard() {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(
-                    Modifier.size(width = 42.dp, height = 54.dp).clip(RoundedCornerShape(8.dp))
-                        .background(c.surface).border(1.dp, c.border, RoundedCornerShape(8.dp))
+                    Modifier
+                        .size(width = 42.dp, height = 54.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(c.surface)
+                        .border(1.dp, c.border, RoundedCornerShape(8.dp))
                         .padding(horizontal = 7.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
                 ) {
                     listOf(1f, 0.7f, 0.88f, 0.55f).forEach { frac ->
-                        Box(Modifier.fillMaxWidth(frac).height(3.dp).clip(CircleShape).background(c.blueTint2))
+                        Box(
+                            Modifier
+                                .fillMaxWidth(frac)
+                                .height(3.dp)
+                                .clip(CircleShape)
+                                .background(c.blueTint2),
+                        )
                     }
                 }
                 Spacer(Modifier.width(11.dp))
@@ -369,7 +479,13 @@ private fun ReceiptCard() {
             ReceiptLine("Tax", "2.60", muted = true)
 
             Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(1.dp).background(c.border))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .height(1.dp)
+                    .background(c.border),
+            )
             Spacer(Modifier.height(8.dp))
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp),
@@ -381,7 +497,12 @@ private fun ReceiptCard() {
 
             Spacer(Modifier.height(15.dp))
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.blueTint).padding(horizontal = 12.dp, vertical = 11.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clip(
+                        RoundedCornerShape(10.dp),
+                    ).background(c.blueTint)
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(20.dp).clip(CircleShape).background(c.blue), contentAlignment = Alignment.Center) {
@@ -390,7 +511,10 @@ private fun ReceiptCard() {
                 Spacer(Modifier.width(9.dp))
                 Text(
                     "Verify before we split it. You confirm every line.",
-                    color = c.blueText, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp,
+                    color = c.blueText,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 17.sp,
                 )
             }
         }
@@ -398,11 +522,20 @@ private fun ReceiptCard() {
 }
 
 @Composable
-private fun ReceiptLine(label: String, amount: String, reading: Boolean = false, muted: Boolean = false) {
+private fun ReceiptLine(
+    label: String,
+    amount: String,
+    reading: Boolean = false,
+    muted: Boolean = false,
+) {
     val c = EvenlyTheme.colors
     val bg = if (reading) c.blueTint else Color.Transparent
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(bg).padding(8.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(bg)
+            .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = if (muted) c.ink3 else c.ink, fontSize = 13.5.sp)
@@ -453,7 +586,9 @@ private fun WhoHadWhatCard() {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "You can assign for the whole table, even if you're the only one here.",
-                    color = c.ink2, fontSize = 12.sp, lineHeight = 16.sp,
+                    color = c.ink2,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
                 )
             }
         }
@@ -471,7 +606,8 @@ private fun AssignRow(
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(10.dp)
     Row(
-        Modifier.fillMaxWidth()
+        Modifier
+            .fillMaxWidth()
             .clip(shape)
             .then(if (dashed) Modifier.background(c.surface) else Modifier)
             .border(1.dp, c.border, shape)
@@ -496,7 +632,9 @@ private fun ClaimCard() {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Pill("Whole trip", c.surface, c.ink2)
             Box(
-                Modifier.width(146.dp).clip(RoundedCornerShape(16.dp))
+                Modifier
+                    .width(146.dp)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(if (c.isDark) c.surface else c.page)
                     .border(1.dp, c.border, RoundedCornerShape(16.dp))
                     .padding(horizontal = 13.dp, vertical = 14.dp),
@@ -510,8 +648,10 @@ private fun ClaimCard() {
                     Spacer(Modifier.height(9.dp))
                     // Placeholder — dashed ring, highlighted row.
                     Row(
-                        Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(9.dp)).background(c.surface)
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(c.surface)
                             .padding(horizontal = 7.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -529,7 +669,10 @@ private fun ClaimCard() {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Pill("One tap claim", c.blueTint, c.blueText)
             Column(
-                Modifier.width(146.dp).clip(RoundedCornerShape(16.dp)).background(c.blueTint)
+                Modifier
+                    .width(146.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(c.blueTint)
                     .border(1.dp, c.blueTint2, RoundedCornerShape(16.dp))
                     .padding(horizontal = 12.dp, vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -547,8 +690,13 @@ private fun ClaimCard() {
                     Box(contentAlignment = Alignment.BottomEnd) {
                         Avatar("SM", c.avatarBlue(), c.onAccent, size = 36)
                         Box(
-                            Modifier.size(15.dp).clip(CircleShape).background(c.blueTint).padding(2.dp)
-                                .clip(CircleShape).background(c.blue),
+                            Modifier
+                                .size(15.dp)
+                                .clip(CircleShape)
+                                .background(c.blueTint)
+                                .padding(2.dp)
+                                .clip(CircleShape)
+                                .background(c.blue),
                             contentAlignment = Alignment.Center,
                         ) { EvIcon(EvIcons.Check, size = 8.dp, tint = c.onAccent) }
                     }
@@ -560,7 +708,12 @@ private fun ClaimCard() {
 }
 
 @Composable
-private fun RosterRow(initials: String, name: String, bg: Color, fg: Color) {
+private fun RosterRow(
+    initials: String,
+    name: String,
+    bg: Color,
+    fg: Color,
+) {
     val c = EvenlyTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically) {
         Avatar(initials, bg, fg, size = 26)
@@ -570,7 +723,11 @@ private fun RosterRow(initials: String, name: String, bg: Color, fg: Color) {
 }
 
 @Composable
-private fun Pill(text: String, bg: Color, fg: Color) {
+private fun Pill(
+    text: String,
+    bg: Color,
+    fg: Color,
+) {
     Box(
         Modifier.clip(CircleShape).background(bg).padding(horizontal = 11.dp, vertical = 6.dp),
     ) { Text(text, color = fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
@@ -596,7 +753,10 @@ private fun BalancesCard() {
             Spacer(Modifier.height(12.dp))
             Text(
                 "Shown per person, never blended into one number.",
-                color = c.ink3, fontSize = 11.5.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                color = c.ink3,
+                fontSize = 11.5.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(13.dp))
             EvButton("Settle up", onClick = {}, variant = ButtonVariant.Secondary)
