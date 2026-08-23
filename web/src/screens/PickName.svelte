@@ -20,7 +20,7 @@
 
   async function pick(userId: string) {
     picking = userId;
-    const { won } = await store.claimPlaceholder(userId);
+    const { won } = await store.claimPlaceholder(userId, 'pick_name_list');
     picking = null;
     if (won) await store.enterClaiming();
   }

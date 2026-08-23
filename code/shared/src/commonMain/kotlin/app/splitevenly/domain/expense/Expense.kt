@@ -82,6 +82,9 @@ data class NewExpense(
     val payerOutsideName: String? = null,
     val notes: String? = null,
     val categoryId: String? = null,
+    // Analytics-only: true when the items came from a completed receipt scan, never persisted.
+    // Feeds `expense_added`'s `entry_method` property (ExpenseRepositoryImpl.addExpense).
+    val fromScan: Boolean = false,
 )
 
 /**

@@ -11,6 +11,20 @@
  * a component between the two bundles cannot collide.
  */
 
+/* Rethink Sans for the gate screens and the nav brand mark only (spec-approved reversal of the
+ * "system fonts here" rule below: the sign-in/no-access screens and top bar now match the waitlist
+ * page's display type). Self-hosted, same file as `web/`, rather than a Google Fonts request — an
+ * internal tool making an external font request on every load is one more thing to explain in a
+ * privacy review. Body copy elsewhere (the chart, the table) stays on system fonts; nothing there
+ * benefits from a display face. */
+@font-face {
+  font-family: 'Rethink Sans';
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/rethink-var.woff2') format('woff2');
+}
+
 :root {
   --adm-paper: #ffffff;
   --adm-paper-2: #f7f8fc;
@@ -25,6 +39,7 @@
   --adm-r: 12px;
   --adm-r-pill: 999px;
   --adm-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --adm-display: 'Rethink Sans', var(--adm-sans);
   --adm-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
@@ -46,14 +61,21 @@ a { color: var(--adm-accent); }
   background: var(--adm-paper); border-bottom: 1px solid var(--adm-line);
   padding: 14px 24px; position: sticky; top: 0; z-index: 5;
 }
-.adm-brand { display: flex; align-items: center; gap: 9px; }
-.adm-brand svg { width: 20px; height: 20px; color: var(--adm-accent); }
-.adm-brand span { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
-.adm-pill {
-  background: var(--adm-accent-tint); color: var(--adm-accent-press);
-  border-radius: var(--adm-r-pill); padding: 3px 10px; font-size: 12px; font-weight: 700;
+.adm-brand { display: flex; align-items: center; gap: 8px; font-family: var(--adm-display); }
+.adm-brand svg { width: 18px; height: 18px; color: var(--adm-accent); }
+.adm-brand span { font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em; }
+/* A muted text label after a hairline, not a colour pill: the bar states its scope in weight, the
+ * way Vercel/GitHub's own internal chrome does, rather than decorating an internal tool. */
+.adm-scope {
+  font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--adm-ink-faint); padding-left: 10px; border-left: 1px solid var(--adm-line);
 }
-.adm-who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--adm-ink-soft); white-space: nowrap; }
+.adm-who { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--adm-ink-soft); white-space: nowrap; }
+.adm-nav-signout {
+  border: 1.5px solid var(--adm-line); background: var(--adm-paper); color: var(--adm-ink);
+  font-size: 13px; font-weight: 650; padding: 7px 14px; border-radius: 8px;
+}
+.adm-nav-signout:hover { border-color: #c7cee3; background: #fafbff; }
 .adm-main { max-width: 1000px; margin: 0 auto; padding: 28px 24px 64px; }
 
 /* ── type ── */
@@ -138,17 +160,44 @@ td.adm-when { color: var(--adm-ink-soft); white-space: nowrap; }
   .adm-spin { animation-duration: 2.4s; }
 }
 
-/* ── the centred single-purpose screens: sign-in, no access, unconfigured ── */
+/* ── the centred single-purpose screens: sign-in, no access, unconfigured ──
+ * Modelled on Vercel's, Supabase's and GitHub's own sign-in pages: the page background is the only
+ * surface. No card, no border, no glow — restraint reads as more considered than a decorated card,
+ * and it is one fewer thing to keep in sync with the brand system if the palette ever moves. */
 .adm-gate {
   min-height: 100vh; display: flex; flex-direction: column;
   align-items: center; justify-content: center; text-align: center; padding: 24px; gap: 6px;
 }
+.adm-gate-mark { color: var(--adm-accent); margin-bottom: 22px; }
+/* The unconfigured/error states still use the text wordmark (they're not "sign in", so the icon
+ * alone would be ambiguous); this keeps its old spacing under the new gate layout. */
 .adm-gate .adm-brand { margin-bottom: 18px; }
-.adm-gate p { color: var(--adm-ink-soft); font-size: 14px; max-width: 380px; line-height: 1.55; }
-.adm-gate .adm-actions { margin-top: 18px; display: flex; gap: 10px; }
-.adm-google {
-  display: inline-flex; align-items: center; gap: 10px; padding: 11px 20px; font-size: 15px;
+.adm-gate h1 {
+  font-family: var(--adm-display); font-weight: 700; letter-spacing: -0.02em;
+  font-size: 28px; margin: 0 0 10px;
 }
+.adm-gate p { color: var(--adm-ink-soft); font-size: 15px; max-width: 34ch; line-height: 1.55; margin: 0 0 32px; }
+.adm-gate .adm-actions { display: flex; gap: 10px; }
+/* The sign-in form's own wrapper, distinct from `.adm-actions`: a full-width, single button stacks
+ * differently than the error screen's two side-by-side buttons, and forcing one shape onto both
+ * would misfit whichever screen didn't choose it. */
+.adm-gate-form { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 340px; }
+.adm-gate-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; height: 50px; border-radius: 11px; font-family: var(--adm-sans);
+  border: 1.5px solid var(--adm-line); background: var(--adm-paper); color: var(--adm-ink);
+  font-size: 15px; font-weight: 650; cursor: pointer;
+}
+.adm-gate-btn:hover:not(:disabled) { border-color: #c7cee3; background: #fafbff; }
+.adm-gate-btn:disabled { opacity: 0.6; cursor: default; }
+/* No-access's "Sign out" is the only action on that screen and is not primary — an underlined text
+ * link says so at a glance, where a bordered button would read as equally important as a real CTA. */
+.adm-textlink {
+  border: none; background: transparent; color: var(--adm-ink-soft); font-family: var(--adm-sans);
+  font-size: 14.5px; font-weight: 650; cursor: pointer; text-decoration: underline;
+  text-underline-offset: 3px; padding: 4px;
+}
+.adm-textlink:hover { color: var(--adm-ink); }
 
 /* ── chart ── */
 .adm-chart { width: 100%; height: auto; display: block; overflow: visible; }

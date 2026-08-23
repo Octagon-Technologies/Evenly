@@ -14,6 +14,16 @@ object AnalyticsEvents {
     const val ACCOUNT_DELETION_REQUESTED = "account_deletion_requested"
     const val ACCOUNT_DELETION_CANCELLED = "account_deletion_cancelled"
 
+    // Onboarding — WelcomeScreen (`step = "welcome_slides"`) then OnboardingScreen's own step ids
+    // (`name`, `currency`, `handle`, `analytics`, `notify`). `step` values must track
+    // OnboardingScreen.kt's `steps` list; see PlaceholderClaimSources below for the equivalent pattern.
+    const val ONBOARDING_STEP_VIEWED = "onboarding_step_viewed"
+    const val ONBOARDING_STEP_COMPLETED = "onboarding_step_completed"
+
+    // Fires once per install, guarded by a SecureStorage flag (mirrors WELCOME_SEEN_KEY) — never on a
+    // later re-open.
+    const val ONBOARDING_COMPLETED = "onboarding_completed"
+
     // Groups
     const val GROUP_CREATED = "group_created"
     const val GROUP_JOINED = "group_joined"
@@ -26,6 +36,10 @@ object AnalyticsEvents {
     const val GROUPS_PURGED = "groups_purged"
     const val PLACEHOLDER_ADDED = "placeholder_added"
     const val PLACEHOLDER_NOT_ME = "placeholder_not_me"
+
+    // Fires wherever GroupRepositoryImpl.reconcilePlaceholder actually merges an identity — see
+    // PlaceholderClaimSources for the `claim_source` values and where each one fires.
+    const val PLACEHOLDER_CLAIMED = "placeholder_claimed"
 
     // Device-local-deduped snapshot of a group's shape, fired the first time a group is observed each
     // app session (see GroupRepositoryImpl.maybeSnapshotGroup) — the fallback for group-level analysis
@@ -102,4 +116,17 @@ object ProTriggers {
     const val EXPORT = "export"
     const val GROUP_SETTINGS = "group_settings"
     const val PROFILE = "profile"
+}
+
+/**
+ * `claim_source` values for [AnalyticsEvents.PLACEHOLDER_CLAIMED]. There is exactly one merge method
+ * (`GroupRepositoryImpl.reconcilePlaceholder`) and three call sites: joining with an identity already
+ * picked, and the one `ReconcileRoute` screen that both the in-group card's "See all" and the Group
+ * settings row open (`Route.Reconcile.source`) — the card and the full-screen list are the same
+ * destination, not two, so there is no separate "identity_card" value.
+ */
+object PlaceholderClaimSources {
+    const val GROUP_JOIN = "group_join"
+    const val GROUP_HOME = "group_home"
+    const val GROUP_SETTINGS = "group_settings"
 }

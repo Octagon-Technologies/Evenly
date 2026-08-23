@@ -37,6 +37,7 @@ import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.domain.settlement.resolvePreferredPaymentApp
+import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AnalyticsPerson
 import app.splitevenly.platform.AppleSignIn
 import app.splitevenly.platform.EvAnalytics
@@ -243,8 +244,14 @@ private fun sendErrorMessage(error: AppError): String =
 @Composable
 fun WelcomeRoute(onFinished: () -> Unit) {
     val storage = koinInject<SecureStorage>()
+    val koin = getKoin()
+    val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        analytics?.capture(AnalyticsEvents.ONBOARDING_STEP_VIEWED, mapOf("step" to "welcome_slides"))
+    }
     WelcomeScreen(onFinish = {
+        analytics?.capture(AnalyticsEvents.ONBOARDING_STEP_COMPLETED, mapOf("step" to "welcome_slides"))
         scope.launch {
             storage.putString(WELCOME_SEEN_KEY, "1")
             onFinished()
@@ -256,10 +263,17 @@ fun WelcomeRoute(onFinished: () -> Unit) {
 const val WELCOME_SEEN_KEY = "welcome_seen"
 
 /** First-run profile capture: persists the chosen display name + base currency, then continues. */
+
+/** Device-local flag: set once `onboarding_completed` has fired, so a later re-open never repeats it. */
+const val ONBOARDING_COMPLETED_KEY = "onboarding_completed_seen"
+
 @Composable
 fun OnboardingRoute(onFinished: () -> Unit) {
     val profiles = koinInject<ProfileRepository>()
     val notifications = koinInject<NotificationPermission>()
+    val storage = koinInject<SecureStorage>()
+    val koin = getKoin()
+    val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val scope = rememberCoroutineScope()
     val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
     OnboardingScreen(
@@ -268,6 +282,12 @@ fun OnboardingRoute(onFinished: () -> Unit) {
         // The app's only notification-permission ask, and only on an explicit opt-in tap. The grant/refusal
         // isn't acted on here: the FCM token registers regardless, and the OS drops what it won't show.
         onEnableNotifications = { notifications.request() },
+        onStepViewed = { step ->
+            analytics?.capture(AnalyticsEvents.ONBOARDING_STEP_VIEWED, mapOf("step" to step))
+        },
+        onStepCompleted = { step ->
+            analytics?.capture(AnalyticsEvents.ONBOARDING_STEP_COMPLETED, mapOf("step" to step))
+        },
         onFinish = { name, currency, handles ->
             scope.launch {
                 profiles.updateProfile(name, currency)
@@ -279,6 +299,10 @@ fun OnboardingRoute(onFinished: () -> Unit) {
                     // Onboarding shows no preferred-method picker, so the first handle added claims the
                     // slot. Without this a two-handle sign-up reaches the settle screen with no default.
                     profiles.updatePreferredPaymentApp(resolvePreferredPaymentApp(filled, current = null))
+                }
+                if (!storage.contains(ONBOARDING_COMPLETED_KEY)) {
+                    analytics?.capture(AnalyticsEvents.ONBOARDING_COMPLETED)
+                    storage.putString(ONBOARDING_COMPLETED_KEY, "1")
                 }
                 onFinished()
             }

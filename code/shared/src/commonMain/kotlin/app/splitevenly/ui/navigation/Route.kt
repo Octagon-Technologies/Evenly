@@ -1,5 +1,6 @@
 package app.splitevenly.ui.navigation
 
+import app.splitevenly.platform.PlaceholderClaimSources
 import kotlinx.serialization.Serializable
 
 /**
@@ -164,8 +165,11 @@ sealed interface Route {
 
     @Serializable data object ProGroupPicker : Route
 
+    // source is one of PlaceholderClaimSources.GROUP_HOME / GROUP_SETTINGS — which door opened this
+    // same screen, for placeholder_claimed's claim_source property.
     @Serializable data class Reconcile(
         val groupId: String,
+        val source: String = PlaceholderClaimSources.GROUP_HOME,
     ) : Route
 }
 

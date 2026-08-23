@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
+import app.splitevenly.platform.PlaceholderClaimSources
 import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.OnboardingScreen
@@ -118,7 +119,9 @@ fun EvenlyNavHost(
                 onIncludeNav = { conflictId, expenseId, memberUserId ->
                     navController.navigate(Route.IncludeMember(r.groupId, conflictId, expenseId, memberUserId))
                 },
-                onClaimNames = { navController.navigate(Route.Reconcile(r.groupId)) },
+                onClaimNames = {
+                    navController.navigate(Route.Reconcile(r.groupId, source = PlaceholderClaimSources.GROUP_HOME))
+                },
             )
         }
         composable<Route.Search> { entry ->
@@ -268,7 +271,9 @@ fun EvenlyNavHost(
                 onOpenPro = { trigger -> navController.navigate(Route.Pro(trigger)) },
                 onBack = { navController.popBackStack() },
                 onLeft = { navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } } },
-                onReconcile = { navController.navigate(Route.Reconcile(sgGroupId)) },
+                onReconcile = {
+                    navController.navigate(Route.Reconcile(sgGroupId, source = PlaceholderClaimSources.GROUP_SETTINGS))
+                },
                 onEditCategories = { navController.navigate(Route.EditCategories(sgGroupId)) },
             )
         }
@@ -308,6 +313,7 @@ fun EvenlyNavHost(
             val r = entry.toRoute<Route.Reconcile>()
             ReconcileRoute(
                 groupId = r.groupId,
+                source = r.source,
                 onBack = { navController.popBackStack() },
                 onDone = { navController.popBackStack() },
             )

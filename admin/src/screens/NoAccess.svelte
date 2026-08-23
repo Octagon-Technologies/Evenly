@@ -11,13 +11,11 @@
 </script>
 
 <div class="adm-gate">
-  <Wordmark label="Evenly Admin" />
+  <Wordmark iconOnly />
   <h1>No access</h1>
   <p>
     You are signed in, but this account is not on the admin list. Nothing was loaded. If that is
     wrong, ask whoever runs Evenly to add you.
   </p>
-  <div class="adm-actions">
-    <button onclick={() => session.signOut()}>Sign out</button>
-  </div>
+  <button class="adm-textlink" onclick={() => session.signOut()}>Sign out</button>
 </div>
