@@ -49,11 +49,11 @@
   <header class="adm-bar">
     <div style="display:flex;align-items:center;gap:10px">
       <Wordmark />
-      <span class="adm-pill">Admin</span>
+      <span class="adm-scope">Admin</span>
     </div>
     <div class="adm-who">
       <span>{session.email}</span>
-      <button class="adm-quiet" onclick={() => session.signOut()}>Sign out</button>
+      <button class="adm-nav-signout" onclick={() => session.signOut()}>Sign out</button>
     </div>
   </header>
 

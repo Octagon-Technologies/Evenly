@@ -50,8 +50,19 @@ marketing bundle's, not a shared package (spec §2.2, settled: two small copies 
 for two consumers). Selectors are `adm-`-prefixed against the sibling's `site-`, so a component
 copied between the two cannot collide.
 
-What is **not** copied is the type system. Fraunces + Rethink Sans are ~100KB of variable fonts to
-make an internal tool look editorial; system fonts here.
+**As of 2026-08-22, Rethink Sans (only, not Fraunces) is copied too**, for the gate screens
+(sign-in, no-access, and their loading/unconfigured/error siblings, all sharing `.adm-gate`) and the
+top bar's brand mark — self-hosted from the same `rethink-var.woff2`, not a Google Fonts request.
+Reverses the original "system fonts here" call: those screens are the only thing a stranger who
+finds the subdomain ever sees, and the owner judged plain system type there as reading unfinished
+rather than restrained. The chart and table stay on system fonts; body copy at that density has
+nothing to gain from a display face.
+
+The gate screens themselves are deliberately undecorated — no card, no border, no glow — modelled on
+Vercel's, Supabase's and GitHub's own sign-in pages rather than on `web/`'s bloom-card waitlist
+system: the first mockup copied the waitlist's card treatment directly and was rejected for looking
+over-decorated on a one-button utility screen. Restraint over ornament is the decision, and the
+reason it looks unlike `web/`'s waitlist page on purpose.
 
 The feather's single source of truth is `EvWordmark.kt`. This copy and `web/`'s move with it.
 
