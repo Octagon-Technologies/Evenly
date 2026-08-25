@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FB0000000000000000000001 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = FB0000000000000000000011 /* FirebaseMessaging */; };
+		FB0000000000000000000002 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = FB0000000000000000000012 /* FirebaseCrashlytics */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		282E886575943A1B32ABCB64 /* Evenly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Evenly.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -41,6 +46,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FB0000000000000000000001 /* FirebaseMessaging in Frameworks */,
+				FB0000000000000000000002 /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,6 +82,7 @@
 				D6BB97AE24DDEE02D230B0B4 /* Sources */,
 				6BCF2FA5BBBEE6D1C9783C1F /* Frameworks */,
 				589D4DC016EF47F4BE381F12 /* Resources */,
+				FB00000000000000000000B1 /* Upload Crashlytics dSYMs */,
 			);
 			buildRules = (
 			);
@@ -85,6 +93,8 @@
 			);
 			name = iosApp;
 			packageProductDependencies = (
+				FB0000000000000000000011 /* FirebaseMessaging */,
+				FB0000000000000000000012 /* FirebaseCrashlytics */,
 			);
 			productName = iosApp;
 			productReference = 282E886575943A1B32ABCB64 /* Evenly.app */;
@@ -116,6 +126,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C5037476A93020BB9D9045A5 /* Products */;
+			packageReferences = (
+				FB00000000000000000000A1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -135,6 +148,23 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		FB00000000000000000000B1 /* Upload Crashlytics dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)",
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Upload Crashlytics dSYMs";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "RUN=\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\n# Guarded so a checkout without the package resolved still builds.\nif [ -f \"$RUN\" ]; then\n  \"$RUN\"\nelse\n  echo \"warning: Crashlytics run script not found; skipping dSYM upload\"\nfi\n";
+		};
 		7BAC83619695B9D738901B27 /* Compile Kotlin Framework */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -370,6 +400,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		FB00000000000000000000A1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.18.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FB0000000000000000000011 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FB00000000000000000000A1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		FB0000000000000000000012 /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FB00000000000000000000A1 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 961BCE38A484AFBFAD227790 /* Project object */;
 }

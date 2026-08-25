@@ -5,6 +5,15 @@
 xcuserdata
 !src/**/build/
 local.properties
+# Upload/signing keys. Losing these means never being able to update the Play listing again -
+# back them up somewhere durable, but never in git.
+*.jks
+*.keystore
+*.p8
+*.p12
+# Private Firebase iOS config (contains a live API key/app ID) - never commit, unlike the Android
+# google-services.json, which is public and RLS-gated. See AGENTS.md §4.6.
+GoogleService-Info.plist
 .idea
 .DS_Store
 captures

@@ -4,6 +4,13 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Export compliance. The app's only cryptography is OS-provided and exempt: HTTPS/TLS to Supabase
+	     and Firebase, plus Keychain on iOS (Android Keystore AES-GCM on the other platform). There is no
+	     custom or bundled crypto. Declaring it here is what stops every TestFlight build parking in
+	     "Missing Compliance" until the questionnaire is answered by hand. Revisit if the app ever ships
+	     its own encryption. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- Home-screen name. The bundle is app.splitevenly; the product the user sees is "Evenly". -->
 	<key>CFBundleDisplayName</key>
 	<string>Evenly</string>
@@ -28,6 +35,12 @@
 				<string>splitevenly</string>
 			</array>
 		</dict>
+	</array>
+	<!-- Silent pushes wake the app to pull fresh group data (PushController). Inert until the Push
+	     Notifications capability adds `aps-environment` to the entitlements - see PUSH_SETUP.md. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
 	</array>
 	<!-- Payment-app deep links the settle flow opens (iOS requires apps to declare schemes it queries). -->
 	<key>LSApplicationQueriesSchemes</key>
