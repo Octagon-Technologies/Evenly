@@ -416,6 +416,7 @@ A soft-deleted `receipts` row best-effort deletes its Storage object
 | `revenuecat-webhook`        | Deployed; **refuses every request** until `REVENUECAT_WEBHOOK_SECRET` is set; `verify_jwt = false` |
 | `admin`                     | The admin dashboard's whole security boundary; `verify_jwt = false` (own gate) |
 | `feedback`                  | Feedback submission from all three entry points; `verify_jwt = false` (two are anonymous) |
+| `send-welcome-email`        | Deployed but **inert** until `RESEND_API_KEY` is set, and **unwired** until a Database Webhook on `auth.users` insert is added by hand in Studio (see the function's own header) |
 
 `admin` and `feedback` are `ADMIN_FEEDBACK_SPEC.md`, build-order steps 1 to 4. Both carry
 `verify_jwt = false`, and for `admin` that is the opposite of what it looks like: platform-level
@@ -448,6 +449,17 @@ every ticket is a distinct human, and dropping the fifth because four arrived th
 losing your users' words. Inbound rate limiting is the lever for that. `extract-receipt` and
 `revenuecat-webhook` still carry inline copies of the cooldown helper — migrate them next time either
 is touched for its own reasons, not as a standalone redeploy.
+
+`_shared/email.ts` is the Resend sender behind the waitlist and welcome emails (`RESEND_API_KEY`,
+optional `RESEND_FROM`), same env-optional/best-effort/never-throws shape as `slack.ts`. The waitlist
+email sends inline from `waitlist/index.ts`, gated on `.select()` actually returning an inserted row
+(`ON CONFLICT DO NOTHING` returns nothing for a resubmit) so retrying the form never re-sends it. The
+welcome email has no table write to hang off — an account is a Supabase Auth event, not a row this
+project's own migrations create — so it lives behind `send-welcome-email` instead, wired the same way
+`push-notify` is meant to be: a Database Webhook configured in Studio, not SQL, so the service-role key
+it authenticates with never lands in a tracked file. Both templates live in `_shared/emailTemplates.ts`
+as table-based, inline-styled HTML (the approved "Bloom" mockup, `design/waitlist-bevel.html`'s dark
+ground and brand-blue bloom) — a browser-only CSS layout silently breaks in Outlook and the Gmail app.
 
 `apple-link-token`/`apple-revoke-token` (Apple Sign In native plan §5 P4, Guideline 5.1.1(v)) exchange a
 native Apple authorization code for a refresh token on sign-in and revoke it on account deletion, stored
