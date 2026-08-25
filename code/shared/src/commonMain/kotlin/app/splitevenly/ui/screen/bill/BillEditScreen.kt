@@ -47,6 +47,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.domain.expense.perUnitSubunits
+import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
@@ -56,19 +58,18 @@ import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvSheetScaffold
 import app.splitevenly.ui.components.EvTextField
-import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.EvTopBar
+import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.currencySymbol
-import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
-import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.expense.PickedReceiptStrip
+import app.splitevenly.ui.screen.expense.PickedReceiptUi
 import app.splitevenly.ui.screen.expense.StagedReceiptViewer
 import app.splitevenly.ui.screen.expense.format2dp
-import app.splitevenly.domain.expense.perUnitSubunits
-import app.splitevenly.domain.pro.ScanMeter
+import app.splitevenly.ui.screen.pro.OutOfScansSheet
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -95,7 +96,12 @@ data class EditBillItemUi(
 private fun subunitsToText(subunits: Long): String = if (subunits == 0L) "" else format2dp(subunits / 100.0)
 
 /** Build an editor line from its line total, deriving the per-unit mirror (used by scan + existing bills). */
-fun editBillItemUi(id: String?, label: String, quantity: Int, lineTotalSubunits: Long): EditBillItemUi =
+fun editBillItemUi(
+    id: String?,
+    label: String,
+    quantity: Int,
+    lineTotalSubunits: Long,
+): EditBillItemUi =
     EditBillItemUi(
         id = id,
         label = label,
@@ -122,7 +128,11 @@ data class EditBillState(
 )
 
 /** A group member shown as a selectable participant chip on the bill. */
-data class ParticipantChipUi(val userId: String, val name: String, val isMe: Boolean)
+data class ParticipantChipUi(
+    val userId: String,
+    val name: String,
+    val isMe: Boolean,
+)
 
 /** What the editor emits on save — strings parsed to subunits by the wrapper. Tip always splits evenly. */
 data class EditBillSubmit(
@@ -166,6 +176,11 @@ fun BillEditScreen(
     // null in the unconfigured build, and the sheet then reads exactly as it did before.
     groupName: String? = null,
     onGetPro: (() -> Unit)? = null,
+    // True once the group's free scans are spent and it holds no pass — the scan tap is then refused
+    // before the file picker rather than after an upload. See OutOfScansSheet.
+    scanBlocked: Boolean = false,
+    // Opens the subscription paywall in place, over this editor. Null when RevenueCat is unconfigured.
+    onSeeSubscription: (() -> Unit)? = null,
     attachedReceipts: List<PickedReceiptUi> = emptyList(),
     onRemoveAttachedReceipt: (Int) -> Unit = {},
     // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
@@ -193,6 +208,15 @@ fun BillEditScreen(
     val scrollState = rememberScrollState()
     val scanning = scanState is ScanUiState.Working
     var scanSource by remember { mutableStateOf(false) }
+    var showOutOfScans by remember { mutableStateOf(false) }
+    // A pass bought from the sheet clears the block, and the sheet goes with it: left standing it would
+    // still be refusing a scan the group can now make.
+    LaunchedEffect(scanBlocked) { if (!scanBlocked) showOutOfScans = false }
+
+    /** Every route to the file picker goes through here, so the gate cannot be walked around. */
+    fun startScan(source: PickSource) {
+        if (scanBlocked) showOutOfScans = true else onScanReceipt(source)
+    }
     // Which scanned page the full-screen viewer is open on; null = closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     // Flips true the first time Save is tapped while incomplete — then the missing fields turn red.
@@ -235,7 +259,10 @@ fun BillEditScreen(
         if (participants.isEmpty()) return@LaunchedEffect
         val ids = participants.mapTo(HashSet()) { it.userId }
         val prev = memberBaseline
-        if (prev == null) { memberBaseline = ids; return@LaunchedEffect }
+        if (prev == null) {
+            memberBaseline = ids
+            return@LaunchedEffect
+        }
         val fresh = ids - prev
         if (fresh.isNotEmpty()) {
             selected = selected?.plus(fresh)
@@ -260,172 +287,219 @@ fun BillEditScreen(
 
     val symbol = currencySymbol(currencyCode)
     val subtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
-    val total = subtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
-        priceToSubunits(otherChargesText) +
-        priceToSubunits(tipText) - priceToSubunits(discountText)
+    val total =
+        subtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
+            priceToSubunits(otherChargesText) +
+            priceToSubunits(tipText) - priceToSubunits(discountText)
     val nameValid = title.trim().isNotEmpty()
     val hasItem = items.any { it.label.trim().isNotEmpty() }
     val isValid = nameValid && hasItem
 
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().background(c.page)) {
-        StatusBarScrim()
-        EvTopBar(
-            title = if (editing) "Edit bill" else "Split the bill",
-            navIcon = { EvIconButton(EvIcons.Close, onBack) },
-            actions = {
-                EvButton(
-                    text = if (scanning) "Scanning…" else "Scan",
-                    onClick = { scanSource = true },
-                    variant = ButtonVariant.Text,
-                    leadingIcon = EvIcons.Camera,
-                    small = true,
-                    enabled = !scanning,
-                )
-            },
-        )
-        Column(
-            Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ScanQuotaMeter(scanMeter)
-            // The scan exhausted its passes and still couldn't reconcile the draft against the receipt's
-            // printed total. Markup lives in UnverifiedReceiptNotice so AddExpenseScreen shows the same
-            // banner from the same state instead of quietly showing none.
-            if (showUnverifiedNotice) {
-                UnverifiedReceiptNotice(onDismiss = { showUnverifiedNotice = false })
-            }
+        Column(Modifier.fillMaxSize().background(c.page)) {
+            StatusBarScrim()
+            EvTopBar(
+                title = if (editing) "Edit bill" else "Split the bill",
+                navIcon = { EvIconButton(EvIcons.Close, onBack) },
+                actions = {
+                    EvButton(
+                        text = if (scanning) "Scanning…" else "Scan",
+                        onClick = { if (scanBlocked) showOutOfScans = true else scanSource = true },
+                        variant = ButtonVariant.Text,
+                        leadingIcon = EvIcons.Camera,
+                        small = true,
+                        enabled = !scanning,
+                    )
+                },
+            )
+            Column(
+                Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                ScanQuotaMeter(scanMeter, groupName = groupName, onGetPro = onGetPro)
+                // The scan exhausted its passes and still couldn't reconcile the draft against the receipt's
+                // printed total. Markup lives in UnverifiedReceiptNotice so AddExpenseScreen shows the same
+                // banner from the same state instead of quietly showing none.
+                if (showUnverifiedNotice) {
+                    UnverifiedReceiptNotice(onDismiss = { showUnverifiedNotice = false })
+                }
 
-            // A scanned receipt rides along as the expense's attachment, previewable before it is saved.
-            if (attachedReceipts.isNotEmpty()) {
-                PickedReceiptStrip(
-                    receipts = attachedReceipts,
-                    label = if (attachedReceipts.size == 1) "Receipt" else "Receipt pages",
-                    caption = "Saves with the bill.",
-                    onAddClick = null,
-                    onRemoveReceipt = onRemoveAttachedReceipt,
-                    onOpenReceipt = { viewerIndex = it },
-                )
-            }
+                // A scanned receipt rides along as the expense's attachment, previewable before it is saved.
+                if (attachedReceipts.isNotEmpty()) {
+                    PickedReceiptStrip(
+                        receipts = attachedReceipts,
+                        label = if (attachedReceipts.size == 1) "Receipt" else "Receipt pages",
+                        caption = "Saves with the bill.",
+                        onAddClick = null,
+                        onRemoveReceipt = onRemoveAttachedReceipt,
+                        onOpenReceipt = { viewerIndex = it },
+                    )
+                }
 
-            EvField("Name") {
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    EvTextField(title, { title = it }, placeholder = "Dinner at Tavolo", isError = showErrors && !nameValid)
-                    if (showErrors && !nameValid) {
-                        Text("Give the bill a name", color = c.danger, fontSize = 12.sp)
+                EvField("Name") {
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        EvTextField(title, { title = it }, placeholder = "Dinner at Tavolo", isError = showErrors && !nameValid)
+                        if (showErrors && !nameValid) {
+                            Text("Give the bill a name", color = c.danger, fontSize = 12.sp)
+                        }
                     }
                 }
-            }
 
-            // Who's on this bill — defaults to everyone; take off anyone who wasn't there. Taking off
-            // someone who has claimed goes through the confirm sheet, since it discards their claims.
-            BillPeopleRow(
-                participants = participants,
-                selected = effectiveSelected,
-                allIds = allIds,
-                onToggle = { id -> selectTo(if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id) },
-                onSelectAll = { selected = allIds },
-                onDeselectAll = { selectTo(emptySet()) },
-                onAddPersonClick = { showAddDialog = true },
-                onOpenPicker = { showPicker = true },
-            )
-
-            // Paid by comes AFTER the people, like the add-expense editor: pick who was there, then who
-            // covered it. Asked the other way round, the payer picker reads as "who's in the split".
-            if (participants.isNotEmpty()) {
-                BillPaidByRow(
+                // Who's on this bill — defaults to everyone; take off anyone who wasn't there. Taking off
+                // someone who has claimed goes through the confirm sheet, since it discards their claims.
+                BillPeopleRow(
                     participants = participants,
                     selected = effectiveSelected,
-                    payerUserId = if (outsidePayerName.isNullOrBlank()) payerId else "",
-                    outsidePayerName = outsidePayerName,
-                    onOpenSheet = { showPayerSheet = true },
+                    allIds = allIds,
+                    onToggle = { id -> selectTo(if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id) },
+                    onSelectAll = { selected = allIds },
+                    onDeselectAll = { selectTo(emptySet()) },
+                    onAddPersonClick = { showAddDialog = true },
+                    onOpenPicker = { showPicker = true },
                 )
-            }
 
-            // Items
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Row(
-                        Modifier.clip(RoundedCornerShape(8.dp)).clickable {
-                            items = items + editBillItemUi(null, "", 1, 0L)
-                        }.padding(horizontal = 6.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        EvIcon(EvIcons.Plus, size = 15.dp, tint = c.blueText)
-                        Text("Add item", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                // Paid by comes AFTER the people, like the add-expense editor: pick who was there, then who
+                // covered it. Asked the other way round, the payer picker reads as "who's in the split".
+                if (participants.isNotEmpty()) {
+                    BillPaidByRow(
+                        participants = participants,
+                        selected = effectiveSelected,
+                        payerUserId = if (outsidePayerName.isNullOrBlank()) payerId else "",
+                        outsidePayerName = outsidePayerName,
+                        onOpenSheet = { showPayerSheet = true },
+                    )
+                }
+
+                // Items
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Row(
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    items = items + editBillItemUi(null, "", 1, 0L)
+                                }.padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            EvIcon(EvIcons.Plus, size = 15.dp, tint = c.blueText)
+                            Text("Add item", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
-                }
-                EvCard {
-                    items.forEachIndexed { index, item ->
-                        ItemEditorRow(
-                            item = item,
-                            symbol = symbol,
-                            showDivider = index > 0,
-                            onChange = { updated -> items = items.toMutableList().also { it[index] = updated } },
-                            onRemove = { items = items.filterIndexed { i, _ -> i != index } },
-                        )
-                    }
-                }
-                if (showErrors && !hasItem) {
-                    Text("Add at least one item with a name", color = c.danger, fontSize = 12.sp)
-                }
-            }
-
-            // Extras
-            ExtrasCard(
-                symbol = symbol,
-                subtotalSubunits = subtotal,
-                totalSubunits = total,
-                currencyCode = currencyCode,
-                taxText = taxText, onTax = { taxText = it },
-                gratuityText = gratuityText, onGratuity = { gratuityText = it },
-                otherChargesText = otherChargesText, onOtherCharges = { otherChargesText = it },
-                tipText = tipText, onTip = { tipText = it },
-                discountText = discountText, onDiscount = { discountText = it },
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The button stays live. Tapping while incomplete reddens the gaps and scrolls back to
-                // them (the contextual errors under Name/Items), so Save is never a silent dead end.
-                EvButton(
-                    text = if (saving) "Saving…" else "Save bill",
-                    onClick = {
-                        if (!isValid) {
-                            showErrors = true
-                            scope.launch { scrollState.animateScrollTo(0) }
-                        } else {
-                            onSave(
-                                EditBillSubmit(
-                                    title = title.trim(),
-                                    items = items.filter { it.label.trim().isNotEmpty() },
-                                    taxSubunits = priceToSubunits(taxText),
-                                    gratuitySubunits = priceToSubunits(gratuityText),
-                        otherChargesSubunits = priceToSubunits(otherChargesText),
-                                    tipSubunits = priceToSubunits(tipText),
-                                    discountSubunits = priceToSubunits(discountText),
-                                    participantIds = effectiveSelected,
-                                    payerUserId = payerId.takeIf { it.isNotBlank() },
-                                    payerOutsideName = outsidePayerName?.takeIf { it.isNotBlank() },
-                                ),
+                    EvCard {
+                        items.forEachIndexed { index, item ->
+                            ItemEditorRow(
+                                item = item,
+                                symbol = symbol,
+                                showDivider = index > 0,
+                                onChange = { updated -> items = items.toMutableList().also { it[index] = updated } },
+                                onRemove = { items = items.filterIndexed { i, _ -> i != index } },
                             )
                         }
-                    },
-                    enabled = !saving,
+                    }
+                    if (showErrors && !hasItem) {
+                        Text("Add at least one item with a name", color = c.danger, fontSize = 12.sp)
+                    }
+                }
+
+                // Extras
+                ExtrasCard(
+                    symbol = symbol,
+                    subtotalSubunits = subtotal,
+                    totalSubunits = total,
+                    currencyCode = currencyCode,
+                    taxText = taxText,
+                    onTax = { taxText = it },
+                    gratuityText = gratuityText,
+                    onGratuity = { gratuityText = it },
+                    otherChargesText = otherChargesText,
+                    onOtherCharges = { otherChargesText = it },
+                    tipText = tipText,
+                    onTip = { tipText = it },
+                    discountText = discountText,
+                    onDiscount = { discountText = it },
                 )
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // The button stays live. Tapping while incomplete reddens the gaps and scrolls back to
+                    // them (the contextual errors under Name/Items), so Save is never a silent dead end.
+                    EvButton(
+                        text = if (saving) "Saving…" else "Save bill",
+                        onClick = {
+                            if (!isValid) {
+                                showErrors = true
+                                scope.launch { scrollState.animateScrollTo(0) }
+                            } else {
+                                onSave(
+                                    EditBillSubmit(
+                                        title = title.trim(),
+                                        items = items.filter { it.label.trim().isNotEmpty() },
+                                        taxSubunits = priceToSubunits(taxText),
+                                        gratuitySubunits = priceToSubunits(gratuityText),
+                                        otherChargesSubunits = priceToSubunits(otherChargesText),
+                                        tipSubunits = priceToSubunits(tipText),
+                                        discountSubunits = priceToSubunits(discountText),
+                                        participantIds = effectiveSelected,
+                                        payerUserId = payerId.takeIf { it.isNotBlank() },
+                                        payerOutsideName = outsidePayerName?.takeIf { it.isNotBlank() },
+                                    ),
+                                )
+                            }
+                        },
+                        enabled = !saving,
+                    )
+                }
             }
         }
-    }
 
         if (scanSource) {
             EvModalScaffold(onDismiss = { scanSource = false }) {
-                Text("Scan the bill", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-                Text("A restaurant check or store receipt with line items. We'll pull them out for you, several pages read as one bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
-                ScanSourceRow(EvIcons.Image, "Photos") { scanSource = false; onScanReceipt(PickSource.Photos) }
-                ScanSourceRow(EvIcons.Archive, "Files (image or PDF)") { scanSource = false; onScanReceipt(PickSource.Files) }
-                ScanSourceRow(EvIcons.Camera, "Take a photo") { scanSource = false; onScanReceipt(PickSource.Camera) }
+                Text(
+                    "Scan the bill",
+                    color = c.ink,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                Text(
+                    "A restaurant check or store receipt with line items. We'll pull them out for you, several pages read as one bill.",
+                    color = c.ink2,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                // Gated here as well as on the top-bar button: the failed-scan sheet's "try a new photo"
+                // reopens this directly, and a group can run out between the failure and the retry.
+                ScanSourceRow(EvIcons.Image, "Photos") {
+                    scanSource = false
+                    startScan(PickSource.Photos)
+                }
+                ScanSourceRow(EvIcons.Archive, "Files (image or PDF)") {
+                    scanSource = false
+                    startScan(PickSource.Files)
+                }
+                ScanSourceRow(EvIcons.Camera, "Take a photo") {
+                    scanSource = false
+                    startScan(PickSource.Camera)
+                }
             }
+        }
+
+        if (showOutOfScans) {
+            OutOfScansSheet(
+                groupName = groupName,
+                onGetPass = {
+                    showOutOfScans = false
+                    onGetPro?.invoke()
+                },
+                onSeeSubscription =
+                    onSeeSubscription?.let { see ->
+                        {
+                            showOutOfScans = false
+                            see()
+                        }
+                    },
+                onManual = { showOutOfScans = false },
+            )
         }
 
         if (showPicker) {
@@ -438,15 +512,25 @@ fun BillEditScreen(
                 onToggle = { id -> selectTo(if (id in effectiveSelected) effectiveSelected - id else effectiveSelected + id) },
                 onSelectAll = { selected = allIds },
                 onDeselectAll = { selectTo(emptySet()) },
-                onAddPerson = { showPicker = false; pickerQuery = ""; showAddDialog = true },
-                onDone = { showPicker = false; pickerQuery = "" },
+                onAddPerson = {
+                    showPicker = false
+                    pickerQuery = ""
+                    showAddDialog = true
+                },
+                onDone = {
+                    showPicker = false
+                    pickerQuery = ""
+                },
             )
         }
 
         pendingRemoval?.let { removal ->
             RemoveParticipantSheet(
                 removal = removal,
-                onConfirm = { selected = removal.next; pendingRemoval = null },
+                onConfirm = {
+                    selected = removal.next
+                    pendingRemoval = null
+                },
                 onCancel = { pendingRemoval = null },
             )
         }
@@ -456,7 +540,10 @@ fun BillEditScreen(
                 participants = participants,
                 payerUserId = if (outsidePayerName.isNullOrBlank()) payerId else "",
                 outsidePayerName = outsidePayerName,
-                onPickMember = { id -> payerId = id; outsidePayerName = null },
+                onPickMember = { id ->
+                    payerId = id
+                    outsidePayerName = null
+                },
                 onPickOutside = { name -> outsidePayerName = name },
                 onAddSomeoneNew = { showAddDialog = true },
                 onDismiss = { showPayerSheet = false },
@@ -466,26 +553,50 @@ fun BillEditScreen(
         if (showAddDialog) {
             var newName by remember { mutableStateOf("") }
             EvModalScaffold(onDismiss = { showAddDialog = false }) {
-                Text("Add a person", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-                Text("Add someone who isn't in the group yet, even if they don't have the app. They'll be on this bill.", color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                Text(
+                    "Add a person",
+                    color = c.ink,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                Text(
+                    "Add someone who isn't in the group yet, even if they don't have the app. They'll be on this bill.",
+                    color = c.ink2,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
                 EvField("Name") { EvTextField(newName, { newName = it }, placeholder = "e.g. Bob") }
                 Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                    EvButton("Add", { if (newName.isNotBlank()) { onAddPerson(newName.trim()); showAddDialog = false } }, enabled = newName.isNotBlank())
+                    EvButton("Add", {
+                        if (newName.isNotBlank()) {
+                            onAddPerson(newName.trim())
+                            showAddDialog = false
+                        }
+                    }, enabled = newName.isNotBlank())
                 }
             }
         }
 
         // The scan round-trip drives its own sheet: progress while reading, a typed error card otherwise.
         when (val s = scanState) {
-            is ScanUiState.Working -> ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
-            is ScanUiState.Failed -> ScanErrorSheet(
-                kind = s.kind,
-                onManual = onDismissScan,
-                onRetry = onRetryScan,
-                onPickAgain = { onDismissScan(); scanSource = true },
-                groupName = groupName,
-                onGetPro = onGetPro,
-            )
+            is ScanUiState.Working -> {
+                ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
+            }
+
+            is ScanUiState.Failed -> {
+                ScanErrorSheet(
+                    kind = s.kind,
+                    onManual = onDismissScan,
+                    onRetry = onRetryScan,
+                    onPickAgain = {
+                        onDismissScan()
+                        scanSource = true
+                    },
+                    groupName = groupName,
+                    onGetPro = onGetPro,
+                )
+            }
+
             ScanUiState.Idle -> {}
         }
 
@@ -505,192 +616,6 @@ fun BillEditScreen(
     }
 }
 
-/**
- * The bottom sheet shown while OCR runs: a single centered animated scan icon, an indeterminate bar,
- * and rotating copy. Replaces the old row-of-page-tiles — [pages] is now only used to compute the
- * "page N of M" subtitle text, not rendered per-tile.
- */
-@Composable
-internal fun ScanProgressSheet(pages: List<ScanPageUi>, onCancel: () -> Unit) {
-    val c = EvenlyTheme.colors
-    val phrases = remember { listOf("Reading the receipt…", "Finding the items…", "Adding up the totals…", "Almost there…") }
-    var phraseIdx by remember { mutableStateOf(0) }
-    // Cycle the copy on a timer. It's honest reassurance, not real progress — the round-trip is one call.
-    LaunchedEffect(Unit) {
-        while (true) { delay(1500); phraseIdx = (phraseIdx + 1) % phrases.size }
-    }
-    val pageLine = if (pages.size == 1) "1 page · this usually takes a few seconds"
-    else "${pages.size} pages · this usually takes a few seconds"
-    EvSheetScaffold(onDismiss = onCancel, title = "Scanning your receipt", sub = pageLine) {
-        Box(Modifier.fillMaxWidth().padding(bottom = 20.dp), contentAlignment = Alignment.Center) {
-            ScanPulseTile()
-        }
-        LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(99.dp)),
-            color = c.blueText,
-            trackColor = c.selectionTint,
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            EvIcon(EvIcons.Sparkle, size = 15.dp, tint = c.blueText)
-            Text(phrases[phraseIdx], color = c.ink2, fontSize = 13.sp)
-        }
-        Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-            Text(
-                "Cancel",
-                color = c.ink2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onCancel).padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-        }
-    }
-}
-
-/** A rounded-square tile with a receipt icon and a thin blue "scan line" sweeping top-to-bottom-to-top. */
-@Composable
-private fun ScanPulseTile() {
-    val c = EvenlyTheme.colors
-    val shape = RoundedCornerShape(20.dp)
-    val transition = rememberInfiniteTransition(label = "scanLine")
-    val sweep by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1400, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "scanLineSweep",
-    )
-    Box(
-        Modifier.size(88.dp).clip(shape).background(c.selectionTint).border(1.dp, c.border, shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        EvIcon(EvIcons.Receipt, size = 34.dp, tint = c.blueText)
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(2.dp)
-                .offset(y = 42.dp * (sweep * 2f - 1f))
-                .background(c.blue.copy(alpha = 0.7f)),
-        )
-    }
-}
-
-/** The bottom sheet for a scan that couldn't finish. Copy + actions vary by [kind]; manual entry is always here. */
-@Composable
-internal fun ScanErrorSheet(
-    kind: ScanErrorKind,
-    onManual: () -> Unit,
-    onRetry: () -> Unit,
-    onPickAgain: () -> Unit,
-    // Evenly Pro (PRO_PASS_SPEC.md §8.1). Null keeps the sheet exactly as it was, which is the
-    // unconfigured-RevenueCat build: no door named that cannot open.
-    groupName: String? = null,
-    onGetPro: (() -> Unit)? = null,
-) {
-    val c = EvenlyTheme.colors
-    val icon = when (kind) {
-        ScanErrorKind.Offline -> EvIcons.WifiOff
-        ScanErrorKind.NoReceiptFound -> EvIcons.Receipt
-        ScanErrorKind.Unavailable -> EvIcons.Info
-        ScanErrorKind.Error -> EvIcons.Alert
-        ScanErrorKind.Blocked -> EvIcons.Info
-        ScanErrorKind.OutOfScans -> EvIcons.Receipt
-    }
-    val tint = when (kind) {
-        ScanErrorKind.Offline -> c.warning
-        ScanErrorKind.Error -> c.danger
-        else -> c.ink2
-    }
-    val heading = when (kind) {
-        ScanErrorKind.Offline -> "You're offline"
-        ScanErrorKind.NoReceiptFound -> "Couldn't read it"
-        ScanErrorKind.Unavailable -> "Scanning isn't available"
-        ScanErrorKind.Error -> "Something went wrong"
-        ScanErrorKind.Blocked -> "Too many scans"
-        ScanErrorKind.OutOfScans -> "Out of free scans"
-    }
-    val body = when (kind) {
-        ScanErrorKind.Offline -> "Scanning needs a connection. You can still type the bill in now."
-        ScanErrorKind.NoReceiptFound -> "No items found. The photo may be blurry or not a receipt."
-        ScanErrorKind.Unavailable -> "Receipt scanning isn't set up here. Add the bill by hand."
-        ScanErrorKind.Error -> "The scan failed. Give it another try, or type it in."
-        ScanErrorKind.Blocked -> "You've hit the scan limit for now. Try again in a bit, or type it in."
-        // Manual entry is named in the same breath as the paywall, deliberately: the refusal has to
-        // read as "want the fast way?" and never as "you cannot use the app". The photo is named
-        // because it is KEPT either way (pages are staged when picked, not on a successful scan), and
-        // someone who just framed a receipt in a restaurant assumes a refusal threw that work away.
-        ScanErrorKind.OutOfScans ->
-            "This group has used its free scans. Your photo is saved either way, and you can still type the bill in."
-    }
-    EvSheetScaffold(onDismiss = onManual) {
-        Box(
-            Modifier.align(Alignment.CenterHorizontally).size(52.dp).clip(RoundedCornerShape(99.dp))
-                .background(tint.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) { EvIcon(icon, size = 24.dp, tint = tint) }
-        Text(
-            heading, Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp),
-            color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-        )
-        Text(
-            body, Modifier.fillMaxWidth().padding(bottom = 20.dp),
-            color = c.ink2, fontSize = 14.sp, textAlign = TextAlign.Center,
-        )
-        // Error → offer "Try again" as the hero; the rest lead with manual entry.
-        when (kind) {
-            ScanErrorKind.Error -> {
-                EvButton(text = "Try again", onClick = onRetry)
-                Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-                    EvButton(text = "Enter manually", onClick = onManual, variant = ButtonVariant.Text)
-                }
-            }
-            // Out of scans is the one refusal with a door: Pro leads, manual entry stays right under it
-            // as a free exit rather than a consolation prize. Neither of these offers Retry: scanning is
-            // not coming back on this tap, so a Retry button would be a control that cannot do what it
-            // says.
-            ScanErrorKind.OutOfScans -> {
-                if (onGetPro != null) {
-                    EvButton(text = groupName?.let { "Get Pro for $it" } ?: "Get Evenly Pro", onClick = onGetPro)
-                    Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-                        EvButton(text = "Enter manually", onClick = onManual, variant = ButtonVariant.Text)
-                    }
-                } else {
-                    EvButton(text = "Enter manually", onClick = onManual)
-                }
-            }
-            ScanErrorKind.Unavailable -> {
-                EvButton(text = "Enter manually", onClick = onManual)
-            }
-            else -> {
-                EvButton(text = "Enter manually", onClick = onManual)
-                Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-                    EvButton(
-                        text = if (kind == ScanErrorKind.NoReceiptFound) "Try a new photo" else "Retry",
-                        onClick = if (kind == ScanErrorKind.NoReceiptFound) onPickAgain else onRetry,
-                        variant = ButtonVariant.Text,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun ScanSourceRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    val c = EvenlyTheme.colors
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        EvIcon(icon, size = 20.dp, tint = c.blueText)
-        Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
 @Composable
 internal fun ItemEditorRow(
     item: EditBillItemUi,
@@ -701,13 +626,20 @@ internal fun ItemEditorRow(
 ) {
     val c = EvenlyTheme.colors
     Column(
-        Modifier.fillMaxWidth()
+        Modifier
+            .fillMaxWidth()
             .then(if (showDivider) Modifier.topHairline(c.border) else Modifier)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EvTextField(item.label, { onChange(item.copy(label = it)) }, placeholder = "Item", modifier = Modifier.weight(1f), minHeight = 44.dp)
+            EvTextField(
+                item.label,
+                { onChange(item.copy(label = it)) },
+                placeholder = "Item",
+                modifier = Modifier.weight(1f),
+                minHeight = 44.dp,
+            )
             EvIconButton(EvIcons.Trash, onRemove, tint = c.ink3, size = 18.dp)
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -743,7 +675,10 @@ internal fun ItemEditorRow(
 
 /** A −/typable-number/+ quantity control for the item editor. Typing avoids tapping "+" many times. */
 @Composable
-private fun QtyField(value: Int, onChange: (Int) -> Unit) {
+private fun QtyField(
+    value: Int,
+    onChange: (Int) -> Unit,
+) {
     val c = EvenlyTheme.colors
     // Local text so the middle field can be cleared and retyped smoothly; re-seeds when [value] changes
     // externally (via the −/+ buttons). An empty field doesn't propagate — the quantity holds at its last
@@ -753,7 +688,11 @@ private fun QtyField(value: Int, onChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StepBtn(EvIcons.Minus, enabled = value > 1, tint = if (value > 1) c.blue else c.ink3) { onChange((value - 1).coerceAtLeast(1)) }
         Box(
-            Modifier.width(40.dp).height(30.dp).clip(shape).border(1.dp, c.borderStrong, shape),
+            Modifier
+                .width(40.dp)
+                .height(30.dp)
+                .clip(shape)
+                .border(1.dp, c.borderStrong, shape),
             contentAlignment = Alignment.Center,
         ) {
             BasicTextField(
@@ -817,7 +756,9 @@ private fun LabeledPriceField(
             maxLines = 1,
         )
         Row(
-            Modifier.fillMaxWidth().clip(shape)
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
                 .background(if (active) c.blueTint else c.page)
                 .border(if (active) 2.dp else 1.dp, if (active) c.blue else c.borderStrong, shape)
                 .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -829,13 +770,14 @@ private fun LabeledPriceField(
                 value = text,
                 onValueChange = { onChange(it.filter { ch -> ch.isDigit() || ch == '.' }) },
                 singleLine = true,
-                textStyle = TextStyle(
-                    color = c.ink,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.End,
-                    fontFamily = EvenlyTheme.monoFamily,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                ),
+                textStyle =
+                    TextStyle(
+                        color = c.ink,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.End,
+                        fontFamily = EvenlyTheme.monoFamily,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                    ),
                 cursorBrush = SolidColor(c.blue),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.weight(1f),
@@ -856,17 +798,27 @@ internal fun ExtrasCard(
     subtotalSubunits: Long,
     totalSubunits: Long,
     currencyCode: String,
-    taxText: String, onTax: (String) -> Unit,
-    gratuityText: String, onGratuity: (String) -> Unit,
-    otherChargesText: String, onOtherCharges: (String) -> Unit,
-    tipText: String, onTip: (String) -> Unit,
-    discountText: String, onDiscount: (String) -> Unit,
+    taxText: String,
+    onTax: (String) -> Unit,
+    gratuityText: String,
+    onGratuity: (String) -> Unit,
+    otherChargesText: String,
+    onOtherCharges: (String) -> Unit,
+    tipText: String,
+    onTip: (String) -> Unit,
+    discountText: String,
+    onDiscount: (String) -> Unit,
 ) {
     val c = EvenlyTheme.colors
     EvCard(padded = true) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ExtraRow("Subtotal") {
-                Text(moneySubunits(subtotalSubunits, currencyCode), color = c.ink, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily)
+                Text(
+                    moneySubunits(subtotalSubunits, currencyCode),
+                    color = c.ink,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = EvenlyTheme.monoFamily,
+                )
             }
             ExtraRow("Tax") { PriceField(taxText, onTax, symbol) }
             ExtraRow("Gratuity") { PriceField(gratuityText, onGratuity, symbol) }
@@ -885,7 +837,13 @@ internal fun ExtrasCard(
             Box(Modifier.fillMaxWidth().topHairline(c.border).padding(top = 12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Total", color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text(moneySubunits(totalSubunits, currencyCode), color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = EvenlyTheme.monoFamily)
+                    Text(
+                        moneySubunits(totalSubunits, currencyCode),
+                        color = c.ink,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = EvenlyTheme.monoFamily,
+                    )
                 }
             }
         }
@@ -893,7 +851,11 @@ internal fun ExtrasCard(
 }
 
 @Composable
-private fun ExtraRow(label: String, hint: String? = null, trailing: @Composable () -> Unit) {
+private fun ExtraRow(
+    label: String,
+    hint: String? = null,
+    trailing: @Composable () -> Unit,
+) {
     val c = EvenlyTheme.colors
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -903,7 +865,6 @@ private fun ExtraRow(label: String, hint: String? = null, trailing: @Composable 
         trailing()
     }
 }
-
 
 /**
  * A compact right-aligned price input ("$ 0.00") used for item prices and extras. [sign] is an optional
@@ -923,7 +884,11 @@ private fun PriceField(
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(10.dp)
     Row(
-        Modifier.width(96.dp).clip(shape).background(accentFill ?: c.page).border(1.dp, accent ?: c.borderStrong, shape)
+        Modifier
+            .width(96.dp)
+            .clip(shape)
+            .background(accentFill ?: c.page)
+            .border(1.dp, accent ?: c.borderStrong, shape)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -934,7 +899,13 @@ private fun PriceField(
             value = text,
             onValueChange = { onChange(it.filter { ch -> ch.isDigit() || ch == '.' }) },
             singleLine = true,
-            textStyle = TextStyle(color = accent ?: c.ink, fontSize = 14.sp, textAlign = TextAlign.End, fontFamily = EvenlyTheme.monoFamily),
+            textStyle =
+                TextStyle(
+                    color = accent ?: c.ink,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.End,
+                    fontFamily = EvenlyTheme.monoFamily,
+                ),
             cursorBrush = SolidColor(accent ?: c.blue),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f),
@@ -950,23 +921,60 @@ private fun PriceField(
 
 /** A −/value/+ stepper. [min] clamps the bottom (1 for item quantity, 0 for claim counters). */
 @Composable
-fun Stepper(value: Int, onChange: (Int) -> Unit, min: Int = 0, modifier: Modifier = Modifier) {
+fun Stepper(
+    value: Int,
+    onChange: (Int) -> Unit,
+    min: Int = 0,
+    modifier: Modifier = Modifier,
+) {
     val c = EvenlyTheme.colors
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StepBtn(EvIcons.Minus, enabled = value > min, tint = if (value > min) c.blue else c.ink3) { onChange((value - 1).coerceAtLeast(min)) }
-        Text("$value", color = if (value > 0) c.ink else c.ink3, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(16.dp), textAlign = TextAlign.Center)
+        StepBtn(
+            EvIcons.Minus,
+            enabled = value > min,
+            tint =
+                if (value >
+                    min
+                ) {
+                    c.blue
+                } else {
+                    c.ink3
+                },
+        ) { onChange((value - 1).coerceAtLeast(min)) }
+        Text(
+            "$value",
+            color =
+                if (value >
+                    0
+                ) {
+                    c.ink
+                } else {
+                    c.ink3
+                },
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.width(16.dp),
+            textAlign = TextAlign.Center,
+        )
         StepBtn(EvIcons.Plus, enabled = true, tint = c.blueText) { onChange(value + 1) }
     }
 }
 
 @Composable
-private fun StepBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+private fun StepBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    tint: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
+) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(8.dp)
     Box(
-        Modifier.size(30.dp).clip(shape).border(1.dp, c.borderStrong, shape)
+        Modifier
+            .size(30.dp)
+            .clip(shape)
+            .border(1.dp, c.borderStrong, shape)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) { EvIcon(icon, size = 15.dp, tint = tint) }
 }
-

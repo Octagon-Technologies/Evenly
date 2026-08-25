@@ -21,7 +21,11 @@ data class ScanMeter(
  *  - **More than [SHOW_FROM_REMAINING] left.** A brand new group counting down from 5 reads as a trial
  *    with a clock on it. A group that has already scanned a few times is just being told a fact.
  */
-fun scanMeterFor(status: ProStatus, used: Int?, limit: Int): ScanMeter? {
+fun scanMeterFor(
+    status: ProStatus,
+    used: Int?,
+    limit: Int,
+): ScanMeter? {
     if (status.isPro) return null
     if (used == null) return null
     val remaining = (limit - used).coerceAtLeast(0)
@@ -31,3 +35,25 @@ fun scanMeterFor(status: ProStatus, used: Int?, limit: Int): ScanMeter? {
 
 /** Show the meter once this many free scans (or fewer) are left. */
 const val SHOW_FROM_REMAINING = 3
+
+/**
+ * Whether a scan tap must be refused **before** it reaches the file picker (`PRO_PASS_SPEC.md` §8.1).
+ *
+ * Not the same question as [scanMeterFor] returning a zero meter. That one is about *drawing* and stays
+ * hidden until the count is known; this one decides whether someone is about to photograph a receipt,
+ * wait through an upload, and be told no. The server's 402 stays the enforcement — this only moves the
+ * refusal to before the cost.
+ *
+ * A null [used] reads as "not blocked", deliberately. The count has never been fetched for this group,
+ * and guessing "blocked" from it would refuse a scan a group is entitled to; the server refuses the ones
+ * that really are spent.
+ */
+fun scansExhausted(
+    status: ProStatus,
+    used: Int?,
+    limit: Int,
+): Boolean {
+    if (status.isPro) return false
+    val spent = used ?: return false
+    return limit - spent <= 0
+}

@@ -12,11 +12,11 @@ import kotlinx.serialization.Serializable
  *   [GroupHome.tab] arg lets a deep link / notification open a specific tab.
  * - [NewGroup] is a real full-screen destination (back arrow, no scrim) — it used to be a bottom
  *   sheet, but a sheet with no drag affordance and tap-outside-only dismissal read as broken to a
- *   first-time tester. [Join], [IncludeMember], [SettleExpense], [SettleConfirm] still
- *   render as dialog-style destinations so the screen behind stays visible under a (now lighter)
- *   scrim, but each now carries an explicit close control too — see [EvSheetScaffold]/[EvModalScaffold].
- *   The expenses-tab Filter sheet is instead shown as a local overlay inside [GroupExpensesRoute]
- *   (not a route push) so it never leaves the tab's back-stack entry.
+ *   first-time tester. [Join] and [IncludeMember] still render as dialog-style destinations so the
+ *   screen behind stays visible under a (now lighter) scrim, but each now carries an explicit close control too — see [EvSheetScaffold]/[EvModalScaffold].
+ *   The expenses-tab Filter sheet is instead a local overlay inside [GroupExpensesRoute], and the
+ *   settle sheets are local overlays inside [ExpenseDetailRoute] / [SettlePersonScreen] (not route
+ *   pushes), so the screen underneath stays rendered and neither leaves its back-stack entry.
  */
 sealed interface Route {
     // ── Auth & onboarding ──────────────────────────────────────────────
@@ -113,21 +113,10 @@ sealed interface Route {
     ) : Route
 
     // ── Settle ─────────────────────────────────────────────────────────
-    @Serializable data class SettleExpense(
-        val groupId: String,
-        val expenseId: String,
-    ) : Route // sheet
-
     @Serializable data class SettlePerson(
         val groupId: String,
         val peerUserId: String,
     ) : Route
-
-    @Serializable data class SettleConfirm(
-        val groupId: String,
-        val payeeName: String,
-        val amountLabel: String,
-    ) : Route // sheet
 
     // ── Settings / reconcile ───────────────────────────────────────────
     // Profile/Settings is no longer a standalone route — it's the Settings tab of the root [MainShell]

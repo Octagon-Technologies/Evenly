@@ -74,7 +74,7 @@ Violating any of these is a defect regardless of what the task asked for.
 
 1. **Both platforms compile.** Android-green ≠ iOS-green. Several APIs resolve on Android/JVM and fail
    on Kotlin/Native (e.g. `RoomDatabase.clearAllTables()`). Never declare green without §5's iOS
-   compile.
+   compile — and note that simulator-green is not release-green either (§5's release link).
 2. **"Done" means it ran.** After any app-facing change, launch it on a simulator and leave it running
    so the owner can pick it up and check. A green build that was never run does not count as done here.
 3. **Never re-add app tables to the `supabase_realtime` publication.** Realtime is a one-table
@@ -103,6 +103,7 @@ Violating any of these is a defect regardless of what the task asked for.
 ```bash
 ./gradlew :shared:compileAndroidMain            # shared, Android target (commonMain + androidMain + Room KSP)
 ./gradlew :shared:compileKotlinIosSimulatorArm64 # shared, Kotlin/Native — catches Native-only breakage
+./gradlew :shared:linkReleaseFrameworkIosArm64   # device+opt link — the ONLY check an App Store archive runs
 ./gradlew :androidApp:assembleDebug              # Android APK (manifest merge, Firebase)
 ./gradlew :shared:testAndroidHostTest            # JVM unit tests (commonTest + androidHostTest)
 ./gradlew :shared:iosSimulatorArm64Test          # Native unit tests (commonTest + iosTest)

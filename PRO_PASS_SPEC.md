@@ -333,11 +333,32 @@ Today there are none, which is the bug this revision exists to fix.
 | --- | --- | --- |
 | Profile / app settings | Always | "Evenly Pro" row. Subscribed: status + manage + restore. Not: opens the paywall. |
 | Group Settings | Always | Pro row. Free groups currently render **nothing** here; they must show "Get Pro for this group". |
-| Scan card at 0 free | On tap | Opens the paywall. The card stays enabled. |
+| Scan card at 0 free | On tap | Opens the out-of-scans sheet, **before the file picker**. The card stays enabled. |
 | Export CSV row | On tap | Opens the paywall instead of the current dead end. |
 
 The Group Settings row is a genuine bug beyond the missing paywall: `GroupSettingsRoute.kt:70` renders the
 row only when `everHadPass`, so a group that never bought one sees no Pro surface at all.
+
+**The scan refusal fires before the cost, not after it.** `domain/pro/scansExhausted` reads the cached
+count on tap; the picker never opens and no photo is taken. The 402 path (`ScanErrorKind.OutOfScans`)
+stays as the fallback for the one case the client cannot see: another member spending the group's last
+scan while yours is in flight. A null cached count reads as *not* blocked, so an unfetched number can
+never refuse a scan the group is entitled to.
+
+**Both doors are offered, and both open in place.** The out-of-scans sheet leads with the pass (a door
+that names a group opens the group-scoped product) and offers the subscription under it. Neither
+navigates: a push disposes the editor underneath and would take the half-typed expense with it, so
+`ProPaywallHost` renders the paywall *over* the editor. This supersedes the earlier rule that the
+subscription link is null inside an editor.
+
+**Buying clears the refusal.** `activate-pass` inserts the row server-side and `group_passes` is
+pull-only, so the pass sheet pulls (`SyncEngine.syncNow`) before it dismisses: the sheet closing is the
+promise that the group is Pro. The gate and any standing refusal sheet then clear off the observed
+status, not off a local flag.
+
+**The meter states the consequence before the last scan.** It escalates exactly once: a quiet count and
+"after that, a pass or subscription keeps scanning" while scans remain, then a full-width, group-named
+button at zero.
 
 ### 8.2 The paywall — RevenueCat's, not ours
 

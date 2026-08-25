@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.androidApplication)
@@ -8,6 +9,31 @@ plugins {
     alias(libs.plugins.googleServices)
     alias(libs.plugins.crashlytics)
 }
+
+// Release upload-signing credentials, from local.properties (gitignored) or the matching env vars for
+// CI. Absent credentials leave `release` unsigned rather than failing the build, so a contributor
+// without the keystore can still run `assembleRelease` locally — but Play rejects an unsigned upload,
+// so `bundleRelease` for the store must be run somewhere these resolve. See code/RELEASE_SIGNING.md.
+// Must sit below `plugins {}`: the Kotlin DSL allows only imports above that block.
+val localProperties = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
+fun secret(key: String, env: String): String? =
+    (localProperties.getProperty(key) ?: System.getenv(env))?.takeIf { it.isNotBlank() }
+
+val releaseStorePath = secret("release.storeFile", "EVENLY_RELEASE_STORE_FILE")
+val releaseStoreFile = releaseStorePath?.let { path ->
+    file(path).takeIf { it.exists() } ?: rootProject.file(path).takeIf { it.exists() }
+}
+val releaseStorePassword = secret("release.storePassword", "EVENLY_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = secret("release.keyAlias", "EVENLY_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = secret("release.keyPassword", "EVENLY_RELEASE_KEY_PASSWORD")
+
+val hasReleaseSigning = releaseStoreFile != null &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null
 
 kotlin {
     compilerOptions {
@@ -51,9 +77,27 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "androidApp: no release signing credentials found - the release build will be " +
+                        "UNSIGNED and Play will reject it. See code/RELEASE_SIGNING.md.",
+                )
+            }
         }
     }
     compileOptions {

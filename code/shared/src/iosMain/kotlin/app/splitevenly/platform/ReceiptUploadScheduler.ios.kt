@@ -37,8 +37,29 @@ import platform.darwin.NSObject
  * background session identifier here must match what the system expects. Documented in PUSH_SETUP-style
  * notes; without it, suspended-app completions are delivered on next foreground instead of immediately.
  */
-actual class ReceiptUploadScheduler {
 
+/**
+ * Bridge for the host's `application(_:handleEventsForBackgroundURLSession:completionHandler:)`.
+ *
+ * iOS relaunches a terminated app to deliver background-session completions and expects the handler it
+ * passed to be invoked once the session has drained. Only the session's own delegate knows when that is,
+ * so the host stores the handler and registers a closure here for [ReceiptUploadScheduler]'s delegate to
+ * fire. Without this the app leaks the handler and iOS penalises its future background scheduling.
+ */
+object IosBackgroundUploadEvents {
+    private var onFinished: (() -> Unit)? = null
+
+    /** Host hook: [handler] invokes (and clears) the stored `completionHandler`, on the main queue. */
+    fun setOnSessionFinished(handler: (() -> Unit)?) {
+        onFinished = handler
+    }
+
+    internal fun notifySessionFinished() {
+        onFinished?.invoke()
+    }
+}
+
+actual class ReceiptUploadScheduler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var driver: ReceiptUploadDriver? = null
     private val lastReported = mutableMapOf<String, Long>()
@@ -74,16 +95,18 @@ actual class ReceiptUploadScheduler {
     }
 
     private fun startUploadTask(task: PreparedUpload) {
-        val url = NSURL.URLWithString(task.uploadUrl) ?: run {
-            scope.launch { driver?.reportFailure(task.id, "Bad upload URL") }
-            return
-        }
-        val request = NSMutableURLRequest(uRL = url).apply {
-            setHTTPMethod("PUT")
-            setValue("Bearer ${task.token}", forHTTPHeaderField = "Authorization")
-            setValue("true", forHTTPHeaderField = "x-upsert")
-            setValue(task.mimeType, forHTTPHeaderField = "Content-Type")
-        }
+        val url =
+            NSURL.URLWithString(task.uploadUrl) ?: run {
+                scope.launch { driver?.reportFailure(task.id, "Bad upload URL") }
+                return
+            }
+        val request =
+            NSMutableURLRequest(uRL = url).apply {
+                setHTTPMethod("PUT")
+                setValue("Bearer ${task.token}", forHTTPHeaderField = "Authorization")
+                setValue("true", forHTTPHeaderField = "x-upsert")
+                setValue(task.mimeType, forHTTPHeaderField = "Content-Type")
+            }
         val fileUrl = NSURL.fileURLWithPath(task.localPath)
         val uploadTask = session.uploadTaskWithRequest(request, fromFile = fileUrl)
         uploadTask.taskDescription = task.id
@@ -91,8 +114,9 @@ actual class ReceiptUploadScheduler {
     }
 
     /** Bridges background-session callbacks (on the session's serial delegate queue) to the driver. */
-    private inner class Delegate : NSObject(), NSURLSessionDataDelegateProtocol {
-
+    private inner class Delegate :
+        NSObject(),
+        NSURLSessionDataDelegateProtocol {
         override fun URLSession(
             session: NSURLSession,
             task: NSURLSessionTask,
@@ -119,9 +143,17 @@ actual class ReceiptUploadScheduler {
             val status = (task.response as? NSHTTPURLResponse)?.statusCode ?: 0
             val ok = didCompleteWithError == null && status in 200..299
             scope.launch {
-                if (ok) driver?.reportSuccess(id)
-                else driver?.reportFailure(id, didCompleteWithError?.localizedDescription ?: "HTTP $status")
+                if (ok) {
+                    driver?.reportSuccess(id)
+                } else {
+                    driver?.reportFailure(id, didCompleteWithError?.localizedDescription ?: "HTTP $status")
+                }
             }
+        }
+
+        /** The background session has delivered every queued completion; release the host's handler. */
+        override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
+            IosBackgroundUploadEvents.notifySessionFinished()
         }
     }
 

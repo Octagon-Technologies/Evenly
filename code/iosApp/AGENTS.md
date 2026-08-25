@@ -25,6 +25,24 @@ cd code && ./gradlew :shared:compileKotlinIosSimulatorArm64
 **Android-green is not iOS-green.** Several APIs resolve on Android/JVM and fail on Native — most famously
 `RoomDatabase.clearAllTables()`. Never declare a change green without the Native compile above.
 
+**Simulator-green is not shippable-green either.** The command above builds the *simulator debug*
+framework. The App Store archive needs `linkReleaseFrameworkIosArm64` — device arm64, opt mode,
+whole-program — which is a far heavier link and the only one that can fail on memory:
+
+```bash
+cd code && ./gradlew :shared:linkReleaseFrameworkIosArm64   # ~15 min; what an archive actually runs
+```
+
+This OOM'd (`Compilation failed: Java heap space`) at the old `kotlin.daemon.jvmargs=-Xmx3072M`, which is
+why iOS could never be archived while every simulator build looked green. It is now `-Xmx6144M` in
+`code/gradle.properties`; do not lower it without re-running the task above. Release-only breakage is
+invisible to every other check in this repo.
+
+## Ship it
+
+Release/TestFlight steps, signing, and the App Store Connect prerequisites live in
+`../RELEASE_SIGNING.md` (Android upload key) and `IOS_RELEASE.md` (archive + upload).
+
 ## Kotlin/Native gotchas, all of them learned the hard way
 
 - **A type-safe nav `Route` arg that is an enum crashes the NavHost on Native.** Use `String`; the tab arg

@@ -43,27 +43,37 @@ import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvParticipantChip
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.amountTextToSubunits
-import app.splitevenly.ui.components.moneySubunits
-import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.components.moneySubunits
+import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /** One expense the current user owes the payee, checkable on the settle screen. */
-data class SettleShareUi(val expenseId: String, val title: String, val date: String, val amountSubunits: Long)
+data class SettleShareUi(
+    val expenseId: String,
+    val title: String,
+    val date: String,
+    val amountSubunits: Long,
+)
 
 /** One of the payee's payment handles, shown as a "Pay with" choice. */
-data class PeerPaymentHandle(val app: PaymentApp, val label: String, val handle: String)
+data class PeerPaymentHandle(
+    val app: PaymentApp,
+    val label: String,
+    val handle: String,
+)
 
 /** Human label for a payment app (the "Pay with" chip caption). */
 val PaymentApp.appLabel: String
-    get() = when (this) {
-        PaymentApp.VENMO -> "Venmo"
-        PaymentApp.CASH_APP -> "Cash App"
-        PaymentApp.PAYPAL -> "PayPal"
-        PaymentApp.ZELLE -> "Zelle"
-    }
+    get() =
+        when (this) {
+            PaymentApp.VENMO -> "Venmo"
+            PaymentApp.CASH_APP -> "Cash App"
+            PaymentApp.PAYPAL -> "PayPal"
+            PaymentApp.ZELLE -> "Zelle"
+        }
 
 /**
  * 15 · Settle a person — **one page** (design/src/screens-settle.jsx). Wired via SettlePersonRoute.
@@ -90,12 +100,16 @@ fun SettlePersonScreen(
     val clipboard = LocalClipboardManager.current
     var checked by remember(shares) { mutableStateOf(shares.map { it.expenseId }.toSet()) }
     // Preferred handle first; that's the default selection and the highlighted way to pay.
-    val ordered = remember(handles, preferredApp) {
-        handles.sortedByDescending { it.app == preferredApp }
-    }
+    val ordered =
+        remember(handles, preferredApp) {
+            handles.sortedByDescending { it.app == preferredApp }
+        }
     var selectedApp by remember(ordered) { mutableStateOf(ordered.firstOrNull()?.app) }
     var showAllMethods by remember { mutableStateOf(false) }
     var confirmFor by remember { mutableStateOf<PeerPaymentHandle?>(null) }
+    // "Yes, mark paid" records first and then asks the sheet to slide out; the sheet is only dropped
+    // once that animation ends, so confirming doesn't read as a hard cut.
+    var confirmClosing by remember { mutableStateOf(false) }
 
     val checkedSum = shares.filter { it.expenseId in checked }.sumOf { it.amountSubunits }
     val selectedIds = shares.filter { it.expenseId in checked }.map { it.expenseId }
@@ -117,7 +131,11 @@ fun SettlePersonScreen(
                 }
             } else {
                 Column(
-                    Modifier.weight(1f).background(c.surface).verticalScroll(rememberScrollState()).padding(16.dp),
+                    Modifier
+                        .weight(1f)
+                        .background(c.surface)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text("Tick what you're paying off.", color = c.ink2, fontSize = 12.sp)
@@ -127,7 +145,8 @@ fun SettlePersonScreen(
                         shares.forEachIndexed { i, s ->
                             val on = s.expenseId in checked
                             Row(
-                                Modifier.fillMaxWidth()
+                                Modifier
+                                    .fillMaxWidth()
                                     .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
                                     .clickable { checked = if (on) checked - s.expenseId else checked + s.expenseId }
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -142,7 +161,8 @@ fun SettlePersonScreen(
                                 Text(
                                     moneySubunits(s.amountSubunits, currencyCode),
                                     color = if (on) c.ink else c.ink3,
-                                    fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = EvenlyTheme.monoFamily,
                                 )
                             }
                         }
@@ -150,15 +170,24 @@ fun SettlePersonScreen(
 
                     // 2 · Editable total
                     EvCard(padded = true) {
-                        Text("You're paying", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+                        Text(
+                            "You're paying",
+                            color = c.ink2,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
                         EvAmountInput(
                             text = amountText,
                             onTextChange = { amountText = it },
                             currency = currencyCode,
                             amountFontSize = 28.sp,
-                            helper = if (payAmount > checkedSum)
-                                "Can't exceed the ${moneySubunits(checkedSum, currencyCode)} you're settling"
-                            else "Applied to the ticked expenses, oldest first",
+                            helper =
+                                if (payAmount > checkedSum) {
+                                    "Can't exceed the ${moneySubunits(checkedSum, currencyCode)} you're settling"
+                                } else {
+                                    "Applied to the ticked expenses, oldest first"
+                                },
                             helperColor = if (payAmount > checkedSum) c.danger else c.ink2,
                         )
                     }
@@ -167,7 +196,8 @@ fun SettlePersonScreen(
                     if (handles.isEmpty()) {
                         Text(
                             "$peerName hasn't added a payment handle yet. Pay them however you like, then mark it paid here.",
-                            color = c.ink2, fontSize = 13.sp,
+                            color = c.ink2,
+                            fontSize = 13.sp,
                         )
                     } else {
                         MethodPicker(
@@ -177,7 +207,10 @@ fun SettlePersonScreen(
                             peerName = peerName,
                             showAll = showAllMethods,
                             onChangeClick = { showAllMethods = true },
-                            onPick = { selectedApp = it; showAllMethods = false },
+                            onPick = {
+                                selectedApp = it
+                                showAllMethods = false
+                            },
                         )
                     }
                 }
@@ -191,19 +224,26 @@ fun SettlePersonScreen(
                         chosen?.let { h ->
                             EvButton(
                                 "Pay ${moneySubunits(payAmount.coerceAtLeast(0), currencyCode)} with ${h.label}",
-                                { onOpenApp(payAmount, h.app, h.handle, selectedIds); confirmFor = h },
-                                leadingIcon = EvIcons.Wallet, enabled = payValid,
+                                {
+                                    onOpenApp(payAmount, h.app, h.handle, selectedIds)
+                                    confirmFor = h
+                                },
+                                leadingIcon = EvIcons.Wallet,
+                                enabled = payValid,
                             )
                         }
                         EvButton(
                             "Mark as paid",
                             { onMarkPaid(payAmount, selectedIds) },
                             variant = if (chosen == null) ButtonVariant.Primary else ButtonVariant.Tonal,
-                            leadingIcon = EvIcons.Check, enabled = payValid,
+                            leadingIcon = EvIcons.Check,
+                            enabled = payValid,
                         )
                         Text(
                             "${if (chosen != null) "Either one clears" else "This clears"} the ticked ${if (selectedIds.size == 1) "expense" else "expenses"} with $peerName.",
-                            color = c.ink3, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            color = c.ink3,
+                            fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                         )
                     }
                 }
@@ -215,8 +255,15 @@ fun SettlePersonScreen(
                 amount = payAmount / 100.0,
                 handle = h.handle,
                 app = h.label,
-                onDismiss = { confirmFor = null },
-                onYes = { confirmFor = null; onConfirmPaid(payAmount, h.app, selectedIds) },
+                dismissRequested = confirmClosing,
+                onDismiss = {
+                    confirmFor = null
+                    confirmClosing = false
+                },
+                onYes = {
+                    onConfirmPaid(payAmount, h.app, selectedIds)
+                    confirmClosing = true
+                },
                 onCopy = { clipboard.setText(AnnotatedString(h.handle)) },
             )
         }
@@ -245,18 +292,26 @@ private fun MethodPicker(
         Text("How to pay", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         if (!showAll && chosen != null) {
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.blueTint)
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(c.blueTint)
                     .clickable(enabled = ordered.size > 1, onClick = onChangeClick)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (chosen.app == preferredApp) EvIcon(EvIcons.Star, size = 16.dp, tint = c.credit)
-                else EvIcon(EvIcons.Wallet, size = 16.dp, tint = c.blueText)
+                if (chosen.app == preferredApp) {
+                    EvIcon(EvIcons.Star, size = 16.dp, tint = c.credit)
+                } else {
+                    EvIcon(EvIcons.Wallet, size = 16.dp, tint = c.blueText)
+                }
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (chosen.app == preferredApp) "${peerName}'s preferred · ${chosen.label}" else "Pay with ${chosen.label}",
-                        color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        if (chosen.app == preferredApp) "$peerName's preferred · ${chosen.label}" else "Pay with ${chosen.label}",
+                        color = c.blueText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     Text(chosen.handle, color = c.ink2, fontSize = 12.sp, fontFamily = EvenlyTheme.monoFamily)
                 }
@@ -278,16 +333,18 @@ private fun MethodPicker(
     }
 }
 
-internal val DemoSettleShares = listOf(
-    SettleShareUi("e1", "Dinner at La Negra", "Wed, May 23", 2400),
-    SettleShareUi("e2", "Cenote day trip", "Tue, May 22", 1800),
-    SettleShareUi("e3", "Airport taxi", "Mon, May 21", 1450),
-)
+internal val DemoSettleShares =
+    listOf(
+        SettleShareUi("e1", "Dinner at La Negra", "Wed, May 23", 2400),
+        SettleShareUi("e2", "Cenote day trip", "Tue, May 22", 1800),
+        SettleShareUi("e3", "Airport taxi", "Mon, May 21", 1450),
+    )
 
-internal val DemoHandles = listOf(
-    PeerPaymentHandle(PaymentApp.VENMO, "Venmo", "@andrew-p"),
-    PeerPaymentHandle(PaymentApp.CASH_APP, "Cash App", "\$andrewp"),
-)
+internal val DemoHandles =
+    listOf(
+        PeerPaymentHandle(PaymentApp.VENMO, "Venmo", "@andrew-p"),
+        PeerPaymentHandle(PaymentApp.CASH_APP, "Cash App", "\$andrewp"),
+    )
 
 @Preview
 @Composable

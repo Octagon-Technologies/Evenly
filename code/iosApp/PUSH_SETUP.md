@@ -1,34 +1,76 @@
 # iOS push delivery — setup steps (F7)
 
 The Kotlin side is **already done**: `PushService.ios.kt` reads the latest token from `IosPushTokenHolder`,
-and `PushController` (shared) registers it to `device_tokens` + pulls on each delivered message. All that
-remains is wiring the Firebase Messaging iOS SDK in the Swift host so it *feeds* `IosPushTokenHolder` /
-`PushBus`. None of this can be done from Kotlin — it needs Xcode-project + Apple-account artifacts.
+and `PushController` (shared) registers it to `device_tokens` + pulls on each delivered message.
 
-You can do every step below **except the APNs key**, which needs the paid Apple Developer account
-(\$99/yr). Everything compiles and registers without it; only actual delivery to a device requires APNs,
-so finish step 3's key when the account exists.
+**The Swift host side is now done too** — `iosApp/AppDelegate.swift` exists and is attached via
+`@UIApplicationDelegateAdaptor` in `iOSApp.swift`, and `GoogleService-Info.plist` sits inside
+`iosApp/iosApp/`, which is a `PBXFileSystemSynchronizedRootGroup`, so it is bundled automatically with no
+`.pbxproj` entry. Its Firebase imports are `#if canImport(...)`-guarded, so the app builds and runs
+whether or not the SDK package has been added yet; adding the package turns push on with no source edit.
 
-## 1. Add the Firebase SDK (Swift Package Manager)
-Xcode → **File → Add Package Dependencies** → `https://github.com/firebase/firebase-ios-sdk` → add the
-**FirebaseMessaging** product to the `iosApp` target.
+**What is left is only step 3** below — an Xcode/Apple-console action that cannot be done from Kotlin or
+from a text editor. Steps 1, 2, 4 and 5 are already applied; they are kept here as a record of what the
+wiring does.
 
-## 2. Add the config file
-Firebase console → add an **iOS app** (bundle id `app.splitevenly`) → download **`GoogleService-Info.plist`**
-→ drag it into the `iosApp` target in Xcode (✓ "Copy if needed", target membership = iosApp).
+## 1. Add the Firebase SDK (Swift Package Manager)  ✅ done
+`firebase-ios-sdk` is a committed SPM dependency of the `iosApp` target, pinned
+`upToNextMajorVersion` from **12.18.0**. Two products are linked:
 
-## 3. Capabilities  ← the APNs-key part is deferred
-Select the `iosApp` target → **Signing & Capabilities** → **+ Capability**:
-- **Push Notifications**
-- **Background Modes** → check **Remote notifications**
+| Product | Why |
+| --- | --- |
+| `FirebaseMessaging` | Push. What `AppDelegate` actually calls. |
+| `FirebaseCrashlytics` | iOS crash reports, matching the Android Crashlytics Gradle plugin. No Kotlin code calls it - linking it plus `FirebaseApp.configure()` is the whole integration. |
 
-Then (needs the Apple Developer account): create an **APNs Auth Key** (`.p8`) in the Apple Developer
-portal and upload it in Firebase console → Project settings → Cloud Messaging → *Apple app configuration*.
-**Defer this until the paid account exists** — the rest works without it; delivery just won't reach a
-physical device until it's uploaded.
+**`FirebaseAnalytics` is deliberately NOT linked.** PostHog is this app's analytics
+(`libs.posthog.kmp`, commonMain) and nothing calls the Firebase Analytics API on either platform.
+Linking it would pull `GoogleAppMeasurement` into the binary and add IDFA/tracking-domain obligations
+to App Privacy for no measurable benefit. Add it only if something starts genuinely reading it.
 
-## 4. Add an AppDelegate and bridge to the shared framework
-Create `iosApp/AppDelegate.swift`:
+A build phase, **Upload Crashlytics dSYMs**, runs the SDK's `Crashlytics/run` script so crash reports
+symbolicate. It is guarded by an `[ -f ]` test, so a checkout whose packages have not resolved yet still
+builds instead of failing the phase.
+
+Verify: `grep -c firebase-ios-sdk iosApp.xcodeproj/project.pbxproj` returns non-zero, and the linked
+classes are present in the built binary:
+
+```bash
+nm <built>/Evenly.app/Evenly.debug.dylib | grep -oE '_OBJC_CLASS_\$_(FIRApp|FIRMessaging|FIRCrashlytics)'
+```
+
+## 2. Add the config file  ✅ done
+`code/iosApp/iosApp/GoogleService-Info.plist` (bundle id `app.splitevenly`, Firebase project
+`split-evenly`). It used to sit one directory up, outside the synchronized folder, which meant it was
+**never copied into the app bundle** — `FirebaseApp.configure()` would have trapped at launch.
+
+## 3. Capabilities  ← STILL TO DO
+Select the `iosApp` target → **Signing & Capabilities** → **+ Capability** → **Push Notifications**.
+
+Do this in the Xcode UI rather than by hand-editing `iosApp/iosApp/iosApp.entitlements`: the click both
+adds `aps-environment` to the entitlements *and* enables the Push Notifications service on the
+`app.splitevenly` App ID in the developer portal. Adding the key by hand without the portal side makes
+**automatic signing fail**, which would break the archive.
+
+`UIBackgroundModes` → `remote-notification` is already declared in `Info.plist`, so the Background Modes
+capability does not need adding separately; it is inert until `aps-environment` exists.
+
+Then create an **APNs Auth Key** (`.p8`) in the Apple Developer portal and upload it in Firebase console
+→ Project settings → Cloud Messaging → *Apple app configuration*. This was previously deferred for want
+of a paid Apple Developer account; the project now signs with team `3VC8F74G23`, so it is no longer
+blocked. Delivery to a real device does not work until the key is uploaded.
+
+Verify: `plutil -p iosApp/iosApp/iosApp.entitlements` shows an `aps-environment` key.
+
+## 4. AppDelegate and the bridge to the shared framework  ✅ done
+Implemented in `iosApp/iosApp/AppDelegate.swift`. It differs from the sketch below in three ways worth
+knowing: the Firebase imports are `canImport`-guarded (so the file compiles before step 1 is done),
+`FirebaseApp.configure()` is skipped when the plist is missing from the bundle rather than trapping, and
+it also implements `handleEventsForBackgroundURLSession` — bridged into Kotlin through
+`IosBackgroundUploadEvents`, which `ReceiptUploadScheduler.ios.kt`'s delegate fires once the background
+receipt-upload session drains. That last hook was a separate, previously-missing host responsibility
+called out in `AGENTS.md`, not part of push.
+
+Original sketch, kept for reference:
 
 ```swift
 import UIKit
@@ -94,8 +136,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
 }
 ```
 
-## 5. Attach the delegate to the SwiftUI app
-In `iOSApp.swift`:
+## 5. Attach the delegate to the SwiftUI app  ✅ done
+Applied in `iOSApp.swift`:
 
 ```swift
 @main

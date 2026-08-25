@@ -82,12 +82,13 @@ fun EvCard(
     val c = EvenlyTheme.colors
     Column(
         // clip BEFORE clickable so the press ripple is bounded to the rounded card, not a rectangle.
-        modifier = modifier
-            .clip(CardShape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .background(if (fill) c.surface else c.page)
-            .then(if (bordered) Modifier.border(1.dp, c.border, CardShape) else Modifier)
-            .then(if (padded) Modifier.padding(16.dp) else Modifier),
+        modifier =
+            modifier
+                .clip(CardShape)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .background(if (fill) c.surface else c.page)
+                .then(if (bordered) Modifier.border(1.dp, c.border, CardShape) else Modifier)
+                .then(if (padded) Modifier.padding(16.dp) else Modifier),
         content = content,
     )
 }
@@ -119,26 +120,50 @@ fun EvSheetSurface(
 ) {
     val c = EvenlyTheme.colors
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            .background(c.page)
-            .padding(start = 16.dp, end = 16.dp, top = 14.dp)
-            .navigationBarsPadding()
-            .padding(bottom = 16.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(c.page)
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp),
     ) {
         if (onClose != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            ) {
                 EvSheetCloseButton(onClose)
                 title?.let { Text(it, color = c.ink, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) }
             }
         } else {
             title?.let {
-                Text(it, Modifier.fillMaxWidth().padding(bottom = 4.dp), color = c.ink, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), textAlign = TextAlign.Center)
+                Text(
+                    it,
+                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    color = c.ink,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    textAlign = TextAlign.Center,
+                )
             }
         }
         sub?.let {
-            Text(it, Modifier.fillMaxWidth().padding(bottom = 16.dp), color = c.ink2, style = MaterialTheme.typography.bodyMedium, textAlign = if (onClose != null) TextAlign.Start else TextAlign.Center)
+            Text(
+                it,
+                Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                color = c.ink2,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign =
+                    if (onClose !=
+                        null
+                    ) {
+                        TextAlign.Start
+                    } else {
+                        TextAlign.Center
+                    },
+            )
         }
         content()
     }
@@ -150,7 +175,11 @@ fun EvSheetSurface(
 private fun EvSheetCloseButton(onClose: () -> Unit) {
     val c = EvenlyTheme.colors
     Box(
-        Modifier.size(30.dp).clip(RoundedCornerShape(10.dp)).background(c.surface).clickable(onClick = onClose),
+        Modifier
+            .size(30.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(c.surface)
+            .clickable(onClick = onClose),
         contentAlignment = Alignment.Center,
     ) {
         EvIcon(EvIcons.Close, size = 14.dp, tint = c.ink2)
@@ -167,10 +196,15 @@ fun EvSheetScaffold(
     modifier: Modifier = Modifier,
     title: String? = null,
     sub: String? = null,
+    // Closes the sheet through the same slide-out the ✕ uses, instead of the caller yanking it out of
+    // composition. Flip it once the caller's own work is done (e.g. the payment is recorded); [onDismiss]
+    // then fires when the exit animation ends, which is the caller's cue to drop the sheet.
+    dismissRequested: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val visibleState = remember { MutableTransitionState(false) }
     LaunchedEffect(Unit) { visibleState.targetState = true }
+    LaunchedEffect(dismissRequested) { if (dismissRequested) visibleState.targetState = false }
     LaunchedEffect(visibleState.currentState, visibleState.targetState) {
         if (visibleState.isIdle && !visibleState.targetState) onDismiss()
     }
@@ -181,7 +215,16 @@ fun EvSheetScaffold(
         enter = fadeIn(EvMotion.standard()),
         exit = fadeOut(EvMotion.standard()),
     ) {
-        Box(modifier.fillMaxSize().background(EvenlyTheme.colors.ink.copy(alpha = EvScrimAlpha)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = dismiss)) {
+        Box(
+            modifier.fillMaxSize().background(EvenlyTheme.colors.ink.copy(alpha = EvScrimAlpha)).clickable(
+                interactionSource =
+                    remember {
+                        MutableInteractionSource()
+                    },
+                indication = null,
+                onClick = dismiss,
+            ),
+        ) {
             AnimatedVisibility(
                 visibleState = visibleState,
                 modifier = Modifier.align(Alignment.BottomCenter),
@@ -189,7 +232,12 @@ fun EvSheetScaffold(
                 exit = slideOutVertically(EvMotion.standard()) { it } + fadeOut(EvMotion.quick()),
             ) {
                 EvSheetSurface(
-                    modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+                    modifier =
+                        Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {},
+                        ),
                     title = title,
                     sub = sub,
                     onClose = dismiss,
@@ -223,7 +271,17 @@ fun EvModalScaffold(
         exit = fadeOut(EvMotion.standard()),
     ) {
         BoxWithConstraints(
-            modifier.fillMaxSize().background(c.ink.copy(alpha = EvScrimAlpha)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = dismiss).padding(24.dp),
+            modifier
+                .fillMaxSize()
+                .background(c.ink.copy(alpha = EvScrimAlpha))
+                .clickable(
+                    interactionSource =
+                        remember {
+                            MutableInteractionSource()
+                        },
+                    indication = null,
+                    onClick = dismiss,
+                ).padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
             // A tall card (a long member list, say) must never grow past the screen and run under the
@@ -236,8 +294,19 @@ fun EvModalScaffold(
                 exit = fadeOut(EvMotion.quick()) + scaleOut(EvMotion.quick(), targetScale = 0.92f),
             ) {
                 Column(
-                    modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().heightIn(max = maxCardHeight).clip(RoundedCornerShape(22.dp)).background(c.page)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}).padding(24.dp),
+                    modifier =
+                        Modifier
+                            .widthIn(
+                                max = 320.dp,
+                            ).fillMaxWidth()
+                            .heightIn(max = maxCardHeight)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(c.page)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {},
+                            ).padding(24.dp),
                 ) {
                     // The close button stays pinned outside the scroll region so it is always reachable.
                     Box(Modifier.padding(bottom = 12.dp)) { EvSheetCloseButton(dismiss) }
@@ -273,6 +342,7 @@ fun EvDragSheet(
         val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
 
         LaunchedEffect(collapsedH) { height.animateTo(collapsedH, EvMotion.standard()) }
+
         fun dismiss() {
             scope.launch {
                 height.animateTo(0f, EvMotion.quick())
@@ -283,12 +353,16 @@ fun EvDragSheet(
         // Invisible tap-to-dismiss above the sheet — the page shows through unchanged (no scrim).
         Box(
             Modifier.fillMaxSize().clickable(
-                interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = { dismiss() },
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { dismiss() },
             ),
         )
 
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
                 .height(with(density) { height.value.toDp() })
                 .clip(sheetShape)
                 .background(c.page)
@@ -303,16 +377,26 @@ fun EvDragSheet(
                             scope.launch { height.snapTo((height.value - delta).coerceIn(maxPx * 0.2f, expandedH)) }
                         },
                         onDragEnd = {
-                            if (height.value <= dismissBelow) dismiss()
-                            else scope.launch {
-                                height.animateTo(if (height.value > (collapsedH + expandedH) / 2f) expandedH else collapsedH)
+                            if (height.value <= dismissBelow) {
+                                dismiss()
+                            } else {
+                                scope.launch {
+                                    height.animateTo(if (height.value > (collapsedH + expandedH) / 2f) expandedH else collapsedH)
+                                }
                             }
                         },
                     )
                 },
                 contentAlignment = Alignment.Center,
             ) {
-                Box(Modifier.padding(vertical = 9.dp).size(width = 40.dp, height = 5.dp).clip(RoundedCornerShape(3.dp)).background(c.borderStrong))
+                Box(
+                    Modifier
+                        .padding(
+                            vertical = 9.dp,
+                        ).size(width = 40.dp, height = 5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(c.borderStrong),
+                )
             }
             content()
         }

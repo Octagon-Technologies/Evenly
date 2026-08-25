@@ -2,7 +2,6 @@ package app.splitevenly.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,19 +48,21 @@ fun EvExpenseRow(
 ) {
     val c = EvenlyTheme.colors
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(c.page)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(c.page)
+                .then(if (onClick != null) Modifier.clickableClearingFocus(onClick = onClick) else Modifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(if (settled) c.settledTint else c.surface),
+            modifier =
+                Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(if (settled) c.settledTint else c.surface),
             contentAlignment = Alignment.Center,
         ) {
             EvIcon(if (settled) EvIcons.Check else icon, size = 20.dp, tint = if (settled) c.settled else c.ink2)
@@ -97,24 +98,26 @@ fun EvDebtRow(
 ) {
     val c = EvenlyTheme.colors
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(c.page)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(c.page)
+                .then(if (onClick != null) Modifier.clickableClearingFocus(onClick = onClick) else Modifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         EvAvatarStack(names = listOf(from, to), size = AvatarSize.Sm)
         Column(Modifier.weight(1f)) {
             Text(
-                text = buildAnnotatedString {
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.ink)) { append(from) }
-                    append(" ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = c.ink2)) { append("owes") }
-                    append(" ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.ink)) { append(to) }
-                },
+                text =
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.ink)) { append(from) }
+                        append(" ")
+                        withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = c.ink2)) { append("owes") }
+                        append(" ")
+                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.ink)) { append(to) }
+                    },
                 fontSize = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

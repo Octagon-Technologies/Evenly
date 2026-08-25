@@ -12,38 +12,40 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
-import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
+import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.BillExtrasInput
 import app.splitevenly.domain.expense.BillView
 import app.splitevenly.domain.expense.EditBill
-import app.splitevenly.domain.expense.ItemStatus
-import app.splitevenly.ui.screen.bill.AssignRowUi
 import app.splitevenly.domain.expense.EditBillItem
+import app.splitevenly.domain.expense.ItemStatus
 import app.splitevenly.domain.expense.NewBill
 import app.splitevenly.domain.expense.NewBillItem
 import app.splitevenly.domain.expense.TipSplitMode
-import app.splitevenly.domain.receipt.ReceiptDraft
+import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.pro.scanMeterFor
+import app.splitevenly.domain.pro.scansExhausted
+import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
-import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.platform.AnalyticsEvents
-import app.splitevenly.platform.ProTriggers
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
 import app.splitevenly.platform.PickKind
 import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
+import app.splitevenly.platform.ProTriggers
 import app.splitevenly.platform.SecureStorage
+import app.splitevenly.ui.screen.bill.AssignRowUi
 import app.splitevenly.ui.screen.bill.BillClaimScreen
 import app.splitevenly.ui.screen.bill.BillEditScreen
 import app.splitevenly.ui.screen.bill.ClaimBillState
@@ -87,7 +89,12 @@ private fun reportScanResultEdited(
 /** Create or edit a bill (the menu + extras). On create, lands on the live claim screen. */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCreated: (String) -> Unit) {
+fun BillEditRoute(
+    groupId: String,
+    expenseId: String?,
+    onBack: () -> Unit,
+    onCreated: (String) -> Unit,
+) {
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
@@ -99,6 +106,8 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
     LaunchedEffect(gid) { pro.refresh(gid.value) }
     val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
+    // Refuse the scan tap before the file picker rather than after the upload (PRO_PASS_SPEC.md §8.1).
+    val scanBlocked = proState?.let { scansExhausted(it.status, it.freeUsed, it.freeLimit) } == true
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -117,6 +126,15 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var attachedReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
+    // Only reads the SERVER's pass row, so this fires once `activate-pass` has been pulled down: the
+    // buyer's refusal sheet clears itself instead of standing there over a group that is now Pro.
+    LaunchedEffect(scanBlocked) {
+        if (!scanBlocked && (scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
+            scanState = ScanUiState.Idle
+        }
+    }
+    // Absent in the offline/unconfigured build, same optional-dep pattern as uploadManager above.
+    val syncEngine = remember(koin) { koin.getOrNull<SyncEngine>() }
     // Scan-funnel analytics bookkeeping — see AddExpenseRoute's twin of this pipeline.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
     var scanStartedAt by remember { mutableStateOf(0L) }
@@ -129,15 +147,21 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         onDispose { if (!attached) uploadManager?.discardStagedDetached(attachedReceipts) }
     }
 
-    val existing = if (expenseId != null) {
-        remember(expenseId) { bills.observeBill(ExpenseId(expenseId)) }.collectAsStateWithLifecycle(null).value
-    } else null
+    val existing =
+        if (expenseId != null) {
+            remember(expenseId) { bills.observeBill(ExpenseId(expenseId)) }.collectAsStateWithLifecycle(null).value
+        } else {
+            null
+        }
 
     // For edit, wait until the bill loads so the editor's initial state is correct.
     if (expenseId != null && existing == null) return
 
     // Run the pick → OCR round-trip as a cancellable job, mapping the typed ScanOutcome to sheet state.
-    fun runScan(files: List<PickedFile>, source: PickSource) {
+    fun runScan(
+        files: List<PickedFile>,
+        source: PickSource,
+    ) {
         if (files.isEmpty()) return
         scanFiles = files
         scanSource = source
@@ -155,72 +179,80 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             attachedReceipts = uploadManager?.stage(files).orEmpty()
             uploadManager?.discardStaged(superseded)
         }
-        scanJob = scope.launch {
-            val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
-            val outcome = ocr.extract(ocrFiles, groupId = gid.value)
-            val durationMs = Clock.System.nowEpochMillis() - scanStartedAt
-            scanState = when (outcome) {
-                is ScanOutcome.Success -> {
-                    scanned = outcome.draft.toEditState()
-                    analytics?.capture(
-                        AnalyticsEvents.SCAN_COMPLETED,
-                        buildMap {
-                            put("page_count", files.size)
-                            put("item_count", outcome.draft.items.size)
-                            put("duration_ms", durationMs)
-                            put("group_id", gid.value)
-                            outcome.scanId?.let { put("scan_id", it) }
-                        },
-                    )
-                    ScanUiState.Idle
-                }
-                is ScanOutcome.Blocked -> {
-                    analytics?.capture(
-                        AnalyticsEvents.SCAN_BLOCKED,
-                        mapOf("reason" to outcome.reason, "group_id" to gid.value),
-                    )
-                    // The group is out of free scans and holds no pass, which no amount of waiting
-                    // fixes. Every other Blocked reason (the hourly rate limit today) does.
-                    val blockedKind =
-                        if (outcome.reason == "quota_exhausted") ScanErrorKind.OutOfScans
-                        else ScanErrorKind.Blocked
-                    ScanUiState.Failed(blockedKind)
-                }
-                else -> {
-                    val kind = when (outcome) {
-                        ScanOutcome.NoReceiptFound -> ScanErrorKind.NoReceiptFound
-                        ScanOutcome.Offline -> ScanErrorKind.Offline
-                        ScanOutcome.Unavailable -> ScanErrorKind.Unavailable
-                        is ScanOutcome.Failed -> ScanErrorKind.Error
-                        is ScanOutcome.Success, is ScanOutcome.Blocked -> ScanErrorKind.Error
+        scanJob =
+            scope.launch {
+                val ocrFiles = files.map { ReceiptOcrFile(it.bytes, it.mimeType) }
+                val outcome = ocr.extract(ocrFiles, groupId = gid.value)
+                val durationMs = Clock.System.nowEpochMillis() - scanStartedAt
+                scanState =
+                    when (outcome) {
+                        is ScanOutcome.Success -> {
+                            scanned = outcome.draft.toEditState()
+                            analytics?.capture(
+                                AnalyticsEvents.SCAN_COMPLETED,
+                                buildMap {
+                                    put("page_count", files.size)
+                                    put("item_count", outcome.draft.items.size)
+                                    put("duration_ms", durationMs)
+                                    put("group_id", gid.value)
+                                    outcome.scanId?.let { put("scan_id", it) }
+                                },
+                            )
+                            ScanUiState.Idle
+                        }
+
+                        is ScanOutcome.Blocked -> {
+                            analytics?.capture(
+                                AnalyticsEvents.SCAN_BLOCKED,
+                                mapOf("reason" to outcome.reason, "group_id" to gid.value),
+                            )
+                            // The group is out of free scans and holds no pass, which no amount of waiting
+                            // fixes. Every other Blocked reason (the hourly rate limit today) does.
+                            val blockedKind =
+                                if (outcome.reason == "quota_exhausted") {
+                                    ScanErrorKind.OutOfScans
+                                } else {
+                                    ScanErrorKind.Blocked
+                                }
+                            ScanUiState.Failed(blockedKind)
+                        }
+
+                        else -> {
+                            val kind =
+                                when (outcome) {
+                                    ScanOutcome.NoReceiptFound -> ScanErrorKind.NoReceiptFound
+                                    ScanOutcome.Offline -> ScanErrorKind.Offline
+                                    ScanOutcome.Unavailable -> ScanErrorKind.Unavailable
+                                    is ScanOutcome.Failed -> ScanErrorKind.Error
+                                    is ScanOutcome.Success, is ScanOutcome.Blocked -> ScanErrorKind.Error
+                                }
+                            analytics?.capture(
+                                AnalyticsEvents.SCAN_FAILED,
+                                mapOf(
+                                    "kind" to kind.analyticsKind(),
+                                    "page_count" to files.size,
+                                    "duration_ms" to durationMs,
+                                    "group_id" to gid.value,
+                                ),
+                            )
+                            ScanUiState.Failed(kind)
+                        }
                     }
+                // A successful scan is what moves the count, so re-read it rather than decrementing
+                // locally: the server is the only place that knows what actually counted. That refreshed
+                // number is also the only honest source for `free_scan_used` (PRO_PASS_SPEC.md §12) —
+                // computing it from the pre-scan value would report a scan the server may not have counted.
+                pro.refresh(gid.value)?.let { count ->
                     analytics?.capture(
-                        AnalyticsEvents.SCAN_FAILED,
+                        AnalyticsEvents.FREE_SCAN_USED,
                         mapOf(
-                            "kind" to kind.analyticsKind(),
-                            "page_count" to files.size,
-                            "duration_ms" to durationMs,
                             "group_id" to gid.value,
+                            "scans_used" to count.used,
+                            "scans_remaining" to count.remaining,
                         ),
                     )
-                    ScanUiState.Failed(kind)
                 }
             }
-            // A successful scan is what moves the count, so re-read it rather than decrementing
-            // locally: the server is the only place that knows what actually counted. That refreshed
-            // number is also the only honest source for `free_scan_used` (PRO_PASS_SPEC.md §12) —
-            // computing it from the pre-scan value would report a scan the server may not have counted.
-            pro.refresh(gid.value)?.let { count ->
-                analytics?.capture(
-                    AnalyticsEvents.FREE_SCAN_USED,
-                    mapOf(
-                        "group_id" to gid.value,
-                        "scans_used" to count.used,
-                        "scans_remaining" to count.remaining,
-                    ),
-                )
-            }
-        }
     }
 
     // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
@@ -228,11 +260,14 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
     // photo they just picked.
     val billing = koinInject<ProBilling>()
     var showPassSheet by remember { mutableStateOf(false) }
+    var showPaywall by remember { mutableStateOf(false) }
 
     BillEditScreen(
         editing = expenseId != null,
         groupName = group?.name,
         onGetPro = if (billing.isAvailable) ({ showPassSheet = true }) else null,
+        scanBlocked = scanBlocked,
+        onSeeSubscription = if (billing.isAvailable) ({ showPaywall = true }) else null,
         initial = existing?.toEditState(),
         scanned = scanned,
         currencyCode = currency,
@@ -247,7 +282,20 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
         },
         loadPdfPageCount = stagedPdf.pageCount,
         renderPdfPage = stagedPdf.renderPage,
-        participants = members.map { ParticipantChipUi(it.userId.value, if (it.userId == userId) "You" else (it.displayName ?: "Someone"), it.userId == userId) },
+        participants =
+            members.map {
+                ParticipantChipUi(
+                    it.userId.value,
+                    if (it.userId ==
+                        userId
+                    ) {
+                        "You"
+                    } else {
+                        (it.displayName ?: "Someone")
+                    },
+                    it.userId == userId,
+                )
+            },
         initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
         // A new bill is paid by whoever is entering it, which is who is holding the receipt.
         initialPayerId = existing?.expense?.payerUserId?.value ?: userId?.value.orEmpty(),
@@ -293,33 +341,35 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             val me = userId ?: return@BillEditScreen
             saving = true
             scope.launch {
-                val extras = BillExtrasInput(
-                    taxSubunits = submit.taxSubunits,
-                    gratuitySubunits = submit.gratuitySubunits,
-                    tipSubunits = submit.tipSubunits,
-                    tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
-                    discountSubunits = submit.discountSubunits,
-                    otherChargesSubunits = submit.otherChargesSubunits,
-                )
+                val extras =
+                    BillExtrasInput(
+                        taxSubunits = submit.taxSubunits,
+                        gratuitySubunits = submit.gratuitySubunits,
+                        tipSubunits = submit.tipSubunits,
+                        tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
+                        discountSubunits = submit.discountSubunits,
+                        otherChargesSubunits = submit.otherChargesSubunits,
+                    )
                 val outsidePayer = submit.payerOutsideName?.takeIf { it.isNotBlank() }
                 val payer = if (outsidePayer != null) null else submit.payerUserId?.let { UserId(it) }
                 // Neither set means the editor had no "Paid by" row at all, so the bill keeps its payer.
                 val keepPayer = outsidePayer == null && payer == null
                 if (expenseId == null) {
-                    val result = bills.createBill(
-                        NewBill(
-                            groupId = gid,
-                            title = submit.title,
-                            currency = currency,
-                            expenseDate = Clock.System.todayUtc(),
-                            payerUserId = if (outsidePayer != null) null else (payer ?: me),
-                            payerOutsideName = outsidePayer,
-                            createdBy = me,
-                            items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
-                            extras = extras,
-                            participantUserIds = submit.participantIds.map { UserId(it) },
-                        ),
-                    )
+                    val result =
+                        bills.createBill(
+                            NewBill(
+                                groupId = gid,
+                                title = submit.title,
+                                currency = currency,
+                                expenseDate = Clock.System.todayUtc(),
+                                payerUserId = if (outsidePayer != null) null else (payer ?: me),
+                                payerOutsideName = outsidePayer,
+                                createdBy = me,
+                                items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
+                                extras = extras,
+                                participantUserIds = submit.participantIds.map { UserId(it) },
+                            ),
+                        )
                     when (result) {
                         is AppResult.Ok -> {
                             // The scanned pages ride along as the expense's receipt (background upload).
@@ -328,7 +378,10 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
                             reportScanResultEdited(analytics, scanned, submit.items, gid.value)
                             onCreated(result.value.value)
                         }
-                        is AppResult.Err -> saving = false
+
+                        is AppResult.Err -> {
+                            saving = false
+                        }
                     }
                 } else {
                     bills.editBill(
@@ -358,14 +411,35 @@ fun BillEditRoute(groupId: String, expenseId: String?, onBack: () -> Unit, onCre
             groupId = gid.value,
             groupName = group?.name ?: "this group",
             trigger = ProTriggers.SCAN,
-            // No subscription link from inside an editor: leaving a half-typed bill to browse a
-            // recurring plan would lose the draft, and a link that costs someone their work is worse
-            // than one that isn't there. The Profile row is the door for that.
-            onSeeSubscription = null,
+            // The subscription link used to be null here, because reaching the paywall meant a push and
+            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
+            // real and the half-typed bill is still there when it closes.
+            onSeeSubscription = {
+                showPassSheet = false
+                showPaywall = true
+            },
             onDismiss = { showPassSheet = false },
         )
     }
 
+    if (showPaywall) {
+        ProPaywallHost(
+            trigger = ProTriggers.SCAN,
+            onWantsPass = {
+                showPaywall = false
+                showPassSheet = true
+            },
+            onDismiss = {
+                showPaywall = false
+                // A subscription lands server-side too (`sync-subscriber`), and `user_subscriptions` is
+                // pull-only, so the gate only reopens once that row is here.
+                scope.launch {
+                    userId?.let { uid -> syncEngine?.syncNow(uid.value) }
+                    pro.refresh(gid.value)
+                }
+            },
+        )
+    }
 }
 
 /** The assign screen — "who had what?". Assignments (incl. for people without the app) go through the
@@ -416,43 +490,62 @@ fun BillClaimRoute(
     val view = bill ?: return
     val me = userId
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
+
     fun nameOf(uid: String): String = if (me != null && uid == me.value) "You" else (nameByUser[uid] ?: "Someone")
 
-    val participants = view.participants.map { it.userId.value }
-        .ifEmpty { members.map { it.userId.value } }
-        .distinct()
-        .map { ClaimParticipantUi(it, nameByUser[it] ?: "Someone", me != null && it == me.value) }
+    val participants =
+        view.participants
+            .map { it.userId.value }
+            .ifEmpty { members.map { it.userId.value } }
+            .distinct()
+            .map { ClaimParticipantUi(it, nameByUser[it] ?: "Someone", me != null && it == me.value) }
 
     val claimsByItem = view.claims.groupBy { it.itemId }
     val portionsByItemPortion = view.shares.filter { it.portionId != null }.groupBy { it.itemId to it.portionId!! }
 
-    val items = view.items.map { item ->
-        val perUnit = if (item.quantity <= 0) item.lineTotalSubunits else (item.lineTotalSubunits + item.quantity / 2) / item.quantity
-        val soloRows = claimsByItem[item.id].orEmpty().map { claim ->
-            AssignRowUi(null, listOf(claim.userId.value), listOf(nameOf(claim.userId.value)), claim.quantity, perUnit * claim.quantity)
+    val items =
+        view.items.map { item ->
+            val perUnit = if (item.quantity <= 0) item.lineTotalSubunits else (item.lineTotalSubunits + item.quantity / 2) / item.quantity
+            val soloRows =
+                claimsByItem[item.id].orEmpty().map { claim ->
+                    AssignRowUi(
+                        null,
+                        listOf(claim.userId.value),
+                        listOf(nameOf(claim.userId.value)),
+                        claim.quantity,
+                        perUnit * claim.quantity,
+                    )
+                }
+            val portionRows =
+                portionsByItemPortion.filterKeys { it.first == item.id }.map { (key, rows) ->
+                    AssignRowUi(
+                        key.second,
+                        rows.map { it.userId.value },
+                        rows.map { nameOf(it.userId.value) },
+                        rows.first().quantity,
+                        perUnit * rows.first().quantity,
+                    )
+                }
+            ClaimItemUi(
+                id = item.id,
+                label = item.label,
+                quantity = item.quantity,
+                lineTotalSubunits = item.lineTotalSubunits,
+                rows = soloRows + portionRows,
+                status = view.reconcile.firstOrNull { it.itemId == item.id }?.status ?: ItemStatus.UNCLAIMED,
+            )
         }
-        val portionRows = portionsByItemPortion.filterKeys { it.first == item.id }.map { (key, rows) ->
-            AssignRowUi(key.second, rows.map { it.userId.value }, rows.map { nameOf(it.userId.value) }, rows.first().quantity, perUnit * rows.first().quantity)
-        }
-        ClaimItemUi(
-            id = item.id,
-            label = item.label,
-            quantity = item.quantity,
-            lineTotalSubunits = item.lineTotalSubunits,
-            rows = soloRows + portionRows,
-            status = view.reconcile.firstOrNull { it.itemId == item.id }?.status ?: ItemStatus.UNCLAIMED,
-        )
-    }
 
     val totals = participants.map { p -> p to (view.tabByUser[UserId(p.userId)] ?: 0L) }
-    val state = ClaimBillState(
-        title = view.expense.title,
-        currency = view.expense.currency,
-        totals = totals,
-        items = items,
-        participants = participants,
-        myUserId = me?.value,
-    )
+    val state =
+        ClaimBillState(
+            title = view.expense.title,
+            currency = view.expense.currency,
+            totals = totals,
+            items = items,
+            participants = participants,
+            myUserId = me?.value,
+        )
 
     fun qtyOf(itemId: String) = view.items.firstOrNull { it.id == itemId }?.quantity ?: 1
     BillClaimScreen(
@@ -487,7 +580,10 @@ fun BillClaimRoute(
         onEditBill = onEditBill,
         onDone = {
             val who = me ?: return@BillClaimScreen
-            scope.launch { bills.markDone(eid, who, true); onBack() }
+            scope.launch {
+                bills.markDone(eid, who, true)
+                onBack()
+            }
         },
         guideAutoOpen = guideAutoOpen,
         onShareLink = onShareLink,
@@ -498,38 +594,45 @@ fun BillClaimRoute(
         // "Claiming" here means a claim or a portion membership exists, NOT that they tapped "I'm done":
         // done is a nudge-silencer, not a resolution (data/AGENTS.md), and a payer looking for who still
         // owes them an answer wants the people with nothing on the bill.
-        stillToClaimCount = view.participants.count { p ->
-            view.claims.none { it.userId == p.userId } && view.shares.none { it.userId == p.userId }
-        },
+        stillToClaimCount =
+            view.participants.count { p ->
+                view.claims.none { it.userId == p.userId } && view.shares.none { it.userId == p.userId }
+            },
     )
 }
 
 /** Device-local key counting how many times the assign screen has been opened (gates the how-to guide). */
 private const val CLAIM_GUIDE_OPENS_KEY = "claim_guide_opens"
 
-private fun ReceiptDraft.toEditState(): EditBillState = EditBillState(
-    title = "",
-    // OCR now reports the line total directly (already inclusive of quantity) — pass it straight through.
-    items = items.map { editBillItemUi(null, it.label, it.quantity, it.lineTotalSubunits) }
-        .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
-    taxText = subunitsToText(taxSubunits),
-    gratuityText = subunitsToText(gratuitySubunits),
-    tipText = subunitsToText(tipSubunits),
-    discountText = subunitsToText(discountSubunits),
-    otherChargesText = subunitsToText(otherChargesSubunits),
-    verified = verified,
-)
+private fun ReceiptDraft.toEditState(): EditBillState =
+    EditBillState(
+        title = "",
+        // OCR now reports the line total directly (already inclusive of quantity) — pass it straight through.
+        items =
+            items
+                .map { editBillItemUi(null, it.label, it.quantity, it.lineTotalSubunits) }
+                .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
+        taxText = subunitsToText(taxSubunits),
+        gratuityText = subunitsToText(gratuitySubunits),
+        tipText = subunitsToText(tipSubunits),
+        discountText = subunitsToText(discountSubunits),
+        otherChargesText = subunitsToText(otherChargesSubunits),
+        verified = verified,
+    )
 
-private fun BillView.toEditState(): EditBillState = EditBillState(
-    title = expense.title,
-    items = items.map { editBillItemUi(it.id, it.label, it.quantity, it.lineTotalSubunits) }
-        .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
-    taxText = subunitsToText(extras.taxSubunits),
-    gratuityText = subunitsToText(extras.gratuitySubunits),
-    tipText = subunitsToText(extras.tipSubunits),
-    discountText = subunitsToText(extras.discountSubunits),
-    otherChargesText = subunitsToText(extras.otherChargesSubunits),
-)
+private fun BillView.toEditState(): EditBillState =
+    EditBillState(
+        title = expense.title,
+        items =
+            items
+                .map { editBillItemUi(it.id, it.label, it.quantity, it.lineTotalSubunits) }
+                .ifEmpty { listOf(editBillItemUi(null, "", 1, 0L)) },
+        taxText = subunitsToText(extras.taxSubunits),
+        gratuityText = subunitsToText(extras.gratuitySubunits),
+        tipText = subunitsToText(extras.tipSubunits),
+        discountText = subunitsToText(extras.discountSubunits),
+        otherChargesText = subunitsToText(extras.otherChargesSubunits),
+    )
 
 /** How many distinct lines each person holds, counting a solo claim and a shared slice the same. It
  *  answers one question for the editor: does taking this person off the bill throw anything away? */

@@ -161,8 +161,20 @@ them.
 **The free-scan meter is conditional, and the condition lives in `domain/pro/scanMeterFor`,** not in the
 Composable (`PRO_PASS_SPEC.md` §8.1). Hidden while Pro, hidden until the count is actually known, and
 hidden while more than 3 remain: a new group counting down from 5 reads as a trial with a clock on it.
-`ScanQuotaMeter` renders whatever it is handed and decides nothing. **The scan card stays enabled at
-zero** so tapping it explains rather than doing nothing.
+`ScanQuotaMeter` renders whatever it is handed and decides nothing. It **escalates exactly once**: a
+quiet count plus what happens after the last scan, then a full-width group-named button at zero. Empty
+warms to `credit` amber, never `danger` — spending an allowance is not a fault.
+
+**The scan tap is refused before the file picker, not after the upload** (`domain/pro/scansExhausted`).
+`OutOfScansSheet` is what a blocked tap opens; the server's 402 stays as the fallback for the race where
+another member spends the last scan mid-flight. **The scan card stays enabled at zero** so tapping it
+explains rather than doing nothing. Every path to the picker goes through the screen's own `startScan`,
+including the failed-scan sheet's "try a new photo" — a second route to the picker is a second way past
+the gate.
+
+**The scan card carries its three sources** (`ItemizedExpenseBody`). Tapping it used to open
+`ScanSourceSheet` and only then the OS picker, which is two taps and a sheet between "scan this" and a
+camera. That sheet still exists for the failed-scan re-pick path; the card does not use it.
 
 **Export lives in Group settings and nowhere else.** The Overview tab used to carry an "Export as
 image" button wired to an empty lambda and an "Export" chip in its app bar that `EvChip` gives no
@@ -179,10 +191,12 @@ and do not hardcode a price anywhere: every price on screen is the store's own l
 **A door that names a group opens the group-scoped product.** Found by the cold `ux-firsttimer` walk,
 and it is the pay/renew direction being ambiguous at the moment of commitment: "Get Pro for Ski Trip"
 opening an all-groups recurring subscription is the worst mislabel this feature can produce. So the
-group-settings row and the out-of-scans sheet open the **pass sheet**, and each product's sheet names
-the other one exit ("Only need it for one trip?" on the paywall, "In more than one group? See Evenly
-Pro" on the pass sheet). That second link is **null inside an editor** rather than dead: leaving a
-half-typed bill to browse a subscription would lose the draft.
+group-settings row and the out-of-scans sheet lead with the **pass sheet**, and each product's sheet
+names the other one exit ("Only need it for one trip?" on the paywall, "In more than one group? See
+Evenly Pro" on the pass sheet). That second link used to be **null inside an editor**, because reaching
+the paywall meant a push and a push disposes the editor underneath. It is real everywhere now:
+`ProPaywallHost` renders RevenueCat's paywall *over* the editor instead, so the draft is simply still
+there when it closes. Do not re-null it, and do not navigate to `Route.Pro` from an editor.
 
 **Never offer a pass for a group a subscription already covers** — anyone's, not just your own. A pass
 cannot be cancelled or refunded, so nothing later corrects the mistake, and extending from a
@@ -232,14 +246,15 @@ filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer`
 
 **600 lines per file.** New surface goes in a new file.
 
-**Known offenders, quarantined** (verified 2026-07-23):
+**Known offenders, quarantined** (counts re-verified 2026-08-25 with `wc -l`; every one of them had
+drifted since the last check, which is the usual way a ceiling stops being one):
 
 | File                                        | Lines |
 | ------------------------------------------- | ----- |
-| `ui/screen/bill/BillEditScreen.kt`          | 916   |
-| `ui/screen/expense/ExpenseDetailScreen.kt`  | 850   |
-| `ui/navigation/LedgerRoutes.kt`             | 662   |
-| `ui/screen/auth/WelcomeScreen.kt`           | 639   |
+| `ui/screen/expense/ExpenseDetailScreen.kt`  | 1227  |
+| `ui/navigation/LedgerRoutes.kt`             | 929   |
+| `ui/screen/bill/BillEditScreen.kt`          | 813   |
+| `ui/screen/auth/WelcomeScreen.kt`           | 799   |
 
 **The add-expense editor is split by feature** (2026-08-02, was 1116 lines): `AddExpenseScreen.kt` keeps
 the shell — state, the shared header, the picker sheets. `SplitApproachChooser.kt` is the up-front
@@ -249,6 +264,8 @@ next to the `ItemEditorRow`/`ExtrasCard` it already borrowed. Each body owns its
 the participant `ids` as an argument, so selection stays owned by the screen. Both bodies emit their rows
 straight into the caller's `Column`, so the caller's `spacedBy` still spaces them. **`BillEditScreen` still
 has its own copy of the item-list body** — unifying the two was deliberately out of scope, not overlooked.
+The scan sheets (progress, error, source row) came out to `bill/BillScanSheets.kt` on the way through,
+which took `BillEditScreen` from 916 to 813 despite the scan-gate additions.
 
 **The bill editor owns the payer and the roster too** (2026-08-08): "Paid by" (`bill/BillPayerRow.kt`,
 reusing the add-expense `PayerSheet`) sits *below* the people, same order as the add-expense editor, and

@@ -9,7 +9,6 @@ import kotlin.test.assertTrue
 
 /** Pins when the free-scan meter appears and what it counts (`PRO_PASS_SPEC.md` §8.1). */
 class ScanMeterTest {
-
     private val free = ProStatus.Free
     private val pro = ProStatus(isPro = true, expiresAt = 9_999, purchasedBy = "u_sam", tier = "week_1")
 
@@ -57,5 +56,32 @@ class ScanMeterTest {
         assertNotNull(meter)
         assertEquals(0, meter.remaining)
         assertTrue(meter.isLow)
+    }
+
+    @Test
+    fun gateOpenWhileScansRemain() {
+        assertFalse(scansExhausted(free, used = 4, limit = 5))
+    }
+
+    @Test
+    fun gateClosesOnTheLastSpentScan() {
+        assertTrue(scansExhausted(free, used = 5, limit = 5))
+        // The overshoot case again: two concurrent scans both pass the server check.
+        assertTrue(scansExhausted(free, used = 7, limit = 5))
+    }
+
+    @Test
+    fun gateOpensTheMomentAPassLands() {
+        // The whole of "I paid and it still says I'm out": the count is untouched by a purchase, so
+        // nothing but the status can reopen the gate.
+        assertTrue(scansExhausted(free, used = 5, limit = 5))
+        assertFalse(scansExhausted(pro, used = 5, limit = 5))
+    }
+
+    @Test
+    fun gateStaysOpenUntilTheCountIsKnown() {
+        // Guessing "blocked" from an unfetched count would refuse a scan the group is entitled to. The
+        // server refuses the ones that really are spent.
+        assertFalse(scansExhausted(free, used = null, limit = 5))
     }
 }
