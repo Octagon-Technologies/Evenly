@@ -2,12 +2,15 @@ package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.todayUtc
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
@@ -16,13 +19,12 @@ import app.splitevenly.domain.settlement.NewSettlement
 import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.domain.settlement.buildDeepLink
 import app.splitevenly.platform.UrlOpener
+import app.splitevenly.ui.screen.group.dayLabel
 import app.splitevenly.ui.screen.settle.PeerPaymentHandle
 import app.splitevenly.ui.screen.settle.SettlePersonScreen
 import app.splitevenly.ui.screen.settle.SettleShareUi
 import app.splitevenly.ui.screen.settle.SettleSingleSheet
 import app.splitevenly.ui.screen.settle.appLabel
-import app.splitevenly.core.time.todayUtc
-import app.splitevenly.ui.screen.group.dayLabel
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import kotlin.time.Clock
@@ -37,7 +39,12 @@ import kotlin.time.ExperimentalTime
  */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun SettlePersonRoute(groupId: String, peerUserId: String, onBack: () -> Unit, onSettled: () -> Unit) {
+fun SettlePersonRoute(
+    groupId: String,
+    peerUserId: String,
+    onBack: () -> Unit,
+    onSettled: () -> Unit,
+) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
     val settlements = koinInject<SettlementRepository>()
@@ -57,16 +64,23 @@ fun SettlePersonRoute(groupId: String, peerUserId: String, onBack: () -> Unit, o
     val peerName = peer?.displayName ?: "Someone"
     val currency = group?.baseCurrency ?: "USD"
     // What the current user still owes this peer, per expense (oldest first) — the checkable settle list.
-    val shares = items
-        .filter { it.debtorUserId == userId && it.creditorUserId == peerId }
-        .map { SettleShareUi(it.expenseId.value, it.title, dayLabel(it.expenseDate, today), it.remainingSubunits) }
+    val shares =
+        items
+            .filter { it.debtorUserId == userId && it.creditorUserId == peerId }
+            .map { SettleShareUi(it.expenseId.value, it.title, dayLabel(it.expenseDate, today), it.remainingSubunits) }
     // The payee's real handles drive the "Pay with" choices; their preferred one is highlighted.
-    val handles = PaymentApp.entries.mapNotNull { app ->
-        peer?.paymentHandles?.get(app)?.let { PeerPaymentHandle(app, app.appLabel, it) }
-    }
+    val handles =
+        PaymentApp.entries.mapNotNull { app ->
+            peer?.paymentHandles?.get(app)?.let { PeerPaymentHandle(app, app.appLabel, it) }
+        }
 
     /** Records the payment, confined to the ticked expenses, optionally noting a confirmed deep link. */
-    fun record(amount: Long, app: PaymentApp?, linkConfirmed: Boolean, expenseIds: List<String>) {
+    fun record(
+        amount: Long,
+        app: PaymentApp?,
+        linkConfirmed: Boolean,
+        expenseIds: List<String>,
+    ) {
         val me = userId ?: return
         if (amount <= 0 || expenseIds.isEmpty()) return
         scope.launch {
@@ -113,7 +127,12 @@ fun SettlePersonRoute(groupId: String, peerUserId: String, onBack: () -> Unit, o
  * records directly. No-ops cleanly when the expense has an outside payer or nothing is owed.
  */
 @Composable
-fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, onSettled: () -> Unit) {
+fun SettleSingleRoute(
+    groupId: String,
+    expenseId: String,
+    onBack: () -> Unit,
+    onSettled: () -> Unit,
+) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
     val settlements = koinInject<SettlementRepository>()
@@ -127,6 +146,9 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    // Closing is driven by the sheet's own slide-out: the payment is recorded first, then this flips
+    // and [SettleSingleSheet] animates away, calling back when it's actually gone.
+    var settled by remember { mutableStateOf(false) }
 
     val ews = detail ?: return // brief blank scrim while the expense loads
     val e = ews.expense
@@ -134,13 +156,21 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
     val myRemaining = ews.shares.firstOrNull { it.userId == userId }?.remainingSubunits ?: 0L
     val payer = members.firstOrNull { it.userId == payerId }
     val payeeName = payer?.displayName ?: e.payerOutsideName ?: "Someone"
-    val handles = PaymentApp.entries.mapNotNull { app ->
-        payer?.paymentHandles?.get(app)?.let { PeerPaymentHandle(app, app.appLabel, it) }
-    }
+    val handles =
+        PaymentApp.entries.mapNotNull { app ->
+            payer?.paymentHandles?.get(app)?.let { PeerPaymentHandle(app, app.appLabel, it) }
+        }
 
-    fun record(amount: Long, app: PaymentApp?, linkConfirmed: Boolean) {
+    fun record(
+        amount: Long,
+        app: PaymentApp?,
+        linkConfirmed: Boolean,
+    ) {
         val me = userId ?: return
-        if (payerId == null || amount <= 0) { onSettled(); return }
+        if (payerId == null || amount <= 0) {
+            settled = true
+            return
+        }
         scope.launch {
             settlements.applySettlement(
                 NewSettlement(
@@ -158,7 +188,7 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
                     deepLinkSucceeded = if (app != null) linkConfirmed else null,
                 ),
             )
-            onSettled()
+            settled = true
         }
     }
 
@@ -168,7 +198,8 @@ fun SettleSingleRoute(groupId: String, expenseId: String, onBack: () -> Unit, on
         shareAmountSubunits = myRemaining,
         currency = e.currency,
         handles = handles,
-        onDismiss = onBack,
+        dismissRequested = settled,
+        onDismiss = { if (settled) onSettled() else onBack() },
         onOpenApp = { amount, app, handle ->
             buildDeepLink(app, handle, amount, group?.name ?: "Evenly", "expense").url?.let { urlOpener.open(it) }
         },

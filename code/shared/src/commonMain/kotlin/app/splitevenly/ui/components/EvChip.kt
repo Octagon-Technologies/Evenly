@@ -2,7 +2,6 @@ package app.splitevenly.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -163,7 +162,7 @@ fun EvParticipantChip(
                 .clip(CircleShape)
                 .background(if (selected) c.blue else c.surface)
                 .border(1.dp, if (selected) c.blue else c.border, CircleShape)
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .then(if (onClick != null) Modifier.clickableClearingFocus(onClick = onClick) else Modifier)
                 .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

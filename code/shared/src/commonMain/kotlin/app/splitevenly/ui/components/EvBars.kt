@@ -3,7 +3,6 @@ package app.splitevenly.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -97,7 +96,7 @@ fun EvIconButton(
     tint: Color = if (active) EvenlyTheme.colors.blue else EvenlyTheme.colors.ink,
 ) {
     Box(
-        modifier = modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
+        modifier = modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).clickableClearingFocus(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         EvIcon(icon, size = size, tint = tint)
@@ -298,7 +297,7 @@ fun EvSubTabs(
                     modifier =
                         Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable { onSelect(tab) }
+                            .clickableClearingFocus { onSelect(tab) }
                             .then(
                                 if (on) {
                                     Modifier.drawBehind {
@@ -351,7 +350,7 @@ fun EvSegmented(
                         .height(38.dp)
                         .clip(RoundedCornerShape(9.dp))
                         .then(if (on) Modifier.shadow(2.dp, RoundedCornerShape(9.dp)).background(c.page) else Modifier)
-                        .clickable { onSelect(opt) },
+                        .clickableClearingFocus { onSelect(opt) },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(

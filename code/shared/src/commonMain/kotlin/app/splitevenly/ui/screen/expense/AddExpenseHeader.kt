@@ -2,7 +2,6 @@ package app.splitevenly.ui.screen.expense
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +34,7 @@ import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvCheck
 import app.splitevenly.ui.components.EvParticipantChip
+import app.splitevenly.ui.components.clickableClearingFocus
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
@@ -70,13 +70,19 @@ internal fun ParticipantsField(
                 participants.forEach { p ->
                     val on = p.userId in selected
                     EvParticipantChip(
-                        p.name, selected = on,
+                        p.name,
+                        selected = on,
                         leading = { EvAvatar(p.name, me = p.isMe, size = AvatarSize.Xs) },
                         trailing = if (on) ({ EvIcon(EvIcons.Check, size = 14.dp) }) else null,
                         onClick = { onToggle(p.userId) },
                     )
                 }
-                EvParticipantChip("Add", selected = false, leading = { EvIcon(EvIcons.Plus, size = 15.dp, tint = c.blueText) }, onClick = onAddClick)
+                EvParticipantChip(
+                    "Add",
+                    selected = false,
+                    leading = { EvIcon(EvIcons.Plus, size = 15.dp, tint = c.blueText) },
+                    onClick = onAddClick,
+                )
             }
         }
         return
@@ -89,8 +95,14 @@ internal fun ParticipantsField(
         Text("Who's splitting this?", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         val rowShape = RoundedCornerShape(12.dp)
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(rowShape).background(c.page)
-                .border(1.dp, c.borderStrong, rowShape).clickable { expanded = !expanded }.padding(horizontal = 14.dp),
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .clip(rowShape)
+                .background(c.page)
+                .border(1.dp, c.borderStrong, rowShape)
+                .clickableClearingFocus { expanded = !expanded }
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -103,26 +115,44 @@ internal fun ParticipantsField(
         if (expanded) {
             EvCard {
                 Column {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
                             if (allOn) "Deselect all" else "Select all",
-                            color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                                .clickable { if (allOn) onDeselectAll() else onSelectAll() }
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            color = c.blueText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier =
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickableClearingFocus { if (allOn) onDeselectAll() else onSelectAll() }
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                         Box(Modifier.weight(1f))
                         Text(
-                            "Add", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onAddClick).padding(horizontal = 6.dp, vertical = 4.dp),
+                            "Add",
+                            color = c.blueText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier =
+                                Modifier
+                                    .clip(
+                                        RoundedCornerShape(8.dp),
+                                    ).clickableClearingFocus(onClick = onAddClick)
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                     }
                     Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
                         participants.forEachIndexed { i, p ->
                             val on = p.userId in selected
                             Row(
-                                Modifier.fillMaxWidth().then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
-                                    .clickable { onToggle(p.userId) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                                Modifier
+                                    .fillMaxWidth()
+                                    .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
+                                    .clickableClearingFocus { onToggle(p.userId) }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
@@ -137,4 +167,3 @@ internal fun ParticipantsField(
         }
     }
 }
-

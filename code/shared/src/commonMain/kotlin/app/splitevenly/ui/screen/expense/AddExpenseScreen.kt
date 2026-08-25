@@ -49,9 +49,11 @@ import app.splitevenly.ui.components.EvKeyboardDoneBar
 import app.splitevenly.ui.components.EvSelectField
 import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvTopBar
+import app.splitevenly.ui.components.clickableClearingFocus
 import app.splitevenly.ui.components.currencySymbol
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.components.imeAndDoneBarPadding
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ItemizedExpenseBody
@@ -61,6 +63,7 @@ import app.splitevenly.ui.screen.bill.ScanUiState
 import app.splitevenly.ui.screen.bill.priceToSubunits
 import app.splitevenly.ui.screen.bill.rememberItemizedBillState
 import app.splitevenly.ui.screen.group.CategoryCatalog
+import app.splitevenly.ui.screen.pro.OutOfScansSheet
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
 
@@ -115,6 +118,12 @@ fun AddExpenseScreen(
     // null in the unconfigured build, and the sheet then reads exactly as it did before.
     groupName: String? = null,
     onGetPro: (() -> Unit)? = null,
+    // True once the group's free scans are spent and it holds no pass. A scan tap is then refused HERE,
+    // before the file picker, instead of costing a photo and an upload to learn the same thing from the
+    // server's 402 (which stays as the fallback for the race this cannot see).
+    scanBlocked: Boolean = false,
+    // Opens the subscription paywall in place, over this editor. Null when RevenueCat is unconfigured.
+    onSeeSubscription: (() -> Unit)? = null,
     scanned: EditBillState? = null,
     // The pages that were scanned. They are a receipt in their own right, kept whatever the OCR made of
     // them, so they get the same strip (and the same viewer) as a hand-picked one.
@@ -170,6 +179,15 @@ fun AddExpenseScreen(
     var outsidePayerName by remember { mutableStateOf(prefill?.payerOutsideName) }
     var showPayerDialog by remember { mutableStateOf(false) }
     var showScanSource by remember { mutableStateOf(false) }
+    var showOutOfScans by remember { mutableStateOf(false) }
+    // A pass bought from the sheet clears the block, and the sheet has to go with it: left standing it
+    // would still be refusing a scan the group can now make.
+    LaunchedEffect(scanBlocked) { if (!scanBlocked) showOutOfScans = false }
+
+    /** Every route to the file picker goes through here, so the gate cannot be walked around. */
+    fun startScan(source: PickSource) {
+        if (scanBlocked) showOutOfScans = true else onScanReceipt(source)
+    }
 
     // Which body is showing. The choice is an up-front question: null = not yet chosen on a new expense
     // (show the chooser); an edit skips it and stays in its (divide) body.
@@ -293,7 +311,7 @@ fun AddExpenseScreen(
                         Modifier
                             .clip(RoundedCornerShape(11.dp))
                             .background(bg)
-                            .then(if (active) Modifier.clickable { submit() } else Modifier)
+                            .then(if (active) Modifier.clickableClearingFocus { submit() } else Modifier)
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
                 },
@@ -307,6 +325,9 @@ fun AddExpenseScreen(
                 Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
+                    // Before verticalScroll: shrinking the viewport (rather than padding the content) is
+                    // what makes the scroller's bring-into-view land a focused field above the Done bar.
+                    .imeAndDoneBarPadding()
                     .verticalScroll(scrollState)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -413,9 +434,11 @@ fun AddExpenseScreen(
                             showErrors = showErrors,
                             saving = saving,
                             saveLabel = "Save & assign items",
-                            onScanClick = { showScanSource = true },
+                            onScanSource = { source -> startScan(source) },
                             onSave = { submit() },
                             scanMeter = scanMeter,
+                            groupName = groupName,
+                            onGetPro = onGetPro,
                         )
                     } else {
                         DivideSplitBody(
@@ -497,7 +520,24 @@ fun AddExpenseScreen(
 
     // ── itemized scan sheets: source picker + progress/error, driven by the route's scan state ──
     if (showScanSource) {
-        ScanSourceSheet(onScan = onScanReceipt, onDismiss = { showScanSource = false })
+        ScanSourceSheet(onScan = { source -> startScan(source) }, onDismiss = { showScanSource = false })
+    }
+    if (showOutOfScans) {
+        OutOfScansSheet(
+            groupName = groupName,
+            onGetPass = {
+                showOutOfScans = false
+                onGetPro?.invoke()
+            },
+            onSeeSubscription =
+                onSeeSubscription?.let { see ->
+                    {
+                        showOutOfScans = false
+                        see()
+                    }
+                },
+            onManual = { showOutOfScans = false },
+        )
     }
     when (val s = scanState) {
         is ScanUiState.Working -> {

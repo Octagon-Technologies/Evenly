@@ -2,7 +2,6 @@ package app.splitevenly.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -32,7 +31,13 @@ import app.splitevenly.ui.theme.EvenlyTheme
 
 enum class ButtonVariant { Primary, Secondary, Tonal, Text, Danger, PrimarySolid }
 
-private data class BtnStyle(val bg: Color, val fg: Color, val border: Color, val borderWidth: Float, val elevation: Dp = 0.dp)
+private data class BtnStyle(
+    val bg: Color,
+    val fg: Color,
+    val border: Color,
+    val borderWidth: Float,
+    val elevation: Dp = 0.dp,
+)
 
 /** Slot-based `.sc-btn` — full control for buttons that hold a spinner/custom content. */
 @Composable
@@ -46,46 +51,78 @@ fun EvButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     val c = EvenlyTheme.colors
-    val style = when (variant) {
-        // Primary hero: a WHITE chip with bold blue text. The hairline does the edge definition, so the
-        // shadow only needs to *barely* whisper a lift — 1dp. Anything more reads as a hard grey halo on
-        // white and looks unrealistic; the border already separates it from the page. In dark mode `page`
-        // is the elevated near-ink surface, so it still reads as a lifted button.
-        ButtonVariant.Primary ->
-            if (enabled) BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
-            else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
-        // In dark mode a transparent bg + blue outline barely reads against the near-black page, so
-        // Secondary goes solid there (same treatment as PrimarySolid) instead of staying an outline.
-        ButtonVariant.Secondary ->
-            if (c.isDark) BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
-            else BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.2f)
-        // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button
-        // (distinct from the solid-blue Primary hero above it).
-        ButtonVariant.Tonal ->
-            if (enabled) BtnStyle(c.blueTint, c.blue, Color.Transparent, 0f)
-            else BtnStyle(c.blueTint, c.disabledInk, Color.Transparent, 0f)
-        ButtonVariant.Text -> BtnStyle(Color.Transparent, c.blue, Color.Transparent, 0f)
-        ButtonVariant.Danger -> BtnStyle(Color.Transparent, c.danger, c.danger.copy(alpha = 0.3f), 1f)
-        // Solid variants: for surfaces (like dark mode's near-black page) where the white-chip Primary
-        // and transparent Secondary don't read as buttons at all — a solid blue fill / blue hairline
-        // with white content instead.
-        ButtonVariant.PrimarySolid ->
-            if (enabled) BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
-            else BtnStyle(c.surface, c.disabledInk, c.border, 1f)
-    }
-    val height = when { small -> 40.dp; variant == ButtonVariant.Text -> 44.dp; else -> 52.dp }
+    val style =
+        when (variant) {
+            // Primary hero: a WHITE chip with bold blue text. The hairline does the edge definition, so the
+            // shadow only needs to *barely* whisper a lift — 1dp. Anything more reads as a hard grey halo on
+            // white and looks unrealistic; the border already separates it from the page. In dark mode `page`
+            // is the elevated near-ink surface, so it still reads as a lifted button.
+            ButtonVariant.Primary -> {
+                if (enabled) {
+                    BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
+                } else {
+                    BtnStyle(c.surface, c.disabledInk, c.border, 1f)
+                }
+            }
+
+            // In dark mode a transparent bg + blue outline barely reads against the near-black page, so
+            // Secondary goes solid there (same treatment as PrimarySolid) instead of staying an outline.
+            ButtonVariant.Secondary -> {
+                if (c.isDark) {
+                    BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
+                } else {
+                    BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.2f)
+                }
+            }
+
+            // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button
+            // (distinct from the solid-blue Primary hero above it).
+            ButtonVariant.Tonal -> {
+                if (enabled) {
+                    BtnStyle(c.blueTint, c.blue, Color.Transparent, 0f)
+                } else {
+                    BtnStyle(c.blueTint, c.disabledInk, Color.Transparent, 0f)
+                }
+            }
+
+            ButtonVariant.Text -> {
+                BtnStyle(Color.Transparent, c.blue, Color.Transparent, 0f)
+            }
+
+            ButtonVariant.Danger -> {
+                BtnStyle(Color.Transparent, c.danger, c.danger.copy(alpha = 0.3f), 1f)
+            }
+
+            // Solid variants: for surfaces (like dark mode's near-black page) where the white-chip Primary
+            // and transparent Secondary don't read as buttons at all — a solid blue fill / blue hairline
+            // with white content instead.
+            ButtonVariant.PrimarySolid -> {
+                if (enabled) {
+                    BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
+                } else {
+                    BtnStyle(c.surface, c.disabledInk, c.border, 1f)
+                }
+            }
+        }
+    val height =
+        when {
+            small -> 40.dp
+            variant == ButtonVariant.Text -> 44.dp
+            else -> 52.dp
+        }
     val shape = RoundedCornerShape(if (small) 6.dp else 8.dp)
     val autoWidth = small || variant == ButtonVariant.Text
     Row(
-        modifier = modifier
-            .then(if (!autoWidth && fillMaxWidth) Modifier.fillMaxWidth() else Modifier)
-            .height(height)
-            .then(if (style.elevation > 0.dp) Modifier.shadow(style.elevation, shape, clip = false) else Modifier)
-            .clip(shape)
-            .background(style.bg)
-            .then(if (style.borderWidth > 0f) Modifier.border(style.borderWidth.dp, style.border, shape) else Modifier)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = if (small) 14.dp else 20.dp),
+        modifier =
+            modifier
+                .then(if (!autoWidth && fillMaxWidth) Modifier.fillMaxWidth() else Modifier)
+                .height(height)
+                .then(if (style.elevation > 0.dp) Modifier.shadow(style.elevation, shape, clip = false) else Modifier)
+                .clip(shape)
+                .background(style.bg)
+                .then(if (style.borderWidth > 0f) Modifier.border(style.borderWidth.dp, style.border, shape) else Modifier)
+                .clickableClearingFocus(enabled = enabled, onClick = onClick)
+                .padding(horizontal = if (small) 14.dp else 20.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -113,11 +150,12 @@ fun EvButton(
             fontSize = if (small) 14.sp else 16.sp,
             // The white-chip Primary needs heavier weight so the blue label stays legible on white; the
             // solid variants go a step heavier still since white-on-blue/transparent needs it.
-            fontWeight = when (variant) {
-                ButtonVariant.Primary -> FontWeight.Bold
-                ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
-                else -> FontWeight.SemiBold
-            },
+            fontWeight =
+                when (variant) {
+                    ButtonVariant.Primary -> FontWeight.Bold
+                    ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
+                    else -> FontWeight.SemiBold
+                },
             letterSpacing = (-0.1).sp,
         )
     }
@@ -136,14 +174,15 @@ fun EvOAuthButton(
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(14.dp)
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clip(shape)
-            .background(c.page)
-            .border(1.dp, c.borderStrong, shape)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 20.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .height(54.dp)
+                .clip(shape)
+                .background(c.page)
+                .border(1.dp, c.borderStrong, shape)
+                .then(if (enabled) Modifier.clickableClearingFocus(onClick = onClick) else Modifier)
+                .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -156,21 +195,26 @@ fun EvOAuthButton(
  *  app tokens), the full-color "G" mark, and "Sign in with Google" wording — never tinted or relabeled
  *  like the generic [EvOAuthButton]. */
 @Composable
-fun EvGoogleSignInButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun EvGoogleSignInButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
     val isDark = EvenlyTheme.colors.isDark
     val bg = if (isDark) Color(0xFF131314) else Color(0xFFFFFFFF)
     val stroke = if (isDark) Color(0xFF8E918F) else Color(0xFF747775)
     val text = if (isDark) Color(0xFFE3E3E3) else Color(0xFF1F1F1F)
     val shape = RoundedCornerShape(14.dp)
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clip(shape)
-            .background(bg)
-            .border(1.dp, stroke, shape)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 20.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .height(54.dp)
+                .clip(shape)
+                .background(bg)
+                .border(1.dp, stroke, shape)
+                .then(if (enabled) Modifier.clickableClearingFocus(onClick = onClick) else Modifier)
+                .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -183,19 +227,24 @@ fun EvGoogleSignInButton(onClick: () -> Unit, modifier: Modifier = Modifier, ena
  *  (black on light surfaces, white on dark, for contrast) with the official Apple mark and "Sign in
  *  with Apple" wording, never the app's blue/ink palette like the generic [EvOAuthButton]. */
 @Composable
-fun EvAppleSignInButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun EvAppleSignInButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
     val isDark = EvenlyTheme.colors.isDark
     val bg = if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
     val content = if (isDark) Color(0xFF000000) else Color(0xFFFFFFFF)
     val shape = RoundedCornerShape(14.dp)
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clip(shape)
-            .background(bg)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 20.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .height(54.dp)
+                .clip(shape)
+                .background(bg)
+                .then(if (enabled) Modifier.clickableClearingFocus(onClick = onClick) else Modifier)
+                .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -215,16 +264,17 @@ fun EvFab(
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(16.dp)
     Row(
-        modifier = modifier
-            // Natural lift, no coloured halo: a soft neutral 2dp shadow. The blue-tinted glow read as a
-            // slab hovering off the page; a plain shadow settles it in (and simply blends on the dark page,
-            // where the solid-blue fill against black is lift enough).
-            .shadow(elevation = 2.dp, shape = shape)
-            .clip(shape)
-            .background(c.blue)
-            .clickable(onClick = onClick)
-            .height(48.dp)
-            .then(if (label == null) Modifier.width(48.dp) else Modifier.padding(horizontal = 16.dp)),
+        modifier =
+            modifier
+                // Natural lift, no coloured halo: a soft neutral 2dp shadow. The blue-tinted glow read as a
+                // slab hovering off the page; a plain shadow settles it in (and simply blends on the dark page,
+                // where the solid-blue fill against black is lift enough).
+                .shadow(elevation = 2.dp, shape = shape)
+                .clip(shape)
+                .background(c.blue)
+                .clickableClearingFocus(onClick = onClick)
+                .height(48.dp)
+                .then(if (label == null) Modifier.width(48.dp) else Modifier.padding(horizontal = 16.dp)),
         horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {

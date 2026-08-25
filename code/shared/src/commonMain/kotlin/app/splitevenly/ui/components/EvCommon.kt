@@ -1,6 +1,7 @@
 package app.splitevenly.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -25,26 +27,57 @@ import app.splitevenly.ui.theme.EvenlyTheme
  * a 1px hairline drawn along the top edge, inside the bounds. Applied to every list row except the
  * first, matching the `.sc-card` row stacks.
  */
-fun Modifier.topHairline(color: Color, thickness: Dp = 1.dp): Modifier = drawBehind {
-    val t = thickness.toPx()
-    drawLine(color = color, start = Offset(0f, t / 2f), end = Offset(size.width, t / 2f), strokeWidth = t)
+fun Modifier.topHairline(
+    color: Color,
+    thickness: Dp = 1.dp,
+): Modifier =
+    drawBehind {
+        val t = thickness.toPx()
+        drawLine(color = color, start = Offset(0f, t / 2f), end = Offset(size.width, t / 2f), strokeWidth = t)
+    }
+
+/**
+ * `clickable` that drops text-field focus first, so tapping a *different* control puts the keyboard
+ * away instead of leaving it covering whatever the tap just opened (a picker, an expanded list).
+ * Used by the shared tappable primitives so no screen has to remember it per control.
+ */
+@Composable
+fun Modifier.clickableClearingFocus(
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+): Modifier {
+    val focusManager = LocalFocusManager.current
+    return clickable(enabled = enabled) {
+        focusManager.clearFocus()
+        onClick()
+    }
 }
 
 /** `.sc-divider` — a 1px full-width rule. */
 @Composable
-fun EvDivider(modifier: Modifier = Modifier, color: Color = EvenlyTheme.colors.border) {
+fun EvDivider(
+    modifier: Modifier = Modifier,
+    color: Color = EvenlyTheme.colors.border,
+) {
     Box(modifier.fillMaxWidth().height(1.dp).background(color))
 }
 
 /** `.sc-dot` — the 8dp unread indicator. */
 @Composable
-fun EvDot(modifier: Modifier = Modifier, color: Color = EvenlyTheme.colors.blue, size: Dp = 8.dp) {
+fun EvDot(
+    modifier: Modifier = Modifier,
+    color: Color = EvenlyTheme.colors.blue,
+    size: Dp = 8.dp,
+) {
     Box(modifier.size(size).clip(CircleShape).background(color))
 }
 
 /** `.sc-section-label` — uppercase 12/600 +0.6 tracking, ink-3, used above cards/sections. */
 @Composable
-fun EvSectionLabel(text: String, modifier: Modifier = Modifier) {
+fun EvSectionLabel(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = text.uppercase(),
         modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),

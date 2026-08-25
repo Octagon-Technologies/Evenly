@@ -22,7 +22,6 @@ import app.splitevenly.ui.screen.home.HomeScreen
 import app.splitevenly.ui.screen.home.NewGroupSheet
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
 import app.splitevenly.ui.screen.settings.ProfileScreen
-import app.splitevenly.ui.screen.settle.DeepLinkConfirmSheet
 import app.splitevenly.ui.screen.settle.SettlePersonScreen
 
 /**
@@ -151,7 +150,6 @@ fun EvenlyNavHost(
                 groupId = r.groupId,
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
-                onSettleThis = { navController.navigate(Route.SettleExpense(r.groupId, r.expenseId)) },
                 onEdit = { navController.navigate(Route.EditExpense(r.groupId, r.expenseId)) },
                 onOpenClaim = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
                 onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
@@ -234,15 +232,6 @@ fun EvenlyNavHost(
         }
 
         // ── Settle ──────────────────────────────────────────────────────
-        composable<Route.SettleExpense> { entry ->
-            val r = entry.toRoute<Route.SettleExpense>()
-            SettleSingleRoute(
-                groupId = r.groupId,
-                expenseId = r.expenseId,
-                onBack = { navController.popBackStack() },
-                onSettled = { navController.popBackStack() },
-            )
-        }
         composable<Route.SettlePerson> { entry ->
             val r = entry.toRoute<Route.SettlePerson>()
             SettlePersonRoute(
@@ -250,14 +239,6 @@ fun EvenlyNavHost(
                 peerUserId = r.peerUserId,
                 onBack = { navController.popBackStack() },
                 onSettled = { navController.popBackStack() },
-            )
-        }
-        composable<Route.SettleConfirm> { entry ->
-            val r = entry.toRoute<Route.SettleConfirm>()
-            DeepLinkConfirmSheet(
-                handle = "@${r.payeeName.lowercase()}",
-                onDismiss = { navController.popBackStack() },
-                onYes = { navController.popBackStack() },
             )
         }
 

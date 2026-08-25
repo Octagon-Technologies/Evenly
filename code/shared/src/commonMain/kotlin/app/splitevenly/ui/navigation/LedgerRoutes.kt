@@ -17,6 +17,7 @@ import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
+import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.activity.HistoryEvent
@@ -34,6 +35,7 @@ import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.expense.TipSplitMode
 import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.pro.scanMeterFor
+import app.splitevenly.domain.pro.scansExhausted
 import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
@@ -142,6 +144,15 @@ fun AddExpenseRoute(
     val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
     LaunchedEffect(gid) { pro.refresh(gid.value) }
     val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
+    // Refuse the scan tap before the file picker rather than after the upload (PRO_PASS_SPEC.md §8.1).
+    val scanBlocked = proState?.let { scansExhausted(it.status, it.freeUsed, it.freeLimit) } == true
+    // Only reads the SERVER's pass row, so this fires once `activate-pass` has been pulled down: the
+    // buyer's refusal sheet clears itself instead of standing there over a group that is now Pro.
+    LaunchedEffect(scanBlocked) {
+        if (!scanBlocked && (scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
+            scanState = ScanUiState.Idle
+        }
+    }
     // Scan-funnel analytics bookkeeping: the source of the in-flight scan (for scan_started/scan_cancelled)
     // and its start time (for duration_ms). Neither is user-facing state, just event properties.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
@@ -264,14 +275,20 @@ fun AddExpenseRoute(
             }
     }
 
-    // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
-    // navigating away: the person is mid-expense, and leaving this screen to buy would lose the draft.
+    // Both Pro doors open IN PLACE (PRO_PASS_SPEC.md §8.1). The person is mid-expense, and a push
+    // disposes this editor underneath, which would lose the draft — so the pass sheet and the
+    // subscription paywall are hosted over it rather than navigated to.
     val proBilling = koinInject<ProBilling>()
     var showPassSheet by remember { mutableStateOf(false) }
+    var showPaywall by remember { mutableStateOf(false) }
+    // Absent in the offline/unconfigured build, same optional-dep pattern as uploadManager above.
+    val syncEngine = remember(koin) { koin.getOrNull<SyncEngine>() }
 
     AddExpenseScreen(
         groupName = group?.name,
         onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
+        scanBlocked = scanBlocked,
+        onSeeSubscription = if (proBilling.isAvailable) ({ showPaywall = true }) else null,
         participants = participants,
         categories = categories,
         currencyCode = currency,
@@ -452,11 +469,33 @@ fun AddExpenseRoute(
             groupId = gid.value,
             groupName = group?.name ?: "this group",
             trigger = ProTriggers.SCAN,
-            // No subscription link from inside an editor: leaving a half-typed bill to browse a
-            // recurring plan would lose the draft, and a link that costs someone their work is worse
-            // than one that isn't there. The Profile row is the door for that.
-            onSeeSubscription = null,
+            // The subscription link used to be null here, because reaching the paywall meant a push and
+            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
+            // real and the half-typed expense is still there when it closes.
+            onSeeSubscription = {
+                showPassSheet = false
+                showPaywall = true
+            },
             onDismiss = { showPassSheet = false },
+        )
+    }
+
+    if (showPaywall) {
+        ProPaywallHost(
+            trigger = ProTriggers.SCAN,
+            onWantsPass = {
+                showPaywall = false
+                showPassSheet = true
+            },
+            onDismiss = {
+                showPaywall = false
+                // A subscription lands server-side too (`sync-subscriber`), and `user_subscriptions` is
+                // pull-only, so the gate only reopens once that row is here.
+                scope.launch {
+                    userId?.let { uid -> syncEngine?.syncNow(uid.value) }
+                    pro.refresh(gid.value)
+                }
+            },
         )
     }
 }
@@ -530,14 +569,16 @@ fun EditExpenseRoute(
             )
         }
 
-    // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
-    // navigating away: the person is mid-expense, and leaving this screen to buy would lose the draft.
+    // Both Pro doors open IN PLACE (PRO_PASS_SPEC.md §8.1): a push disposes this editor underneath and
+    // would take the in-progress edit with it.
     val proBilling = koinInject<ProBilling>()
     var showPassSheet by remember { mutableStateOf(false) }
+    var showPaywall by remember { mutableStateOf(false) }
 
     AddExpenseScreen(
         groupName = group?.name,
         onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
+        onSeeSubscription = if (proBilling.isAvailable) ({ showPaywall = true }) else null,
         editing = true,
         participants = participants,
         categories = categories,
@@ -607,11 +648,25 @@ fun EditExpenseRoute(
             groupId = gid.value,
             groupName = group?.name ?: "this group",
             trigger = ProTriggers.SCAN,
-            // No subscription link from inside an editor: leaving a half-typed bill to browse a
-            // recurring plan would lose the draft, and a link that costs someone their work is worse
-            // than one that isn't there. The Profile row is the door for that.
-            onSeeSubscription = null,
+            // The subscription link used to be null here, because reaching the paywall meant a push and
+            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
+            // real and the half-typed expense is still there when it closes.
+            onSeeSubscription = {
+                showPassSheet = false
+                showPaywall = true
+            },
             onDismiss = { showPassSheet = false },
+        )
+    }
+
+    if (showPaywall) {
+        ProPaywallHost(
+            trigger = ProTriggers.SCAN,
+            onWantsPass = {
+                showPaywall = false
+                showPassSheet = true
+            },
+            onDismiss = { showPaywall = false },
         )
     }
 }
@@ -626,7 +681,6 @@ fun ExpenseDetailRoute(
     groupId: String,
     expenseId: String,
     onBack: () -> Unit,
-    onSettleThis: () -> Unit,
     onEdit: () -> Unit = {},
     // Where "Edit" goes for an ITEMIZED bill — the live claim screen, not the percent/exact/even editor
     // (which is meaningless when the split is derived from items). Wired to Route.ClaimBill.
@@ -670,6 +724,9 @@ fun ExpenseDetailRoute(
     }.collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
+    // Settling one expense is an overlay on this screen, not a destination: pushing it as a route
+    // left the detail unrendered behind the sheet, so the sheet floated over a blank page.
+    var settleSheetOpen by remember { mutableStateOf(false) }
 
     val ews = detail
     if (ews == null) {
@@ -788,7 +845,7 @@ fun ExpenseDetailRoute(
         loadPdfPageCount = { url -> getPdfBytes(url)?.let { rasterizer.pageCount(it) } ?: 0 },
         renderPdfPage = { url, page, w -> getPdfBytes(url)?.let { rasterizer.renderPage(it, page, w) } },
         onBack = onBack,
-        onSettleThis = onSettleThis,
+        onSettleThis = { settleSheetOpen = true },
         onEditPayment = { id, amount -> scope.launch { settlements.editSettlement(SettlementId(id), amount, userId) } },
         onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
         // A plain expense edits via the percent/exact/even editor. An itemized bill splits two ways: the
@@ -800,6 +857,15 @@ fun ExpenseDetailRoute(
         onDismissSupersededNotice = { scope.launch { expenses.dismissSupersededNotice(eid) } },
         onDelete = { scope.launch { if (expenses.deleteExpense(eid) is AppResult.Ok) onDeleted() } },
     )
+
+    if (settleSheetOpen) {
+        SettleSingleRoute(
+            groupId = groupId,
+            expenseId = expenseId,
+            onBack = { settleSheetOpen = false },
+            onSettled = { settleSheetOpen = false },
+        )
+    }
 }
 
 /**

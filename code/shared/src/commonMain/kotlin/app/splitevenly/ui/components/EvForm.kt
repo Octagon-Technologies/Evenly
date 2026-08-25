@@ -3,7 +3,6 @@ package app.splitevenly.ui.components
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -176,7 +175,7 @@ fun EvSelectField(
                 .clip(shape)
                 .background(c.page)
                 .border(1.dp, c.borderStrong, shape)
-                .clickable(onClick = onClick)
+                .clickableClearingFocus(onClick = onClick)
                 .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -202,7 +201,7 @@ fun EvToggle(
                 .size(width = 48.dp, height = 30.dp)
                 .clip(CircleShape)
                 .background(if (checked) c.blue else c.borderStrong)
-                .clickable { onCheckedChange(!checked) },
+                .clickableClearingFocus { onCheckedChange(!checked) },
     ) {
         Box(
             Modifier
@@ -228,7 +227,7 @@ fun EvRadio(
                 .size(22.dp)
                 .clip(CircleShape)
                 .then(if (selected) Modifier.background(c.blue) else Modifier.border(2.dp, c.borderStrong, CircleShape))
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+                .then(if (onClick != null) Modifier.clickableClearingFocus(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(c.page))
@@ -250,7 +249,7 @@ fun EvCheck(
                 .size(24.dp)
                 .clip(shape)
                 .then(if (checked) Modifier.background(c.blue) else Modifier.border(2.dp, c.borderStrong, shape))
-                .then(if (onCheckedChange != null) Modifier.clickable { onCheckedChange(!checked) } else Modifier),
+                .then(if (onCheckedChange != null) Modifier.clickableClearingFocus { onCheckedChange(!checked) } else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         if (checked) EvIcon(EvIcons.Check, size = 16.dp, tint = c.onAccent)

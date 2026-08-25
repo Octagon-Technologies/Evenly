@@ -13,6 +13,7 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.data.remote.revenuecat.ActivationOutcome
 import app.splitevenly.data.remote.revenuecat.ProConfig
+import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.repository.PassPurchaseResult
 import app.splitevenly.data.repository.ProPurchaseCoordinator
 import app.splitevenly.domain.auth.AuthSession
@@ -45,6 +46,7 @@ import app.splitevenly.ui.screen.pro.ProSubscribedScreen
 import app.splitevenly.ui.screen.pro.ProUnavailableScreen
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -134,62 +136,10 @@ fun ProRoute(
             // Same event, same properties as the pass sheet, separated only by `surface`. One PostHog
             // funnel then spans both doors, which is the whole point: routing the scan gate to our own
             // sheet is only defensible if the comparison between the two doors stays answerable.
-            val paywallBase =
-                ProFunnel.base(
-                    surface = ProFunnel.Surface.RC_PAYWALL,
-                    kind = ProFunnel.Kind.SUBSCRIPTION,
-                    trigger = trigger,
-                    groupId = null,
-                    variant = null,
-                )
-            LaunchedEffect(trigger) {
-                analytics.capture(
-                    AnalyticsEvents.PRO_OFFER_SHOWN,
-                    ProFunnel.offerShown(
-                        base = paywallBase,
-                        // RevenueCat's paywall renders its own packages and does not report them to us,
-                        // so the offering id is what identifies the offer set. Recorded as such rather
-                        // than left blank, or the two surfaces stop being comparable at the impression.
-                        productIds = emptyList(),
-                        currency = null,
-                        preselectedProductId = null,
-                        bestValueProductId = null,
-                        mode = "subscription",
-                        scansUsed = null,
-                    ),
-                )
-            }
-            ProPaywallScreen(
-                // Null means "the current offering", which is what the dashboard's own placement rules
-                // decide. Naming ours here would take the placement decision away from the console.
-                offering = null,
-                onDismiss = {
-                    analytics.capture(
-                        AnalyticsEvents.PRO_OFFER_DISMISSED,
-                        ProFunnel.offerDismissed(paywallBase, hadSelection = false),
-                    )
-                    onBack()
-                },
-                // RevenueCat says a purchase happened; the server still decides who is Pro, so the only
-                // thing done here is asking the server to re-read this subscriber.
-                onPurchased = { txn ->
-                    // RevenueCat does not hand us the price on this callback, so the amount is absent
-                    // rather than guessed; revenue for the subscription door comes from their dashboard,
-                    // which is authoritative for it. The step still lands in the same funnel.
-                    analytics.capture(
-                        AnalyticsEvents.PURCHASE_ACTIVATED,
-                        paywallBase +
-                            mapOf(
-                                "product_id" to txn.productIds.firstOrNull().orEmpty(),
-                                "stacked" to false,
-                            ),
-                    )
-                    scope.launch { purchases.syncSubscriber() }
-                },
-                onRestored = { scope.launch { purchases.syncSubscriber() } },
-                onWantsOneTrip = onPickGroupForPass,
-                onTerms = { urlOpener.open("https://split-evenly.app/terms") },
-                onPrivacy = { urlOpener.open("https://split-evenly.app/privacy") },
+            ProPaywallHost(
+                trigger = trigger,
+                onWantsPass = onPickGroupForPass,
+                onDismiss = onBack,
             )
         }
     }
@@ -270,6 +220,9 @@ fun PassSheetHost(
     val analytics = koinInject<EvAnalytics>()
     val flags = koinInject<FeatureFlags>()
     val urlOpener = koinInject<UrlOpener>()
+    val koin = getKoin()
+    // Absent in the offline/unconfigured build, same optional-dep pattern as everywhere else.
+    val syncEngine = remember(koin) { koin.getOrNull<SyncEngine>() }
     val scope = rememberCoroutineScope()
 
     // The remote-design surface RevenueCat's editor gives the subscription paywall and cannot give a
@@ -312,6 +265,11 @@ fun PassSheetHost(
     val members by remember(groupId) { groups.observeMembers(GroupId(groupId)) }
         .collectAsStateWithLifecycle(emptyList())
     val payerName = members.firstOrNull { it.userId.value == proState?.status?.purchasedBy }?.displayName
+
+    /** Pull the server-owned pass row down, so "Pro" is true locally the moment the sheet closes. */
+    suspend fun pullPass() {
+        userId?.let { uid -> syncEngine?.syncNow(uid.value) }
+    }
 
     val status = proState?.status
     val mode =
@@ -450,6 +408,12 @@ fun PassSheetHost(
                                     stacked = status?.isPro == true,
                                 ),
                             )
+                            // `activate-pass` inserts the row SERVER-side, and `group_passes` is
+                            // pull-only (SyncEngine), so without this the buyer sits on a screen still
+                            // saying "out of free scans" until the next pull happens to run. Awaited
+                            // while the sheet is still up rather than launched into a scope that dies
+                            // with it: the sheet closing IS the promise that the group is Pro now.
+                            pullPass()
                             PassSheetPhase.Idle.also { onDismiss() }
                         }
 
@@ -503,7 +467,12 @@ fun PassSheetHost(
                     purchases
                         .retryPendingActivation(groupId)
                         .toSheetPhase()
-                        .also { if (it == PassSheetPhase.Idle) onDismiss() }
+                        .also {
+                            if (it == PassSheetPhase.Idle) {
+                                pullPass()
+                                onDismiss()
+                            }
+                        }
             }
         },
         onContactSupport = { urlOpener.open(PASS_SUPPORT_MAILTO) },
@@ -541,3 +510,90 @@ internal fun ActivationOutcome.toSheetPhase(): PassSheetPhase =
         is ActivationOutcome.Retryable -> PassSheetPhase.Charged
         is ActivationOutcome.Refused -> PassSheetPhase.ChargedRefused
     }
+
+/**
+ * RevenueCat's subscription paywall, wired, and **hostable anywhere** (`PRO_PASS_SPEC.md` §8.2).
+ *
+ * It exists as a host rather than only as a destination because the editors need it *without a
+ * navigation*. A push disposes the editor underneath (see `ui/AGENTS.md`), which is why the pass sheet's
+ * "See Evenly Pro" link used to be null inside one: leaving a half-typed bill to browse a subscription
+ * lost the draft. Rendered in place, over the editor, the draft is simply still there when the paywall
+ * closes, so the link can be real on every surface.
+ *
+ * Full-screen and opaque, so hosting it is a matter of composing it last; it is not a sheet.
+ */
+@Composable
+fun ProPaywallHost(
+    /** One of [ProTriggers]; carried through from whichever surface opened this. */
+    trigger: String,
+    /** The one exit the paywall itself offers: "only need it for one trip?" */
+    onWantsPass: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val purchases = koinInject<ProPurchaseCoordinator>()
+    val analytics = koinInject<EvAnalytics>()
+    val urlOpener = koinInject<UrlOpener>()
+    val scope = rememberCoroutineScope()
+
+    // `offering_id` is what makes a RevenueCat experiment readable on our side too, not only in their
+    // dashboard. Same event, same properties as the pass sheet, separated only by `surface`. One PostHog
+    // funnel then spans both doors, which is the whole point: routing the scan gate to our own sheet is
+    // only defensible if the comparison between the two doors stays answerable.
+    val paywallBase =
+        ProFunnel.base(
+            surface = ProFunnel.Surface.RC_PAYWALL,
+            kind = ProFunnel.Kind.SUBSCRIPTION,
+            trigger = trigger,
+            groupId = null,
+            variant = null,
+        )
+    LaunchedEffect(trigger) {
+        analytics.capture(
+            AnalyticsEvents.PRO_OFFER_SHOWN,
+            ProFunnel.offerShown(
+                base = paywallBase,
+                // RevenueCat's paywall renders its own packages and does not report them to us, so the
+                // offering id is what identifies the offer set. Recorded as such rather than left blank,
+                // or the two surfaces stop being comparable at the impression.
+                productIds = emptyList(),
+                currency = null,
+                preselectedProductId = null,
+                bestValueProductId = null,
+                mode = "subscription",
+                scansUsed = null,
+            ),
+        )
+    }
+    ProPaywallScreen(
+        // Null means "the current offering", which is what the dashboard's own placement rules decide.
+        // Naming ours here would take the placement decision away from the console.
+        offering = null,
+        onDismiss = {
+            analytics.capture(
+                AnalyticsEvents.PRO_OFFER_DISMISSED,
+                ProFunnel.offerDismissed(paywallBase, hadSelection = false),
+            )
+            onDismiss()
+        },
+        // RevenueCat says a purchase happened; the server still decides who is Pro, so the only thing
+        // done here is asking the server to re-read this subscriber.
+        onPurchased = { txn ->
+            // RevenueCat does not hand us the price on this callback, so the amount is absent rather
+            // than guessed; revenue for the subscription door comes from their dashboard, which is
+            // authoritative for it. The step still lands in the same funnel.
+            analytics.capture(
+                AnalyticsEvents.PURCHASE_ACTIVATED,
+                paywallBase +
+                    mapOf(
+                        "product_id" to txn.productIds.firstOrNull().orEmpty(),
+                        "stacked" to false,
+                    ),
+            )
+            scope.launch { purchases.syncSubscriber() }
+        },
+        onRestored = { scope.launch { purchases.syncSubscriber() } },
+        onWantsOneTrip = onWantsPass,
+        onTerms = { urlOpener.open("https://split-evenly.app/terms") },
+        onPrivacy = { urlOpener.open("https://split-evenly.app/privacy") },
+    )
+}
