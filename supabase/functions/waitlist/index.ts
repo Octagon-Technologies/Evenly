@@ -14,6 +14,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callerIp, isRateLimited, recordSubmission } from "../_shared/rateLimit.ts";
+import { sendWaitlistEmail } from "../_shared/email.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -73,12 +74,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // `ignoreDuplicates` makes a repeat signup succeed silently rather than 409. The page cannot tell
   // the difference and should not: telling a visitor "you are already on the list" turns the form
   // into an account-existence oracle for any address someone wants to test.
-  const { error } = await supabase
+  //
+  // `.select()` is why this can tell a genuine signup from a resubmit: `ON CONFLICT DO NOTHING`
+  // returns a row only for what it actually inserted, never the pre-existing one it skipped. Without
+  // it, resubmitting the form (a double-tap, a second visit) would re-send the waitlist email every
+  // time.
+  const { data: inserted, error } = await supabase
     .from("waitlist_signups")
     .upsert(
       { email, email_norm: normalize(email), source },
       { onConflict: "email_norm", ignoreDuplicates: true },
-    );
+    )
+    .select("email");
 
   if (error) {
     console.error("waitlist insert failed", error.message);
@@ -87,6 +94,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   // Best-effort, after the row is safe: a failed log must not undo a signup that already succeeded.
   await recordSubmission(supabase, "waitlist", principal);
+
+  // Best-effort and inert until `RESEND_API_KEY` is set (see `_shared/email.ts`) — never blocks or
+  // fails the signup itself.
+  if (inserted && inserted.length > 0) {
+    await sendWaitlistEmail(email);
+  }
 
   return json({ ok: true });
 });
