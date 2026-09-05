@@ -68,6 +68,7 @@ fun ProStatusRow(
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     val shape = RoundedCornerShape(14.dp)
     val isPro = status is ProStatusUi.ViaPass || status is ProStatusUi.ViaSubscription
     val title = when (status) {
@@ -113,16 +114,16 @@ fun ProStatusRow(
                 .background(if (isPro) c.blueTint else c.page),
             contentAlignment = Alignment.Center,
         ) {
-            EvIcon(EvIcons.Star, size = 17.dp, tint = if (isPro) c.blueText else c.ink3)
+            EvIcon(EvIcons.Star, size = 19.dp, tint = if (isPro) c.blueText else c.ink3)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = c.ink, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
-            Text(sub, color = c.ink2, fontSize = 12.5.sp)
+            Text(title, style = t.itemTitle)
+            Text(sub, style = t.description)
         }
         if (isPro) {
-            Text("PRO", color = c.blueText, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+            Text("PRO", style = t.badge.copy(color = c.blueText))
         } else {
-            EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)
+            EvIcon(EvIcons.ChevR, size = 17.dp, tint = c.ink3)
         }
     }
 }

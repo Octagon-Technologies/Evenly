@@ -113,6 +113,7 @@ fun GroupSettingsScreen(
     onDelete: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     var reminder by remember { mutableStateOf("Weekly") }
     var showAdd by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
@@ -143,8 +144,7 @@ fun GroupSettingsScreen(
             Text(
                 "Changing base currency re-converts past expenses at today's rate.",
                 modifier = Modifier.offset(y = (-8).dp).padding(horizontal = 4.dp),
-                color = c.ink2,
-                fontSize = 12.sp,
+                style = t.caption,
             )
 
             // ── Share group ────────────────────────────────────
@@ -165,12 +165,10 @@ fun GroupSettingsScreen(
                             EvIcon(EvIcons.Qr, size = 40.dp, tint = c.ink)
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Invite link", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Invite link", style = t.itemTitle)
                             Text(
                                 inviteLink,
-                                color = c.ink2,
-                                fontSize = 12.sp,
-                                fontFamily = EvenlyTheme.monoFamily,
+                                style = t.caption.copy(color = c.ink2, fontFamily = EvenlyTheme.monoFamily),
                             )
                         }
                     }
@@ -227,8 +225,8 @@ fun GroupSettingsScreen(
                     ) {
                         EvAvatar(m.name, me = m.isMe, size = AvatarSize.Sm)
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Text(m.name, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            if (m.isMe) Text(" · you", color = c.ink2, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text(m.name, style = t.itemTitle)
+                            if (m.isMe) Text(" · you", style = t.itemTitle.copy(color = c.ink2, fontWeight = FontWeight.Medium))
                         }
                         if (m.role.isNotEmpty()) {
                             EvChip(
@@ -255,7 +253,7 @@ fun GroupSettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     EvIcon(EvIcons.Plus, size = 18.dp, tint = c.blueText)
-                    Text("Add member", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Add member", style = t.itemTitle.copy(color = c.blueText))
                 }
             }
 
@@ -273,7 +271,7 @@ fun GroupSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text(r, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text(r, style = t.itemTitle, modifier = Modifier.weight(1f))
                         EvRadio(selected = reminder == r)
                     }
                 }
@@ -293,12 +291,10 @@ fun GroupSettingsScreen(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "Receipts & images",
-                            color = c.ink,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = t.itemTitle,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("${formatBytes(storageUsedBytes)} used", color = c.ink2, fontSize = 12.sp, fontFamily = EvenlyTheme.monoFamily)
+                        Text("${formatBytes(storageUsedBytes)} used", style = t.caption.copy(color = c.ink2, fontFamily = EvenlyTheme.monoFamily))
                     }
                 }
             }
@@ -355,7 +351,7 @@ fun GroupSettingsScreen(
         var name by remember { mutableStateOf("") }
         var addToPast by remember { mutableStateOf(false) }
         EvModalScaffold(onDismiss = { showAdd = false }) {
-            Text("Add a member", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            Text("Add a member", style = t.sheetTitle, modifier = Modifier.padding(bottom = 12.dp))
             EvField("Name") { EvTextField(name, { name = it }, placeholder = "e.g. Tyler") }
             Row(
                 Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -363,8 +359,8 @@ fun GroupSettingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Add to all past expenses", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Even splits update automatically; others become conflicts to resolve.", color = c.ink2, fontSize = 12.sp)
+                    Text("Add to all past expenses", style = t.itemTitle)
+                    Text("Even splits update automatically; others become conflicts to resolve.", style = t.caption)
                 }
                 EvToggle(addToPast, { addToPast = it })
             }
@@ -383,7 +379,7 @@ fun GroupSettingsScreen(
         var draft by remember { mutableStateOf(groupName) }
         var draftEmoji by remember { mutableStateOf(groupEmoji) }
         EvModalScaffold(onDismiss = { showRename = false }) {
-            Text("Emoji & name", color = c.ink, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+            Text("Emoji & name", style = t.sheetTitle, modifier = Modifier.padding(bottom = 12.dp))
             EvField("Emoji") { EvEmojiPicker(selected = draftEmoji, onSelect = { draftEmoji = it }) }
             Spacer(Modifier.height(16.dp))
             EvField("Name") { EvTextField(draft, { draft = it }, placeholder = "Group name") }
@@ -418,12 +414,10 @@ fun GroupSettingsScreen(
         EvModalScaffold(onDismiss = { removeTarget = null }) {
             Text(
                 "Remove ${target.name}?",
-                color = c.ink,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
+                style = t.sheetTitle,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
-            Text("They'll be removed from the group. Their past expenses and balances stay intact.", color = c.ink2, fontSize = 13.sp)
+            Text("They'll be removed from the group. Their past expenses and balances stay intact.", style = t.description)
             Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                 EvButton("Remove", {
                     onRemoveMember(target)
@@ -506,12 +500,13 @@ private fun DeleteGroupSheet(
     onConfirm: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     var typed by remember { mutableStateOf("") }
     var showMismatch by remember { mutableStateOf(false) }
     val matches = typed.trim().equals(groupName.trim(), ignoreCase = true)
 
     EvModalScaffold(onDismiss = onDismiss) {
-        Text("Delete $groupName?", color = c.ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Delete $groupName?", style = t.sheetTitle)
         Text(
             // Falls back to the count-free wording rather than printing "all 0 members" in the window
             // between the sheet opening and the counts landing. A confirmation that states a visibly
@@ -522,8 +517,7 @@ private fun DeleteGroupSheet(
             } else {
                 "This deletes the group for everyone in it, not just you."
             },
-            color = c.ink2,
-            fontSize = 13.5.sp,
+            style = t.description,
             modifier = Modifier.padding(top = 6.dp),
         )
 
@@ -565,9 +559,7 @@ private fun DeleteGroupSheet(
 
         Text(
             "Type $groupName to confirm",
-            color = c.ink2,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
+            style = t.fieldLabel,
             modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
         )
         EvTextField(
@@ -588,7 +580,7 @@ private fun DeleteGroupSheet(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 EvIcon(EvIcons.Alert, size = 14.dp, tint = c.danger)
-                Text("That does not match. Type $groupName exactly.", color = c.danger, fontSize = 12.5.sp)
+                Text("That does not match. Type $groupName exactly.", style = t.caption.copy(color = c.danger))
             }
         }
 
@@ -612,9 +604,10 @@ private fun ImpactLine(
     tint: Color = EvenlyTheme.colors.ink3,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         EvIcon(icon, size = 15.dp, tint = tint, modifier = Modifier.padding(top = 2.dp))
-        Text(text, color = c.ink2, fontSize = 13.sp, lineHeight = 18.sp)
+        Text(text, style = t.description)
     }
 }
 
@@ -636,6 +629,7 @@ private fun SettingsRow(
     onClick: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     val fg = if (danger) c.danger else c.ink
     Row(
         modifier =
@@ -650,10 +644,10 @@ private fun SettingsRow(
     ) {
         icon?.let { EvIcon(it, size = 20.dp, tint = if (danger) c.danger else c.ink2) }
         Column(Modifier.weight(1f)) {
-            Text(label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Start)
-            subtitle?.let { Text(it, color = c.ink2, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 2.dp)) }
+            Text(label, style = t.rowTitle.copy(color = fg), textAlign = TextAlign.Start)
+            subtitle?.let { Text(it, style = t.caption, modifier = Modifier.padding(top = 2.dp)) }
         }
-        value?.let { Text(it, color = c.ink2, fontSize = 14.sp) }
+        value?.let { Text(it, style = t.rowValue) }
         if (!danger && showChevron) EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)
     }
 }

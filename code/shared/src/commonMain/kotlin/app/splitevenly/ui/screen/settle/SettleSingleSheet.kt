@@ -140,7 +140,6 @@ fun SettleSingleSheet(
                     EvButton(
                         "Yes, mark paid",
                         { onConfirmPaid(enteredSubunits, sel.app) },
-                        leadingIcon = EvIcons.Check,
                         enabled = amountValid,
                     )
                     EvButton("Not yet", { awaitingConfirm = false }, variant = ButtonVariant.Tonal)
@@ -153,7 +152,7 @@ fun SettleSingleSheet(
                     }
                     EvButton("Mark paid manually", {
                         onMarkPaid(enteredSubunits)
-                    }, variant = ButtonVariant.Tonal, leadingIcon = EvIcons.Check, enabled = amountValid)
+                    }, variant = ButtonVariant.Tonal, enabled = amountValid)
                 }
             }
         }

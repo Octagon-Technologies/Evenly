@@ -303,8 +303,8 @@ private fun TotalsBar(totals: List<Pair<ClaimParticipantUi, Long>>, currency: St
                         horizontalArrangement = Arrangement.spacedBy(9.dp),
                     ) {
                         EvAvatar(p.name, me = p.isMe, size = AvatarSize.Xs)
-                        Text(if (p.isMe) "You" else p.name, color = if (p.isMe) c.blue else c.ink, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Text(moneySubunits(amount, currency), color = if (p.isMe) c.blue else c.ink2, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, fontFamily = EvenlyTheme.monoFamily)
+                        Text(if (p.isMe) "You" else p.name, color = if (p.isMe) c.blueText else c.ink, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text(moneySubunits(amount, currency), color = if (p.isMe) c.blueText else c.ink2, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, fontFamily = EvenlyTheme.monoFamily)
                     }
                 }
             }

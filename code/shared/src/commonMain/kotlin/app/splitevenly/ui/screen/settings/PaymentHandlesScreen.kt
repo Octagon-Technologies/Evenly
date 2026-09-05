@@ -115,7 +115,6 @@ fun PaymentHandlesScreen(
                         checked = true
                         if (paymentHandlesAreSaveable(values)) onSave(values, effectivePreferred)
                     },
-                    leadingIcon = EvIcons.Check,
                     enabled = !saving,
                 )
             }

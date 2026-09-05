@@ -236,7 +236,6 @@ fun SettlePersonScreen(
                             "Mark as paid",
                             { onMarkPaid(payAmount, selectedIds) },
                             variant = if (chosen == null) ButtonVariant.Primary else ButtonVariant.Tonal,
-                            leadingIcon = EvIcons.Check,
                             enabled = payValid,
                         )
                         Text(

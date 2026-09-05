@@ -101,7 +101,7 @@ fun NewGroupSheet(
             }
         }
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            EvButton("Create group", { onCreate(name, sel, currency) }, leadingIcon = EvIcons.Check)
+            EvButton("Create group", { onCreate(name, sel, currency) })
         }
     }
 

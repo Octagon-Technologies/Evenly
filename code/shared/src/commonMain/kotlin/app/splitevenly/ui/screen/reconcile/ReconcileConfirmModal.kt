@@ -112,7 +112,7 @@ fun ReconcileConfirmModal(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                EvButton("Yes, that's me", onConfirm, leadingIcon = EvIcons.Check)
+                EvButton("Yes, that's me", onConfirm)
                 EvButton(
                     "Cancel",
                     onCancel,

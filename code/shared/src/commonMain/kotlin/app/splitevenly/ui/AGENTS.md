@@ -172,6 +172,16 @@ explains rather than doing nothing. Every path to the picker goes through the sc
 including the failed-scan sheet's "try a new photo" — a second route to the picker is a second way past
 the gate.
 
+**The camera goes through `CameraPermissionGate`, never straight to the picker.** `rememberCameraPermissionGate()`
+at the top of a route wrapper, every camera-capable source handler passed through `gate.wrap { ... }`, and
+`CameraPermissionGateHost(gate)` **last** in the function, beside `PassSheet`/`ProPaywallHost` (an overlay
+emitted before the screen draws underneath it). Only `PickSource.Camera` is intercepted. The sheet is
+deliberately **undimmed**: the scan card stays legible behind it, so it reads as part of the screen rather
+than a trap door. Both halves of the drawn system dialog are live and do what they depict, because a drawing
+of a button that swallows taps is the dead end the gate exists to remove. Four entry points across
+`LedgerRoutes`/`BillRoutes` share it; a fifth that skips it is an iOS-only grey-viewfinder bug that Android
+testing cannot surface. See `../platform/AGENTS.md`.
+
 **The scan card carries its three sources** (`ItemizedExpenseBody`). Tapping it used to open
 `ScanSourceSheet` and only then the OS picker, which is two taps and a sheet between "scan this" and a
 camera. That sheet still exists for the failed-scan re-pick path; the card does not use it.

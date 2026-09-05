@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -65,7 +68,7 @@ fun MagicLinkScreen(
 
         if (state == MagicLinkState.Sent) {
             Column(
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth().keyboardAwareBody().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -91,7 +94,7 @@ fun MagicLinkScreen(
             }
         } else {
             Column(
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth().keyboardAwareBody().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -129,6 +132,18 @@ fun MagicLinkScreen(
         }
     }
 }
+
+/**
+ * Ends the body above the software keyboard and lets it scroll if what is left is too short.
+ *
+ * Both states put their submit button *below* a focused field ("Email me a code" under the address,
+ * "Verify & sign in" under the code), so without the ime inset the keyboard covers the only way
+ * forward. `imePadding` before `verticalScroll` shrinks the viewport rather than the content, which
+ * keeps the centered arrangement re-centering in the visible strip and keeps bring-into-view aiming
+ * at the space above the keyboard.
+ */
+@Composable
+private fun Modifier.keyboardAwareBody(): Modifier = this.imePadding().padding(bottom = 8.dp)
 
 @Preview
 @Composable

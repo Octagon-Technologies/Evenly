@@ -143,6 +143,7 @@ fun PassSheet(
     onDismiss: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     val selectedOffer = offers.firstOrNull { it.packageId == selectedPackageId }
     EvSheetScaffold(onDismiss = onDismiss) {
         if (mode is PassSheetMode.AlreadySubscribed) {
@@ -154,10 +155,8 @@ fun PassSheet(
                 is PassSheetMode.Extend -> "Add to $groupName's pass"
                 else -> "Unlimited scans for $groupName"
             },
-            Modifier.fillMaxWidth().padding(bottom = 6.dp),
-            color = c.ink,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
+            Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            style = t.sheetTitle,
         )
         Text(
             when (mode) {
@@ -189,9 +188,8 @@ fun PassSheet(
                     ""
                 }
             },
-            Modifier.fillMaxWidth().padding(bottom = 14.dp),
-            color = c.ink2,
-            fontSize = 13.5.sp,
+            Modifier.fillMaxWidth().padding(bottom = 20.dp),
+            style = t.description,
         )
 
         if (offers.isEmpty()) {
@@ -199,9 +197,8 @@ fun PassSheet(
             // on a button, so the sheet says so and leaves the free path in front of the user.
             Text(
                 "Prices aren't loading right now. You can still add bills by hand for free.",
-                Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                color = c.ink2,
-                fontSize = 13.5.sp,
+                Modifier.fillMaxWidth().padding(bottom = 18.dp),
+                style = t.description,
                 textAlign = TextAlign.Center,
             )
             // A transient price fetch, so the retry is real rather than a Close dressed up as one.
@@ -212,7 +209,7 @@ fun PassSheet(
             return@EvSheetScaffold
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             offers.forEach { offer ->
                 TierCard(
                     offer = offer,
@@ -227,7 +224,7 @@ fun PassSheet(
             }
         }
 
-        Box(Modifier.padding(top = 12.dp)) {
+        Box(Modifier.padding(top = 18.dp)) {
             when (phase) {
                 PassSheetPhase.Charged -> {
                     EvButton(text = "Turn on Pro", onClick = onRetryActivation)
@@ -309,14 +306,13 @@ fun PassSheet(
                         "The current pass runs to ${mode.currentExpiresOn}. Yours picks up from there."
                     }
                 },
-                Modifier.fillMaxWidth().padding(top = 10.dp),
-                color = c.ink3,
-                fontSize = 11.sp,
+                Modifier.fillMaxWidth().padding(top = 12.dp),
+                style = t.micro,
                 textAlign = TextAlign.Center,
             )
         }
         onSeeSubscription?.let { seePro ->
-            ProUpsellRow(onClick = seePro, modifier = Modifier.padding(top = 10.dp))
+            ProUpsellRow(onClick = seePro, modifier = Modifier.padding(top = 14.dp))
         }
     }
 }
@@ -332,6 +328,7 @@ private fun ProUpsellRow(
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     val shape = RoundedCornerShape(13.dp)
     Row(
         modifier
@@ -340,19 +337,18 @@ private fun ProUpsellRow(
             .background(c.blueTint)
             .border(1.dp, c.blueTint2, shape)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 12.dp),
+            .padding(vertical = 14.dp, horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("In more than one group?", color = c.ink, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+            Text("In more than one group?", style = t.itemTitle.copy(fontWeight = FontWeight.Bold))
             Text(
                 "Unlimited scans in every group you're in",
-                Modifier.padding(top = 1.dp),
-                color = c.ink2,
-                fontSize = 11.sp,
+                Modifier.padding(top = 2.dp),
+                style = t.caption,
             )
         }
-        Text("›", color = c.blueText, fontSize = 15.sp)
+        Text("›", color = c.blueText, fontSize = 18.sp)
     }
 }
 
@@ -364,8 +360,7 @@ private fun Note(
     Text(
         text,
         Modifier.fillMaxWidth().padding(top = 8.dp),
-        color = color,
-        fontSize = 12.5.sp,
+        style = EvenlyTheme.text.caption.copy(color = color),
         textAlign = TextAlign.Center,
     )
 }
@@ -376,13 +371,10 @@ private fun AlreadyCoveredBody(
     mode: PassSheetMode.AlreadySubscribed,
     onDismiss: () -> Unit,
 ) {
-    val c = EvenlyTheme.colors
     Text(
         "$groupName is already Pro",
-        Modifier.fillMaxWidth().padding(bottom = 6.dp),
-        color = c.ink,
-        fontSize = 18.sp,
-        fontWeight = FontWeight.Bold,
+        Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        style = EvenlyTheme.text.sheetTitle,
     )
     Text(
         when {
@@ -398,9 +390,8 @@ private fun AlreadyCoveredBody(
                 "Someone here subscribes to Evenly Pro, so this group is covered and there is nothing to buy."
             }
         },
-        Modifier.fillMaxWidth().padding(bottom = 16.dp),
-        color = c.ink2,
-        fontSize = 13.5.sp,
+        Modifier.fillMaxWidth().padding(bottom = 20.dp),
+        style = EvenlyTheme.text.description,
     )
     EvButton(text = "Back to $groupName", onClick = onDismiss, variant = ButtonVariant.Secondary)
 }
@@ -429,12 +420,12 @@ private fun TierCard(
                 .background(if (selected) c.blueTint else c.page)
                 .border(if (selected) 1.5.dp else 1.dp, if (selected) c.blue else c.border, shape)
                 .clickable(onClick = onClick)
-                .padding(vertical = 12.dp, horizontal = 8.dp),
+                .padding(vertical = 16.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(offer.title, color = c.ink2, fontSize = 12.sp, textAlign = TextAlign.Center)
-            Text(offer.price, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(offer.title, style = EvenlyTheme.text.caption.copy(color = c.ink2), textAlign = TextAlign.Center)
+            Text(offer.price, style = EvenlyTheme.text.sectionTitle.copy(fontWeight = FontWeight.Bold))
         }
         flag?.let {
             Box(
@@ -443,9 +434,9 @@ private fun TierCard(
                     .offset(y = (-8).dp)
                     .clip(RoundedCornerShape(50))
                     .background(c.blue)
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
             ) {
-                Text(it, color = c.onAccent, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp)
+                Text(it, style = EvenlyTheme.text.badge.copy(color = c.onAccent))
             }
         }
     }

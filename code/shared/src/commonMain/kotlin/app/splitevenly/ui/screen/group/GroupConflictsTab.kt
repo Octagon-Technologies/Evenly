@@ -159,7 +159,7 @@ private fun EditConflictCard(
                 ) {
                     Text("Your share", Modifier.weight(0.30f), color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Text(ys.currentText, Modifier.weight(0.35f), color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
-                    Text(ys.rejectedText, Modifier.weight(0.35f), color = if (ys.changed) c.blue else c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
+                    Text(ys.rejectedText, Modifier.weight(0.35f), color = if (ys.changed) c.blueText else c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
                 }
             }
 

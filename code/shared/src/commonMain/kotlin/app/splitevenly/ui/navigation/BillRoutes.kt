@@ -99,6 +99,7 @@ fun BillEditRoute(
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
     val filePicker = koinInject<FilePicker>()
+    val cameraGate = rememberCameraPermissionGate()
     val ocr = koinInject<ReceiptOcr>()
     val pro = koinInject<ProRepository>()
     val gid = remember(groupId) { GroupId(groupId) }
@@ -302,7 +303,7 @@ fun BillEditRoute(
         initialOutsidePayerName = existing?.expense?.payerOutsideName,
         claimedItemsByUser = existing?.claimedItemsByUser().orEmpty(),
         onBack = onBack,
-        onScanReceipt = { source ->
+        onScanReceipt = cameraGate.wrap { source ->
             // Fires before any cost is incurred — even if the user backs out of the file picker next.
             analytics?.capture(
                 AnalyticsEvents.SCAN_SOURCE_CHOSEN,
@@ -440,6 +441,9 @@ fun BillEditRoute(
             },
         )
     }
+
+    // Last, so the gate lands over the screen rather than under it.
+    CameraPermissionGateHost(cameraGate)
 }
 
 /** The assign screen — "who had what?". Assignments (incl. for people without the app) go through the

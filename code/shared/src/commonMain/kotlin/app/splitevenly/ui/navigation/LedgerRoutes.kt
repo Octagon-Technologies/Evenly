@@ -115,6 +115,7 @@ fun AddExpenseRoute(
     val categoriesRepo = koinInject<CategoryRepository>()
     val auth = koinInject<AuthSession>()
     val filePicker = koinInject<FilePicker>()
+    val cameraGate = rememberCameraPermissionGate()
     val ocr = koinInject<ReceiptOcr>()
     val pro = koinInject<ProRepository>()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build —
@@ -308,7 +309,7 @@ fun AddExpenseRoute(
         loadPdfPageCount = stagedPdf.pageCount,
         renderPdfPage = stagedPdf.renderPage,
         onBack = onBack,
-        onScanReceipt = { source ->
+        onScanReceipt = cameraGate.wrap { source ->
             // Fires before any cost is incurred — even if the user backs out of the file picker next.
             analytics?.capture(
                 AnalyticsEvents.SCAN_SOURCE_CHOSEN,
@@ -349,7 +350,7 @@ fun AddExpenseRoute(
             )
         },
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
-        onPickReceipt = { source ->
+        onPickReceipt = cameraGate.wrap { source ->
             scope.launch {
                 val picked = filePicker.pick(source, PickKind.ImageOrPdf)
                 // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
@@ -498,6 +499,9 @@ fun AddExpenseRoute(
             },
         )
     }
+
+    // Last, so the gate lands over the screen rather than under it.
+    CameraPermissionGateHost(cameraGate)
 }
 
 /** OCR draft → the itemized editor's initial items + extras (never a name — the shared header owns that). */
@@ -695,6 +699,7 @@ fun ExpenseDetailRoute(
     val auth = koinInject<AuthSession>()
     val activity = koinInject<ActivityRepository>()
     val filePicker = koinInject<FilePicker>()
+    val cameraGate = rememberCameraPermissionGate()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
@@ -830,7 +835,7 @@ fun ExpenseDetailRoute(
                 scope.launch { activity.postComment(eid, gid, body) }
             }
         },
-        onPickReceipts = { source ->
+        onPickReceipts = cameraGate.wrap { source ->
             // Pick (possibly many) → hand to the durable outbox. The manager compresses, persists to disk,
             // and the background uploader carries them up; the UI reacts to the outbox, not to this call.
             scope.launch {
@@ -866,6 +871,9 @@ fun ExpenseDetailRoute(
             onSettled = { settleSheetOpen = false },
         )
     }
+
+    // Last, so the gate lands over the screen rather than under it.
+    CameraPermissionGateHost(cameraGate)
 }
 
 /**

@@ -126,7 +126,6 @@ fun ReconcileScreen(
                 EvButton(
                     text = "These are me (${selected.size})",
                     onClick = { onConfirm(selected.toList()) },
-                    leadingIcon = EvIcons.Check,
                     enabled = selected.isNotEmpty(),
                 )
                 EvButton(

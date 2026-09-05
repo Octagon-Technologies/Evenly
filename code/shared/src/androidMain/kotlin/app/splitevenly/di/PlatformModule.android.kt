@@ -4,6 +4,7 @@ import app.splitevenly.data.db.getRoomDatabase
 import app.splitevenly.data.db.evenlyDatabaseBuilder
 import app.splitevenly.data.remote.installEvenlyDefaults
 import app.splitevenly.platform.AppleSignIn
+import app.splitevenly.platform.CameraPermission
 import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.CurrentActivity
 import app.splitevenly.platform.FilePicker
@@ -42,6 +43,7 @@ actual fun platformModule(): Module = module {
     single { FilePicker { CurrentActivity.get() } }
     single { AppleSignIn() }
     single { NotificationPermission { CurrentActivity.get() } }
+    single { CameraPermission() }
     single { ImageProcessor() }
     single { ReceiptFileStore(androidContext()) }
     single { ReceiptUploadScheduler(androidContext()) }

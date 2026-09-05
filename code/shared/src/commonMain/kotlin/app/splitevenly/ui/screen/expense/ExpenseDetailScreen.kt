@@ -418,7 +418,7 @@ fun ExpenseDetailScreen(
                                                 Column(horizontalAlignment = Alignment.End) {
                                                     Text(
                                                         moneySubunits(s.owedSubunits, currencyCode),
-                                                        color = if (s.me) c.blue else c.ink,
+                                                        color = if (s.me) c.blueText else c.ink,
                                                         fontSize = 15.sp,
                                                         fontWeight = FontWeight.SemiBold,
                                                         fontFamily = EvenlyTheme.monoFamily,
@@ -779,7 +779,7 @@ fun ExpenseDetailScreen(
                     editingPayment = null
                     onEditPayment(id, enteredSubunits)
                 }
-            }, leadingIcon = EvIcons.Check, modifier = Modifier.padding(top = 14.dp))
+            }, modifier = Modifier.padding(top = 14.dp))
         }
     }
 }

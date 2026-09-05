@@ -95,3 +95,10 @@ so this ask is currently a promise the backend cannot yet keep.
   hand the user a dialog we currently avoid entirely.
 - **iOS camera and photos** use the OS prompt whose `NS*UsageDescription` string in `Info.plist` *is* the
   explain-why step. Keep those strings specific and honest.
+- **iOS camera is the one exception, and it is gated.** `UIImagePickerController` presented without a check
+  shows a **grey, frozen viewfinder** to anyone who refused once: no prompt, no way back. So every camera
+  entry point goes through `CameraPermission.status()` first (`ui/navigation/CameraPermissionGate.kt`), which
+  routes `NotDetermined` to a primer and `Denied` to a Settings recovery. Android's actual reports
+  `NotApplicable` and falls straight through, which is why this is not an `expect`/`actual` UI split.
+  `SystemAlertPreview` draws the dialog the primer is about to raise, and its body text **mirrors
+  `NSCameraUsageDescription`** in `iosApp/iosApp/Info.plist`. Change both or neither.

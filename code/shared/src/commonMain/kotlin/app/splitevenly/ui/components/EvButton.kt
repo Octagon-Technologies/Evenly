@@ -58,10 +58,13 @@ fun EvButton(
             // white and looks unrealistic; the border already separates it from the page. In dark mode `page`
             // is the elevated near-ink surface, so it still reads as a lifted button.
             ButtonVariant.Primary -> {
-                if (enabled) {
-                    BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
-                } else {
-                    BtnStyle(c.surface, c.disabledInk, c.border, 1f)
+                when {
+                    !enabled -> BtnStyle(c.surface, c.disabledInk, c.border, 1f)
+                    // In dark mode the white chip becomes the elevated near-ink surface, and blue-on-near-ink
+                    // is the weakest contrast pair in the palette right where the app's most important tap is.
+                    // Go solid blue with white content instead, the same escape Secondary already takes.
+                    c.isDark -> BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
+                    else -> BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
                 }
             }
 
@@ -144,19 +147,20 @@ fun EvButton(
 ) {
     EvButton(onClick, modifier, variant, enabled, small, fillMaxWidth) {
         leadingIcon?.let { EvIcon(it, size = if (small) 16.dp else 20.dp, tint = LocalContentColor.current) }
+        val t = EvenlyTheme.text
         Text(
             text = text,
             color = LocalContentColor.current,
-            fontSize = if (small) 14.sp else 16.sp,
-            // The white-chip Primary needs heavier weight so the blue label stays legible on white; the
-            // solid variants go a step heavier still since white-on-blue/transparent needs it.
-            fontWeight =
-                when (variant) {
-                    ButtonVariant.Primary -> FontWeight.Bold
-                    ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
-                    else -> FontWeight.SemiBold
-                },
-            letterSpacing = (-0.1).sp,
+            style = (if (small) t.buttonSmall else t.button).copy(
+                // The white-chip Primary needs heavier weight so the blue label stays legible on white; the
+                // solid variants go a step heavier still since white-on-blue/transparent needs it.
+                fontWeight =
+                    when (variant) {
+                        ButtonVariant.Primary -> FontWeight.Bold
+                        ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
+                        else -> FontWeight.SemiBold
+                    },
+            ),
         )
     }
 }

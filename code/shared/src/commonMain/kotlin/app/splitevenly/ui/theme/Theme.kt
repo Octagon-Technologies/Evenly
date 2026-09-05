@@ -111,10 +111,12 @@ fun EvenlyTheme(
     val mono = plexMonoFamily()
     val typography = evenlyTypography(sans)
     val amounts = amountTextStyles(mono)
+    val text = evTextStyles(sans, extended)
 
     CompositionLocalProvider(
         LocalExtendedColors provides extended,
         LocalAmountTextStyles provides amounts,
+        LocalEvTextStyles provides text,
         LocalMonoFontFamily provides mono,
         LocalIsDarkTheme provides darkTheme,
     ) {

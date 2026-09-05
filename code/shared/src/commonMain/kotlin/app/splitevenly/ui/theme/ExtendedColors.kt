@@ -150,6 +150,11 @@ object EvenlyTheme {
     val amounts: AmountTextStyles
         @Composable @ReadOnlyComposable get() = LocalAmountTextStyles.current
 
+    /** Semantic text roles. See [EvTextStyles]: prefer `style = EvenlyTheme.text.description` over a
+     *  bare `fontSize`, so the ramp stays tunable from one file. */
+    val text: EvTextStyles
+        @Composable @ReadOnlyComposable get() = LocalEvTextStyles.current
+
     val monoFamily: FontFamily
         @Composable @ReadOnlyComposable get() = LocalMonoFontFamily.current
 }

@@ -74,7 +74,7 @@ fun DeepLinkConfirmSheet(
                 )
             }
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                EvButton("Yes, mark paid", onYes, leadingIcon = EvIcons.Check)
+                EvButton("Yes, mark paid", onYes)
                 Row(
                     Modifier
                         .fillMaxWidth()

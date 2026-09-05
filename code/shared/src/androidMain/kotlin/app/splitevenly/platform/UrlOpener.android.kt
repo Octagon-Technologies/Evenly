@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import app.splitevenly.core.log.Log
 
 /**
@@ -24,6 +25,18 @@ actual class UrlOpener(context: Context) {
         true
     } catch (e: ActivityNotFoundException) {
         Log.w("UrlOpener: no handler for url scheme")
+        false
+    }
+
+    actual fun openAppSettings(): Boolean = try {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", appContext.packageName, null),
+        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        appContext.startActivity(intent)
+        true
+    } catch (e: ActivityNotFoundException) {
+        Log.w("UrlOpener: no app-details settings activity")
         false
     }
 }
