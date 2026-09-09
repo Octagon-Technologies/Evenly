@@ -8,12 +8,6 @@ sealed interface ExportOutcome {
     /** The CSV text, ready to hand to the OS share sheet. */
     data class Success(val csv: String) : ExportOutcome
 
-    /**
-     * The group holds no live Pro pass. A refusal, not a failure: nothing went wrong and retrying
-     * changes nothing, so the screen must never offer a retry for this one.
-     */
-    data object NeedsPro : ExportOutcome
-
     /** No connection. The export is a server-side render of server-side data, so there is no offline
      *  version of it to fall back to. */
     data object Offline : ExportOutcome

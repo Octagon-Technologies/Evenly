@@ -147,10 +147,6 @@ internal fun ScanErrorSheet(
     onManual: () -> Unit,
     onRetry: () -> Unit,
     onPickAgain: () -> Unit,
-    // Evenly Pro (PRO_PASS_SPEC.md §8.1). Null keeps the sheet exactly as it was, which is the
-    // unconfigured-RevenueCat build: no door named that cannot open.
-    groupName: String? = null,
-    onGetPro: (() -> Unit)? = null,
 ) {
     val c = EvenlyTheme.colors
     val icon =
@@ -160,7 +156,6 @@ internal fun ScanErrorSheet(
             ScanErrorKind.Unavailable -> EvIcons.Info
             ScanErrorKind.Error -> EvIcons.Alert
             ScanErrorKind.Blocked -> EvIcons.Info
-            ScanErrorKind.OutOfScans -> EvIcons.Receipt
         }
     val tint =
         when (kind) {
@@ -174,8 +169,7 @@ internal fun ScanErrorSheet(
             ScanErrorKind.NoReceiptFound -> "Couldn't read it"
             ScanErrorKind.Unavailable -> "Scanning isn't available"
             ScanErrorKind.Error -> "Something went wrong"
-            ScanErrorKind.Blocked -> "Too many scans"
-            ScanErrorKind.OutOfScans -> "Out of free scans"
+            ScanErrorKind.Blocked -> "Scanning too quickly"
         }
     val body =
         when (kind) {
@@ -196,15 +190,7 @@ internal fun ScanErrorSheet(
             }
 
             ScanErrorKind.Blocked -> {
-                "You've hit the scan limit for now. Try again in a bit, or type it in."
-            }
-
-            // Manual entry is named in the same breath as the paywall, deliberately: the refusal has to
-            // read as "want the fast way?" and never as "you cannot use the app". The photo is named
-            // because it is KEPT either way (pages are staged when picked, not on a successful scan), and
-            // someone who just framed a receipt in a restaurant assumes a refusal threw that work away.
-            ScanErrorKind.OutOfScans -> {
-                "This group has used its free scans. Your photo is saved either way, and you can still type the bill in."
+                "There's a short safety cooldown. Try again in a bit, or type it in."
             }
         }
     EvSheetScaffold(onDismiss = onManual) {
@@ -237,21 +223,6 @@ internal fun ScanErrorSheet(
                 EvButton(text = "Try again", onClick = onRetry)
                 Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
                     EvButton(text = "Enter manually", onClick = onManual, variant = ButtonVariant.Text)
-                }
-            }
-
-            // Out of scans is the one refusal with a door: Pro leads, manual entry stays right under it
-            // as a free exit rather than a consolation prize. Neither of these offers Retry: scanning is
-            // not coming back on this tap, so a Retry button would be a control that cannot do what it
-            // says.
-            ScanErrorKind.OutOfScans -> {
-                if (onGetPro != null) {
-                    EvButton(text = groupName?.let { "Get Pro for $it" } ?: "Get Evenly Pro", onClick = onGetPro)
-                    Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
-                        EvButton(text = "Enter manually", onClick = onManual, variant = ButtonVariant.Text)
-                    }
-                } else {
-                    EvButton(text = "Enter manually", onClick = onManual)
                 }
             }
 

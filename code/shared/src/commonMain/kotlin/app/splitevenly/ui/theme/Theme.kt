@@ -6,7 +6,6 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * Material 3 foundation for the Evenly design system (06 §4), reworked to the blue-led, light-first
@@ -88,14 +87,6 @@ private val DarkColorScheme =
         inverseOnSurface = EvPageDark,
     )
 
-/**
- * The [darkTheme] actually in effect, as resolved by [EvenlyTheme] (the app's own preference, not the raw
- * OS setting). Read this rather than calling `isSystemInDarkTheme()` again wherever an *embedded native*
- * surface (not drawn by Compose) needs to be told which mode to render in, e.g. [ForceNativeDarkMode]
- * around the RevenueCat paywall.
- */
-val LocalIsDarkTheme = staticCompositionLocalOf { false }
-
 @Composable
 fun EvenlyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -118,7 +109,6 @@ fun EvenlyTheme(
         LocalAmountTextStyles provides amounts,
         LocalEvTextStyles provides text,
         LocalMonoFontFamily provides mono,
-        LocalIsDarkTheme provides darkTheme,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

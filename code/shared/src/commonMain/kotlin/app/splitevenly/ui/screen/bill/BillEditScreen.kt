@@ -48,7 +48,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.perUnitSubunits
-import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
@@ -69,7 +68,6 @@ import app.splitevenly.ui.screen.expense.PickedReceiptStrip
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
 import app.splitevenly.ui.screen.expense.StagedReceiptViewer
 import app.splitevenly.ui.screen.expense.format2dp
-import app.splitevenly.ui.screen.pro.OutOfScansSheet
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -169,18 +167,7 @@ fun BillEditScreen(
     scanned: EditBillState? = null,
     currencyCode: String = "USD",
     saving: Boolean = false,
-    // Same meter as the add-expense hero, so a rescan from here counts visibly too (PRO_PASS_SPEC.md §8.1).
-    scanMeter: ScanMeter? = null,
     scanState: ScanUiState = ScanUiState.Idle,
-    // Evenly Pro (PRO_PASS_SPEC.md §8.1): at zero free scans the refusal sheet grows a door. Both are
-    // null in the unconfigured build, and the sheet then reads exactly as it did before.
-    groupName: String? = null,
-    onGetPro: (() -> Unit)? = null,
-    // True once the group's free scans are spent and it holds no pass — the scan tap is then refused
-    // before the file picker rather than after an upload. See OutOfScansSheet.
-    scanBlocked: Boolean = false,
-    // Opens the subscription paywall in place, over this editor. Null when RevenueCat is unconfigured.
-    onSeeSubscription: (() -> Unit)? = null,
     attachedReceipts: List<PickedReceiptUi> = emptyList(),
     onRemoveAttachedReceipt: (Int) -> Unit = {},
     // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
@@ -208,15 +195,7 @@ fun BillEditScreen(
     val scrollState = rememberScrollState()
     val scanning = scanState is ScanUiState.Working
     var scanSource by remember { mutableStateOf(false) }
-    var showOutOfScans by remember { mutableStateOf(false) }
-    // A pass bought from the sheet clears the block, and the sheet goes with it: left standing it would
-    // still be refusing a scan the group can now make.
-    LaunchedEffect(scanBlocked) { if (!scanBlocked) showOutOfScans = false }
-
-    /** Every route to the file picker goes through here, so the gate cannot be walked around. */
-    fun startScan(source: PickSource) {
-        if (scanBlocked) showOutOfScans = true else onScanReceipt(source)
-    }
+    fun startScan(source: PickSource) = onScanReceipt(source)
     // Which scanned page the full-screen viewer is open on; null = closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     // Flips true the first time Save is tapped while incomplete — then the missing fields turn red.
@@ -304,7 +283,7 @@ fun BillEditScreen(
                 actions = {
                     EvButton(
                         text = if (scanning) "Scanning…" else "Scan",
-                        onClick = { if (scanBlocked) showOutOfScans = true else scanSource = true },
+                        onClick = { scanSource = true },
                         variant = ButtonVariant.Text,
                         leadingIcon = EvIcons.Camera,
                         small = true,
@@ -316,7 +295,6 @@ fun BillEditScreen(
                 Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                ScanQuotaMeter(scanMeter, groupName = groupName, onGetPro = onGetPro)
                 // The scan exhausted its passes and still couldn't reconcile the draft against the receipt's
                 // printed total. Markup lives in UnverifiedReceiptNotice so AddExpenseScreen shows the same
                 // banner from the same state instead of quietly showing none.
@@ -484,24 +462,6 @@ fun BillEditScreen(
             }
         }
 
-        if (showOutOfScans) {
-            OutOfScansSheet(
-                groupName = groupName,
-                onGetPass = {
-                    showOutOfScans = false
-                    onGetPro?.invoke()
-                },
-                onSeeSubscription =
-                    onSeeSubscription?.let { see ->
-                        {
-                            showOutOfScans = false
-                            see()
-                        }
-                    },
-                onManual = { showOutOfScans = false },
-            )
-        }
-
         if (showPicker) {
             ParticipantPickerSheet(
                 participants = participants,
@@ -592,8 +552,6 @@ fun BillEditScreen(
                         onDismissScan()
                         scanSource = true
                     },
-                    groupName = groupName,
-                    onGetPro = onGetPro,
                 )
             }
 

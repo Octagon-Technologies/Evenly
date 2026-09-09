@@ -94,12 +94,6 @@ fun GroupSettingsScreen(
     /** Names in this group with no account that the viewer hasn't answered. 0 hides the claim row. */
     unclaimedNameCount: Int = 0,
     onEditCategories: () -> Unit = {},
-    // Null until Pro state has loaded, and on a group that has never held a pass: there is nothing
-    // truthful to say yet, so the row is absent rather than empty (PRO_PASS_SPEC.md §8.3).
-    proStatus: ProStatusUi? = null,
-    onProClick: () -> Unit = {},
-    // Export (PRO_PASS_SPEC.md §3). The row stays live without Pro and explains on tap; [exportNote]
-    // carries the trailing hint ("Pro") or the outcome of the last attempt.
     exporting: Boolean = false,
     exportNote: String? = null,
     onExportCsv: () -> Unit = {},
@@ -129,10 +123,6 @@ fun GroupSettingsScreen(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Above "About": who paid for this group's Pro is a fact about the group, and burying it
-            // under the settings list would defeat the point of naming them at all.
-            proStatus?.let { ProStatusRow(status = it, onClick = onProClick) }
-
             // ── About ──────────────────────────────────────────
             SettingsGroup("About") {
                 SettingsRow(icon = EvIcons.Sparkle, label = "Emoji & name", value = if (groupEmoji.isBlank()) groupName else "$groupEmoji $groupName", onClick = {
@@ -302,7 +292,7 @@ fun GroupSettingsScreen(
             // ── Export ─────────────────────────────────────────
             // Was three rows (CSV, JSON, PDF), none of which had an onClick: three buttons that did
             // nothing, which is the dead end AGENTS.md §7 forbids. One row that works replaces them.
-            // The row stays tappable without Pro and explains on tap rather than greying out.
+            // Export is free; membership authorization is enforced by the server.
             SettingsGroup("Export") {
                 SettingsRow(
                     icon = EvIcons.Download,
@@ -471,17 +461,12 @@ private fun SettingsGroup(
 /**
  * The facts a delete confirmation states, all counted from the real group.
  *
- * [proPassNote] is pre-formatted by the Route because it carries a date and this screen is DI-free.
- * It is present only when the group holds a live Evenly Pro pass, and it says the pass is not
- * refunded, because the pass deliberately survives the purge and its owner deserves to hear that
- * before the delete rather than after.
  */
 data class GroupDeleteImpactUi(
     val memberCount: Int = 0,
     val expenseCount: Int = 0,
     val receiptCount: Int = 0,
     val unsettledCount: Int = 0,
-    val proPassNote: String? = null,
 )
 
 /**
@@ -554,7 +539,6 @@ private fun DeleteGroupSheet(
             }
             ImpactLine(EvIcons.Clock, "Anyone in the group can restore it for 30 days")
             ImpactLine(EvIcons.Trash, "After that it is gone for good, including from our servers")
-            impact.proPassNote?.let { ImpactLine(EvIcons.Star, it, tint = c.credit) }
         }
 
         Text(

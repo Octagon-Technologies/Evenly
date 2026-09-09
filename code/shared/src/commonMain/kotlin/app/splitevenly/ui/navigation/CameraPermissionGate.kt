@@ -110,7 +110,7 @@ class CameraPermissionGate internal constructor(
 
 /**
  * The gate's state. Pair it with [CameraPermissionGateHost] at the **end** of the same route wrapper,
- * where `PassSheet` and `ProPaywallHost` already sit: an overlay emitted before the screen is drawn
+ * at the end of the route host: an overlay emitted before the screen is drawn
  * underneath it.
  */
 @Composable

@@ -313,13 +313,11 @@ class GroupRepositoryImpl(
         groupDao.observeByIdIncludingDeleted(groupId.value).map { it?.toDomain() }
 
     override suspend fun deleteImpact(groupId: GroupId): GroupDeleteImpact {
-        val now = clock.nowEpochMillis()
         return GroupDeleteImpact(
             memberCount = groupDao.activeMemberCount(groupId.value),
             expenseCount = groupDao.liveExpenseCount(groupId.value),
             receiptCount = groupDao.liveReceiptCount(groupId.value),
             unsettledCount = groupDao.unsettledBalanceCount(groupId.value),
-            proPassExpiresAt = groupDao.liveProPassExpiry(groupId.value, now),
         )
     }
 

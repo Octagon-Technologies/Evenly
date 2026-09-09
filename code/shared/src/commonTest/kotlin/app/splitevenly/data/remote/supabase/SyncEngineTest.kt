@@ -183,29 +183,6 @@ class SyncEngineTest {
             assertEquals(0, calls)
         }
 
-    // --- who user_subscriptions is pulled for ----------------------------------------------------
-    // A subscription is keyed by PERSON, so it is pulled for the roster. The roster is empty for
-    // someone in no groups, and the filter used to be the roster alone — so a subscriber who had not
-    // joined a group yet never pulled their OWN row, and Settings went on offering them Pro.
-
-    @Test
-    fun subscriberIds_includeSelf_whenInNoGroups() {
-        assertEquals(listOf("me"), SyncEngine.subscriberIdsFor(emptyList(), "me"))
-    }
-
-    @Test
-    fun subscriberIds_includeSelf_alongsideTheRoster() {
-        val ids = SyncEngine.subscriberIdsFor(listOf("alice", "bob"), "me")
-
-        assertTrue("me" in ids, "self must always be pulled; got $ids")
-        assertEquals(listOf("alice", "bob", "me"), ids)
-    }
-
-    @Test
-    fun subscriberIds_doNotRepeatSelf_whenAlreadyInTheRoster() {
-        assertEquals(listOf("alice", "me"), SyncEngine.subscriberIdsFor(listOf("alice", "me"), "me"))
-    }
-
     // --- error classification (#25) --------------------------------------------------------------
     // Every sync failure used to map to Network.Unreachable, so an RLS denial, a decode drift and a
     // dead radio were indistinguishable — which made every other sync defect invisible in production.

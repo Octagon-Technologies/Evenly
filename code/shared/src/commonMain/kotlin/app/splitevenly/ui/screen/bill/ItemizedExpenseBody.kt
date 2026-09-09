@@ -26,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
@@ -105,12 +104,6 @@ fun ItemizedExpenseBody(
     saveLabel: String,
     onScanSource: (PickSource) -> Unit,
     onSave: () -> Unit,
-    // Null on every path that has no group context yet, and on Pro groups — see scanMeterFor.
-    scanMeter: ScanMeter? = null,
-    // Evenly Pro door under the meter. Null in the unconfigured build, and the meter is then a count
-    // and nothing else (PRO_PASS_SPEC.md §8.1).
-    groupName: String? = null,
-    onGetPro: (() -> Unit)? = null,
 ) {
     val c = EvenlyTheme.colors
     // Scan is the marquee action — a hero card at the top. A whisper-soft neutral shadow
@@ -164,8 +157,6 @@ fun ItemizedExpenseBody(
             ScanSourceTile(Modifier.weight(1f), EvIcons.Archive, "File or PDF") { onScanSource(PickSource.Files) }
         }
     }
-    // Under the card, not on it: the count is a fact about the group, not a property of the button.
-    ScanQuotaMeter(scanMeter, groupName = groupName, onGetPro = onGetPro)
     // Sits directly under the scan card, above the items it is talking about.
     if (state.showUnverifiedNotice) {
         UnverifiedReceiptNotice(onDismiss = { state.showUnverifiedNotice = false })

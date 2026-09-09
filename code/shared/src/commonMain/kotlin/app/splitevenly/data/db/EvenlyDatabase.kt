@@ -19,9 +19,7 @@ import app.splitevenly.data.db.dao.FeedbackOutboxDao
 import app.splitevenly.data.db.dao.FxCurrencyDao
 import app.splitevenly.data.db.dao.FxRateDao
 import app.splitevenly.data.db.dao.GroupDao
-import app.splitevenly.data.db.dao.GroupPassDao
 import app.splitevenly.data.db.dao.GroupPurgeDao
-import app.splitevenly.data.db.dao.GroupScanUsageDao
 import app.splitevenly.data.db.dao.HistoryEventDao
 import app.splitevenly.data.db.dao.ItemClaimDao
 import app.splitevenly.data.db.dao.ItemShareDao
@@ -37,7 +35,6 @@ import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.db.dao.SignOutWipeDao
 import app.splitevenly.data.db.dao.SupersededNoticeDao
 import app.splitevenly.data.db.dao.UserDao
-import app.splitevenly.data.db.dao.UserSubscriptionDao
 import app.splitevenly.data.db.entity.BillParticipantEntity
 import app.splitevenly.data.db.entity.CategoryEntity
 import app.splitevenly.data.db.entity.CommentEntity
@@ -52,8 +49,6 @@ import app.splitevenly.data.db.entity.FxBakedEntity
 import app.splitevenly.data.db.entity.FxCurrencyEntity
 import app.splitevenly.data.db.entity.FxRateEntity
 import app.splitevenly.data.db.entity.GroupEntity
-import app.splitevenly.data.db.entity.GroupPassEntity
-import app.splitevenly.data.db.entity.GroupScanUsageEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
@@ -68,13 +63,13 @@ import app.splitevenly.data.db.entity.SettlementEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.SupersededNoticeEntity
 import app.splitevenly.data.db.entity.UserEntity
-import app.splitevenly.data.db.entity.UserSubscriptionEntity
 import kotlinx.coroutines.Dispatchers
 
 /**
- * Room KMP database (02 §7). The local schema mirrors the Supabase Postgres schema 1:1, with the
+ * Room KMP database (02 §7). Client-owned synced tables mirror their Supabase counterparts, with the
  * type adjustments in 02 §7: `timestamptz` → epoch-ms `Long`, `uuid`/`jsonb` → `TEXT`, enums →
- * `TEXT` (validated at the domain boundary, not by Room).
+ * `TEXT` (validated at the domain boundary, not by Room). Server-only legacy billing tables are not
+ * mirrored into this no-subscriptions client.
  *
  * Entities are dumb DTOs: only `String`/`Long`/`Boolean` columns, no type converters, no Room
  * foreign keys (see the FK note below). This keeps the table a faithful wire-mirror so the sync
@@ -112,14 +107,11 @@ import kotlinx.coroutines.Dispatchers
         ItemShareEntity::class,
         BillParticipantEntity::class,
         PendingItemEditEntity::class,
-        GroupPassEntity::class,
-        UserSubscriptionEntity::class,
-        GroupScanUsageEntity::class,
         RowSyncStateEntity::class,
         SupersededNoticeEntity::class,
         FeedbackOutboxEntity::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -177,12 +169,6 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun billWriteDao(): BillWriteDao
 
     abstract fun pendingItemEditDao(): PendingItemEditDao
-
-    abstract fun groupPassDao(): GroupPassDao
-
-    abstract fun userSubscriptionDao(): UserSubscriptionDao
-
-    abstract fun groupScanUsageDao(): GroupScanUsageDao
 
     abstract fun rowSyncStateDao(): RowSyncStateDao
 

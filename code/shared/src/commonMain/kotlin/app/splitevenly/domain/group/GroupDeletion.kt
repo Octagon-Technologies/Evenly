@@ -52,14 +52,10 @@ data class DeletedGroup(
  * What a delete is about to cost, counted from the real group so the confirm sheet states facts rather
  * than boilerplate.
  *
- * [proPassExpiresAt] is the one field that is not about data: an Evenly Pro pass is a purchase, it is
- * deliberately NOT purged with the group, and it is not refunded either, so the person about to delete
- * has to be told before rather than after.
  */
 data class GroupDeleteImpact(
     val memberCount: Int,
     val expenseCount: Int,
     val receiptCount: Int,
     val unsettledCount: Int,
-    val proPassExpiresAt: Long? = null,
 )

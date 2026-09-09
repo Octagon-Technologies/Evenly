@@ -9,7 +9,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import app.splitevenly.platform.PlaceholderClaimSources
-import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.OnboardingScreen
 import app.splitevenly.ui.screen.expense.AddExpenseScreen
@@ -74,7 +73,6 @@ fun EvenlyNavHost(
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
                 onSendFeedback = { navController.navigate(Route.Feedback) },
-                onOpenPro = { navController.navigate(Route.Pro(ProTriggers.PROFILE)) },
             )
         }
         composable<Route.NewGroup> {
@@ -248,8 +246,6 @@ fun EvenlyNavHost(
             val sgGroupId = sgRoute.groupId
             GroupSettingsRoute(
                 groupId = sgGroupId,
-                openPassSheet = sgRoute.openPassSheet,
-                onOpenPro = { trigger -> navController.navigate(Route.Pro(trigger)) },
                 onBack = { navController.popBackStack() },
                 onLeft = { navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } } },
                 onReconcile = {
@@ -270,25 +266,6 @@ fun EvenlyNavHost(
         }
         composable<Route.Feedback> {
             FeedbackRoute(onBack = { navController.popBackStack() })
-        }
-        composable<Route.Pro> { entry ->
-            ProRoute(
-                trigger = entry.toRoute<Route.Pro>().trigger,
-                onBack = { navController.popBackStack() },
-                onPickGroupForPass = { navController.navigate(Route.ProGroupPicker) },
-            )
-        }
-        composable<Route.ProGroupPicker> {
-            ProGroupPickerRoute(
-                onBack = { navController.popBackStack() },
-                // Straight to that group's settings, which is where the pass sheet lives. One place owns
-                // the sheet, rather than a second copy of the buy flow hanging off the picker.
-                onPicked = { gid ->
-                    navController.navigate(Route.GroupSettings(gid, openPassSheet = true)) {
-                        popUpTo(Route.ProGroupPicker) { inclusive = true }
-                    }
-                },
-            )
         }
         composable<Route.Reconcile> { entry ->
             val r = entry.toRoute<Route.Reconcile>()

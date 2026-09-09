@@ -29,19 +29,14 @@ import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.NewGroup
 import app.splitevenly.domain.group.RecentlyDeleted
-import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
-import app.splitevenly.domain.repository.MySubscription
-import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.domain.settlement.resolvePreferredPaymentApp
 import app.splitevenly.platform.AnalyticsEvents
-import app.splitevenly.platform.AnalyticsPerson
 import app.splitevenly.platform.AppleSignIn
 import app.splitevenly.platform.EvAnalytics
-import app.splitevenly.platform.FeatureFlags
 import app.splitevenly.platform.NotificationPermission
 import app.splitevenly.platform.NotificationPermissionStatus
 import app.splitevenly.platform.SecureStorage
@@ -68,7 +63,6 @@ import app.splitevenly.ui.screen.home.JoinPlaceholderOption
 import app.splitevenly.ui.screen.home.NewGroupSheet
 import app.splitevenly.ui.screen.home.RecentlyDeletedScreen
 import app.splitevenly.ui.screen.settings.PaymentHandlesScreen
-import app.splitevenly.ui.screen.settings.ProEntryUi
 import app.splitevenly.ui.screen.settings.ProfileScreen
 import app.splitevenly.ui.screen.settle.appLabel
 import app.splitevenly.ui.theme.EvenlyTheme
@@ -619,7 +613,7 @@ fun JoinByLinkRoute(
  *
  * "Every entry to Home" means every entry to the *destination*, not every recomposition of it —
  * which is why the check lives in [HomeGateViewModel], scoped to the Home back-stack entry. Popping
- * a pushed screen (a group, Archived, Pro) re-composes this route, and a `remember` here would
+ * a pushed screen (a group or Archived) re-composes this route, and a `remember` here would
  * restart the check, blanking the screen behind a network call on every Back.
  */
 @Composable
@@ -633,7 +627,6 @@ fun HomeGateRoute(
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
     onSendFeedback: () -> Unit,
-    onOpenPro: () -> Unit,
 ) {
     val auth = koinInject<AuthSession>()
     val gate = koinViewModel<HomeGateViewModel>()
@@ -666,19 +659,12 @@ fun HomeGateRoute(
                 onSignIn = onSignIn,
                 onEditPaymentApps = onEditPaymentApps,
                 onSendFeedback = onSendFeedback,
-                onOpenPro = onOpenPro,
             )
         }
     }
     // Only ever shown on the pending-deletion branch above (MainShell routes to ProfileRoute, which
     // owns its own flow), but hung outside the `when` so it survives a branch flip mid-sign-out.
     signOutFlow.Dialog()
-}
-
-/** "Yearly, renews 11 Aug" — the one phrasing both the Profile row and the Pro screen use. */
-private fun subscriptionLine(sub: MySubscription): String {
-    val period = if (sub.period == "annual") "Yearly" else "Monthly"
-    return "$period, ${if (sub.willRenew) "renews" else "ends"} ${shortDate(sub.expiresAt)}"
 }
 
 @Composable
@@ -688,7 +674,6 @@ fun ProfileRoute(
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
     onSendFeedback: () -> Unit = {},
-    onOpenPro: () -> Unit = {},
 ) {
     val auth = koinInject<AuthSession>()
     val profiles = koinInject<ProfileRepository>()
@@ -707,62 +692,7 @@ fun ProfileRoute(
     val signOutFlow = rememberSignOutFlow(auth, onSignedOut)
     LaunchedEffect(Unit) { notifStatus = notificationPermission.status() }
 
-    // Evenly Pro (PRO_PASS_SPEC.md §8.1). The row states the PRICE, taken from the store's own localized
-    // string: a Pro entry that makes you tap to find out what it costs reads as a trap. With RevenueCat
-    // unconfigured the whole row is absent rather than leading somewhere that cannot sell anything.
-    val billing = koinInject<ProBilling>()
-    val analytics = koinInject<EvAnalytics>()
-    val pro = koinInject<ProRepository>()
-    val subscription by remember(userId) {
-        userId?.let { pro.observeMySubscription(it.value) } ?: flowOf(null)
-    }.collectAsStateWithLifecycle(null)
-    val cheapestPrice by produceState<String?>(null, billing) {
-        value = billing.subscriptionPriceLabel()
-    }
-    // Slow-moving facts the funnel segments by, set on the PERSON rather than repeated on every event.
-    // Also the moment to refresh flags: before this, the person's experiment arm was decided against an
-    // anonymous id, so a subscriber could land in the wrong arm of a pricing test.
-    val flags = koinInject<FeatureFlags>()
-    LaunchedEffect(subscription, userId) {
-        if (userId == null) return@LaunchedEffect
-        analytics.setPersonProperties(
-            mapOf(
-                AnalyticsPerson.IS_SUBSCRIBER to (subscription != null),
-                AnalyticsPerson.SUBSCRIPTION_PERIOD to (subscription?.period ?: "none"),
-            ),
-        )
-        flags.reload()
-    }
-
-    val proEntry =
-        when {
-            !billing.isAvailable -> {
-                null
-            }
-
-            // The SAME sentence the Pro screen shows, plan word included. Two screens one tap apart
-            // describing one subscription in different words is what makes an anxious subscriber believe
-            // they are paying for two things.
-            subscription != null -> {
-                ProEntryUi(
-                    subtitle = subscriptionLine(subscription!!),
-                    isSubscribed = true,
-                )
-            }
-
-            // No price yet is not a reason to invent one, so the row says what Pro does instead.
-            cheapestPrice == null -> {
-                ProEntryUi("Unlimited receipt scans in every group", isSubscribed = false)
-            }
-
-            else -> {
-                ProEntryUi("Unlimited receipt scans, from $cheapestPrice", isSubscribed = false)
-            }
-        }
-
     ProfileScreen(
-        proEntry = proEntry,
-        onOpenPro = onOpenPro,
         displayName = profile?.displayName ?: "You",
         email = profile?.email ?: "",
         baseCurrency = profile?.baseCurrency ?: "USD",

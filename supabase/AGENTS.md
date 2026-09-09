@@ -406,7 +406,7 @@ A soft-deleted `receipts` row best-effort deletes its Storage object
 | `web-claim`                 | Live — the web claim security boundary; `verify_jwt = false` (own token auth) |
 | `push-notify`               | Deployed but **inert** until `FCM_SERVICE_ACCOUNT` is set  |
 | `dispatch_push`             | **Directory is EMPTY — never written or deployed**          |
-| `export_group`              | Live — group CSV export; Pro-gated server-side              |
+| `export_group`              | Live — free group CSV export; membership-gated server-side  |
 | `refresh_fx_rates`          | **Directory is EMPTY — never written or deployed**          |
 | `notify_admin_of_conflicts` | **Directory is EMPTY**; legacy, tied to the retired conflicts model |
 | `apple-link-token`          | Deployed but **inert** until `APPLE_*` secrets are set — see its README |
@@ -466,17 +466,9 @@ native Apple authorization code for a refresh token on sign-in and revoke it on 
 in `apple_oauth_tokens` (RLS enabled, zero policies — service-role only, matching `web_sessions`). Both
 share `_shared/appleClientSecret.ts`, an ES256 client-secret JWT signer.
 
-**`extract-receipt` requires `groupId` (400 without it) and enforces the Pro quota.** It began as
-optional analytics attribution; as the quota key, a nullable field is a bypass. Order of checks: user →
-groupId → ACTIVE membership (403) → per-user rate limit (429) → Pro pass → free allowance → **402
-`quota_exhausted`**, all before any paid call. 402 and 429 are deliberately distinct: one opens a
-paywall, the other opens a wait, and the client cannot choose the right screen from a single status.
-
-The quota reads through the **service** client, never the caller's. `receipt_scan_log`'s RLS is
-`user_id = auth.uid()`, so the caller's client sees only their own scans — counting the group's
-allowance that way gives every member a private 5. Every new check **fails closed**, like the rate-limit
-read above it. `FREE_SCANS_PER_GROUP` (default 5) is env-overridable so the number can be tuned without
-a redeploy.
+**`extract-receipt` requires `groupId` (400 without it) and scans are unlimited.** Order of checks: user
+→ groupId → ACTIVE membership (403) → per-user abuse cooldown (429), all before the model call. There is
+no entitlement lookup, free allowance, or 402 quota response in the no-subscriptions product line.
 
 `extract-receipt`'s two tiers share one `ANTHROPIC_API_KEY`, so a 401/403 or a credit-exhausted 400 from
 Anthropic fails identically on both — that's not a bad photo, it's the account itself broken, and it

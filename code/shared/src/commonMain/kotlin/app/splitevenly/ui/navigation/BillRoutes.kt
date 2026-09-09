@@ -15,7 +15,6 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
-import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.auth.AuthSession
@@ -27,23 +26,18 @@ import app.splitevenly.domain.expense.ItemStatus
 import app.splitevenly.domain.expense.NewBill
 import app.splitevenly.domain.expense.NewBillItem
 import app.splitevenly.domain.expense.TipSplitMode
-import app.splitevenly.domain.pro.ProBilling
-import app.splitevenly.domain.pro.scanMeterFor
-import app.splitevenly.domain.pro.scansExhausted
 import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
-import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
 import app.splitevenly.platform.PickKind
 import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
-import app.splitevenly.platform.ProTriggers
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.bill.AssignRowUi
 import app.splitevenly.ui.screen.bill.BillClaimScreen
@@ -101,14 +95,7 @@ fun BillEditRoute(
     val filePicker = koinInject<FilePicker>()
     val cameraGate = rememberCameraPermissionGate()
     val ocr = koinInject<ReceiptOcr>()
-    val pro = koinInject<ProRepository>()
     val gid = remember(groupId) { GroupId(groupId) }
-    // Free-scan meter (PRO_PASS_SPEC.md §8.1): fetched on open, re-read after each scan below.
-    val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
-    LaunchedEffect(gid) { pro.refresh(gid.value) }
-    val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
-    // Refuse the scan tap before the file picker rather than after the upload (PRO_PASS_SPEC.md §8.1).
-    val scanBlocked = proState?.let { scansExhausted(it.status, it.freeUsed, it.freeLimit) } == true
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -127,15 +114,6 @@ fun BillEditRoute(
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var attachedReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
-    // Only reads the SERVER's pass row, so this fires once `activate-pass` has been pulled down: the
-    // buyer's refusal sheet clears itself instead of standing there over a group that is now Pro.
-    LaunchedEffect(scanBlocked) {
-        if (!scanBlocked && (scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
-            scanState = ScanUiState.Idle
-        }
-    }
-    // Absent in the offline/unconfigured build, same optional-dep pattern as uploadManager above.
-    val syncEngine = remember(koin) { koin.getOrNull<SyncEngine>() }
     // Scan-funnel analytics bookkeeping — see AddExpenseRoute's twin of this pipeline.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
     var scanStartedAt by remember { mutableStateOf(0L) }
@@ -207,15 +185,7 @@ fun BillEditRoute(
                                 AnalyticsEvents.SCAN_BLOCKED,
                                 mapOf("reason" to outcome.reason, "group_id" to gid.value),
                             )
-                            // The group is out of free scans and holds no pass, which no amount of waiting
-                            // fixes. Every other Blocked reason (the hourly rate limit today) does.
-                            val blockedKind =
-                                if (outcome.reason == "quota_exhausted") {
-                                    ScanErrorKind.OutOfScans
-                                } else {
-                                    ScanErrorKind.Blocked
-                                }
-                            ScanUiState.Failed(blockedKind)
+                            ScanUiState.Failed(ScanErrorKind.Blocked)
                         }
 
                         else -> {
@@ -239,41 +209,15 @@ fun BillEditRoute(
                             ScanUiState.Failed(kind)
                         }
                     }
-                // A successful scan is what moves the count, so re-read it rather than decrementing
-                // locally: the server is the only place that knows what actually counted. That refreshed
-                // number is also the only honest source for `free_scan_used` (PRO_PASS_SPEC.md §12) —
-                // computing it from the pre-scan value would report a scan the server may not have counted.
-                pro.refresh(gid.value)?.let { count ->
-                    analytics?.capture(
-                        AnalyticsEvents.FREE_SCAN_USED,
-                        mapOf(
-                            "group_id" to gid.value,
-                            "scans_used" to count.used,
-                            "scans_remaining" to count.remaining,
-                        ),
-                    )
-                }
             }
     }
 
-    // The scan sheet's Pro door (PRO_PASS_SPEC.md §8.1). Opens the pass sheet in place rather than
-    // navigating away: the person is mid-bill, and taking them off this screen to buy would lose the
-    // photo they just picked.
-    val billing = koinInject<ProBilling>()
-    var showPassSheet by remember { mutableStateOf(false) }
-    var showPaywall by remember { mutableStateOf(false) }
-
     BillEditScreen(
         editing = expenseId != null,
-        groupName = group?.name,
-        onGetPro = if (billing.isAvailable) ({ showPassSheet = true }) else null,
-        scanBlocked = scanBlocked,
-        onSeeSubscription = if (billing.isAvailable) ({ showPaywall = true }) else null,
         initial = existing?.toEditState(),
         scanned = scanned,
         currencyCode = currency,
         saving = saving,
-        scanMeter = scanMeter,
         scanState = scanState,
         attachedReceipts = attachedReceipts.map { it.toUi() },
         onRemoveAttachedReceipt = { i ->
@@ -329,14 +273,7 @@ fun BillEditRoute(
             scanState = ScanUiState.Idle
         },
         onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
-        onDismissScan = {
-            // The honest counterpart to conversion rate: how many people the gate pushed onto the slow
-            // path. Only fired for the quota refusal, never for an offline or unreadable-photo dismissal.
-            if ((scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
-                analytics?.capture(AnalyticsEvents.MANUAL_ENTRY_AFTER_PAYWALL, mapOf("group_id" to gid.value))
-            }
-            scanState = ScanUiState.Idle
-        },
+        onDismissScan = { scanState = ScanUiState.Idle },
         onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
         onSave = { submit ->
             val me = userId ?: return@BillEditScreen
@@ -407,40 +344,6 @@ fun BillEditRoute(
         },
     )
 
-    if (showPassSheet) {
-        PassSheetHost(
-            groupId = gid.value,
-            groupName = group?.name ?: "this group",
-            trigger = ProTriggers.SCAN,
-            // The subscription link used to be null here, because reaching the paywall meant a push and
-            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
-            // real and the half-typed bill is still there when it closes.
-            onSeeSubscription = {
-                showPassSheet = false
-                showPaywall = true
-            },
-            onDismiss = { showPassSheet = false },
-        )
-    }
-
-    if (showPaywall) {
-        ProPaywallHost(
-            trigger = ProTriggers.SCAN,
-            onWantsPass = {
-                showPaywall = false
-                showPassSheet = true
-            },
-            onDismiss = {
-                showPaywall = false
-                // A subscription lands server-side too (`sync-subscriber`), and `user_subscriptions` is
-                // pull-only, so the gate only reopens once that row is here.
-                scope.launch {
-                    userId?.let { uid -> syncEngine?.syncNow(uid.value) }
-                    pro.refresh(gid.value)
-                }
-            },
-        )
-    }
 
     // Last, so the gate lands over the screen rather than under it.
     CameraPermissionGateHost(cameraGate)

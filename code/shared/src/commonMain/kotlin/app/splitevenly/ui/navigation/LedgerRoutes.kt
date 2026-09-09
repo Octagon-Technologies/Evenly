@@ -17,7 +17,6 @@ import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
-import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.activity.HistoryEvent
@@ -33,9 +32,6 @@ import app.splitevenly.domain.expense.NewExpense
 import app.splitevenly.domain.expense.NewShare
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.expense.TipSplitMode
-import app.splitevenly.domain.pro.ProBilling
-import app.splitevenly.domain.pro.scanMeterFor
-import app.splitevenly.domain.pro.scansExhausted
 import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
@@ -45,7 +41,6 @@ import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
-import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.platform.AnalyticsEvents
@@ -55,7 +50,6 @@ import app.splitevenly.platform.PdfRasterizer
 import app.splitevenly.platform.PickKind
 import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
-import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.ScanErrorKind
@@ -117,7 +111,6 @@ fun AddExpenseRoute(
     val filePicker = koinInject<FilePicker>()
     val cameraGate = rememberCameraPermissionGate()
     val ocr = koinInject<ReceiptOcr>()
-    val pro = koinInject<ProRepository>()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build —
     // and when it's null we hide the receipt strip entirely rather than offer an attach that goes nowhere.
     val koin = getKoin()
@@ -140,20 +133,6 @@ fun AddExpenseRoute(
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var billReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
-    // Evenly Pro: the free-scan meter under the scan hero (PRO_PASS_SPEC.md §8.1). Refreshed when the
-    // editor opens and again after every scan attempt, since a successful scan is what moves the count.
-    val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
-    LaunchedEffect(gid) { pro.refresh(gid.value) }
-    val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
-    // Refuse the scan tap before the file picker rather than after the upload (PRO_PASS_SPEC.md §8.1).
-    val scanBlocked = proState?.let { scansExhausted(it.status, it.freeUsed, it.freeLimit) } == true
-    // Only reads the SERVER's pass row, so this fires once `activate-pass` has been pulled down: the
-    // buyer's refusal sheet clears itself instead of standing there over a group that is now Pro.
-    LaunchedEffect(scanBlocked) {
-        if (!scanBlocked && (scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
-            scanState = ScanUiState.Idle
-        }
-    }
     // Scan-funnel analytics bookkeeping: the source of the in-flight scan (for scan_started/scan_cancelled)
     // and its start time (for duration_ms). Neither is user-facing state, just event properties.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
@@ -227,15 +206,7 @@ fun AddExpenseRoute(
                                 AnalyticsEvents.SCAN_BLOCKED,
                                 mapOf("reason" to outcome.reason, "group_id" to gid.value),
                             )
-                            // The group is out of free scans and holds no pass, which no amount of waiting
-                            // fixes. Every other Blocked reason (the hourly rate limit today) does.
-                            val blockedKind =
-                                if (outcome.reason == "quota_exhausted") {
-                                    ScanErrorKind.OutOfScans
-                                } else {
-                                    ScanErrorKind.Blocked
-                                }
-                            ScanUiState.Failed(blockedKind)
+                            ScanUiState.Failed(ScanErrorKind.Blocked)
                         }
 
                         else -> {
@@ -259,37 +230,10 @@ fun AddExpenseRoute(
                             ScanUiState.Failed(kind)
                         }
                     }
-                // A successful scan is what moves the count, so re-read it rather than decrementing
-                // locally: the server is the only place that knows what actually counted. That refreshed
-                // number is also the only honest source for `free_scan_used` (PRO_PASS_SPEC.md §12) —
-                // computing it from the pre-scan value would report a scan the server may not have counted.
-                pro.refresh(gid.value)?.let { count ->
-                    analytics?.capture(
-                        AnalyticsEvents.FREE_SCAN_USED,
-                        mapOf(
-                            "group_id" to gid.value,
-                            "scans_used" to count.used,
-                            "scans_remaining" to count.remaining,
-                        ),
-                    )
-                }
             }
     }
 
-    // Both Pro doors open IN PLACE (PRO_PASS_SPEC.md §8.1). The person is mid-expense, and a push
-    // disposes this editor underneath, which would lose the draft — so the pass sheet and the
-    // subscription paywall are hosted over it rather than navigated to.
-    val proBilling = koinInject<ProBilling>()
-    var showPassSheet by remember { mutableStateOf(false) }
-    var showPaywall by remember { mutableStateOf(false) }
-    // Absent in the offline/unconfigured build, same optional-dep pattern as uploadManager above.
-    val syncEngine = remember(koin) { koin.getOrNull<SyncEngine>() }
-
     AddExpenseScreen(
-        groupName = group?.name,
-        onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
-        scanBlocked = scanBlocked,
-        onSeeSubscription = if (proBilling.isAvailable) ({ showPaywall = true }) else null,
         participants = participants,
         categories = categories,
         currencyCode = currency,
@@ -297,7 +241,6 @@ fun AddExpenseRoute(
         lastExpenseParticipantIds = lastExpenseParticipantIds,
         receipts = pickedReceipts.map { it.toUi() },
         receiptsEnabled = uploadManager != null,
-        scanMeter = scanMeter,
         scanState = scanState,
         scanned = scanned,
         attachedReceipts = billReceipts.map { it.toUi() },
@@ -335,14 +278,7 @@ fun AddExpenseRoute(
             scanState = ScanUiState.Idle
         },
         onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
-        onDismissScan = {
-            // The honest counterpart to conversion rate: how many people the gate pushed onto the slow
-            // path. Only fired for the quota refusal, never for an offline or unreadable-photo dismissal.
-            if ((scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
-                analytics?.capture(AnalyticsEvents.MANUAL_ENTRY_AFTER_PAYWALL, mapOf("group_id" to gid.value))
-            }
-            scanState = ScanUiState.Idle
-        },
+        onDismissScan = { scanState = ScanUiState.Idle },
         onSplitApproachChosen = { approach ->
             analytics?.capture(
                 AnalyticsEvents.SPLIT_APPROACH_CHOSEN,
@@ -465,41 +401,6 @@ fun AddExpenseRoute(
         },
     )
 
-    if (showPassSheet) {
-        PassSheetHost(
-            groupId = gid.value,
-            groupName = group?.name ?: "this group",
-            trigger = ProTriggers.SCAN,
-            // The subscription link used to be null here, because reaching the paywall meant a push and
-            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
-            // real and the half-typed expense is still there when it closes.
-            onSeeSubscription = {
-                showPassSheet = false
-                showPaywall = true
-            },
-            onDismiss = { showPassSheet = false },
-        )
-    }
-
-    if (showPaywall) {
-        ProPaywallHost(
-            trigger = ProTriggers.SCAN,
-            onWantsPass = {
-                showPaywall = false
-                showPassSheet = true
-            },
-            onDismiss = {
-                showPaywall = false
-                // A subscription lands server-side too (`sync-subscriber`), and `user_subscriptions` is
-                // pull-only, so the gate only reopens once that row is here.
-                scope.launch {
-                    userId?.let { uid -> syncEngine?.syncNow(uid.value) }
-                    pro.refresh(gid.value)
-                }
-            },
-        )
-    }
-
     // Last, so the gate lands over the screen rather than under it.
     CameraPermissionGateHost(cameraGate)
 }
@@ -573,16 +474,7 @@ fun EditExpenseRoute(
             )
         }
 
-    // Both Pro doors open IN PLACE (PRO_PASS_SPEC.md §8.1): a push disposes this editor underneath and
-    // would take the in-progress edit with it.
-    val proBilling = koinInject<ProBilling>()
-    var showPassSheet by remember { mutableStateOf(false) }
-    var showPaywall by remember { mutableStateOf(false) }
-
     AddExpenseScreen(
-        groupName = group?.name,
-        onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
-        onSeeSubscription = if (proBilling.isAvailable) ({ showPaywall = true }) else null,
         editing = true,
         participants = participants,
         categories = categories,
@@ -647,32 +539,6 @@ fun EditExpenseRoute(
         },
     )
 
-    if (showPassSheet) {
-        PassSheetHost(
-            groupId = gid.value,
-            groupName = group?.name ?: "this group",
-            trigger = ProTriggers.SCAN,
-            // The subscription link used to be null here, because reaching the paywall meant a push and
-            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
-            // real and the half-typed expense is still there when it closes.
-            onSeeSubscription = {
-                showPassSheet = false
-                showPaywall = true
-            },
-            onDismiss = { showPassSheet = false },
-        )
-    }
-
-    if (showPaywall) {
-        ProPaywallHost(
-            trigger = ProTriggers.SCAN,
-            onWantsPass = {
-                showPaywall = false
-                showPassSheet = true
-            },
-            onDismiss = { showPaywall = false },
-        )
-    }
 }
 
 /**

@@ -81,11 +81,10 @@ that table.
 server rehydrates. Fine for now — see the prod gate at the bottom of this file. Schemas export to
 `code/shared/schemas/`; commit them.
 
-**Device-local tables stay out of sync.** Not every Room table is a wire mirror. Nine are local-only:
+**Device-local tables stay out of sync.** Not every Room table is a wire mirror. Eight are local-only:
 the receipt-upload outbox (`receipt_uploads`), the feedback outbox (`feedback_outbox`), the sync
-bookkeeping (`expense_sync_state`, `row_sync_state`), `superseded_notices`, `group_scan_usage` (a cache of
-the `my_group_scan_usage` RPC, so the free-scan meter is instant and works offline), and the three FX
-tables (`fx_rates`, `fx_baked`, `fx_currencies`). All nine are **absent from
+bookkeeping (`expense_sync_state`, `row_sync_state`), `superseded_notices`, and the three FX tables
+(`fx_rates`, `fx_baked`, `fx_currencies`). All eight are **absent from
 `SyncEngine.SYNCED_TABLES`** and **none is `@Serializable`** — the annotation is an exact discriminator
 for "is a wire mirror", pinned by `EntitySerializablePartitionTest`, so keep it that way: a new local
 table takes no annotation and a seat in that test's local list.
@@ -102,26 +101,6 @@ rest of the account's cache. That is deliberate and asymmetric with the receipt 
 let the next account on the device flush a stranger's bug report under their own token, which is exactly
 what the edge function refuses to do server-side. `countPendingLocalWrites` does not see it either (it
 walks `SYNCED_TABLES`), so sign-out will not warn about one.
-
-**`group_passes` and `user_subscriptions` are the PULL-ONLY synced tables.** Evenly Pro
-(`PRO_PASS_SPEC.md`) has two routes and the server is the only writer of both, so the client pulls them
-and never pushes. Three things enforce that, deliberately redundantly, because a client that could write
-either table could grant itself unlimited paid Claude-vision calls: server RLS grants `select` only,
-there is no entry in `SyncEngine.push`, and **neither DAO has an `allForSync`** — `push()` consumes
-exactly that method, so its absence makes pull-only a fact of the type system rather than a comment. Do
-not add one. Both land with a blind upsert and no `keepNewer` guard, which is correct here and nowhere
-else: the guard protects local edits, and nothing in the app ever writes a pass or a subscription.
-
-`user_subscriptions` is keyed by **user**, not group, so it is pulled for the roster rather than for the
-group ids, and `UserSubscriptionDao.observeForGroup` joins it against the local ACTIVE `members` roster
-exactly as the server's `group_pro_status` does. That join is what makes a subscriber leaving a group
-drop it back to free at the next pull with no second table to keep in step.
-
-`domain/pro/proStatusOf` mirrors the server's `group_pro_status` so the Pro badge renders offline: both
-routes flatten into one `ProCandidate` list and the latest-expiring live one wins, with `source` saying
-which door answered. Two implementations of one rule, accepted so a badge costs no round trip;
-`ProStatusTest` pins it against the same cases the SQL side was verified with. **Enforcement is always
-the server's copy** — this one only ever decides what to draw.
 
 ## Expenses sync through a ZONE-AWARE MERGE RPC
 
@@ -378,33 +357,6 @@ Receipt OCR is the `extract-receipt` edge function (Claude vision → structured
 picked, not inside the `ScanOutcome.Success` branch, and on a job separate from `scanJob` — cancelling the
 scan must not cancel the staging. Attaching only on success silently threw the photo away on every
 failed, blocked, offline or cancelled scan.
-
-## RevenueCat wiring — unconfigured must be INERT
-
-`ProConfig` mirrors `SupabaseConfig`: two **public** SDK keys (one per store) and one `isConfigured`
-flag the whole feature hangs off. The **secret** key lives only in edge-function env and must never
-appear in `shared` or either app target.
-
-`ProBilling` is bound **unconditionally** in `appModule` — `RevenueCatBilling` when configured,
-`NoProBilling` otherwise — so no caller ever asks whether monetization is switched on. That is what
-keeps the promise that with no keys there is no paywall, no pass sheet, no meter change, and scans
-behave exactly as they do today; same contract as the app being fully usable with Supabase
-unconfigured. A `getOrNull` here would move that question into every call site.
-
-The parked pass activation in `ProPurchaseCoordinator` is **keyed by group**. One un-scoped record meant a
-stuck charge in group A answered the pass sheet opened in group B, activating A and dismissing itself as
-though B were Pro. `hasPendingActivation`/`retryPendingActivation` take a `groupId`; the others are
-retried in the background and never reported on a sheet that does not own them.
-
-`Purchases.logIn` is bound to `currentUserId` in `SupabaseAuthSession.init`, beside the sync and push
-binds, so the RevenueCat app user id **is** our user id — that is what makes webhook attribution and
-support lookups possible. The sign-out half is not optional: without `logOut`, one device's
-subscription follows the next person who signs in on it.
-
-**Never hardcode a price.** Always render the `StoreProduct`'s formatted price; App Review rejects
-hardcoded prices and a non-US buyer must see their own currency. Offerings drive both surfaces, so
-nothing about the package mix belongs in Kotlin beyond a fallback ordering, or a pricing experiment
-stops being a dashboard change.
 
 ## Supabase client wiring
 

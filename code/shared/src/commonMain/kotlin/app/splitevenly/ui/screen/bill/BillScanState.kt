@@ -11,11 +11,8 @@ data class ScanPageUi(val isPdf: Boolean)
  * a distinct card (offline vs. couldn't-read vs. a retryable error vs. not-configured vs. rate-limited)
  * with the right actions. Manual entry is reachable from every one.
  *
- * [Blocked] and [OutOfScans] are both "the server refused", and they are separate because the way out
- * differs: [Blocked] resolves by waiting, [OutOfScans] never does. Offering Retry on the second one
- * would send the user in a circle.
  */
-enum class ScanErrorKind { Offline, NoReceiptFound, Unavailable, Error, Blocked, OutOfScans }
+enum class ScanErrorKind { Offline, NoReceiptFound, Unavailable, Error, Blocked }
 
 /** [ScanErrorKind] as the `kind` property on the `scan_failed` analytics event — reuses this taxonomy
  *  rather than inventing a parallel one (`scan_blocked` fires separately for [ScanErrorKind.Blocked]). */
@@ -25,7 +22,6 @@ fun ScanErrorKind.analyticsKind(): String = when (this) {
     ScanErrorKind.Unavailable -> "unavailable"
     ScanErrorKind.Error -> "error"
     ScanErrorKind.Blocked -> "blocked"
-    ScanErrorKind.OutOfScans -> "out_of_scans"
 }
 
 /**

@@ -10,8 +10,7 @@ import androidx.room.Transaction
  *
  * **Why this exists.** `signOut()` used to leave Room fully populated. Sign out, sign in as someone
  * else, and the next `push()` sent account A's rows up under account B's session — a cross-account data
- * leak in a money app. Evenly Pro widened it: `group_passes` and `user_subscriptions` are per-user, so a
- * stale local pass rode along too.
+ * leak in a money app.
  *
  * **Three rules this file exists to keep straight.**
  *
@@ -53,16 +52,12 @@ interface SignOutWipeDao {
         clearItemShares()
         clearBillParticipants()
         clearPendingItemEdits()
-        // Pull-only Pro entitlement mirrors — per-USER, so the next account must not inherit them.
-        clearGroupPasses()
-        clearUserSubscriptions()
         // Sync bookkeeping. These MUST go with the rows they describe: a surviving fingerprint would
         // make the next account's freshly-pulled rows look already-pushed, and they'd never sync.
         clearRowSyncState()
         clearExpenseSyncState()
         // Device-local caches scoped to the account that just left.
         clearSupersededNotices()
-        clearGroupScanUsage()
         clearReceiptUploads()
         // An unsent feedback ticket dies with the session that wrote it. Keeping it would let the next
         // account on this device flush a stranger's bug report under their own token, which is the exact
@@ -132,12 +127,6 @@ interface SignOutWipeDao {
     @Query("DELETE FROM pending_item_edits")
     suspend fun clearPendingItemEdits()
 
-    @Query("DELETE FROM group_passes")
-    suspend fun clearGroupPasses()
-
-    @Query("DELETE FROM user_subscriptions")
-    suspend fun clearUserSubscriptions()
-
     @Query("DELETE FROM row_sync_state")
     suspend fun clearRowSyncState()
 
@@ -146,9 +135,6 @@ interface SignOutWipeDao {
 
     @Query("DELETE FROM superseded_notices")
     suspend fun clearSupersededNotices()
-
-    @Query("DELETE FROM group_scan_usage")
-    suspend fun clearGroupScanUsage()
 
     @Query("DELETE FROM receipt_uploads")
     suspend fun clearReceiptUploads()
@@ -192,14 +178,10 @@ internal val WIPED_TABLES: List<String> =
         "item_shares",
         "bill_participants",
         "pending_item_edits",
-        // Pull-only Pro entitlement mirrors — per-USER, so the next account must not inherit them.
-        "group_passes",
-        "user_subscriptions",
         // Sync bookkeeping, and the device-local caches scoped to the account that just left.
         "row_sync_state",
         "expense_sync_state",
         "superseded_notices",
-        "group_scan_usage",
         "feedback_outbox",
         "receipt_uploads",
         "fx_baked",

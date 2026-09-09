@@ -16,7 +16,6 @@ import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ExpenseItemEntity
 import app.splitevenly.data.db.entity.ExpenseSyncStateEntity
 import app.splitevenly.data.db.entity.GroupEntity
-import app.splitevenly.data.db.entity.GroupPassEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
@@ -30,7 +29,6 @@ import app.splitevenly.data.db.entity.SettlementEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.SupersededNoticeEntity
 import app.splitevenly.data.db.entity.UserEntity
-import app.splitevenly.data.db.entity.UserSubscriptionEntity
 import app.splitevenly.data.db.entity.rowFingerprint
 import app.splitevenly.data.repository.BillMaterializer
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
@@ -177,9 +175,7 @@ class SyncEngine(
      * Every table [push] sends as a plain dirty-row upsert — i.e. [SYNCED_TABLES] minus `expenses`,
      * which goes through the `merge_expense` RPC instead and is sequenced explicitly in [push].
      *
-     * Pull-only tables are deliberately absent and must stay absent: `group_passes` and
-     * `user_subscriptions` are server-written entitlements, and a client that could push either could
-     * grant itself unlimited paid Claude-vision calls (`data/AGENTS.md`). `shares` is absent too — a
+     * Server-owned tables are deliberately absent and must stay absent. `shares` is absent too: a
      * bill's shares are a local derived materialization and a normal expense's ride with
      * `merge_expense`, so there is nothing here to send.
      */
@@ -374,24 +370,8 @@ class SyncEngine(
                                 expenseIds,
                             )
                         }
-                    // Evenly Pro passes (PRO_PASS_SPEC.md). Group-scoped and PULL-ONLY: the server is the only
-                    // writer, RLS grants the client select alone, and there is deliberately no matching entry in
-                    // push() below. A client that could write this table could grant itself unlimited paid scans.
-                    val groupPasses = selectIn<GroupPassEntity>("group_passes", "group_id", groupIds)
                     val userIds = (members.map { it.userId } + expenses.mapNotNull { it.payerUserId } + shares.map { it.userId }).distinct()
                     val users = if (userIds.isEmpty()) emptyList() else selectIn<UserEntity>("users", "id", userIds)
-                    // The second route to Pro (PRO_PASS_SPEC.md §5.5). Keyed by user rather than group, so it is
-                    // pulled for the roster rather than for the group ids; RLS narrows it to people we share a group
-                    // with anyway. Pull-only for exactly the same reason as group_passes.
-                    //
-                    // **Always include ourselves**, exactly as the `users` pull above does for `me`. The roster is
-                    // empty for someone in no groups, and a roster-only filter then skipped their OWN subscription:
-                    // the Profile row went on selling Pro to someone already paying for it, and Restore looked like
-                    // it did nothing. That is a plausible double charge, not a cosmetic gap, because the Profile
-                    // door is reachable with zero groups and is where a first subscription gets bought.
-                    val subscriberIds = subscriberIdsFor(members.map { it.userId }, userId)
-                    val subscriptions =
-                        selectIn<UserSubscriptionEntity>("user_subscriptions", "user_id", subscriberIds)
 
                     // 3. Land them in Room (parents before children isn't required — there are no FK constraints).
                     //    Every synced table that carries updated_at gets a last-write-wins guard (Rule 5): never let an
@@ -500,12 +480,6 @@ class SyncEngine(
                     land("pending_item_edits", pendingItemEdits, db.pendingItemEditDao().allForSync(), {
                         it.id
                     }, { it.updatedAt }) { db.pendingItemEditDao().upsertAll(it) }
-                    // Blind upsert, no keepNewer guard: there is no local write to protect, since nothing in the app
-                    // ever creates or edits a pass. The server row is the only version that has ever existed.
-                    if (groupPasses.isNotEmpty()) db.groupPassDao().upsertAll(groupPasses)
-                    // Same blind upsert, same reason: nothing in the app ever writes a subscription row, so there is
-                    // no local edit for a keepNewer guard to protect.
-                    if (subscriptions.isNotEmpty()) db.userSubscriptionDao().upsertAll(subscriptions)
                     land("placeholder_claim_answers", claimAnswers, db.placeholderClaimAnswerDao().allForSync(), {
                         it.id
                     }, { it.updatedAt }) { db.placeholderClaimAnswerDao().upsertAll(it) }
@@ -811,18 +785,6 @@ class SyncEngine(
     companion object {
         /** Max ids per `in.(…)` filter — see [selectIn]. */
         const val SELECT_IN_CHUNK: Int = 100
-
-        /**
-         * Who to pull `user_subscriptions` for: the roster, **plus always ourselves**.
-         *
-         * Extracted only so [SyncEngineTest] can pin the "plus ourselves" half, which is the whole bug
-         * it had: filtering on the roster alone meant a user in no groups pulled nothing, including
-         * their own live subscription, so the Profile row kept selling Pro to someone already paying.
-         */
-        internal fun subscriberIdsFor(
-            rosterUserIds: List<String>,
-            selfUserId: String,
-        ): List<String> = (rosterUserIds + selfUserId).distinct()
 
         /**
          * The chunk loop behind [selectIn], deliberately NOT inline and NOT a member. [pull] inlines

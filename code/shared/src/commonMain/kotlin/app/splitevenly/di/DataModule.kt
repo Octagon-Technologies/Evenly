@@ -6,15 +6,12 @@ import app.splitevenly.data.claim.SecureStoragePendingClaims
 import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.remote.fx.FrankfurterFxFetcher
 import app.splitevenly.data.remote.fx.FxRateFetcher
-import app.splitevenly.data.remote.revenuecat.PassActivationGateway
-import app.splitevenly.data.remote.revenuecat.SubscriberSyncGateway
 import app.splitevenly.data.remote.supabase.GroupExportHttp
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.ReceiptOcrHttp
 import app.splitevenly.data.remote.supabase.ReceiptStorage
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
-import app.splitevenly.data.remote.supabase.ScanUsageGateway
 import app.splitevenly.data.remote.supabase.WebBillLinkGateway
 import app.splitevenly.data.repository.ActivityRepositoryImpl
 import app.splitevenly.data.repository.BillRepositoryImpl
@@ -22,14 +19,11 @@ import app.splitevenly.data.repository.CategoryRepositoryImpl
 import app.splitevenly.data.repository.ExpenseRepositoryImpl
 import app.splitevenly.data.repository.FxRepositoryImpl
 import app.splitevenly.data.repository.GroupRepositoryImpl
-import app.splitevenly.data.repository.ProPurchaseCoordinator
-import app.splitevenly.data.repository.ProRepositoryImpl
 import app.splitevenly.data.repository.ProfileRepositoryImpl
 import app.splitevenly.data.repository.SettlementRepositoryImpl
 import app.splitevenly.data.repository.WebBillLinkRepositoryImpl
 import app.splitevenly.data.upload.ReceiptUploadHttp
 import app.splitevenly.domain.export.GroupExporter
-import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
@@ -37,7 +31,6 @@ import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
-import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.repository.WebBillLinkRepository
@@ -77,9 +70,6 @@ val dataModule: Module =
         single { get<EvenlyDatabase>().billParticipantDao() }
         single { get<EvenlyDatabase>().billWriteDao() }
         single { get<EvenlyDatabase>().pendingItemEditDao() }
-        single { get<EvenlyDatabase>().groupPassDao() }
-        single { get<EvenlyDatabase>().userSubscriptionDao() }
-        single { get<EvenlyDatabase>().groupScanUsageDao() }
         single { get<EvenlyDatabase>().supersededNoticeDao() }
         single { get<EvenlyDatabase>().placeholderMergeDao() }
         single { get<EvenlyDatabase>().placeholderClaimAnswerDao() }
@@ -92,8 +82,7 @@ val dataModule: Module =
         // access-token provider (bound only when Supabase is configured) lets it authenticate as the user so
         // the server-side per-user rate limit engages (P1 #11); getOrNull keeps the offline/stub build working.
         single<ReceiptOcr> { ReceiptOcrHttp(get(), get(), get(), accessTokenProvider = getOrNull()) }
-        // Group CSV export (PRO_PASS_SPEC.md §3). Server-rendered because it reads every member's rows, and
-        // Pro-gated on that same server: a client-side gate on a reachable endpoint is decoration.
+        // Group CSV export is server-rendered because it reads every member's rows.
         single<GroupExporter> { GroupExportHttp(get(), get(), accessTokenProvider = getOrNull()) }
 
         // Repositories
@@ -149,20 +138,6 @@ val dataModule: Module =
         // The payer's web claim link (WEB_CLAIM_SPEC.md §3.9.3). Not local-first on purpose: a link is a
         // server-side authorisation, so the gateway is required and its absence is reported, never faked.
         single<WebBillLinkRepository> { WebBillLinkRepositoryImpl(getOrNull<WebBillLinkGateway>(), get()) }
-        // Evenly Pro, read-only: the Pro badge and the free-scan meter (PRO_PASS_SPEC.md). No write path
-        // exists here by design, and the gateway is optional so the offline build simply shows no meter.
-        single<ProRepository> { ProRepositoryImpl(get(), get(), get(), scanUsageGateway = getOrNull<ScanUsageGateway>()) }
-        // Buy-then-activate for a group pass (PRO_PASS_SPEC.md §6.2). A single, because the in-flight
-        // purchase it parks has to outlive the sheet that started it: the failure it exists for is the store
-        // charging and our activate call dying, and that must survive the screen going away.
-        single {
-            ProPurchaseCoordinator(
-                billing = get<ProBilling>(),
-                storage = get(),
-                activation = getOrNull<PassActivationGateway>(),
-                subscriberSync = getOrNull<SubscriberSyncGateway>(),
-            )
-        }
         single<SettlementRepository> {
             SettlementRepositoryImpl(
                 get(),

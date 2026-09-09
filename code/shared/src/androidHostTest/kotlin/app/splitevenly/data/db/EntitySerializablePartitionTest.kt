@@ -14,8 +14,6 @@ import app.splitevenly.data.db.entity.FxBakedEntity
 import app.splitevenly.data.db.entity.FxCurrencyEntity
 import app.splitevenly.data.db.entity.FxRateEntity
 import app.splitevenly.data.db.entity.GroupEntity
-import app.splitevenly.data.db.entity.GroupPassEntity
-import app.splitevenly.data.db.entity.GroupScanUsageEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
@@ -30,7 +28,6 @@ import app.splitevenly.data.db.entity.SettlementEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.SupersededNoticeEntity
 import app.splitevenly.data.db.entity.UserEntity
-import app.splitevenly.data.db.entity.UserSubscriptionEntity
 import kotlinx.serialization.serializerOrNull
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
@@ -71,8 +68,6 @@ class EntitySerializablePartitionTest {
             ItemShareEntity::class to typeOf<ItemShareEntity>(),
             BillParticipantEntity::class to typeOf<BillParticipantEntity>(),
             PendingItemEditEntity::class to typeOf<PendingItemEditEntity>(),
-            GroupPassEntity::class to typeOf<GroupPassEntity>(),
-            UserSubscriptionEntity::class to typeOf<UserSubscriptionEntity>(),
         )
 
     private val deviceLocalEntities: Map<KClass<*>, KType> =
@@ -81,7 +76,6 @@ class EntitySerializablePartitionTest {
             RowSyncStateEntity::class to typeOf<RowSyncStateEntity>(),
             SupersededNoticeEntity::class to typeOf<SupersededNoticeEntity>(),
             ReceiptUploadEntity::class to typeOf<ReceiptUploadEntity>(),
-            GroupScanUsageEntity::class to typeOf<GroupScanUsageEntity>(),
             FxRateEntity::class to typeOf<FxRateEntity>(),
             FxBakedEntity::class to typeOf<FxBakedEntity>(),
             FxCurrencyEntity::class to typeOf<FxCurrencyEntity>(),

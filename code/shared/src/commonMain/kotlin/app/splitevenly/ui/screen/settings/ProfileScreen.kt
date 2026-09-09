@@ -77,10 +77,6 @@ fun ProfileScreen(
     onThemeModeChange: (ThemeMode) -> Unit = {},
     onDeleteAccount: () -> Unit = {},
     deleteAccountError: String? = null,
-    // Evenly Pro (PRO_PASS_SPEC.md §8.1). Null hides the row entirely, which is the unconfigured-
-    // RevenueCat build: no paywall, no entry point, nothing that leads anywhere.
-    proEntry: ProEntryUi? = null,
-    onOpenPro: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var analytics by remember { mutableStateOf(true) }
@@ -96,11 +92,6 @@ fun ProfileScreen(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Evenly Pro, above the account list because it is the only row that changes what the app
-            // can do. It states the price on the row: a Pro entry that makes you tap to find out what
-            // it costs reads as a trap.
-            proEntry?.let { ProEntryRow(it, onOpenPro) }
-
             // ── Account header card ────────────────────────────
             if (isSignedIn) {
                 EvCard(padded = true) {

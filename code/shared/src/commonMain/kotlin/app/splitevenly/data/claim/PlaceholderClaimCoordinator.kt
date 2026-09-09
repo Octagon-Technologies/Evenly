@@ -84,8 +84,7 @@ sealed interface ClaimStatus {
  * and the local merge therefore stranded the name's whole history with no affordance left to retry from.
  * So the claim is parked in a [PendingClaimStore] *before* the guard is asked and cleared only once
  * [GroupRepository.reconcilePlaceholder] has returned, and [resumePending] finishes anything left over.
- * Same shape as `ProPurchaseCoordinator`'s parked purchase, and for the same reason: the process is not
- * a thing either half can assume.
+ * The claim is durable because the process is not something either half can assume will survive.
  *
  * At flush the first-claim-wins guard runs **before** the merge, not after. The spec's rollback path
  * assumed a committed Room transaction could be reversed; it can't, and an un-claim API is explicitly

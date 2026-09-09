@@ -158,24 +158,14 @@ settle screen lists those same lines as checkable targets, and highlights the me
 (the synced `users.preferred_payment_app` column, set in the Payment-apps editor) as the default way to pay
 them.
 
-**The free-scan meter is conditional, and the condition lives in `domain/pro/scanMeterFor`,** not in the
-Composable (`PRO_PASS_SPEC.md` §8.1). Hidden while Pro, hidden until the count is actually known, and
-hidden while more than 3 remain: a new group counting down from 5 reads as a trial with a clock on it.
-`ScanQuotaMeter` renders whatever it is handed and decides nothing. It **escalates exactly once**: a
-quiet count plus what happens after the last scan, then a full-width group-named button at zero. Empty
-warms to `credit` amber, never `danger` — spending an allowance is not a fault.
-
-**The scan tap is refused before the file picker, not after the upload** (`domain/pro/scansExhausted`).
-`OutOfScansSheet` is what a blocked tap opens; the server's 402 stays as the fallback for the race where
-another member spends the last scan mid-flight. **The scan card stays enabled at zero** so tapping it
-explains rather than doing nothing. Every path to the picker goes through the screen's own `startScan`,
-including the failed-scan sheet's "try a new photo" — a second route to the picker is a second way past
-the gate.
+**Receipt scans are unlimited and free.** Every scan entry point goes directly to source selection and
+the OCR request. There is no local allowance, meter, upgrade prompt, or paid fallback. A server 429 is
+still a short abuse-protection cooldown and must be explained as a retry-later state, never as a quota.
 
 **The camera goes through `CameraPermissionGate`, never straight to the picker.** `rememberCameraPermissionGate()`
 at the top of a route wrapper, every camera-capable source handler passed through `gate.wrap { ... }`, and
-`CameraPermissionGateHost(gate)` **last** in the function, beside `PassSheet`/`ProPaywallHost` (an overlay
-emitted before the screen draws underneath it). Only `PickSource.Camera` is intercepted. The sheet is
+`CameraPermissionGateHost(gate)` **last** in the function (an overlay emitted after the screen draws
+underneath it). Only `PickSource.Camera` is intercepted. The sheet is
 deliberately **undimmed**: the scan card stays legible behind it, so it reads as part of the screen rather
 than a trap door. Both halves of the drawn system dialog are live and do what they depict, because a drawing
 of a button that swallows taps is the dead end the gate exists to remove. Four entry points across
@@ -191,60 +181,8 @@ image" button wired to an empty lambda and an "Export" chip in its app bar that 
 `onClick` at all, so neither could ever do anything. Both are gone. If export returns to Overview it
 ships with a working callback, or it does not ship.
 
-**The subscription paywall is RevenueCat's, not ours** (`PRO_PASS_SPEC.md` §8.2). `ProPaywallScreen`
-renders the `Paywall()` composable against the dashboard's current offering, so layout, copy and price
-mix stay a dashboard change and Experiments can run without a release. Do not reimplement it in Compose,
-and do not hardcode a price anywhere: every price on screen is the store's own localized
-`StoreProduct` string, which App Review requires and a non-US buyer needs. The **group-pass sheet**
-(`ui/screen/pro/PassSheet.kt`) is ours only because RevenueCat cannot render consumables.
-
-**A door that names a group opens the group-scoped product.** Found by the cold `ux-firsttimer` walk,
-and it is the pay/renew direction being ambiguous at the moment of commitment: "Get Pro for Ski Trip"
-opening an all-groups recurring subscription is the worst mislabel this feature can produce. So the
-group-settings row and the out-of-scans sheet lead with the **pass sheet**, and each product's sheet
-names the other one exit ("Only need it for one trip?" on the paywall, "In more than one group? See
-Evenly Pro" on the pass sheet). That second link used to be **null inside an editor**, because reaching
-the paywall meant a push and a push disposes the editor underneath. It is real everywhere now:
-`ProPaywallHost` renders RevenueCat's paywall *over* the editor instead, so the draft is simply still
-there when it closes. Do not re-null it, and do not navigate to `Route.Pro` from an editor.
-
-**Never offer a pass for a group a subscription already covers** — anyone's, not just your own. A pass
-cannot be cancelled or refunded, so nothing later corrects the mistake, and extending from a
-subscription's expiry would sell dead time against someone else's private renewal date. A group on a
-*pass* is the opposite case and must stay buyable: a second pass extends it.
-
-**A money button carries the amount, not just the verb.** Three tiers four times apart with no
-confirmation step after them; a button reading only "Get Pro" makes someone look back up the screen in
-a noisy restaurant. Same rule for the half-success line: it must say the charge landed **and** that
-tapping again cannot charge twice, which idempotency makes true.
-
-**Both Pro doors emit ONE event spine, separated only by `surface`.** Because the scan gate opens our
-sheet instead of RevenueCat's paywall, RevenueCat's analytics and Experiments never see the
-highest-intent door, and PostHog carries that load instead. `pro_offer_shown` / `pro_offer_selected` /
-`pro_offer_dismissed` / `purchase_started` / `purchase_activated` are shared by both surfaces, built in
-`domain/pro/ProFunnel.kt` so four call sites cannot drift. **Do not add a surface-specific
-`paywall_shown` back** — two event names make "does the pass door convert better?" two reports that
-cannot be laid over each other, which is the one question the routing decision created. Every new event
-also goes in `.posthog-events.json`; a missing catalogue entry is an incomplete change.
-
-`purchase_activated` fires on **activation, not on the charge**: a purchase the server never turned into
-an entitlement is not a conversion, and counting it as one hides the failure the retry flow exists for.
-
-**The pass sheet is remotely tunable through the `pro_pass_sheet` PostHog flag** (order, preselected
-tier, best-value flag), which is the stand-in for the paywall editor RevenueCat cannot point at a
-consumable. Every field defaults to today's behaviour, so a missing flag or a malformed payload renders
-the sheet we would have rendered anyway — a pricing screen must never fail to draw because an experiment
-did not load.
-
-**Every Pro surface is absent, not disabled, when RevenueCat is unconfigured.** The Profile row, the
-scan sheet's Pro button and the paywall all key off `ProBilling.isAvailable`; a door that cannot open is
-worse than no door. `ProStatusRow` is the one exception and is always shown, because a *free group* used
-to render nothing at all there and so had no Pro surface whatsoever.
-
-**There is deliberately no Pro badge in the group top bar.** It was in the approved mock and was removed
-after building it: that bar already carries three actions, and a pill wraps the group's own name onto two
-lines. The Pro fact lives in the Group settings row, which names the buyer. Do not re-add it without
-solving the title width first.
+**Export is always free.** Group settings invokes the CSV export directly after membership checks; it
+must never branch to a tier gate or upgrade prompt.
 
 **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
 full-screen `ReceiptViewerScreen` — a `HorizontalPager` over the expense's receipts with a bottom thumbnail

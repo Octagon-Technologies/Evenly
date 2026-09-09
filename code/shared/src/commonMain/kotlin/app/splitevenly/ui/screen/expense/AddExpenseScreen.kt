@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.CategoryDefaults
 import app.splitevenly.domain.expense.GroupCategory
-import app.splitevenly.domain.pro.ScanMeter
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.BannerVariant
@@ -63,7 +62,6 @@ import app.splitevenly.ui.screen.bill.ScanUiState
 import app.splitevenly.ui.screen.bill.priceToSubunits
 import app.splitevenly.ui.screen.bill.rememberItemizedBillState
 import app.splitevenly.ui.screen.group.CategoryCatalog
-import app.splitevenly.ui.screen.pro.OutOfScansSheet
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
 
@@ -110,20 +108,7 @@ fun AddExpenseScreen(
     // ── itemized ("By what each had") body — only used when creating (editing keeps its single mode) ──
     // The scan pipeline is driven by the route: [scanState] shows progress/errors, [scanned] delivers a
     // completed draft that pre-fills the item list, and the on* callbacks pick/cancel/retry the scan.
-    // Free-scan meter under the scan hero. Null on a Pro group, and until the count is known
-    // (PRO_PASS_SPEC.md §8.1) — the screen never invents one.
-    scanMeter: ScanMeter? = null,
     scanState: ScanUiState = ScanUiState.Idle,
-    // Evenly Pro (PRO_PASS_SPEC.md §8.1): at zero free scans the refusal sheet grows a door. Both are
-    // null in the unconfigured build, and the sheet then reads exactly as it did before.
-    groupName: String? = null,
-    onGetPro: (() -> Unit)? = null,
-    // True once the group's free scans are spent and it holds no pass. A scan tap is then refused HERE,
-    // before the file picker, instead of costing a photo and an upload to learn the same thing from the
-    // server's 402 (which stays as the fallback for the race this cannot see).
-    scanBlocked: Boolean = false,
-    // Opens the subscription paywall in place, over this editor. Null when RevenueCat is unconfigured.
-    onSeeSubscription: (() -> Unit)? = null,
     scanned: EditBillState? = null,
     // The pages that were scanned. They are a receipt in their own right, kept whatever the OCR made of
     // them, so they get the same strip (and the same viewer) as a hand-picked one.
@@ -179,15 +164,7 @@ fun AddExpenseScreen(
     var outsidePayerName by remember { mutableStateOf(prefill?.payerOutsideName) }
     var showPayerDialog by remember { mutableStateOf(false) }
     var showScanSource by remember { mutableStateOf(false) }
-    var showOutOfScans by remember { mutableStateOf(false) }
-    // A pass bought from the sheet clears the block, and the sheet has to go with it: left standing it
-    // would still be refusing a scan the group can now make.
-    LaunchedEffect(scanBlocked) { if (!scanBlocked) showOutOfScans = false }
-
-    /** Every route to the file picker goes through here, so the gate cannot be walked around. */
-    fun startScan(source: PickSource) {
-        if (scanBlocked) showOutOfScans = true else onScanReceipt(source)
-    }
+    fun startScan(source: PickSource) = onScanReceipt(source)
 
     // Which body is showing. The choice is an up-front question: null = not yet chosen on a new expense
     // (show the chooser); an edit skips it and stays in its (divide) body.
@@ -436,9 +413,6 @@ fun AddExpenseScreen(
                             saveLabel = "Save & assign items",
                             onScanSource = { source -> startScan(source) },
                             onSave = { submit() },
-                            scanMeter = scanMeter,
-                            groupName = groupName,
-                            onGetPro = onGetPro,
                         )
                     } else {
                         DivideSplitBody(
@@ -522,23 +496,6 @@ fun AddExpenseScreen(
     if (showScanSource) {
         ScanSourceSheet(onScan = { source -> startScan(source) }, onDismiss = { showScanSource = false })
     }
-    if (showOutOfScans) {
-        OutOfScansSheet(
-            groupName = groupName,
-            onGetPass = {
-                showOutOfScans = false
-                onGetPro?.invoke()
-            },
-            onSeeSubscription =
-                onSeeSubscription?.let { see ->
-                    {
-                        showOutOfScans = false
-                        see()
-                    }
-                },
-            onManual = { showOutOfScans = false },
-        )
-    }
     when (val s = scanState) {
         is ScanUiState.Working -> {
             ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
@@ -553,8 +510,6 @@ fun AddExpenseScreen(
                     onDismissScan()
                     showScanSource = true
                 },
-                groupName = groupName,
-                onGetPro = onGetPro,
             )
         }
 

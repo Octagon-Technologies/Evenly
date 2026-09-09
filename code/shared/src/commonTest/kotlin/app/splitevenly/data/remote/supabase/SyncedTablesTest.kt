@@ -41,17 +41,6 @@ class SyncedTablesTest {
     }
 
     @Test
-    fun pullOnlyTablesAreNeverPushed() {
-        // Redundant with RLS and with the missing `allForSync` on both DAOs, deliberately: a client that
-        // could write either table could grant itself unlimited paid Claude-vision calls.
-        assertTrue("group_passes" !in SyncEngine.SYNCED_TABLES)
-        assertTrue("user_subscriptions" !in SyncEngine.SYNCED_TABLES)
-        // They must still be wiped on sign-out, though — both are per-USER entitlement mirrors.
-        assertTrue("group_passes" in WIPED_TABLES)
-        assertTrue("user_subscriptions" in WIPED_TABLES)
-    }
-
-    @Test
     fun theListHasNoDuplicates() {
         assertEquals(SyncEngine.SYNCED_TABLES.size, SyncEngine.SYNCED_TABLES.toSet().size)
         assertEquals(WIPED_TABLES.size, WIPED_TABLES.toSet().size)

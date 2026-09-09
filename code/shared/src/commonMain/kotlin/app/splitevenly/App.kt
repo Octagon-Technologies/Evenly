@@ -15,9 +15,7 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
-import app.splitevenly.data.remote.revenuecat.RevenueCatBilling
 import app.splitevenly.domain.auth.ThemeMode
-import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.platform.imageCacheDir
@@ -60,11 +58,6 @@ fun App() {
     LaunchedEffect(lifecycle, appForeground) {
         lifecycle.currentStateFlow.collect { appForeground.set(it.isAtLeast(Lifecycle.State.STARTED)) }
     }
-    // Evenly Pro (PRO_PASS_SPEC.md §9). Idempotent, and a no-op with no RevenueCat keys, which is the
-    // whole "unconfigured is inert" contract: no paywall, no pass sheet, scans exactly as today. Done
-    // here rather than in a platform entry point so both hosts get it from one place.
-    val proBilling = koinInject<ProBilling>()
-    LaunchedEffect(proBilling) { (proBilling as? RevenueCatBilling)?.configure() }
     // Appearance follows the signed-in user's saved preference (Profile → Appearance); System honours the OS.
     val profile by koinInject<ProfileRepository>().observeProfile().collectAsStateWithLifecycle(null)
     val darkTheme = when (profile?.themeMode ?: ThemeMode.System) {
