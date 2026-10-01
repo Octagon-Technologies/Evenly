@@ -89,19 +89,48 @@ existing items, no prompt.
 
 ## 7. Completion report
 
-**Done (commit 9fc278f).** Pure logic in `ui/screen/bill/BillEditLogic.kt` with `BillEditLogicTest`
-(passes): `isComplete`/`incompleteItemCount`/`savableItems`/`canAutoSave`/`incompleteItemsNotice` (T5a) and
-`mergeScan` Add/Replace with extras as `ExtraSuggestion`s, never summed (T5c). Both compiles green.
-Treated a half-filled row (name or price missing) as invalid; fully blank rows drop silently.
+**Status: T5a, T5b, T5c implemented. Commits on `fb/bill-edit`:** logic `9fc278f`, mock docs, T5a `f7efb8a`,
+T5b and T5c (see `git log`). Each code commit was green on `:shared:compileAndroidMain` and
+`:shared:compileKotlinIosSimulatorArm64`; `BillEditLogicTest` passes (`:shared:testAndroidHostTest`).
 
-**Blocked on owner sign-off:** the mock `design/bill-edit-autosave-scan-mockup.html` (6 frames: saved pill,
-Back with incomplete row, empty-bill Scan card, labelled Scan + receipt thumbnails, Add/Replace sheet,
-post-Add extras suggestions). No Compose written. Remaining after sign-off: back-arrow + debounced
-auto-save + pill + remove Save button (T5a), Scan card/labelled entry (T5b), receipt thumbnails + choice
-sheet + suggestions wiring (T5c), `ux-firsttimer`, iOS sim run.
+**What shipped**
+- T5a: back arrow saves (also system back via the new `ui-backhandler` dependency), no Save button, debounced
+  (700 ms) auto-save of valid state, incomplete rows stay local with a hint, Back warns ("Leave anyway" drops
+  only those rows). A half-retyped saved row is written as its last saved version, never dropped, so claims
+  are not tombstoned mid-edit.
+- Saved indicator (owner change: a card, not a pill): "Changes saved..." expands, holds 2.5 s, collapses.
+  **Choice:** latched at the moment of save. Scrolled to the top it is in flow under the top bar and pushes
+  content down; scrolled away it is an overlay pinned to the viewport top, same expand/hold/collapse.
+- T5b: Scan a receipt card when the bill has no items; labelled Scan pill beside Items otherwise; top-bar Scan
+  removed. Progress sheet unchanged.
+- T5c: saved receipt pages show as thumbnails with the item count (PDFs download and rasterize); a scan on a
+  bill with items asks Add to current items or Replace all items; Add appends and offers differing tax/tip as
+  "Use" suggestions, never summed; earlier pages stay attached either way. Pending uploads are de-duplicated
+  against saved receipts.
 
-**Open decisions for the owner / scout items not yet done:** (1) mock removes the top-bar Scan in favour of
-the card/pill, confirm; (2) how Save enters `BillReviewEditsScreen` for claimed items and the new-bill
-create-on-first-valid-save wiring live in the route wrapper, not yet scouted; (3) multi-page receipt
-support (`attachedReceipts` is a list, so likely yes, schema unconfirmed); (4) design-system catalog entry
-and `check-design-system.mjs` to run with the UI commit.
+**Decisions taken on the open questions (flag if wrong)**
+- Review-edits: scouted. The editor never routed into `BillReviewEditsScreen`; it is entered from the assign
+  screen. `editBill` bumps the split version as before, so auto-save uses the same path as the old Save.
+  Nothing bypassed.
+- New bill: created on the first valid save (implemented in `BillEditRoute`). Note `BillEditScreen` is only
+  reachable today for existing bills (`Route.SplitBill` is navigated to from detail/assign); creation goes
+  through AddExpense. A created-in-session bill's Back goes to FinishBill (old Save destination).
+- Multi-page: `attachedReceipts` is a list and `receipts` is per-expense; no schema change needed.
+
+**Verification**
+- iOS sim (`run-ios-sim.sh`): opened an existing bill; back arrow, saved-receipt thumbnail + "3 items on this
+  bill.", labelled Scan pill, no Save button, and the in-flow "Changes saved..." card were all seen. Not
+  exercised: pinned (scrolled) card, Add/Replace sheet and suggestions (needs a real scan with the OCR backend),
+  claimed-item flow with two accounts.
+- **Residue to clean:** during the sim run the first item of the owner's dev bill "dinner" (group Food Truck)
+  was auto-saved as "Chicken Tikka Masala!?&#8;&#8;" (typing test; I could not send backspace). Please retype.
+- `ux-firsttimer` (build-time, Diego and the payer), no P0/P1. P2: dismissing the Add/Replace sheet silently
+  drops the scan's items (the page stays attached); the shared unverified-receipt notice still says "before
+  saving"; Replace has no confirm (old page is kept and it is an explicit choice).
+- Catalog: `design/system/dist/` does not exist in this repo state, so `check-design-system.mjs` fails with
+  ENOENT and no catalog entry could be added. Not run successfully.
+
+**Environment notes:** the worktree lacks gitignored `GoogleService-Info.plist` and `local.properties`; I
+copied them (read-only) from the main checkout so the iOS build runs. Both stay ignored. Nothing outward-facing
+was done. Auto-save risk: a row removed or reordered within ~tens of ms of a save keeps a null id and could
+duplicate on the next save (id hand-back matches by index and label).
