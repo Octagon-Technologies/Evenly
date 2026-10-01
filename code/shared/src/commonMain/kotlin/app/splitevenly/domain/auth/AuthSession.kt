@@ -51,10 +51,10 @@ interface AuthSession {
         authorizationCode: String?,
     ): AppResult<Unit>
 
-    /** Email a magic link + 6-digit OTP to [email] (Supabase email provider). */
+    /** Email a magic link + OTP to [email] (Supabase email provider). */
     suspend fun sendEmailOtp(email: String): AppResult<Unit>
 
-    /** Verify the 6-digit [token] emailed to [email]; on success [currentUserId] becomes non-null. */
+    /** Verify the OTP [token] emailed to [email]; on success [currentUserId] becomes non-null. */
     suspend fun verifyEmailOtp(
         email: String,
         token: String,

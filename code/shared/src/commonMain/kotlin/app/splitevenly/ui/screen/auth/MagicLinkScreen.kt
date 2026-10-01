@@ -78,18 +78,18 @@ fun MagicLinkScreen(
                 Text("Check your email", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.ink)
                 Text(
                     buildAnnotatedString {
-                        append("We sent a magic link + 6-digit code to ")
+                        append("We sent a magic link and a sign-in code to ")
                         withStyle(SpanStyle(color = c.ink, fontWeight = FontWeight.SemiBold)) { append(email) }
                         append(". Tap the link, or enter the code below.")
                     },
                     color = c.ink2, fontSize = 15.sp, lineHeight = 22.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.widthIn(max = 280.dp),
                 )
-                EvField("6-digit code") {
-                    EvTextField(code, { code = it.filter { ch -> ch.isDigit() }.take(6) }, placeholder = "123456", keyboardType = KeyboardType.Number)
+                EvField("Sign-in code") {
+                    EvTextField(code, { code = it.filter { ch -> ch.isDigit() }.take(OTP_MAX_DIGITS) }, placeholder = "12345678", keyboardType = KeyboardType.Number)
                 }
                 error?.let { Text(it, color = c.danger, fontSize = 13.sp, textAlign = TextAlign.Center) }
-                EvButton("Verify & sign in", { onVerify(code) }, enabled = code.length == 6)
+                EvButton("Verify & sign in", { onVerify(code) }, enabled = code.length >= OTP_MIN_DIGITS)
                 EvButton("Resend code", onResend, variant = ButtonVariant.Text)
             }
         } else {
@@ -99,7 +99,7 @@ fun MagicLinkScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Sign in with email", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = c.ink, letterSpacing = (-0.5).sp)
-                    Text("We'll email you a link and a 6-digit code.", fontSize = 15.sp, color = c.ink2)
+                    Text("We'll email you a link and a sign-in code.", fontSize = 15.sp, color = c.ink2)
                 }
                 EvField("Email address") {
                     EvTextField(email, { email = it }, placeholder = "you@email.com", keyboardType = KeyboardType.Email)
@@ -156,3 +156,11 @@ private fun MagicLinkInputPreview() {
 private fun MagicLinkSentPreview() {
     EvenlyTheme { MagicLinkScreen(state = MagicLinkState.Sent) }
 }
+
+/**
+ * Supabase's email OTP length is a dashboard setting (6 to 10), and the hosted project issues 8 while
+ * `supabase/config.toml` says 6. Accepting the whole common range keeps sign-in working if either side
+ * changes; the server rejects a wrong-length code anyway.
+ */
+private const val OTP_MIN_DIGITS = 6
+private const val OTP_MAX_DIGITS = 8

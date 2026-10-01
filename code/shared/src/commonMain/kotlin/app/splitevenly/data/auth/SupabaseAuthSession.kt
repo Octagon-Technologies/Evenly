@@ -60,7 +60,7 @@ import kotlin.time.ExperimentalTime
 /**
  * Real [AuthSession] over Supabase Auth (06 §5.5). Supports the three providers the sign-in screen
  * offers — **Google / Apple** (browser OAuth via the `splitevenly://login-callback` redirect) and
- * **Email** (magic-link + 6-digit OTP) — plus an anonymous fallback for the offline-first path.
+ * **Email** (magic-link + OTP) — plus an anonymous fallback for the offline-first path.
  *
  * Provider/OTP sessions arrive asynchronously (browser redirect or email tap → [SupabaseClient]
  * handles the deep link → `sessionStatus` flips), so [mirrorCurrentUser] runs off the session-status
@@ -186,11 +186,37 @@ class SupabaseAuthSession(
         }
     }
 
-    override suspend fun sendEmailOtp(email: String): AppResult<Unit> =
-        runCatching {
-            client.auth.signInWith(OTP) { this.email = email.trim() }
+    override suspend fun sendEmailOtp(email: String): AppResult<Unit> {
+        val trimmed = email.trim()
+        if (isDebugBuild() && trimmed.lowercase().endsWith(DEBUG_TEST_EMAIL_DOMAIN)) return relayDebugOtp(trimmed)
+        return runCatching {
+            client.auth.signInWith(OTP) { this.email = trimmed }
             AppResult.Ok(Unit)
         }.getOrElse { it.toEmailSendError().asErr() }
+    }
+
+    /**
+     * Debug builds only: `@sharecost.test` personas have no real inbox, so the `debug-otp-relay` edge
+     * function mints the same OTP Supabase would have sent and mails it to the owner instead.
+     * Verification still goes through [verifyEmailOtp], so the rest of sign-in is the production path.
+     */
+    private suspend fun relayDebugOtp(email: String): AppResult<Unit> {
+        val http = httpClient ?: return AppError.NotAuthorized.asErr()
+        return runCatching {
+            val res =
+                http.post("${SupabaseConfig.URL}/functions/v1/debug-otp-relay") {
+                    header("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+                    header("apikey", SupabaseConfig.ANON_KEY)
+                    contentType(ContentType.Application.Json)
+                    setBody(Json.encodeToString(DebugOtpReq(email)))
+                }
+            when (res.status.value) {
+                in 200..299 -> AppResult.Ok(Unit)
+                429 -> AppError.Backend(status = 429, code = "over_email_send_rate_limit", detail = null).asErr()
+                else -> AppError.Backend(status = res.status.value, code = "debug_otp_relay", detail = null).asErr()
+            }
+        }.getOrElse { AppError.Unexpected(it).asErr() }
+    }
 
     /**
      * Map an email-send failure to a typed error. Supabase throttles the built-in email service (a few
@@ -495,4 +521,13 @@ private data class PendingDeletionRow(
 @Serializable
 private data class LinkAppleTokenReq(
     val authorizationCode: String,
+)
+
+/** Seeded test personas live on this non-routable domain; debug builds relay their OTPs (see `debug-otp-relay`). */
+private const val DEBUG_TEST_EMAIL_DOMAIN = "@sharecost.test"
+
+/** Body for the `debug-otp-relay` edge function call in [SupabaseAuthSession.relayDebugOtp]. */
+@Serializable
+private data class DebugOtpReq(
+    val email: String,
 )

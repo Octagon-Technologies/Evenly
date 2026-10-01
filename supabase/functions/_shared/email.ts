@@ -9,9 +9,11 @@ import { welcomeEmail, waitlistEmail } from "./emailTemplates.ts";
 
 const DEFAULT_FROM = "Andrew at Evenly <andrew@split-evenly.app>";
 
-async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+/** True when Resend accepted the message. Existing callers ignore it (best-effort); the debug OTP
+ *  relay needs it because a silent failure there leaves the owner waiting on a code that never comes. */
+async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   const apiKey = Deno.env.get("RESEND_API_KEY");
-  if (!apiKey) return;
+  if (!apiKey) return false;
   const from = Deno.env.get("RESEND_FROM") ?? DEFAULT_FROM;
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -24,9 +26,12 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
     });
     if (!res.ok) {
       console.error(`resend send failed (${res.status}): ${await res.text()}`);
+      return false;
     }
+    return true;
   } catch (e) {
     console.error(`resend send failed: ${(e as Error).message}`);
+    return false;
   }
 }
 
@@ -47,4 +52,14 @@ export async function sendWaitlistEmail(to: string): Promise<void> {
 export async function sendWelcomeEmail(to: string, displayName?: string | null): Promise<void> {
   const { subject, html } = welcomeEmail(firstNameFrom(displayName));
   await sendEmail(to, subject, html);
+}
+
+/** The OTP for a `@sharecost.test` persona, delivered to the owner's inbox by `debug-otp-relay`.
+ *  Plain on purpose: it's a dev tool, and the subject carries the code so it reads from a notification. */
+export async function sendDebugOtpEmail(inbox: string, persona: string, otp: string): Promise<boolean> {
+  const subject = `${otp} is the Evenly code for ${persona}`;
+  const html = `<p>Debug sign-in code for <b>${persona}</b>:</p>` +
+    `<p style="font-size:28px;font-weight:700;letter-spacing:4px">${otp}</p>` +
+    `<p>Relayed by the debug-otp-relay edge function. Only <code>@sharecost.test</code> addresses route here.</p>`;
+  return await sendEmail(inbox, subject, html);
 }
