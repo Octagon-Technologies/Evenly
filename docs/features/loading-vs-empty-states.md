@@ -1,6 +1,6 @@
 # Loading vs genuinely empty (T3)
 
-**Status:** implementing (owner signed off blank-until-loaded; no skeletons)
+**Status:** done; owner signed off the T3 mock as-is on 2026-10-01 (blank until loaded, offline/retry copy kept)
 **Worktree / branch:** `fb/loading-states` (from `feat/split-by-items-flow`)
 **Mockup:** `design/loading-skeletons-mockup.html`. **Owner decision (supersedes the skeleton
 design below):** no skeletons, shimmer or "Updating" hint. Most users have no groups or expenses, so a
