@@ -1,6 +1,6 @@
 # Loading vs genuinely empty (T3)
 
-**Status:** not started
+**Status:** mock done, awaiting owner sign-off (no Compose yet)
 **Worktree / branch:** `fb/loading-states` (from `feat/split-by-items-flow`)
 **Mockup:** skeleton rows for Home group cards and group expense rows — small HTML in
 `design/loading-skeletons-mockup.html`, owner sign-off before Compose.
@@ -81,4 +81,15 @@ fails or the phone is offline, it says so instead of claiming there's nothing.
 
 ## 7. Completion report
 
-_(fill in at the end)_
+**State at handoff (T3): BLOCKED on owner sign-off, no Kotlin written, nothing to commit but this brief and the mock.**
+
+- Mock: `design/loading-skeletons-mockup.html` shows five states: Home skeleton, group-expenses
+  skeleton (post-join), offline/failed with retry, local-data-plus-"Updating" hint, genuine empty,
+  plus the Room x hydration decision table.
+- Brief rules (AGENTS.md section 7, ui/AGENTS.md) require sign-off before Compose, so the compile
+  pair, tests, sim run and ux-firsttimer have not been run.
+- Questions for the owner: (1) shimmer vs static skeleton blocks; (2) is the "Updating" hint on
+  non-empty content wanted, or omit it; (3) offline copy in state 3 OK.
+- Next once approved: HydrationState in SyncManager, post-join pull in `joinByToken`, `SecureStorage`
+  ever-hydrated flag, `HomeUiState`/`ExpensesState` derivation, skeleton composables, unit tests,
+  edit only the `ExpensesState.Loading` branch of `GroupExpensesTab.kt` (~L253).
