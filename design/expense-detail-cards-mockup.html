@@ -74,8 +74,11 @@ h1{font-size:18px;margin:0 0 4px}p.n{color:#5B6577;margin:0 0 20px;max-width:880
  </div>
 </div>
 
-<div class="lbl">T4b. https://split-evenly.app/j/&lt;token&gt; (new web landing, marketing shell, generic copy)</div>
-<div class="row"><div class="web"><div class="logo">Evenly</div><h2>You're invited to a group on Evenly</h2><p>Split bills with friends and settle up, without the awkward maths.</p>
- <div class="b">Open in Evenly</div><div class="b s">Get the app</div><small>Opens splitevenly://j/&lt;token&gt; if the app is installed. No group details are shown on this page.</small></div>
- <div class="web" style="width:300px;text-align:left"><b>Why generic?</b><p style="margin-top:8px">A group name needs a server lookup RLS permits. Today RLS is permissive-for-authenticated only and the web bundle ships no Supabase client by design, so this page stays copy-only. If a safe invite-preview edge function appears later, "You're invited to &lt;group&gt;" slots into the same heading.</p></div></div>
+<div class="lbl">T4b. https://split-evenly.app/j/&lt;token&gt; (new web landing, marketing shell). REVISED: shows the group name; falls back to generic copy.</div>
+<div class="row">
+ <div><div class="lbl" style="font-weight:400">Lookup succeeded</div><div class="web"><div class="logo">Evenly</div><h2>You're invited to Weekend Trip on Evenly</h2><p>Split bills with friends and settle up, without the awkward maths.</p>
+ <div class="b">Open in Evenly</div><div class="b s">Get the app</div><small>Opens splitevenly://j/&lt;token&gt; if the app is installed. Only the group name is shown here, never members or balances.</small></div></div>
+ <div><div class="lbl" style="font-weight:400">Fallback: lookup failed, rate-limited, or unknown token (identical)</div><div class="web"><div class="logo">Evenly</div><h2>You're invited to a group on Evenly</h2><p>Split bills with friends and settle up, without the awkward maths.</p>
+ <div class="b">Open in Evenly</div><div class="b s">Get the app</div><small>Opens splitevenly://j/&lt;token&gt; if the app is installed.</small></div></div>
+ <div class="web" style="width:320px;text-align:left"><b>How the name gets there</b><p style="margin-top:8px">The page makes one plain <code>fetch</code> (no Supabase client, no key) to the <code>web-claim</code> edge function, action <code>invite-preview</code>. It calls a service-role-only SQL function that returns just <code>groups.name</code> for a live invite token. Unknown, malformed, deleted-group and rate-limited requests all get the same <code>{"groupName": null}</code> 200 response, so tokens cannot be enumerated. While loading, the generic heading shows (no layout shift on fallback).</p></div></div>
 </body></html>
