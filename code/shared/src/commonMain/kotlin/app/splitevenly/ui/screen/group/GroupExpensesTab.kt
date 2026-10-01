@@ -368,8 +368,8 @@ private fun InviteSheet(
     var copied by remember(inviteLink) { mutableStateOf(false) }
     EvSheetScaffold(
         onDismiss = onDismiss,
-        title = "Invite to $groupName",
-        sub = "Anyone with this link can join.",
+        title = "Invite to group",
+        sub = "Anyone with this link joins $groupName. To split just one bill, share that bill's QR instead.",
     ) {
         // Scannable QR of the join link — hand the phone across the table instead of typing a URL.
         // White plate + dark modules so it scans in both light and dark themes. Hidden until the token

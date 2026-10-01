@@ -6,6 +6,9 @@
  * path gets the "no token" screen instead of a request that could only ever fail.
  */
 
+/** `/j/:token` is the group invite link (a UUID-shaped token), not a bill. Matched by shape like the bill one. */
+const JOIN_PATH = /^\/j\/([0-9A-Za-z-]{16,64})\/?$/;
+
 const BILL_PATH = /^\/b\/([0-9A-Za-z]{16,64})\/?$/;
 
 export function billTokenFromLocation(loc: { pathname: string; search: string } = window.location): string | null {
@@ -36,6 +39,7 @@ export function billUrl(token: string): string {
  */
 export type Route =
   | { kind: 'bill'; token: string }
+  | { kind: 'join'; token: string }
   | { kind: 'home' }
   | { kind: 'privacy' }
   | { kind: 'terms' }
@@ -47,6 +51,8 @@ export type Route =
 export function resolveRoute(loc: { pathname: string; search: string } = window.location): Route {
   const token = billTokenFromLocation(loc);
   if (token) return { kind: 'bill', token };
+  const join = JOIN_PATH.exec(loc.pathname);
+  if (join) return { kind: 'join', token: join[1] };
   const path = loc.pathname.replace(/\/$/, '') || '/';
   if (path === '/privacy') return { kind: 'privacy' };
   if (path === '/terms') return { kind: 'terms' };

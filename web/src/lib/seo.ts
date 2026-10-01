@@ -13,7 +13,7 @@
 export const SITE_ORIGIN = 'https://split-evenly.app';
 
 export type PageKind =
-  | 'waitlist' | 'home' | 'privacy' | 'terms' | 'delete-account' | 'support' | 'admin' | 'bill';
+  | 'waitlist' | 'home' | 'privacy' | 'terms' | 'delete-account' | 'support' | 'admin' | 'bill' | 'join';
 
 type PageSeo = {
   title: string;
@@ -58,6 +58,12 @@ export const PAGES: Record<PageKind, PageSeo> = {
     canonical: '/support',
   },
   admin: { title: 'Admin · Evenly', description: '', canonical: null },
+  join: {
+    // A group invite in a chat thread must never be indexed or preview a group.
+    title: "You're invited · Evenly",
+    description: '',
+    canonical: null,
+  },
   bill: {
     // A bill link in a chat thread must never render a preview of someone's dinner.
     title: 'Claim your items · Evenly',

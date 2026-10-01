@@ -67,6 +67,15 @@ history across two accounts silently.
 The client calls it at **flush** time (an undone claim never reaches it) and **before** pushing the
 merged rows — a loser then reverses rows no other client has pulled. Don't move it after the push.
 
+## `invite_preview_group_name` — the group name for the `/j/` landing, nothing else
+
+`invite_preview_group_name(p_token text) returns text` is `security definer`, executable by **`service_role`
+only** (revoked from `anon` and `authenticated`, unlike `resolve_group_by_invite_token`). It returns
+`groups.name` for a live invite token and NULL otherwise, so unknown and deleted-group tokens are
+indistinguishable. Its only caller is the `web-claim` function's `invite-preview` action, which adds the
+per-IP rate limit (`public_write_log`, kind `invite-preview`). Never grant it to `anon`: that skips the rate
+limit, and never widen the return type past the name.
+
 ## Account deletion — request/cancel/purge, never a direct delete of shared data
 
 Three `security definer` RPCs replace the old hard-delete `delete_my_account()` (Play Store "Delete

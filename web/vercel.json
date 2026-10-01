@@ -3,6 +3,7 @@
   "trailingSlash": false,
   "rewrites": [
     { "source": "/b/(.*)", "destination": "/app.html" },
+    { "source": "/j/(.*)", "destination": "/app.html" },
     { "source": "/admin", "destination": "/app.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
