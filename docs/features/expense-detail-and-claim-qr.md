@@ -1,6 +1,6 @@
 # Expense detail: working claim QR + carded comments/receipt (T4, T7)
 
-**Status:** not started
+**Status:** mock done, awaiting owner sign-off (no Compose / web code written yet)
 **Worktree / branch:** `fb/expense-detail` (from `feat/split-by-items-flow`)
 **Mockup:** `design/expense-detail-cards-mockup.html` for T7 (and the QR entry point if it moves).
 
@@ -71,4 +71,36 @@ they read as unfinished.
 
 ## 7. Completion report
 
-_(fill in at the end; include the exact Vercel project setting / deploy command for the owner)_
+**State (2026-10-01): STOPPED at the mock gate (AGENTS.md §7). T4 and T7 are not implemented.**
+T4 was not split out as "no UI": it adds a new web page (`/j/` landing), moves/relabels the bill-QR
+control and retitles the invite sheet, all visual. One mock covers both tasks:
+`design/expense-detail-cards-mockup.html` (T7 light+dark vs before; T4 entry point before/after; both
+sheet titles; the `/j/` landing). No compile was run because no source changed, and no feature commit was made.
+
+**Owner decisions needed.** (1) Approve Comments + Receipt as `EvCard`s (section title "Receipt").
+(2) Approve a full-width outlined "Let friends pick their items" button in `BillPickCard`
+(replacing the small "Share" chip) with the line "Opens a QR for this bill only. No app or account
+needed."; bill QR sheet titled "Let friends pick their items" (today `BillShareLinkScreen` says "Let everyone
+pick"); group sheet retitled "Invite to group" (today `Invite to $groupName`, `GroupExpensesTab.kt:371`).
+(3) Approve generic-copy-only `/j/` landing.
+
+**Implementation plan once approved.** T7: wrap the comments `Column` (ExpenseDetailScreen.kt ~L570) and the
+receipts block (~L333) in `EvCard`; commit `feat(expense-detail): comments and receipt in cards (T7)`.
+T4 (app): edit `BillPickCard.kt` and the two titles. T4 (web): in `web/` add `{kind:'join'}` to `lib/router.ts`
+(`/j/<token>`), a `marketing/Join.svelte`, an entry in `prerender-entry.ts` `PRERENDERED`, `seo.ts` row (noindex),
+and `/j/(.*)` -> `/index.html`-style rewrite in `vercel.json` + `public/_redirects` (the three-file rule in
+`web/AGENTS.md`); run `cd web && npm ci && npm test && npm run typecheck`, preview both `/b/` and `/j/`.
+Commit `feat(web-claim): bill QR entry point and /j invite landing (T4)`.
+
+**Proposed, NOT performed (outward-facing).**
+- Production `/b/*` and `/j/*` 404 on split-evenly.app: the Vercel project is not serving this repo's
+  `web/` rewrites. In Vercel project settings set Root Directory = `web`, Framework Preset = Vite,
+  Build Command `npm run build`, Output Directory `dist`, Node >= 22.6; then from the repo root run
+  `cd web && vercel --prod` (or push and let the Git integration deploy) and verify with
+  `curl -sI https://split-evenly.app/b/<16+ char token>` (expect 200 with app.html) and `/j/x`.
+- Per memory note: before publishing, confirm `USE_LOCAL_WEB_CLAIM_HOST` is false (it is) and no `web-claim`
+  edge-function drift. No edge-function change is needed for T4.
+- Universal/app links: need Apple Team ID + bundle `app.splitevenly` for
+  `web/public/.well-known/apple-app-site-association`, and the Android release-key SHA-256 for
+  `web/public/.well-known/assetlinks.json` (package `app.splitevenly`). Neither value is in the repo; also add
+  `Content-Type: application/json` headers for the AASA path in `vercel.json`.
