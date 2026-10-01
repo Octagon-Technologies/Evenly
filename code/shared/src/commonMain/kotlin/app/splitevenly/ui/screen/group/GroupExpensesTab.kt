@@ -48,7 +48,6 @@ import app.splitevenly.ui.components.EvFab
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSegmented
 import app.splitevenly.ui.components.EvSheetScaffold
-import app.splitevenly.ui.components.EvSkeletonRow
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
@@ -82,7 +81,7 @@ data class ExpenseDayUi(
     val items: List<ExpenseItemUi>,
 )
 
-enum class ExpensesState { Loading, Empty, Populated }
+enum class ExpensesState { Loading, Failed, Empty, Populated }
 
 /** Shared corner radius for the expense feed's per-row cards (and the settled tray). */
 private val ExpenseCardShape = RoundedCornerShape(14.dp)
@@ -103,6 +102,7 @@ fun GroupExpensesTab(
     groupEmoji: String = "🏝️",
     groupName: String = "Tulum Trip",
     state: ExpensesState = ExpensesState.Populated,
+    onRetry: () -> Unit = {},
     days: List<ExpenseDayUi> = GroupSamples.days,
     drafts: Int = 1,
     offline: Boolean = false,
@@ -250,9 +250,20 @@ fun GroupExpensesTab(
                     }
 
                     when {
+                        // Blank on purpose: an empty group is the common case, so a skeleton would just flash.
                         state == ExpensesState.Loading -> {
-                            item(key = "loading") {
-                                Column(Modifier.padding(top = 8.dp)) { repeat(5) { EvSkeletonRow() } }
+                            item(key = "loading") { Spacer(Modifier.height(1.dp)) }
+                        }
+
+                        state == ExpensesState.Failed -> {
+                            item(key = "failed") {
+                                EvEmptyState(
+                                    icon = EvIcons.Receipt,
+                                    title = "Couldn't load expenses",
+                                    text = "Check your connection and try again. Nothing was lost.",
+                                    ctaText = "Try again",
+                                    onCta = onRetry,
+                                )
                             }
                         }
 

@@ -95,7 +95,13 @@ private data class MergeResult(
 class SyncEngine(
     private val client: SupabaseClient,
     private val db: EvenlyDatabase,
+    /** Shared with the UI so a list can tell "not pulled yet" from "genuinely empty". */
+    val hydration: HydrationTracker = HydrationTracker(),
 ) {
+    init {
+        hydration.attachSyncer { syncNow(it) }
+    }
+
     // An itemized bill's shares are a LOCAL derived materialization of its synced items/claims, never
     // trusted from the server (its shares freeze at the last split edit). Re-derive on pull + push-adopt.
     private val billMaterializer =
@@ -240,6 +246,7 @@ class SyncEngine(
      */
     suspend fun pull(userId: String): AppResult<Unit> =
         gate.withSync(userId) {
+            hydration.pullStarted(userId)
             recordHealth(
                 SyncChannel.Pull,
                 runCatchingSync {
@@ -531,7 +538,7 @@ class SyncEngine(
                             freshClaims.isNotEmpty() || freshItemShares.isNotEmpty() || freshParticipants.isNotEmpty()
                     if (billSourcesChanged) billMaterializer.rematerializeGroups(groupIds, Clock.System.nowEpochMillis())
                 },
-            )
+            ).also { hydration.pullFinished(userId, it) }
         } ?: AppResult.Ok(Unit)
 
     /**
@@ -746,7 +753,13 @@ class SyncEngine(
 
     /** A full round trip: push local mutations, then pull the latest. */
     suspend fun syncNow(userId: String): AppResult<Unit> {
-        push(userId).let { if (it is AppResult.Err) return it }
+        push(userId).let {
+            if (it is AppResult.Err) {
+                // A failed push skips the pull, which would leave a first launch waiting forever.
+                hydration.pullFinished(userId, it)
+                return it
+            }
+        }
         return pull(userId)
     }
 

@@ -342,6 +342,7 @@ fun HomeRoute(
         onOpenRecentlyDeleted = onOpenRecentlyDeleted,
         deletedAlert = deletedAlertText(deletedGroups, meId, seenAt),
         onOpenSettings = onOpenSettings,
+        onRetry = vm::retry,
     )
 }
 

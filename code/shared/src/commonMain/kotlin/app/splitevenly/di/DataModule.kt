@@ -7,6 +7,7 @@ import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.remote.fx.FrankfurterFxFetcher
 import app.splitevenly.data.remote.fx.FxRateFetcher
 import app.splitevenly.data.remote.supabase.GroupExportHttp
+import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.ReceiptOcrHttp
@@ -102,6 +103,7 @@ val dataModule: Module =
                 analytics = getOrNull<EvAnalytics>(),
                 groupPurgeDao = get(),
                 receiptFiles = getOrNull(),
+                hydration = getOrNull<HydrationTracker>(),
             )
         }
         // ExpenseRepository takes the FX repo + group DAO so balances convert to the group base currency (F2),

@@ -1,6 +1,7 @@
 package app.splitevenly.ui.screen.group
 
 import app.splitevenly.core.id.UserId
+import app.splitevenly.data.remote.supabase.ListReadiness
 import app.splitevenly.domain.expense.Expense
 import app.splitevenly.domain.expense.ExpenseCategory
 import app.splitevenly.domain.expense.ExpenseShare
@@ -32,12 +33,20 @@ fun buildGroupExpenses(
     currentUserId: UserId?,
     today: String,
     sharesByExpenseId: Map<String, List<ExpenseShare>> = emptyMap(),
+    readiness: ListReadiness = ListReadiness.Ready,
 ): GroupExpensesUi {
     val name = group?.name ?: ""
     val emoji = group?.emoji ?: "💸"
     val state = when {
         group == null -> ExpensesState.Loading
-        expenses.isEmpty() -> ExpensesState.Empty
+        // Room answers instantly with an empty list before the group's first pull lands, so an empty
+        // list only means "no expenses" once hydration says so.
+        expenses.isEmpty() ->
+            when (readiness) {
+                ListReadiness.Ready -> ExpensesState.Empty
+                ListReadiness.Waiting -> ExpensesState.Loading
+                is ListReadiness.Failed -> ExpensesState.Failed
+            }
         else -> ExpensesState.Populated
     }
     if (state != ExpensesState.Populated) return GroupExpensesUi(name, emoji, state, emptyList())

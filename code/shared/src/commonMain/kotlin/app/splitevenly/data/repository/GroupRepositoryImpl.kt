@@ -9,6 +9,7 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.ExpenseStatus
+import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.db.dao.ConflictDao
 import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.GroupDao
@@ -83,6 +84,8 @@ class GroupRepositoryImpl(
     private val groupPurgeDao: GroupPurgeDao? = null,
     // Sandbox bytes of queued receipt uploads, deleted with the group they belong to. Null in tests.
     private val receiptFiles: ReceiptFileStore? = null,
+    // Lets a just-joined group pull its rows before the UI navigates in. Null in tests / offline stub.
+    private val hydration: HydrationTracker? = null,
 ) : GroupRepository {
     override suspend fun addPlaceholder(
         groupId: GroupId,
@@ -252,6 +255,13 @@ class GroupRepositoryImpl(
             }
         }
         analytics?.capture(AnalyticsEvents.GROUP_JOINED, mapOf("group_id" to group.id))
+        // The membership is only local so far and the group's expenses are not on this device. Push the
+        // membership and pull now rather than waiting for the doorbell, so the group opens populated; if
+        // the pull fails the group stays pending and its screen shows a retry instead of "No expenses".
+        hydration?.let {
+            it.markGroupPending(group.id)
+            it.retry(userId.value)
+        }
         return group.toDomain().asOk()
     }
 

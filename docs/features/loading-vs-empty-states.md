@@ -83,15 +83,45 @@ fails or the phone is offline, it says so instead of claiming there's nothing.
 
 ## 7. Completion report
 
-**State at handoff (T3): BLOCKED on owner sign-off, no Kotlin written, nothing to commit but this brief and the mock.**
+**Status: implemented, both compiles green, unit tests green. Not yet run on a simulator and
+`ux-firsttimer` not yet run (see "Still owed").**
 
-- Mock: `design/loading-skeletons-mockup.html` shows five states: Home skeleton, group-expenses
-  skeleton (post-join), offline/failed with retry, local-data-plus-"Updating" hint, genuine empty,
-  plus the Room x hydration decision table.
-- Brief rules (AGENTS.md section 7, ui/AGENTS.md) require sign-off before Compose, so the compile
-  pair, tests, sim run and ux-firsttimer have not been run.
-- Questions for the owner: (1) shimmer vs static skeleton blocks; (2) is the "Updating" hint on
-  non-empty content wanted, or omit it; (3) offline copy in state 3 OK.
-- Next once approved: HydrationState in SyncManager, post-join pull in `joinByToken`, `SecureStorage`
-  ever-hydrated flag, `HomeUiState`/`ExpensesState` derivation, skeleton composables, unit tests,
-  edit only the `ExpensesState.Loading` branch of `GroupExpensesTab.kt` (~L253).
+Decision: blank page until the first pull finishes (owner sign-off), no skeletons/shimmer/hint.
+
+What changed (under `code/shared/src/commonMain/kotlin/app/splitevenly/`):
+- `data/remote/supabase/HydrationTracker.kt` (new): in-memory per-user `HydrationState`
+  (`NotStarted | Pulling | Done | Failed(offline)`), a pending-group set, and `ListReadiness`
+  (`Ready | Waiting | Failed`). `Done` is sticky for a session unless a joined group is still pending.
+  `retry(userId)` re-runs `syncNow`.
+- `SyncEngine`: owns a tracker; `pull` reports start/finish; `syncNow` reports a failed push (otherwise a
+  first launch offline would wait forever, since a failed push skips the pull).
+- `GroupRepositoryImpl.joinByToken`: marks the group pending and runs `syncNow` before returning, so the
+  group opens populated. Optional ctor dep, null in tests (`DataModule` passes it).
+- `UiModule`: tracker is a Koin single; the offline stub build binds `assumeHydrated = true` so it never
+  waits on a pull that cannot happen.
+- Home: `homeState(...)` pure reducer; `HomeUiState.Failed`; `Loading` is now a blank page. Local rows
+  always win, so no flash when data exists.
+- Group: `buildGroupExpenses(..., readiness)`; `ExpensesState.Failed`; `Loading` branch is blank.
+- `commonTest/.../HydrationTrackerTest.kt`: readiness matrix, retry, account isolation, joined-group
+  pending/clear, Home and group state derivation.
+
+Deviations and flags:
+- **No persisted "ever hydrated" flag** (brief suggested one). It conflicts with "never show empty before
+  hydration completes": after a cache wipe it would claim empty before the new pull. Offline with nothing
+  local shows the offline/retry state instead.
+- **Per-group pending set** replaces the brief's "Set of groups being hydrated" signal; same purpose.
+- `GroupExpensesTab.kt` hunks beyond the `Loading` branch (flag for merge with `fb/group-surface`): the
+  `ExpensesState` enum gains `Failed` (L85), one `onRetry` param after `state`, and a `Failed` branch
+  directly under the `Loading` branch. No top bar or `InviteSheet` lines touched.
+- `GroupTabRoutes.kt` (route wrapper) reads readiness from the tracker and wires retry.
+- **Offline copy still open for the owner.** Current copy kept: Home "Couldn't load your groups" /
+  "You seem to be offline. Your groups are safe and will show up once you're connected." (non-network
+  failures say "Something went wrong on our side. Your groups are safe."); group "Couldn't load
+  expenses" / "Check your connection and try again. Nothing was lost."; button "Try again".
+- `EvSkeletonRow` is now unused by Home and group (still used by `ExpenseDetailScreen`, which belongs to
+  `fb/expense-detail`).
+- No post-join repo-level test: `GroupRepositoryImpl` needs a Room fixture. The pending/clear behavior is
+  covered on the tracker.
+
+Still owed: `:shared:iosSimulatorArm64Test`, an iOS-sim run (wiped sim sign-in, join-by-link with a
+second account, airplane-mode first launch), and `ux-firsttimer`.

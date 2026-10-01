@@ -49,6 +49,13 @@ ordering is the whole point: a pull queued behind sign-out's own push used to ac
 that push released it and re-land account A's rows into the just-emptied cache, with A's Supabase session
 still valid. The mutex alone did not prevent it, it *scheduled* it. `SyncGateTest` pins the interleaving.
 
+## Empty is only claimed after a pull lands
+
+Room answers instantly with an empty list before the first pull, so "empty" must never be derived from Room
+alone. `HydrationTracker` (owned by `SyncEngine`, per user, in-memory) says whether a pull has landed; list
+screens show a blank page until then, and a retry state if it failed. A group joined by link is marked
+pending until the next successful pull. Do not persist a "hydrated" flag: it would outlive a cache wipe.
+
 ## One list of synced tables
 
 `SyncEngine.SYNCED_TABLES` is the single source: `SyncManager` drives Room invalidation off it, `push` and
