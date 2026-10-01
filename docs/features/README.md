@@ -19,3 +19,9 @@ Precedence is unchanged: the nearest `AGENTS.md` > root `AGENTS.md` > `design/` 
 | Feature | Status | Brief |
 | --- | --- | --- |
 | Split by items flow | Ready for implementation | [split-by-items-flow.md](split-by-items-flow.md) |
+| Tester feedback Oct 2026 (coordination) | Planned | [feedback-round-oct-2026.md](feedback-round-oct-2026.md) |
+| Auth + onboarding polish (T1, T6, T8) | Planned | [auth-onboarding-polish.md](auth-onboarding-polish.md) |
+| Group members + sharing cleanup (T2, T9, T10) | Planned | [group-members-and-sharing.md](group-members-and-sharing.md) |
+| Loading vs genuinely empty (T3) | Planned | [loading-vs-empty-states.md](loading-vs-empty-states.md) |
+| Bill edit auto-save + Scan (T5a–c) | Planned | [bill-edit-autosave-and-scan.md](bill-edit-autosave-and-scan.md) |
+| Expense detail: claim QR + cards (T4, T7) | Planned | [expense-detail-and-claim-qr.md](expense-detail-and-claim-qr.md) |
