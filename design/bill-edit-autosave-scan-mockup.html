@@ -18,7 +18,8 @@
   .top{display:flex;align-items:center;height:48px;padding:0 8px;margin-top:22px}
   .top .t{font-weight:600;font-size:16px;flex:1;margin-left:6px}
   .ic{width:32px;height:32px;display:grid;place-items:center;font-size:18px}
-  .pill{position:absolute;top:72px;left:50%;transform:translateX(-50%);background:var(--surface2);color:var(--ink2);font-size:12px;padding:5px 12px;border-radius:99px;z-index:5}
+  .saved{background:var(--surface2);color:var(--ink2);font-size:13px;text-align:center;padding:10px 12px;border-radius:12px;margin:0 16px}
+  .saved.pin{position:absolute;top:70px;left:16px;right:16px;margin:0;z-index:5;box-shadow:0 4px 14px #0002}
   .body{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
   .lbl{font-size:12px;color:var(--ink2);font-weight:600}
   .field{border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:14px}
@@ -48,19 +49,19 @@
 <body>
 <div class="board">
   <h1>Bill editor: back saves, Scan is findable, re-scan can Add or Replace</h1>
-  <div class="sub">Tasks T5a, T5b, T5c. Blue/light per design/. Owner decisions from the brief are applied as written. Frames 1-2 are T5a, 3-4 are T5b, 5-7 are T5c.</div>
+  <div class="sub">Tasks T5a, T5b, T5c. Blue/light per design/. Owner decisions from the brief are applied as written. Frames 1-2 are T5a (saved card: in flow at the top, pinned to the viewport edge when scrolled), 3-4 are T5b, 5-7 are T5c.</div>
   <div class="row">
 
   <figure><div class="phone"><div class="scroll">
     <div class="top"><div class="ic">&#8592;</div><div class="t">Edit bill</div></div>
-    <div class="pill">Changes saved</div>
+    <div class="saved">Changes saved...</div>
     <div class="body">
       <div><div class="lbl">Name</div><div class="field">Dinner at Tavolo</div></div>
       <div class="hdr"><div class="lbl">Items</div><div class="scanbtn">&#9711; Scan</div><div class="link">+ Add item</div></div>
       <div class="card"><div class="item"><div class="n">Pasta</div><div class="p">$18.50</div></div><div class="item"><div class="n">Wine</div><div class="p">$25.00</div></div></div>
       <div class="card"><div class="item"><div class="n">Tax</div><div class="p">$3.20</div></div><div class="item"><div class="n"><b>Total</b></div><div class="p"><b>$46.70</b></div></div></div>
     </div></div></div>
-    <figcaption><b>1. Saved pill.</b> Back arrow replaces X; no bottom Save button. Muted pill sits under the top bar as an overlay (no layout shift), shows after each auto-save, fades after 3 s.</figcaption></figure>
+    <figcaption><b>1. Saved card, scrolled to top.</b> Back arrow replaces X; no bottom Save button. A small centered card, text ending in an ellipsis, expands in flow and pushes the Name field down, holds ~2.5 s, then collapses back.</figcaption></figure>
 
   <figure><div class="phone"><div class="scroll">
     <div class="top"><div class="ic">&#8592;</div><div class="t">Edit bill</div></div>
@@ -107,7 +108,7 @@
 
   <figure><div class="phone"><div class="scroll">
     <div class="top"><div class="ic">&#8592;</div><div class="t">Edit bill</div></div>
-    <div class="pill">Changes saved</div>
+    <div class="saved pin">Changes saved...</div>
     <div class="body">
       <div class="lbl">Receipt (2 pages, 5 items)</div>
       <div class="thumbs"><div class="th">p.1</div><div class="th">p.2</div></div>
@@ -117,7 +118,7 @@
       <div class="sug"><span>Tax $3.50 (bill has $3.20)</span><a>Use</a></div>
       <div class="sug"><span>Tip $6.00</span><a>Use</a></div>
     </div></div></div>
-    <figcaption><b>6. After Add.</b> New items appended, page 2 attached beside page 1. Tax/tip are never summed; differing values appear as suggestions the user confirms, since a second photo usually repeats the totals block. Reconciliation banner re-checks against both pages.</figcaption></figure>
+    <figcaption><b>6. After Add, scrolled down.</b> The same card is pinned to the viewport top edge (overlay, no push) with the same expand, hold, collapse. New items appended, page 2 attached beside page 1. Tax/tip are never summed; differing values appear as suggestions the user confirms, since a second photo usually repeats the totals block. Reconciliation banner re-checks against both pages.</figcaption></figure>
 
   </div>
 </div>
