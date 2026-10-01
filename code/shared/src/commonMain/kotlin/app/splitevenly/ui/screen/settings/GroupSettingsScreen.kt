@@ -88,7 +88,6 @@ fun GroupSettingsScreen(
     onRename: (name: String, emoji: String) -> Unit = { _, _ -> },
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
-    onRotateInvite: () -> Unit = {},
     onRemoveMember: (MemberRowUi) -> Unit = {},
     onReconcile: () -> Unit = {},
     /** Names in this group with no account that the viewer hasn't answered. 0 hides the claim row. */
@@ -162,27 +161,20 @@ fun GroupSettingsScreen(
                             )
                         }
                     }
-                    EvButton(
-                        "Share link",
-                        onShareInvite,
-                        leadingIcon = EvIcons.Share,
-                        small = true,
-                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        EvButton(
+                            "Share link",
+                            onShareInvite,
+                            modifier = Modifier.weight(1f),
+                            leadingIcon = EvIcons.Share,
+                            small = true,
+                        )
                         EvButton(
                             "Copy link",
                             onCopyInvite,
                             modifier = Modifier.weight(1f),
                             variant = ButtonVariant.Secondary,
                             leadingIcon = EvIcons.Copy,
-                            small = true,
-                        )
-                        EvButton(
-                            "New link",
-                            onRotateInvite,
-                            modifier = Modifier.weight(1f),
-                            variant = ButtonVariant.Secondary,
-                            leadingIcon = EvIcons.Reload,
                             small = true,
                         )
                     }

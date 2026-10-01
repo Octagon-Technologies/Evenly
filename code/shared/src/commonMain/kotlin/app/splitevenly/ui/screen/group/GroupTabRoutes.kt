@@ -346,7 +346,6 @@ fun GroupExpensesRoute(
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
         onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },
-        onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,
         identityNames = if (showCard) cardNames else emptyList(),

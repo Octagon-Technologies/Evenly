@@ -118,7 +118,6 @@ fun GroupExpensesTab(
     onOpenDrafts: () -> Unit = {},
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
-    onRotateInvite: () -> Unit = {},
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
     // "Is this you?" (identity claim). Rendered here because this is where people actually look; the
@@ -343,7 +342,6 @@ fun GroupExpensesTab(
                 inviteLink = inviteLink,
                 onCopy = onCopyInvite,
                 onShare = onShareInvite,
-                onRotate = onRotateInvite,
                 onDismiss = { showInvite = false },
             )
         }
@@ -361,7 +359,6 @@ private fun InviteSheet(
     inviteLink: String,
     onCopy: () -> Unit,
     onShare: () -> Unit,
-    onRotate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
@@ -409,29 +406,24 @@ private fun InviteSheet(
             )
         }
         Spacer(Modifier.height(12.dp))
-        EvButton(
-            text = "Share link",
-            onClick = onShare,
-            leadingIcon = EvIcons.Share,
-        )
-        Spacer(Modifier.height(8.dp))
-        EvButton(
-            text = if (copied) "Link copied" else "Copy link",
-            onClick = {
-                onCopy()
-                copied = true
-            },
-            variant = ButtonVariant.Secondary,
-            leadingIcon = if (copied) EvIcons.Check else EvIcons.Copy,
-        )
-        Spacer(Modifier.height(4.dp))
-        EvButton(
-            text = "New link",
-            onClick = onRotate,
-            variant = ButtonVariant.Text,
-            leadingIcon = EvIcons.Reload,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EvButton(
+                text = "Share link",
+                onClick = onShare,
+                modifier = Modifier.weight(1f),
+                leadingIcon = EvIcons.Share,
+            )
+            EvButton(
+                text = if (copied) "Link copied" else "Copy link",
+                onClick = {
+                    onCopy()
+                    copied = true
+                },
+                modifier = Modifier.weight(1f),
+                variant = ButtonVariant.Secondary,
+                leadingIcon = if (copied) EvIcons.Check else EvIcons.Copy,
+            )
+        }
     }
 }
 

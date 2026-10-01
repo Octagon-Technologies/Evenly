@@ -143,7 +143,6 @@ fun GroupSettingsRoute(
         onRename = { name, emoji -> scope.launch { groups.renameGroup(gid, name, emoji) } },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
         onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },
-        onRotateInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
         onReconcile = onReconcile,
         unclaimedNameCount = unclaimed.size,
