@@ -1,0 +1,12 @@
+<!-- Source of truth for the hosted "Confirm signup" email template. Paste into Supabase Dashboard
+     > Authentication > Emails > Confirm signup. Subject: Your Evenly sign-in code is {{ .Token }}.
+     Keep {{ .Token }} and {{ .ConfirmationURL }} together: new users get this template,
+     and a link-only version leaves them with no code to type on another device. -->
+<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:420px;margin:0 auto;padding:24px;color:#14213d">
+  <h2 style="margin:0 0 12px">Welcome to Evenly</h2>
+  <p style="font-size:15px;line-height:22px;margin:0 0 20px">Tap the button on this device, or type the code below into Evenly on any device.</p>
+  <p style="margin:0 0 20px"><a href="{{ .ConfirmationURL }}" style="background:#3762E3;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600;display:inline-block">Sign in to Evenly</a></p>
+  <p style="font-size:13px;color:#555;margin:0 0 6px">Your sign-in code</p>
+  <p style="font-size:30px;letter-spacing:6px;font-weight:700;margin:0 0 20px">{{ .Token }}</p>
+  <p style="font-size:12px;color:#777;line-height:18px;margin:0">The code and link expire in 1 hour. If you didn't ask for this, you can ignore this email.</p>
+</div>

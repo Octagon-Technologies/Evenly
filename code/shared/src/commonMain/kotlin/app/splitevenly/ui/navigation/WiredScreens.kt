@@ -198,7 +198,13 @@ fun MagicLinkRoute(
                 }
             }
         },
-        onResend = { scope.launch { auth.sendEmailOtp(email) } },
+        onResend = {
+            error = null
+            scope.launch {
+                val r = auth.sendEmailOtp(email)
+                if (r is AppResult.Err) error = sendErrorMessage(r.error)
+            }
+        },
         onPasswordSignIn = { e, pw ->
             email = e
             error = null
