@@ -89,10 +89,26 @@ sealed interface Route {
         val expenseId: String? = null,
     ) : Route // edit menu
 
+    // Every saved-bill entry (just saved, group home, expense details) lands here first: how will people
+    // pick the items. justSaved only switches first-visit copy; neither choice clears claims.
+    @Serializable data class FinishBill(
+        val groupId: String,
+        val expenseId: String,
+        val justSaved: Boolean = false,
+    ) : Route
+
+    // The phone accordion. focusItemId opens that line first ("Assign it" when no visit is on the stack).
     @Serializable data class ClaimBill(
         val groupId: String,
         val expenseId: String,
-    ) : Route // live claim screen
+        val focusItemId: String? = null,
+    ) : Route
+
+    // Partial or complete review of per-person totals; every exit lands on expense details.
+    @Serializable data class BillReview(
+        val groupId: String,
+        val expenseId: String,
+    ) : Route
 
     // ── The payer's three web-claim screens (WEB_CLAIM_SPEC.md §3.9) ───
     // All three hang off the live claim screen, not the expense detail: the phone-holder is already

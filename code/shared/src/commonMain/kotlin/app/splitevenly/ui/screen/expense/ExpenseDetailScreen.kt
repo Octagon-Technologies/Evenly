@@ -45,7 +45,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.ChipVariant
@@ -59,6 +58,7 @@ import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvProgress
 import app.splitevenly.ui.components.EvSectionLabel
+import app.splitevenly.ui.components.EvSheetScaffold
 import app.splitevenly.ui.components.EvSkeleton
 import app.splitevenly.ui.components.EvSkeletonRow
 import app.splitevenly.ui.components.EvTextField
@@ -152,9 +152,9 @@ fun ExpenseDetailScreen(
     commentDraft: String = "",
     onCommentDraftChange: (String) -> Unit = {},
     onSendComment: () -> Unit = {},
-    onPickReceipts: (PickSource) -> Unit = {},
     onRetryUpload: (String) -> Unit = {},
     onCancelUpload: (String) -> Unit = {},
+    onDeleteReceipt: (String) -> Unit = {},
     // Receipts open in-app (ReceiptViewerScreen) — never handed off to an external browser. PDFs are
     // fetched + rasterized through these loaders, supplied by the Route wrapper.
     loadPdfPageCount: suspend (url: String) -> Int = { 0 },
@@ -173,9 +173,11 @@ fun ExpenseDetailScreen(
     // Non-null only for an itemized ("Split the bill") expense — renders a prominent "claim or edit your
     // items" button under the split, the durable way into the claim screen once the home card is gone.
     onClaimItems: (() -> Unit)? = null,
-    // Non-null only for an itemized bill — the ⋯ menu's "Edit bill" opens the menu/items/extras editor
-    // (Route.SplitBill). For a plain expense this is null and the menu shows the generic "Edit" → onEdit.
+    // Non-null only for an itemized bill. The summary-card "Edit bill" button opens the menu/items/extras
+    // editor (Route.SplitBill); a plain expense instead gets "Edit expense" → onEdit.
     onEditBill: (() -> Unit)? = null,
+    // Item progress for an itemized bill; drives the "still needs someone" card beside onClaimItems.
+    billPick: BillPickUi? = null,
     // Track F one-sided nudge: this device's split edit was superseded by a newer one while it was behind.
     // Shows a dismissible banner inviting the author to review the current split (never a two-sided card).
     supersededNotice: Boolean = false,
@@ -183,8 +185,7 @@ fun ExpenseDetailScreen(
     onDelete: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
-    var overflow by remember { mutableStateOf(false) }
-    var showReceiptSource by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     // The payment whose action sheet (Edit amount / Remove) is open, then the one being amount-edited.
     var actionPayment by remember { mutableStateOf<PaymentUi?>(null) }
     var editingPayment by remember { mutableStateOf<PaymentUi?>(null) }
@@ -203,7 +204,6 @@ fun ExpenseDetailScreen(
                 title = if (state == ExpenseDetailState.Error) "" else title,
                 sub = if (state == ExpenseDetailState.Content) category.ifBlank { null } else null,
                 onBack = onBack,
-                onMore = if (state == ExpenseDetailState.Content) ({ overflow = true }) else null,
             )
             when (state) {
                 ExpenseDetailState.Loading -> {
@@ -307,18 +307,26 @@ fun ExpenseDetailScreen(
                                 }
                                 Text(dateLabel, color = c.ink2, fontSize = 12.sp)
                             }
+                            EvButton(
+                                if (onEditBill != null) "Edit bill" else "Edit expense",
+                                onEditBill ?: onEdit,
+                                modifier = Modifier.padding(top = 14.dp),
+                                variant = ButtonVariant.Secondary,
+                                leadingIcon = EvIcons.Edit,
+                            )
                         }
 
                         // receipts
-                        Column {
-                            EvSectionLabel("Receipts")
-                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                receipts.forEachIndexed { i, r -> ReceiptThumb(r, onClick = { viewerIndex = i }) }
-                                // In-flight uploads render right after the published ones, each with its own ring.
-                                pendingUploads.forEach { u ->
-                                    UploadingThumb(u, onRetry = { onRetryUpload(u.id) }, onCancel = { onCancelUpload(u.id) })
+                        if (receipts.isNotEmpty() || pendingUploads.isNotEmpty()) {
+                            Column {
+                                EvSectionLabel("Receipts")
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    receipts.forEachIndexed { i, r -> ReceiptThumb(r, onClick = { viewerIndex = i }) }
+                                    // In-flight uploads render right after the published ones, each with its own ring.
+                                    pendingUploads.forEach { u ->
+                                        UploadingThumb(u, onRetry = { onRetryUpload(u.id) }, onCancel = { onCancelUpload(u.id) })
+                                    }
                                 }
-                                AddReceiptTile(onClick = { showReceiptSource = true })
                             }
                         }
 
@@ -368,16 +376,20 @@ fun ExpenseDetailScreen(
                         Column {
                             EvSectionLabel(splitLabel)
                             // For an itemized bill, the split is derived from who claimed what — so give people an
-                            // obvious way to open the claim screen and change what they had, instead of hiding it in
-                            // the ⋯ menu. This is the durable entry once the home "claim your items" card is gone.
+                            // obvious way to open the claim screen and change what they had. This is the durable
+                            // entry once the home "claim your items" card is gone.
                             onClaimItems?.let { open ->
-                                EvButton(
-                                    "Claim or edit your items",
-                                    open,
-                                    modifier = Modifier.padding(bottom = 10.dp),
-                                    variant = ButtonVariant.Tonal,
-                                    leadingIcon = EvIcons.Receipt,
-                                )
+                                if (billPick != null) {
+                                    BillPickCard(billPick, currencyCode, open, Modifier.padding(bottom = 10.dp))
+                                } else {
+                                    EvButton(
+                                        "Pick items on this bill",
+                                        open,
+                                        modifier = Modifier.padding(bottom = 10.dp),
+                                        variant = ButtonVariant.Tonal,
+                                        leadingIcon = EvIcons.Receipt,
+                                    )
+                                }
                             }
                             EvCard {
                                 split.forEachIndexed { i, s ->
@@ -489,7 +501,7 @@ fun ExpenseDetailScreen(
                                                             when {
                                                                 overpaid -> c.credit
                                                                 cleared -> c.settled
-                                                                s.me -> c.blue
+                                                                s.me -> c.blueText
                                                                 else -> c.ink
                                                             },
                                                         fontSize = 14.sp,
@@ -656,9 +668,31 @@ fun ExpenseDetailScreen(
                                 }
                             }
                         }
-                        Collapsible("Refunds", EvIcons.Refund, "None yet") {
-                            Text("No refunds on this expense.", color = c.ink2, fontSize = 12.sp)
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(c.dangerTint)
+                                .border(1.dp, c.danger.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+                                .clickable { confirmDelete = true }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                EvIcon(EvIcons.Trash, size = 19.dp, tint = c.danger)
+                                Text("Delete bill", color = c.danger, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Text(
+                                "Moves to Recently deleted for 30 days.",
+                                color = c.ink2,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(start = 29.dp),
+                            )
                         }
+                        Box(Modifier.height(8.dp))
                     }
                 }
             }
@@ -670,52 +704,41 @@ fun ExpenseDetailScreen(
                 loadPdfPageCount = loadPdfPageCount,
                 renderPdfPage = renderPdfPage,
                 onClose = { viewerIndex = null },
+                onDeleteReceipt = { receiptId ->
+                    viewerIndex = null
+                    onDeleteReceipt(receiptId)
+                },
             )
         }
     }
 
-    if (overflow) {
-        EvModalScaffold(onDismiss = { overflow = false }) {
-            // For an itemized bill, "Edit" means the menu/items/extras editor — labelled "Edit bill" and
-            // routed there. Assigning who-had-what stays on the prominent "Claim or edit your items" button.
-            if (onEditBill != null) {
-                OverflowRow(EvIcons.Edit, "Edit bill", c.ink2, c.ink) {
-                    overflow = false
-                    onEditBill()
+    if (confirmDelete) {
+        EvSheetScaffold(onDismiss = { confirmDelete = false }) {
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(c.dangerTint),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EvIcon(EvIcons.Trash, size = 25.dp, tint = c.danger)
                 }
-            } else {
-                OverflowRow(EvIcons.Edit, "Edit", c.ink2, c.ink) {
-                    overflow = false
-                    onEdit()
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Delete this bill?", color = c.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "It will move to Recently deleted for 30 days. Balances will update for everyone in the group.",
+                        color = c.ink2,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
                 }
-            }
-            listOf(EvIcons.Refund to "Issue refund", EvIcons.Camera to "Add receipt", EvIcons.Share to "Share").forEach { (ic, label) ->
-                OverflowRow(ic, label, c.ink2, c.ink) {
-                    overflow = false
-                    if (label == "Add receipt") showReceiptSource = true
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EvButton("Delete bill", onDelete, variant = ButtonVariant.Danger, leadingIcon = EvIcons.Trash)
+                    EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Secondary)
                 }
-            }
-            OverflowRow(EvIcons.Trash, "Delete", c.danger, c.danger) {
-                overflow = false
-                onDelete()
-            }
-        }
-    }
-
-    if (showReceiptSource) {
-        EvModalScaffold(onDismiss = { showReceiptSource = false }) {
-            Text("Add a receipt", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
-            OverflowRow(EvIcons.Image, "Photos", c.blueText, c.ink) {
-                showReceiptSource = false
-                onPickReceipts(PickSource.Photos)
-            }
-            OverflowRow(EvIcons.Archive, "Files", c.blueText, c.ink) {
-                showReceiptSource = false
-                onPickReceipts(PickSource.Files)
-            }
-            OverflowRow(EvIcons.Camera, "Camera", c.blueText, c.ink) {
-                showReceiptSource = false
-                onPickReceipts(PickSource.Camera)
             }
         }
     }
@@ -815,6 +838,7 @@ private fun PersonalStatusBand(
                 fraction = collected.toFloat() / othersOwedSubunits,
                 caption = "Collected ${moneySubunits(collected, currencyCode)} of ${moneySubunits(othersOwedSubunits, currencyCode)}",
                 done = done,
+                owedToYou = !done,
             )
         } else {
             if (myRow.owedSubunits == 0L) return
@@ -843,26 +867,28 @@ private fun PersonalStatusBand(
                 credit = overpaid,
             )
         }
-    // Owing → calm blue (action); fully settled → green (done); overpaid → warm amber "in credit" — a
-    // white band with an orange outline so only the number pops (per design), not a filled block.
+    // Owing → calm blue (action); owed to you and fully settled → green; overpaid → warm amber "in credit".
     val accent =
         when {
             state.credit -> c.credit
-            state.done -> c.settled
+            state.done || state.owedToYou -> c.settled
             else -> c.blue
         }
     val fill =
         when {
             state.credit -> c.page
-            state.done -> c.settledTint
+            state.done || state.owedToYou -> c.settledTint
             else -> c.blueTint
         }
     val track =
         when {
             state.credit -> c.creditTint
-            state.done -> c.settledTint2
+            state.done || state.owedToYou -> c.settledTint2
             else -> c.blueTint2
         }
+    // Keep the semantic accent on the progress bar, but do not use the deep fill-blue for prominent
+    // text on a dark tinted surface. The state is already explicit in the label, so white is clearer.
+    val prominentContent = if (c.isDark && !state.credit && !state.done) c.onAccent else accent
     val bandShape = RoundedCornerShape(12.dp)
     Column(
         modifier
@@ -875,12 +901,12 @@ private fun PersonalStatusBand(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (state.done) EvIcon(EvIcons.Check, size = 16.dp, tint = accent)
+                if (state.done) EvIcon(EvIcons.Check, size = 16.dp, tint = prominentContent)
                 // Label stays ink on the credit band — only the amount is orange.
-                Text(state.label, color = if (state.credit) c.ink else accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(state.label, color = if (state.credit) c.ink else prominentContent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
             state.amount?.let {
-                Text(it, color = accent, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily)
+                Text(it, color = prominentContent, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily)
             }
         }
         // Contrast bar: a tint-2 track + accent fill, legible on the band.
@@ -910,6 +936,7 @@ private data class BandState(
     val caption: String,
     val done: Boolean,
     val credit: Boolean = false,
+    val owedToYou: Boolean = false,
 )
 
 @Composable
@@ -917,7 +944,6 @@ private fun EvTopBarDetail(
     title: String,
     sub: String?,
     onBack: () -> Unit,
-    onMore: (() -> Unit)?,
 ) {
     val c = EvenlyTheme.colors
     Column(Modifier.fillMaxWidth().background(c.page)) {
@@ -931,7 +957,6 @@ private fun EvTopBarDetail(
                 if (title.isNotEmpty()) Text(title, color = c.ink, style = MaterialTheme.typography.titleLarge, maxLines = 1)
                 if (sub != null) Text(sub, color = c.ink2, fontSize = 12.sp)
             }
-            if (onMore != null) EvIconButton(EvIcons.More, onMore)
         }
         EvDivider()
     }
@@ -1039,26 +1064,6 @@ private fun ReceiptThumb(
             modifier = box,
             contentScale = ContentScale.Crop,
         )
-    }
-}
-
-/** The trailing "Add" tile in the receipts strip; opens the Photos / Files / Camera source sheet. */
-@Composable
-private fun AddReceiptTile(onClick: () -> Unit) {
-    val c = EvenlyTheme.colors
-    val shape = RoundedCornerShape(12.dp)
-    Column(
-        Modifier
-            .size(width = 84.dp, height = 108.dp)
-            .clip(shape)
-            .background(c.page)
-            .border(1.dp, c.borderStrong, shape)
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        EvIcon(EvIcons.Plus, size = 22.dp, tint = c.blueText)
-        Text("Add", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -1224,4 +1229,10 @@ private val DemoHistory =
 @Composable
 private fun ExpenseDetailPreview() {
     EvenlyTheme { ExpenseDetailScreen() }
+}
+
+@Preview
+@Composable
+private fun ExpenseDetailPreviewDarkMode() {
+    EvenlyTheme(darkTheme = true) { ExpenseDetailScreen() }
 }

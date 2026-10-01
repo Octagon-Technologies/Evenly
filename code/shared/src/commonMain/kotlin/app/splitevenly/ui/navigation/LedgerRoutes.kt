@@ -13,6 +13,7 @@ import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
+import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
@@ -124,6 +125,7 @@ fun AddExpenseRoute(
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
     // Picked before the expense exists: compressed and written to the sandbox straight away so the editor
     // can show the real image, then attached to the new expense id on save.
     var pickedReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
@@ -243,6 +245,8 @@ fun AddExpenseRoute(
         receiptsEnabled = uploadManager != null,
         scanState = scanState,
         scanned = scanned,
+        notice = notice,
+        onDismissNotice = { notice = null },
         attachedReceipts = billReceipts.map { it.toUi() },
         onRemoveAttachedReceipt = { i ->
             val dropped = billReceipts.getOrNull(i)
@@ -252,17 +256,18 @@ fun AddExpenseRoute(
         loadPdfPageCount = stagedPdf.pageCount,
         renderPdfPage = stagedPdf.renderPage,
         onBack = onBack,
-        onScanReceipt = cameraGate.wrap { source ->
-            // Fires before any cost is incurred — even if the user backs out of the file picker next.
-            analytics?.capture(
-                AnalyticsEvents.SCAN_SOURCE_CHOSEN,
-                mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
-            )
-            scope.launch {
-                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
-            }
-        },
+        onScanReceipt =
+            cameraGate.wrap { source ->
+                // Fires before any cost is incurred — even if the user backs out of the file picker next.
+                analytics?.capture(
+                    AnalyticsEvents.SCAN_SOURCE_CHOSEN,
+                    mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
+                )
+                scope.launch {
+                    val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                    runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
+                }
+            },
         onCancelScan = {
             if (scanState is ScanUiState.Working) {
                 analytics?.capture(
@@ -286,13 +291,14 @@ fun AddExpenseRoute(
             )
         },
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
-        onPickReceipt = cameraGate.wrap { source ->
-            scope.launch {
-                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
-                if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + uploadManager?.stage(picked.value).orEmpty()
-            }
-        },
+        onPickReceipt =
+            cameraGate.wrap { source ->
+                scope.launch {
+                    val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                    // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
+                    if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + uploadManager?.stage(picked.value).orEmpty()
+                }
+            },
         onRemoveReceipt = { i ->
             val dropped = pickedReceipts.getOrNull(i)
             pickedReceipts = pickedReceipts.filterIndexed { idx, _ -> idx != i }
@@ -352,6 +358,7 @@ fun AddExpenseRoute(
         onSaveItemized = { submit ->
             val me = userId ?: return@AddExpenseScreen
             saving = true
+            notice = null
             scope.launch {
                 val extras =
                     BillExtrasInput(
@@ -395,6 +402,7 @@ fun AddExpenseRoute(
 
                     is AppResult.Err -> {
                         saving = false
+                        notice = "Couldn't save the bill. Nothing was lost, so tap Save & continue to try again."
                     }
                 }
             }
@@ -538,12 +546,11 @@ fun EditExpenseRoute(
             }
         },
     )
-
 }
 
 /**
  * Expense detail, wired: streams the expense + its shares into the read-only detail screen, plus the
- * F5 activity layer — comment thread, receipt strip (pick → compress → upload), and the history feed.
+ * F5 activity layer — comment thread, saved receipts, and the history feed.
  */
 @OptIn(ExperimentalTime::class)
 @Composable
@@ -552,10 +559,9 @@ fun ExpenseDetailRoute(
     expenseId: String,
     onBack: () -> Unit,
     onEdit: () -> Unit = {},
-    // Where "Edit" goes for an ITEMIZED bill — the live claim screen, not the percent/exact/even editor
-    // (which is meaningless when the split is derived from items). Wired to Route.ClaimBill.
+    // Where "Pick items" goes for an ITEMIZED bill: the saved-bill chooser (Route.FinishBill).
     onOpenClaim: () -> Unit = {},
-    // The itemized bill's menu/items/extras editor (Route.SplitBill) — surfaced as the ⋯ "Edit bill" row.
+    // The itemized bill's menu/items/extras editor (Route.SplitBill) — surfaced in the summary card.
     onEditBill: () -> Unit = {},
     onDeleted: () -> Unit = {},
 ) {
@@ -564,8 +570,6 @@ fun ExpenseDetailRoute(
     val settlements = koinInject<SettlementRepository>()
     val auth = koinInject<AuthSession>()
     val activity = koinInject<ActivityRepository>()
-    val filePicker = koinInject<FilePicker>()
-    val cameraGate = rememberCameraPermissionGate()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
@@ -617,6 +621,7 @@ fun ExpenseDetailRoute(
     // yet anyone's. Surface that gap as an explicit "Unclaimed" row so the split still sums to the total —
     // e.g. of 5 diners, if only Andrew + Bob have claimed, the detail shows Andrew, Bob, then Unclaimed.
     val isItemized = e.splitMode == SPLIT_MODE_ITEMIZED
+    val billPick = rememberBillPick(eid, isItemized, userId)
     val unclaimedSubunits = if (isItemized) (e.amountSubunits - ews.shares.sumOf { it.owedSubunits }).coerceAtLeast(0L) else 0L
     val rows =
         ews.shares.map { s ->
@@ -701,18 +706,9 @@ fun ExpenseDetailRoute(
                 scope.launch { activity.postComment(eid, gid, body) }
             }
         },
-        onPickReceipts = cameraGate.wrap { source ->
-            // Pick (possibly many) → hand to the durable outbox. The manager compresses, persists to disk,
-            // and the background uploader carries them up; the UI reacts to the outbox, not to this call.
-            scope.launch {
-                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                if (picked is AppResult.Ok && picked.value.isNotEmpty()) {
-                    uploadManager?.enqueue(eid, gid, picked.value)
-                }
-            }
-        },
         onRetryUpload = { id -> scope.launch { uploadManager?.retry(id) } },
         onCancelUpload = { id -> scope.launch { uploadManager?.cancel(id) } },
+        onDeleteReceipt = { id -> scope.launch { activity.deleteReceipt(ReceiptId(id)) } },
         loadPdfPageCount = { url -> getPdfBytes(url)?.let { rasterizer.pageCount(it) } ?: 0 },
         renderPdfPage = { url, page, w -> getPdfBytes(url)?.let { rasterizer.renderPage(it, page, w) } },
         onBack = onBack,
@@ -720,9 +716,11 @@ fun ExpenseDetailRoute(
         onEditPayment = { id, amount -> scope.launch { settlements.editSettlement(SettlementId(id), amount, userId) } },
         onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
         // A plain expense edits via the percent/exact/even editor. An itemized bill splits two ways: the
-        // ⋯ "Edit bill" opens the menu/items editor, and the prominent button below opens the claim screen.
+        // summary-card "Edit bill" action opens the menu/items editor, and the prominent button below opens
+        // the claim screen.
         onEdit = onEdit,
         onClaimItems = if (isItemized) onOpenClaim else null,
+        billPick = billPick,
         onEditBill = if (isItemized) onEditBill else null,
         supersededNotice = supersededNotice,
         onDismissSupersededNotice = { scope.launch { expenses.dismissSupersededNotice(eid) } },
@@ -737,9 +735,6 @@ fun ExpenseDetailRoute(
             onSettled = { settleSheetOpen = false },
         )
     }
-
-    // Last, so the gate lands over the screen rather than under it.
-    CameraPermissionGateHost(cameraGate)
 }
 
 /**

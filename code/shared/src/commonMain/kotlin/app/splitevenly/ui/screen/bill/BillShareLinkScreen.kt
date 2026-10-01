@@ -44,6 +44,7 @@ import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.theme.EvenlyTheme
 import io.github.alexzhirkevich.qrose.rememberQrCodePainter
 
@@ -60,6 +61,7 @@ data class ShareBillLinkState(
     /** Whole hours left before the link stops accepting writes; null when there is no live link. */
     val hoursLeft: Long?,
     val busy: Boolean = false,
+    val itemCount: Int = 0,
 ) {
     val live: Boolean get() = exists && !revoked && (hoursLeft ?: 0L) > 0L
 
@@ -88,6 +90,8 @@ fun BillShareLinkScreen(
     onExtend: () -> Unit = {},
     onRevoke: () -> Unit = {},
     onInviteToGroup: () -> Unit = {},
+    onAssignOnPhone: () -> Unit = {},
+    onSeeProgress: () -> Unit = {},
     notice: String? = null,
     onDismissNotice: () -> Unit = {},
 ) {
@@ -97,7 +101,12 @@ fun BillShareLinkScreen(
 
     Column(Modifier.fillMaxSize().background(c.page)) {
         StatusBarScrim()
-        EvTopBar(state.billTitle, navIcon = { EvIconButton(EvIcons.Back, onBack) }, showDivider = false)
+        EvTopBar(
+            "Let everyone pick",
+            subtitle = if (state.itemCount > 0) "${state.billTitle} · ${plural(state.itemCount, "item")}" else state.billTitle,
+            navIcon = { EvIconButton(EvIcons.Back, onBack) },
+            showDivider = false,
+        )
         notice?.let {
             Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
                 EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.WifiOff)
@@ -105,13 +114,17 @@ fun BillShareLinkScreen(
         }
 
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Let everyone claim", color = c.ink, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("Scan to pick your items", color = c.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    "Hold this up at the table. They pick what they had, no app needed.",
+                    "Friends open the bill in their browser. No app or account needed.",
                     color = c.ink2,
                     fontSize = 13.5.sp,
                 )
@@ -122,10 +135,22 @@ fun BillShareLinkScreen(
                     QrPlate(state.url)
                     ExpiryLine(state.url, state.hoursLeft)
                 }
-                state.liveButTokenElsewhere -> TokenElsewhereNote()
-                state.revoked -> DeadLinkNote("This link is off. Nobody can open the bill with it.")
-                state.exists -> DeadLinkNote("This link has expired. Nobody can claim with it any more.")
-                else -> NoLinkYetNote()
+
+                state.liveButTokenElsewhere -> {
+                    TokenElsewhereNote()
+                }
+
+                state.revoked -> {
+                    DeadLinkNote("This link is off. Nobody can open the bill with it.")
+                }
+
+                state.exists -> {
+                    DeadLinkNote("This link has expired. Nobody can claim with it any more.")
+                }
+
+                else -> {
+                    NoLinkYetNote()
+                }
             }
 
             Spacer(Modifier.height(4.dp))
@@ -133,10 +158,13 @@ fun BillShareLinkScreen(
             // Every branch keeps a live primary action. A greyed-out control with no explanation is the
             // dead end AGENTS.md §7 forbids; here the way forward is always "make a link that works".
             if (state.url != null && state.live) {
-                EvButton("Share the link instead", onShare, leadingIcon = EvIcons.Share, enabled = !state.busy)
+                EvButton("Share the link", onShare, leadingIcon = EvIcons.Share, enabled = !state.busy)
                 EvButton(
                     text = if (copied) "Link copied" else "Copy link",
-                    onClick = { onCopy(); copied = true },
+                    onClick = {
+                        onCopy()
+                        copied = true
+                    },
                     variant = ButtonVariant.Secondary,
                     leadingIcon = if (copied) EvIcons.Check else EvIcons.Copy,
                     enabled = !state.busy,
@@ -159,6 +187,8 @@ fun BillShareLinkScreen(
             )
 
             ScopeNote()
+
+            EvButton("I'll assign on this phone instead", onAssignOnPhone, variant = ButtonVariant.Text, small = true)
 
             if (state.live) {
                 Spacer(Modifier.height(4.dp))
@@ -185,6 +215,9 @@ fun BillShareLinkScreen(
             }
             Spacer(Modifier.height(24.dp))
         }
+        Box(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp)) {
+            EvButton("See claim progress", onSeeProgress, variant = ButtonVariant.Tonal)
+        }
     }
 }
 
@@ -203,7 +236,10 @@ private fun QrPlate(url: String) {
 }
 
 @Composable
-private fun ExpiryLine(url: String, hoursLeft: Long?) {
+private fun ExpiryLine(
+    url: String,
+    hoursLeft: Long?,
+) {
     val c = EvenlyTheme.colors
     Text(
         buildAnnotatedString {
@@ -254,10 +290,17 @@ private fun NoLinkYetNote() {
 }
 
 @Composable
-private fun Note(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
+private fun Note(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    body: String,
+) {
     val c = EvenlyTheme.colors
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface)
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.surface)
             .border(1.dp, c.border, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
@@ -276,7 +319,10 @@ private fun Note(icon: androidx.compose.ui.graphics.vector.ImageVector, title: S
 private fun ScopeNote() {
     val c = EvenlyTheme.colors
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.blueTint)
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.blueTint)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

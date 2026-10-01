@@ -204,13 +204,24 @@ fun GroupExpensesRoute(
     val unresolved by remember(gid, userId) { bills.observeUnresolvedBills(gid, userId) }.collectAsStateWithLifecycle(emptyList())
     val unresolvedUi =
         unresolved.map { u ->
+            // Your own pick and the bill's progress are different facts: say which one is waiting.
+            val left = u.itemCount - u.resolvedCount
             val sub =
-                if (u.unclaimedCount > 0) {
-                    "${u.unclaimedCount} ${if (u.unclaimedCount == 1) "dish" else "dishes"} still need someone"
-                } else {
-                    "${u.stillToClaimCount} still to claim"
+                when {
+                    u.youNeedToClaim && left > 0 -> "You can choose your items. Others are still picking too."
+                    u.youNeedToClaim -> "Every item is assigned. Check yours and mark done."
+                    left > 0 -> "You're done. ${if (left == 1) "1 item still needs" else "$left items still need"} someone."
+                    else -> "${u.stillToClaimCount} still to finish picking"
                 }
-            UnresolvedBillUi(u.expenseId.value, u.title, sub, u.youNeedToClaim)
+            val progress =
+                if (u.itemCount >
+                    0
+                ) {
+                    "${u.resolvedCount} of ${u.itemCount} ${if (u.itemCount == 1) "item" else "items"} assigned"
+                } else {
+                    null
+                }
+            UnresolvedBillUi(u.expenseId.value, u.title, sub, u.youNeedToClaim, progress)
         }
     // Invite link (same source/format as Group settings): the token resolves once the group has synced.
     val scope = rememberCoroutineScope()

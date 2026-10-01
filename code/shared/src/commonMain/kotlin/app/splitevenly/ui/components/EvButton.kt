@@ -3,6 +3,7 @@ package app.splitevenly.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,10 +62,12 @@ fun EvButton(
             ButtonVariant.Primary -> {
                 when {
                     !enabled -> BtnStyle(c.surface, c.disabledInk, c.border, 1f)
+
                     // In dark mode the white chip becomes the elevated near-ink surface, and blue-on-near-ink
                     // is the weakest contrast pair in the palette right where the app's most important tap is.
                     // Go solid blue with white content instead, the same escape Secondary already takes.
                     c.isDark -> BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
+
                     else -> BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
                 }
             }
@@ -82,14 +86,17 @@ fun EvButton(
             // (distinct from the solid-blue Primary hero above it).
             ButtonVariant.Tonal -> {
                 if (enabled) {
-                    BtnStyle(c.blueTint, c.blue, Color.Transparent, 0f)
+                    // Deep CTA blue is tuned as a fill and sinks into the dark tonal surface. White keeps
+                    // both the label and optional icon readable there; light mode keeps the brand blue.
+                    BtnStyle(c.blueTint, if (c.isDark) c.onAccent else c.blue, Color.Transparent, 0f)
                 } else {
                     BtnStyle(c.blueTint, c.disabledInk, Color.Transparent, 0f)
                 }
             }
 
             ButtonVariant.Text -> {
-                BtnStyle(Color.Transparent, c.blue, Color.Transparent, 0f)
+                // Foreground blue: c.blue is a fill and sinks into the dark page as text.
+                BtnStyle(Color.Transparent, c.blueText, Color.Transparent, 0f)
             }
 
             ButtonVariant.Danger -> {
@@ -109,9 +116,13 @@ fun EvButton(
         }
     val height =
         when {
-            small -> 40.dp
-            variant == ButtonVariant.Text -> 44.dp
-            else -> 52.dp
+            small -> 36.dp
+
+            // 40.dp
+            variant == ButtonVariant.Text -> 40.dp
+
+            // 44.dp
+            else -> 42.dp // 52.dp
         }
     val shape = RoundedCornerShape(if (small) 6.dp else 8.dp)
     val autoWidth = small || variant == ButtonVariant.Text
@@ -151,16 +162,18 @@ fun EvButton(
         Text(
             text = text,
             color = LocalContentColor.current,
-            style = (if (small) t.buttonSmall else t.button).copy(
-                // The white-chip Primary needs heavier weight so the blue label stays legible on white; the
-                // solid variants go a step heavier still since white-on-blue/transparent needs it.
-                fontWeight =
-                    when (variant) {
-                        ButtonVariant.Primary -> FontWeight.Bold
-                        ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
-                        else -> FontWeight.SemiBold
-                    },
-            ),
+            fontSize = 16.sp,
+            style =
+                (if (small) t.buttonSmall else t.button).copy(
+                    // The white-chip Primary needs heavier weight so the blue label stays legible on white; the
+                    // solid variants go a step heavier still since white-on-blue/transparent needs it.
+                    fontWeight =
+                        when (variant) {
+                            ButtonVariant.Primary -> FontWeight.Bold
+                            ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
+                            else -> FontWeight.SemiBold
+                        },
+                ),
         )
     }
 }
@@ -285,6 +298,22 @@ fun EvFab(
         EvIcon(icon, size = 20.dp, tint = c.onAccent)
         if (label != null) {
             Text(text = label, color = c.onAccent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun EvButtonPreview() {
+    EvenlyTheme(darkTheme = false) {
+        Column(
+            modifier = Modifier.background(EvenlyTheme.colors.page).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ButtonVariant.entries.forEach { variant ->
+                EvButton(variant.name, modifier = Modifier, onClick = {}, variant = variant)
+            }
+            EvButton("Disabled", onClick = {}, enabled = false)
         }
     }
 }

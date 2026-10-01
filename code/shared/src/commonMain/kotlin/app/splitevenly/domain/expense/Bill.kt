@@ -117,6 +117,9 @@ data class UnresolvedBill(
     val stillToClaimCount: Int,
     /** True when the viewer is a participant who hasn't marked done — drives the personal "claim your items" card. */
     val youNeedToClaim: Boolean,
+    val itemCount: Int = 0,
+    /** Lines fully and correctly assigned (RESOLVED). Over-claimed lines count as unfinished. */
+    val resolvedCount: Int = 0,
 )
 
 /**
@@ -146,7 +149,8 @@ data class BillView(
         get() {
             val out = HashMap<String, Int>()
             claims.forEach { out[it.itemId] = (out[it.itemId] ?: 0) + it.quantity }
-            shares.filter { it.portionId != null }
+            shares
+                .filter { it.portionId != null }
                 .groupBy { it.itemId to it.portionId }
                 .forEach { (key, rows) -> out[key.first] = (out[key.first] ?: 0) + rows.first().quantity }
             return out

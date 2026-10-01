@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Partial review redesign</title>
+<style>
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-regular.ttf");font-weight:400}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-semibold.ttf");font-weight:600}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-bold.ttf");font-weight:700}
+  @font-face{font-family:PlexMono;src:url("system/dist/assets/ibm-plex-mono-semibold.ttf");font-weight:600}
+  :root{--blue:#2563eb;--blue2:#1e40af;--tint:#eff4ff;--ink:#0b1220;--ink2:#536074;--ink3:#8792a6;--page:#fff;--surface:#f5f7fa;--border:#e0e5ec;--green:#147a48;--greenTint:#e9f8f0;--amber:#9a5a00;--amberTint:#fff7e6;--amberBorder:#ecd9b0}
+  *{box-sizing:border-box}
+  body{margin:0;background:#edf1f6;color:var(--ink);font-family:Plex,system-ui,sans-serif}
+  .board{max-width:1320px;margin:auto;padding:36px 40px 60px}
+  h1{font-size:28px;letter-spacing:-.6px;margin:0 0 6px}
+  .lede{color:var(--ink2);font-size:14px;margin:0 0 28px;max-width:820px;line-height:1.5}
+  .grid{display:grid;grid-template-columns:repeat(3,390px);gap:36px;align-items:start}
+  .caption{min-height:78px;padding:0 4px 12px}
+  .caption b{display:block;font-size:15px}
+  .caption small b{display:inline;font-size:inherit}.caption small{display:block;color:var(--ink2);font-size:12px;line-height:1.4;margin-top:4px}
+  .tag{display:inline-block;font:600 10px PlexMono;padding:3px 6px;border-radius:5px;margin-right:6px;vertical-align:1px}
+  .tag.before{background:#fde8e8;color:#9b1c1c}.tag.after{background:var(--greenTint);color:var(--green)}
+  .phone{width:390px;height:800px;background:var(--page);border:9px solid #17191d;border-radius:48px;box-shadow:0 18px 42px rgba(13,22,39,.16);position:relative;overflow:hidden}
+  .island{position:absolute;z-index:8;top:10px;left:50%;transform:translateX(-50%);width:110px;height:30px;border-radius:20px;background:#090a0c}
+  .status{height:50px;padding:18px 26px 0;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
+  .top{display:flex;align-items:center;gap:10px;padding:6px 18px 10px}
+  .top .back{font-size:26px;color:var(--ink2);line-height:1}
+  .top b{display:block;font-size:20px;letter-spacing:-.3px}
+  .top small{display:block;color:var(--ink3);font-size:12px;margin-top:2px}
+  .body{position:absolute;top:112px;left:0;right:0;padding:4px 18px 24px;overflow:hidden}
+  .footer{position:absolute;bottom:0;left:0;right:0;padding:14px 18px 26px;background:#fff;border-top:1px solid var(--border)}
+  .home{position:absolute;z-index:9;width:120px;height:5px;border-radius:9px;background:var(--ink);bottom:8px;left:50%;transform:translateX(-50%)}
+  .progress-head{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;margin-bottom:8px}
+  .progress-head b{font-size:15px}.progress-head span{color:var(--ink2);font-size:13px}
+  .bar{height:7px;border-radius:9px;background:#e6eaf0;overflow:hidden;margin-bottom:16px}.bar i{display:block;height:100%;background:var(--blue);border-radius:9px}
+  .label{display:block;color:var(--ink2);font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:16px 2px 8px}
+  .card{border:1px solid var(--border);border-radius:14px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:11px;padding:12px 14px;border-top:1px solid var(--border);font-size:14px}
+  .row:first-child{border-top:0}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--tint);color:var(--blue);display:grid;place-items:center;font-weight:700;font-size:13px;flex:none}
+  .avatar.empty{background:#fff;border:1.5px dashed var(--ink3);color:var(--ink3)}
+  .grow{flex:1;min-width:0}
+  .grow b{display:block;font-size:14.5px}
+  .grow small{display:block;color:var(--ink2);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .money{font:600 15px PlexMono}
+  .muted{color:var(--ink2)}
+  .chev{color:var(--ink3);font-size:16px}
+  .todo{border:1px solid var(--amberBorder);background:var(--amberTint);border-radius:14px;overflow:hidden}
+  .todo-head{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px 4px}
+  .todo-head b{font-size:15px;color:#6b3f00}.todo-head span{font:600 14px PlexMono;color:#6b3f00}
+  .todo .row{border-top:1px solid var(--amberBorder);background:transparent}
+  .todo .row:first-of-type{border-top:0}
+  .assign{height:32px;padding:0 14px;border-radius:999px;border:1px solid var(--blue);background:#fff;color:var(--blue);font:700 13px Plex}
+  .see-all{display:flex;justify-content:space-between;align-items:center;padding:13px 14px;border:1px solid var(--border);border-radius:14px;margin-top:10px;font-size:14px;font-weight:600;color:var(--blue)}
+  .ask b{display:block;font-size:16px}
+  .ask small{display:block;color:var(--ink2);font-size:12.5px;margin:3px 0 12px;line-height:1.4}
+  .btns{display:flex;gap:10px}
+  .btn{flex:1;height:50px;border-radius:12px;font:700 15px Plex}
+  .btn.primary{border:0;background:var(--blue);color:#fff}
+  .btn.secondary{border:1.5px solid var(--border);background:#fff;color:var(--ink)}
+  .old-footer .btn{width:100%;flex:none;display:block;margin-bottom:9px}
+  .old-footer .btn.secondary{border-color:var(--blue);color:var(--blue);height:44px}
+  .textbtn{display:block;text-align:center;color:var(--blue);font-weight:600;font-size:14px}
+  .notice{background:var(--tint);border:1px solid #dbe6ff;border-radius:12px;padding:11px 13px;color:var(--blue2);font-size:13px;line-height:1.4;margin-bottom:6px}
+  .old-remaining{border:1px solid var(--amberBorder);background:var(--amberTint);border-radius:12px;padding:12px 14px;margin:10px 0}
+  .old-remaining b{font-size:14px}.old-remaining p{font-size:12.5px;color:var(--ink2);margin:5px 0 0;line-height:1.5}
+  .stat{display:flex;justify-content:space-between;padding:12px 14px;border:1px solid var(--border);border-radius:12px;margin-top:10px;font-size:14px}
+  .x{position:absolute;right:-10px;width:22px;height:22px;border-radius:50%;background:#c81e1e;color:#fff;font:700 12px Plex;display:grid;place-items:center;z-index:10}
+  .notes{margin-top:34px;display:grid;grid-template-columns:1fr 1fr;gap:28px;max-width:1240px}
+  .notes section{background:#fff;border-radius:14px;padding:18px 22px;border:1px solid var(--border)}
+  .notes h2{font-size:15px;margin:0 0 10px}
+  .notes li{font-size:13px;line-height:1.5;color:var(--ink2);margin-bottom:6px}
+  .notes li b{color:var(--ink)}
+</style>
+</head>
+<body><main class="board">
+<h1>Review assignments · partial state redesign</h1>
+<p class="lede">Frame 7 of the split-by-items spec. The old version asks the user to choose between three exits whose difference (setting their own <code>done_at</code>) is invisible, and shows the remaining work four times. The redesign turns the leftover items into the "continue" action and turns the two exits into answers to one plain question.</p>
+
+<div class="grid">
+
+<!-- BEFORE -->
+<article>
+<div class="caption"><b><span class="tag before">BEFORE</span>Current frame 7</b><small>Three stacked buttons. "Continue assigning" is primary even though the notice says you can stop. "Finish later" vs "Finished picking mine" reads as the same thing.</small></div>
+<div class="phone"><div class="island"></div><div class="status"><span>9:41</span><span>●●● ▰</span></div>
+<div class="top"><span class="back">‹</span><div><b>Review assignments</b><small>Large dinner · $86.00</small></div></div>
+<div class="body">
+  <div class="progress-head"><b>3 of 5 assigned</b><span>2 left</span></div><div class="bar"><i style="width:60%"></i></div>
+  <div class="notice">You can stop here. Others in the group can pick their items later.</div>
+  <span class="label">So far</span>
+  <div class="card"><div class="row"><span class="avatar">B</span><div class="grow"><b>You</b></div><span class="money">$25.00</span></div><div class="row"><span class="avatar">P</span><div class="grow"><b>Purity</b></div><span class="money">$22.00</span></div></div>
+  <div class="stat"><span>Not assigned yet</span><span class="money">$39.00</span></div>
+  <div class="old-remaining"><b>2 items still need someone</b><p>Three lemonades · 2 servings · $10.00<br>Garlic prawns · $29.00</p></div>
+  <span class="label">Items on this bill</span>
+  <div class="card"><div class="row"><div class="grow"><b>Spicy tuna rolls</b></div><span class="muted">You + Purity ›</span></div></div>
+</div>
+<div class="footer old-footer"><button class="btn primary">Continue assigning</button><button class="btn secondary">Finished picking mine</button><span class="textbtn">Finish later</span></div>
+<div class="home"></div></div>
+</article>
+
+<!-- AFTER -->
+<article>
+<div class="caption"><b><span class="tag after">AFTER</span>Partial review, recommended</b><small>Leftover items carry their own <b>Assign</b> button, so "Continue assigning" disappears. The footer asks one question about the viewer's own items; both answers leave.</small></div>
+<div class="phone"><div class="island"></div><div class="status"><span>9:41</span><span>●●● ▰</span></div>
+<div class="top"><span class="back">‹</span><div><b>Review assignments</b><small>Large dinner · $86.00</small></div></div>
+<div class="body">
+  <div class="progress-head"><b>3 of 5 items assigned</b></div><div class="bar"><i style="width:60%"></i></div>
+
+  <div class="todo">
+    <div class="todo-head"><b>Still needs someone</b><span>$39.00</span></div>
+    <div class="row"><div class="grow"><b>Garlic prawns</b><small>$29.00</small></div><button class="assign">Assign</button></div>
+    <div class="row"><div class="grow"><b>Three lemonades</b><small>2 of 3 servings left · $10.00</small></div><button class="assign">Assign</button></div>
+  </div>
+
+  <span class="label">Who owes what so far</span>
+  <div class="card">
+    <div class="row"><span class="avatar">B</span><div class="grow"><b>You</b><small>Garlic noodles, half of Spicy tuna rolls</small></div><span class="money">$25.00</span><span class="chev">›</span></div>
+    <div class="row"><span class="avatar">P</span><div class="grow"><b>Purity</b><small>Edamame, half of Spicy tuna rolls, 1 lemonade</small></div><span class="money">$22.00</span><span class="chev">›</span></div>
+    <div class="row"><span class="avatar empty">?</span><div class="grow"><b class="muted">Not assigned</b></div><span class="money muted">$39.00</span><span class="chev" style="visibility:hidden">›</span></div>
+  </div>
+  <div class="see-all"><span>See all 5 items in receipt order</span><span>›</span></div>
+</div>
+<div class="footer ask"><b>Done here? Your picks are saved.</b><small>Others in this group can pick the rest later.</small>
+  <div class="btns"><button class="btn secondary sm">I'll pick more later</button><button class="btn primary sm">I've picked all mine</button></div></div>
+<div class="home"></div></div>
+</article>
+
+<!-- COMPLETE -->
+<article>
+<div class="caption"><b><span class="tag after">AFTER</span>Everything assigned (unchanged idea)</b><small>Same page shape once every line is resolved: the amber card and the question drop away, leaving one button.</small></div>
+<div class="phone"><div class="island"></div><div class="status"><span>9:41</span><span>●●● ▰</span></div>
+<div class="top"><span class="back">‹</span><div><b>Review assignments</b><small>Large dinner · $86.00</small></div></div>
+<div class="body">
+  <div class="progress-head"><b style="color:var(--green)">✓ All 5 items assigned</b></div><div class="bar"><i style="width:100%;background:var(--green)"></i></div>
+  <span class="label">Who owes what</span>
+  <div class="card">
+    <div class="row"><span class="avatar">B</span><div class="grow"><b>You</b><small>Garlic noodles, Garlic prawns, half of Spicy tuna rolls</small></div><span class="money">$54.00</span><span class="chev">›</span></div>
+    <div class="row"><span class="avatar">P</span><div class="grow"><b>Purity</b><small>Edamame, half of Spicy tuna rolls, 3 lemonades</small></div><span class="money">$32.00</span><span class="chev">›</span></div>
+  </div>
+  <div class="see-all"><span>See all 5 items in receipt order</span><span>›</span></div>
+</div>
+<div class="footer"><button class="btn primary" style="width:100%">Finish splitting</button></div>
+<div class="home"></div></div>
+</article>
+
+</div>
+
+<h1 style="margin-top:48px;font-size:22px">The "Not yet" problem: exit wording options</h1>
+<p class="lede">"Not yet" answers the question but sounds like "keep me here." Both answers leave the page, so the wording must say so, and say the picks are already saved.</p>
+<div class="grid">
+<article>
+<div class="caption"><b><span class="tag after">RECOMMENDED</span>A. Heading says both answers leave</b><small>The heading carries "leaving + saved". Each button describes the state of <i>your</i> picks, so neither reads as "stay".</small></div>
+<div class="fcard"><div class="ghost-row"><span>Not assigned</span><span class="money muted">$39.00</span></div>
+<div class="ask"><b>Done here? Your picks are saved.</b><small>Others in this group can pick the rest later.</small>
+<div class="btns"><button class="btn secondary sm">I'll pick more later</button><button class="btn primary sm">I've picked all mine</button></div></div></div>
+</article>
+<article>
+<div class="caption"><b>B. Keep the question, add a leave hint</b><small>Two-line buttons. Works, but the small line is easy to skip, and the footer gets taller.</small></div>
+<div class="fcard"><div class="ghost-row"><span>Not assigned</span><span class="money muted">$39.00</span></div>
+<div class="ask"><b>Have you picked all of yours?</b><small>Your picks are saved either way.</small>
+<div class="btns"><button class="btn secondary two">Not yet<span>Leave, pick more later</span></button><button class="btn primary two">Yes, I'm done<span>Leave, all mine are in</span></button></div></div></div>
+</article>
+<article>
+<div class="caption"><b>C. One exit button + a checkbox</b><small>Only one way out, so no ambiguity. But the checkbox is easy to miss, so fewer people mark done and more get reminders.</small></div>
+<div class="fcard"><div class="ghost-row"><span>Not assigned</span><span class="money muted">$39.00</span></div>
+<div class="ask"><label class="checkrow"><span class="box"></span><span><b>I've picked all of mine</b><small style="margin:2px 0 0">Others in this group can pick the rest later.</small></span></label>
+<button class="btn primary" style="width:100%;margin-top:12px">Done</button></div></div>
+</article>
+</div>
+<style>
+  .fcard{width:390px;background:#fff;border-radius:22px;border:1px solid var(--border);overflow:hidden;box-shadow:0 10px 28px rgba(13,22,39,.08)}
+  .fcard .ghost-row{display:flex;justify-content:space-between;padding:16px 20px;color:var(--ink2);font-size:14px;opacity:.55}
+  .fcard .ask{border-top:1px solid var(--border);padding:16px 18px 22px}
+  .btn.sm{font-size:14px}
+  .btn.two{height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  .btn.two span{font-size:11px;font-weight:600;opacity:.8}
+  .checkrow{display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+  .checkrow .box{width:24px;height:24px;border:2px solid var(--ink3);border-radius:7px;flex:none;margin-top:1px}
+</style>
+
+<div class="notes">
+<section><h2>What changed and why</h2><ul>
+<li><b>3 buttons → 2, framed as a question.</b> "Finish later" and "Finished picking mine" only differ by the viewer's own done marker. "Done here? Your picks are saved." frames both buttons as exits; the buttons state whether your own picks are complete, mapping 1:1 to no-op / <code>markDone</code>.</li>
+<li><b>"Continue assigning" becomes per-item Assign.</b> The leftover card is the to-do list, and each row opens that item's editor directly. Better than jumping to "the first unresolved item".</li>
+<li><b>Remaining work shown once.</b> Progress bar, "2 left", "Not assigned yet $39", and the amber list collapse into the amber card plus a muted "Not assigned" row that makes the totals add to $86.00.</li>
+<li><b>Your items listed under your name.</b> The question is about <i>your</i> items, so the answer sits right above it.</li>
+<li><b>Handoff promise sits beside the exits</b>, as §2 requires, instead of in a banner at the top.</li>
+</ul></section>
+<section><h2>Spec edits this needs (§2 row 7, §4, AC 7, AC 12)</h2><ul>
+<li>Replace the <code>Continue assigning</code> button with per-row <b>Assign</b> on the remaining-items card.</li>
+<li>Rename exits: <code>Finish later</code> → <b>I'll pick more later</b>, <code>Finished picking mine</code> → <b>I've picked all mine</b>, under "Done here? Your picks are saved." Behavior is unchanged: only "I've picked all mine" calls <code>markDone</code>; both open expense details over group home.</li>
+<li>"Every item with its assignee(s) in receipt order" stays reachable via <b>See all 5 items</b>; person rows open that person's items.</li>
+<li>If a viewer has no items yet, the footer stays the same; "I've picked all mine" is still valid (they had nothing on this bill).</li>
+</ul></section>
+</div>
+</main></body></html>

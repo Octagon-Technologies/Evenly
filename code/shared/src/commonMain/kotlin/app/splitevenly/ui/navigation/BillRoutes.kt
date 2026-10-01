@@ -40,9 +40,7 @@ import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.bill.AssignRowUi
-import app.splitevenly.ui.screen.bill.BillClaimScreen
 import app.splitevenly.ui.screen.bill.BillEditScreen
-import app.splitevenly.ui.screen.bill.ClaimBillState
 import app.splitevenly.ui.screen.bill.ClaimItemUi
 import app.splitevenly.ui.screen.bill.ClaimParticipantUi
 import app.splitevenly.ui.screen.bill.EditBillState
@@ -247,17 +245,18 @@ fun BillEditRoute(
         initialOutsidePayerName = existing?.expense?.payerOutsideName,
         claimedItemsByUser = existing?.claimedItemsByUser().orEmpty(),
         onBack = onBack,
-        onScanReceipt = cameraGate.wrap { source ->
-            // Fires before any cost is incurred — even if the user backs out of the file picker next.
-            analytics?.capture(
-                AnalyticsEvents.SCAN_SOURCE_CHOSEN,
-                mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
-            )
-            scope.launch {
-                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
-            }
-        },
+        onScanReceipt =
+            cameraGate.wrap { source ->
+                // Fires before any cost is incurred — even if the user backs out of the file picker next.
+                analytics?.capture(
+                    AnalyticsEvents.SCAN_SOURCE_CHOSEN,
+                    mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
+                )
+                scope.launch {
+                    val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                    runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
+                }
+            },
         onCancelScan = {
             if (scanState is ScanUiState.Working) {
                 analytics?.capture(
@@ -344,172 +343,9 @@ fun BillEditRoute(
         },
     )
 
-
     // Last, so the gate lands over the screen rather than under it.
     CameraPermissionGateHost(cameraGate)
 }
-
-/** The assign screen — "who had what?". Assignments (incl. for people without the app) go through the
- *  conflict-free claim/portion writes; the tab + per-line amounts derive in real time. [onAskGroup] is
- *  retired but kept in the signature to avoid churning the NavHost. */
-@Composable
-fun BillClaimRoute(
-    groupId: String,
-    expenseId: String,
-    onBack: () -> Unit,
-    onEditBill: () -> Unit,
-    onAskGroup: () -> Unit,
-    onReviewEdits: () -> Unit = {},
-    onWhoIsLeft: () -> Unit = {},
-    onShareLink: () -> Unit = {},
-) {
-    val bills = koinInject<BillRepository>()
-    val groups = koinInject<GroupRepository>()
-    val auth = koinInject<AuthSession>()
-    val storage = koinInject<SecureStorage>()
-    val gid = remember(groupId) { GroupId(groupId) }
-    val eid = remember(expenseId) { ExpenseId(expenseId) }
-    val bill by remember(eid) { bills.observeBill(eid) }.collectAsStateWithLifecycle(null)
-    val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
-    // Web guests' menu changes (WEB_CLAIM_SPEC.md §2.7). All of them have already applied, so the
-    // banner counts what this device has not SEEN, not what is undecided: there is nothing to decide.
-    val pendingEdits by remember(eid) { bills.observePendingEdits(eid) }.collectAsStateWithLifecycle(emptyList())
-    val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-
-    // Device-local (not synced) "how many times has this device opened the assign screen" — the how-to
-    // guide auto-expands only on the first couple of visits, then recedes to a one-liner.
-    var guideAutoOpen by remember { mutableStateOf(false) }
-    // Set when an assignment didn't land, so the screen can say so instead of looking like it worked.
-    var assignNotice by remember { mutableStateOf<String?>(null) }
-    // Device-local read marker for the changes banner, written by BillReviewEditsRoute on the way out.
-    // Re-read on every resume so the banner clears when the payer comes back from that screen.
-    var changesSeenAt by remember(eid) { mutableStateOf(0L) }
-    LaunchedEffect(Unit) {
-        val seen = storage.getString(CLAIM_GUIDE_OPENS_KEY)?.toIntOrNull() ?: 0
-        guideAutoOpen = seen < 2
-        storage.putString(CLAIM_GUIDE_OPENS_KEY, (seen + 1).toString())
-    }
-    LaunchedEffect(eid, pendingEdits) {
-        changesSeenAt = storage.getString(changesSeenKey(eid.value))?.toLongOrNull() ?: 0L
-    }
-
-    val view = bill ?: return
-    val me = userId
-    val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
-
-    fun nameOf(uid: String): String = if (me != null && uid == me.value) "You" else (nameByUser[uid] ?: "Someone")
-
-    val participants =
-        view.participants
-            .map { it.userId.value }
-            .ifEmpty { members.map { it.userId.value } }
-            .distinct()
-            .map { ClaimParticipantUi(it, nameByUser[it] ?: "Someone", me != null && it == me.value) }
-
-    val claimsByItem = view.claims.groupBy { it.itemId }
-    val portionsByItemPortion = view.shares.filter { it.portionId != null }.groupBy { it.itemId to it.portionId!! }
-
-    val items =
-        view.items.map { item ->
-            val perUnit = if (item.quantity <= 0) item.lineTotalSubunits else (item.lineTotalSubunits + item.quantity / 2) / item.quantity
-            val soloRows =
-                claimsByItem[item.id].orEmpty().map { claim ->
-                    AssignRowUi(
-                        null,
-                        listOf(claim.userId.value),
-                        listOf(nameOf(claim.userId.value)),
-                        claim.quantity,
-                        perUnit * claim.quantity,
-                    )
-                }
-            val portionRows =
-                portionsByItemPortion.filterKeys { it.first == item.id }.map { (key, rows) ->
-                    AssignRowUi(
-                        key.second,
-                        rows.map { it.userId.value },
-                        rows.map { nameOf(it.userId.value) },
-                        rows.first().quantity,
-                        perUnit * rows.first().quantity,
-                    )
-                }
-            ClaimItemUi(
-                id = item.id,
-                label = item.label,
-                quantity = item.quantity,
-                lineTotalSubunits = item.lineTotalSubunits,
-                rows = soloRows + portionRows,
-                status = view.reconcile.firstOrNull { it.itemId == item.id }?.status ?: ItemStatus.UNCLAIMED,
-            )
-        }
-
-    val totals = participants.map { p -> p to (view.tabByUser[UserId(p.userId)] ?: 0L) }
-    val state =
-        ClaimBillState(
-            title = view.expense.title,
-            currency = view.expense.currency,
-            totals = totals,
-            items = items,
-            participants = participants,
-            myUserId = me?.value,
-        )
-
-    fun qtyOf(itemId: String) = view.items.firstOrNull { it.id == itemId }?.quantity ?: 1
-    BillClaimScreen(
-        state = state,
-        onBack = onBack,
-        onSetEveryone = { itemId, memberIds ->
-            val who = me ?: return@BillClaimScreen
-            scope.launch {
-                // Adding someone to a line another person already claimed has to go through the server
-                // (it converts their solo claim into a shared portion). If that call can't be made, the
-                // person is NOT on the line, and saying nothing would leave the tap looking like it worked.
-                if (bills.setPortion(eid, itemId, "${itemId}__all", memberIds.map { UserId(it) }, qtyOf(itemId), who) is AppResult.Err) {
-                    assignNotice = "Couldn't save that. Check your connection and tap again."
-                }
-            }
-        },
-        onClearEveryone = { itemId ->
-            val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setPortion(eid, itemId, "${itemId}__all", emptyList(), 0, who) }
-        },
-        notice = assignNotice,
-        onDismissNotice = { assignNotice = null },
-        // Full teardown + rebuild of the item's assignment, now a SINGLE atomic repo call (#15): the repo
-        // tears down claims/portions and writes one quantity-1 portion per serving in ONE DB transaction,
-        // so navigating away mid-flight can't leave the item wiped half-way (the old per-slot sequence of
-        // separate calls could cancel between teardown and rebuild).
-        onSetServings = { itemId, servings ->
-            val who = me ?: return@BillClaimScreen
-            scope.launch { bills.setServings(eid, itemId, servings.map { slot -> slot.map { UserId(it) } }, who) }
-        },
-        onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
-        onEditBill = onEditBill,
-        onDone = {
-            val who = me ?: return@BillClaimScreen
-            scope.launch {
-                bills.markDone(eid, who, true)
-                onBack()
-            }
-        },
-        guideAutoOpen = guideAutoOpen,
-        onShareLink = onShareLink,
-        onWhoIsLeft = onWhoIsLeft,
-        onReviewEdits = onReviewEdits,
-        unseenChangeCount = pendingEdits.count { it.proposedAt > changesSeenAt },
-        changeCount = pendingEdits.size,
-        // "Claiming" here means a claim or a portion membership exists, NOT that they tapped "I'm done":
-        // done is a nudge-silencer, not a resolution (data/AGENTS.md), and a payer looking for who still
-        // owes them an answer wants the people with nothing on the bill.
-        stillToClaimCount =
-            view.participants.count { p ->
-                view.claims.none { it.userId == p.userId } && view.shares.none { it.userId == p.userId }
-            },
-    )
-}
-
-/** Device-local key counting how many times the assign screen has been opened (gates the how-to guide). */
-private const val CLAIM_GUIDE_OPENS_KEY = "claim_guide_opens"
 
 private fun ReceiptDraft.toEditState(): EditBillState =
     EditBillState(

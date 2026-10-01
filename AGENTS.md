@@ -17,7 +17,7 @@ Do not guess, and do not ask the owner for anything in this table. Go read it.
 | --------------------------------------- | ------------------------------------------------- |
 | What is the product supposed to do?     | `App_Overview.md`                                 |
 | What does a screen look like?           | `design/` — the **visual source of truth**        |
-| What's built, what's left?              | `FINISH_PLAN.md`, `REMAINING_WORK.md`, `WEB_CLAIM_PATCH_PLAN.md` (history: `BUILD_PLAN.md`) |
+| What must a feature do; what's built?   | `docs/features/README.md` is the index — one brief per feature. Pre-`docs/` work: root `*_PLAN.md`/`*_SPEC.md` |
 | Gotchas for the area I'm editing        | The nearest `AGENTS.md` (see §2)                  |
 | Database shape, RLS, RPCs               | `supabase/schema.sql` + `supabase/AGENTS.md`      |
 | How do I run it on a device?            | §5 below                                          |
@@ -159,7 +159,7 @@ failure in the last 10% never threatens work that already passed.
 
 ## 8. Maintaining this file
 
-- **Ceiling: 170 lines.** It currently sits at 169. Something must leave before something enters. Do
+- **Ceiling: 170 lines.** It currently sits at 170. Something must leave before something enters. Do
   not raise the number — a ceiling with room to spare is not a constraint.
 - **The test for a new line:** would removing this cause a mistake in a session that is **not** about
   this feature? If no, it belongs in a nested `AGENTS.md`, a skill, or a hook.

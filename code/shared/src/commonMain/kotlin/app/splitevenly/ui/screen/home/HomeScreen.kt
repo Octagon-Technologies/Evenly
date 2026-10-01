@@ -397,12 +397,12 @@ fun GroupRow(
 
             else -> {
                 // Group-level balance, color-coded: you owe → blue (the action); you're owed / in credit →
-                // amber (money coming back to you — draws attention without red's "you did wrong").
+                // green (money coming back to you, matching settled balances).
                 val owed = g.status == GroupBalanceStatus.Owed
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         if (owed) "you're owed" else "you owe",
-                        style = t.chip.copy(color = if (owed) c.credit else c.owe),
+                        style = t.chip.copy(color = if (owed) c.settled else c.owe),
                     )
                     EvChip(money(g.amount ?: 0.0), variant = if (owed) ChipVariant.Owed else ChipVariant.Owe, mono = true)
                 }

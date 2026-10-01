@@ -56,6 +56,7 @@ import app.splitevenly.ui.components.imeAndDoneBarPadding
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ItemizedExpenseBody
+import app.splitevenly.ui.screen.bill.ReceiptReviewScreen
 import app.splitevenly.ui.screen.bill.ScanErrorSheet
 import app.splitevenly.ui.screen.bill.ScanProgressSheet
 import app.splitevenly.ui.screen.bill.ScanUiState
@@ -164,6 +165,7 @@ fun AddExpenseScreen(
     var outsidePayerName by remember { mutableStateOf(prefill?.payerOutsideName) }
     var showPayerDialog by remember { mutableStateOf(false) }
     var showScanSource by remember { mutableStateOf(false) }
+
     fun startScan(source: PickSource) = onScanReceipt(source)
 
     // Which body is showing. The choice is an up-front question: null = not yet chosen on a new expense
@@ -174,10 +176,13 @@ fun AddExpenseScreen(
     val itemized = rememberItemizedBillState()
     // A completed scan pre-fills the items + extras (never the shared name/participants) and lands you in
     // the itemized body — a fresh [scanned] instance each time, so a re-scan replaces the list.
+    // A fresh scan also opens "Review the receipt" over the editor: OCR is checked before anything is saved.
+    var reviewingScan by remember { mutableStateOf(false) }
     LaunchedEffect(scanned) {
         scanned?.let {
             itemized.applyScan(it)
             splitApproach = SplitApproach.ByItem
+            reviewingScan = true
         }
     }
 
@@ -208,7 +213,7 @@ fun AddExpenseScreen(
     LaunchedEffect(isItemized) { if (isItemized) categoryId = "food" }
 
     val divideValid = divide.amountSubunits > 0 && title.isNotBlank() && selected.isNotEmpty() && divide.splitValid(ids)
-    val itemizedValid = title.isNotBlank() && itemized.hasItem
+    val itemizedValid = title.isNotBlank() && selected.isNotEmpty() && itemized.hasItem
     val isValid = if (isItemized) itemizedValid else divideValid
 
     // The Save action, shared by the top bar and the button under the totals (A4). Stays live so we can
@@ -263,168 +268,205 @@ fun AddExpenseScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
-            EvTopBar(
-                title =
-                    if (editing) {
-                        "Edit expense"
-                    } else if (isItemized) {
-                        "Restaurant bill"
-                    } else {
-                        "Split one amount"
-                    },
-                navIcon = {
-                    EvIconButton(
-                        if (editing) EvIcons.Close else EvIcons.Back,
-                        { if (editing) onBack() else splitApproach = null },
-                    )
-                },
-                actions = {
-                    // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
-                    val active = !saving
-                    val bg = if (active) c.blue else c.blueTint2
-                    val fg = if (active) c.onAccent else c.disabledInk
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(bg)
-                            .then(if (active) Modifier.clickableClearingFocus { submit() } else Modifier)
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-                },
-            )
-            notice?.let {
-                Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
-                    EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
-                }
-            }
+        if (isItemized && reviewingScan) {
             Column(
                 Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
-                    // Before verticalScroll: shrinking the viewport (rather than padding the content) is
-                    // what makes the scroller's bring-into-view land a focused field above the Done bar.
-                    .imeAndDoneBarPadding()
-                    .verticalScroll(scrollState)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .background(c.page)
+                    .systemBarsPadding()
+                    .imeAndDoneBarPadding(),
             ) {
-                // ── shared header: title, category, paid by, participants — entered once, both modes ──
-                EvField("Title") {
-                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        EvTextField(title, { title = it }, placeholder = "What was it for?", isError = showErrors && title.isBlank())
-                        if (showErrors && title.isBlank()) {
-                            Text("Give it a title", color = c.danger, fontSize = 12.sp)
+                notice?.let {
+                    Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
+                        EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
+                    }
+                }
+                ReceiptReviewScreen(
+                    state = itemized,
+                    title = title,
+                    onTitle = { title = it },
+                    symbol = symbol,
+                    currencyCode = currency,
+                    attachedReceipts = attachedReceipts,
+                    showErrors = showErrors,
+                    peopleMissing = selected.isEmpty(),
+                    saving = saving,
+                    onOpenReceipt = { viewerIndex = it },
+                    onBack = { reviewingScan = false },
+                    onSave = { submit() },
+                )
+            }
+        } else {
+            Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
+                EvTopBar(
+                    title =
+                        if (editing) {
+                            "Edit expense"
+                        } else if (isItemized) {
+                            "Restaurant bill"
+                        } else {
+                            "Split one amount"
+                        },
+                    navIcon = {
+                        EvIconButton(
+                            if (editing) EvIcons.Close else EvIcons.Back,
+                            { if (editing) onBack() else splitApproach = null },
+                        )
+                    },
+                    actions = {
+                        // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
+                        val active = !saving
+                        val bg = if (active) c.blue else c.blueTint2
+                        val fg = if (active) c.onAccent else c.disabledInk
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(bg)
+                                .then(if (active) Modifier.clickableClearingFocus { submit() } else Modifier)
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                    },
+                )
+                notice?.let {
+                    Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
+                        EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
+                    }
+                }
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
+                        // Before verticalScroll: shrinking the viewport (rather than padding the content) is
+                        // what makes the scroller's bring-into-view land a focused field above the Done bar.
+                        .imeAndDoneBarPadding()
+                        .verticalScroll(scrollState)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    // ── shared header: title, category, paid by, participants — entered once, both modes ──
+                    EvField("Title") {
+                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            EvTextField(title, { title = it }, placeholder = "What was it for?", isError = showErrors && title.isBlank())
+                            if (showErrors && title.isBlank()) {
+                                Text("Give it a title", color = c.danger, fontSize = 12.sp)
+                            }
                         }
                     }
-                }
 
-                // Who's splitting this — asked FIRST, before "Paid by": pick the people, THEN the payer. Testers
-                // reached for the payer before adding anyone, so the payer picker misread as "who's in the split".
-                ParticipantsField(
-                    participants = participants,
-                    selected = selected,
-                    onToggle = { id -> selected = if (id in selected) selected - id else selected + id },
-                    onSelectAll = { selected = participants.map { it.userId }.toSet() },
-                    onDeselectAll = { selected = emptySet() },
-                    onAddClick = { showAddDialog = true },
-                )
-
-                // category (F2, optional) + paid by — side by side to keep the editor compact. Each is still
-                // its own tappable picker row (like before), just half-width now. A restaurant bill skips
-                // Category entirely (auto-set to Food & Drink above), so Paid by gets the full row to itself.
-                val selectedCategory = categories.firstOrNull { it.key == categoryId }
-                val paidByField: @Composable RowScope.() -> Unit = {
-                    EvField("Paid by", modifier = Modifier.weight(1f)) {
-                        EvSelectField(
-                            payerDisplayName,
-                            { showPayerDialog = true },
-                            leading = {
-                                if (isOutsidePayer) {
-                                    Box(
-                                        Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
-                                    }
-                                } else {
-                                    EvAvatar(payerDisplayName, me = payer?.isMe == true, size = AvatarSize.Sm)
-                                }
-                            },
-                        )
+                    // Who's splitting this — asked FIRST, before "Paid by": pick the people, THEN the payer. Testers
+                    // reached for the payer before adding anyone, so the payer picker misread as "who's in the split".
+                    ParticipantsField(
+                        participants = participants,
+                        selected = selected,
+                        onToggle = { id -> selected = if (id in selected) selected - id else selected + id },
+                        onSelectAll = { selected = participants.map { it.userId }.toSet() },
+                        onDeselectAll = { selected = emptySet() },
+                        onAddClick = { showAddDialog = true },
+                    )
+                    if (showErrors && selected.isEmpty()) {
+                        Text("Pick who is splitting this", color = c.danger, fontSize = 12.sp)
                     }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!isItemized) {
-                        EvField("Category", modifier = Modifier.weight(1f)) {
+
+                    // category (F2, optional) + paid by — side by side to keep the editor compact. Each is still
+                    // its own tappable picker row (like before), just half-width now. A restaurant bill skips
+                    // Category entirely (auto-set to Food & Drink above), so Paid by gets the full row to itself.
+                    val selectedCategory = categories.firstOrNull { it.key == categoryId }
+                    val paidByField: @Composable RowScope.() -> Unit = {
+                        EvField("Paid by", modifier = Modifier.weight(1f)) {
                             EvSelectField(
-                                selectedCategory?.label ?: "Add category",
-                                { showCategoryDialog = true },
-                                valueColor = if (selectedCategory != null) c.ink else c.ink3,
+                                payerDisplayName,
+                                { showPayerDialog = true },
                                 leading = {
-                                    if (selectedCategory != null) {
-                                        val catColor = Color(selectedCategory.colorHex)
-                                        Box(
-                                            Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(catColor.copy(alpha = 0.16f)),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            EvIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
-                                        }
-                                    } else {
+                                    if (isOutsidePayer) {
                                         Box(
                                             Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
                                             contentAlignment = Alignment.Center,
                                         ) {
-                                            EvIcon(EvIcons.Tag, size = 15.dp, tint = c.blueText)
+                                            EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
                                         }
+                                    } else {
+                                        EvAvatar(payerDisplayName, me = payer?.isMe == true, size = AvatarSize.Sm)
                                     }
                                 },
                             )
                         }
                     }
-                    paidByField()
-                }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (!isItemized) {
+                            EvField("Category", modifier = Modifier.weight(1f)) {
+                                EvSelectField(
+                                    selectedCategory?.label ?: "Add category",
+                                    { showCategoryDialog = true },
+                                    valueColor = if (selectedCategory != null) c.ink else c.ink3,
+                                    leading = {
+                                        if (selectedCategory != null) {
+                                            val catColor = Color(selectedCategory.colorHex)
+                                            Box(
+                                                Modifier
+                                                    .size(
+                                                        28.dp,
+                                                    ).clip(RoundedCornerShape(99.dp))
+                                                    .background(catColor.copy(alpha = 0.16f)),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                EvIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
+                                            }
+                                        } else {
+                                            Box(
+                                                Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                EvIcon(EvIcons.Tag, size = 15.dp, tint = c.blueText)
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                        paidByField()
+                    }
 
-                // receipt — compressed and on disk the moment it is picked, so it previews here and uploads
-                // once the expense exists. Only in the divide flow; the itemized body shows the scanned pages.
-                if (receiptsEnabled && !isItemized) {
-                    PickedReceiptStrip(
-                        receipts = receipts,
-                        label = "Receipt",
-                        caption = "Uploads when you save.",
-                        onAddClick = { showReceiptSource = true },
-                        onRemoveReceipt = onRemoveReceipt,
-                        onOpenReceipt = { viewerIndex = it },
-                    )
-                }
+                    // receipt — compressed and on disk the moment it is picked, so it previews here and uploads
+                    // once the expense exists. Only in the divide flow; the itemized body shows the scanned pages.
+                    if (receiptsEnabled && !isItemized) {
+                        PickedReceiptStrip(
+                            receipts = receipts,
+                            label = "Receipt",
+                            caption = "Uploads when you save.",
+                            onAddClick = { showReceiptSource = true },
+                            onRemoveReceipt = onRemoveReceipt,
+                            onOpenReceipt = { viewerIndex = it },
+                        )
+                    }
 
-                // ── the split body (the divide-vs-itemize choice was made up front, so no in-editor toggle) ──
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (isItemized) {
-                        ItemizedExpenseBody(
-                            state = itemized,
-                            symbol = symbol,
-                            currencyCode = currency,
-                            attachedReceipts = attachedReceipts,
-                            onRemoveAttachedReceipt = onRemoveAttachedReceipt,
-                            onOpenAttachedReceipt = { viewerIndex = it },
-                            showErrors = showErrors,
-                            saving = saving,
-                            saveLabel = "Save & assign items",
-                            onScanSource = { source -> startScan(source) },
-                            onSave = { submit() },
-                        )
-                    } else {
-                        DivideSplitBody(
-                            state = divide,
-                            selectedList = selectedList,
-                            currency = currency,
-                            symbol = symbol,
-                            showErrors = showErrors,
-                            saving = saving,
-                            onCurrencyClick = { showCurrencyDialog = true },
-                            onSave = { submit() },
-                        )
+                    // ── the split body (the divide-vs-itemize choice was made up front, so no in-editor toggle) ──
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (isItemized) {
+                            ItemizedExpenseBody(
+                                state = itemized,
+                                symbol = symbol,
+                                currencyCode = currency,
+                                attachedReceipts = attachedReceipts,
+                                onRemoveAttachedReceipt = onRemoveAttachedReceipt,
+                                onOpenAttachedReceipt = { viewerIndex = it },
+                                showErrors = showErrors,
+                                saving = saving,
+                                saveLabel = "Save & continue",
+                                onScanSource = { source -> startScan(source) },
+                                onSave = { submit() },
+                            )
+                        } else {
+                            DivideSplitBody(
+                                state = divide,
+                                selectedList = selectedList,
+                                currency = currency,
+                                symbol = symbol,
+                                showErrors = showErrors,
+                                saving = saving,
+                                onCurrencyClick = { showCurrencyDialog = true },
+                                onSave = { submit() },
+                            )
+                        }
                     }
                 }
             }

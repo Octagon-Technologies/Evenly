@@ -71,7 +71,7 @@ private fun chipColors(variant: ChipVariant): ChipColors {
             ChipColors(Color.Transparent, c.ink2, c.border)
         }
 
-        // Balance amounts — you-owe (blue) / you're-owed (amber). In DARK they render as outlined pills
+        // Balance amounts — you-owe (blue) / you're-owed (green). In DARK they render as outlined pills
         // (transparent fill + colored ring + colored text) so the amount stands clearly apart from the
         // near-black background; in LIGHT they stay the original filled tint chips (identical to before).
         ChipVariant.Owe -> {
@@ -84,9 +84,9 @@ private fun chipColors(variant: ChipVariant): ChipColors {
 
         ChipVariant.Owed -> {
             if (c.isDark) {
-                ChipColors(Color.Transparent, c.credit, c.credit)
+                ChipColors(Color.Transparent, c.settled, c.settled)
             } else {
-                ChipColors(c.creditTint, c.credit, c.credit.copy(alpha = 0.20f))
+                ChipColors(c.settledTint, c.settled, c.settled.copy(alpha = 0.20f))
             }
         }
     }

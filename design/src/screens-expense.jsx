@@ -3,7 +3,6 @@ const { useState: useStateE } = React;
 
 /* ── 12 · Expense detail ──────────────────────────────────── */
 function ExpenseDetail({ state = 'populated', onBack, onSettleThis }) {
-  const [over, setOver] = useStateE(false);
   const split = [
     { name: 'You', share: 24, remaining: 24, paid: 0, of: 24, me: true },
     { name: 'Andrew', share: 24, remaining: 0, paid: 24, of: 24, payer: true },
@@ -16,7 +15,6 @@ function ExpenseDetail({ state = 'populated', onBack, onSettleThis }) {
       <TopBar
         left={<IconBtn name="back" onClick={onBack} />}
         title="Dinner at La Negra" sub="Food & Drink"
-        right={<IconBtn name="more" onClick={() => setOver(true)} />}
       />
       {state === 'loading' ? (
         <Scroll><div className="sc-body__pad col gap16">
@@ -41,6 +39,7 @@ function ExpenseDetail({ state = 'populated', onBack, onSettleThis }) {
               <span className="row gap8"><Avatar name="Andrew" size="sm" /><span style={{ fontSize: 14 }}><b>Andrew</b> paid</span></span>
               <span className="sc-tiny sc-muted">May 23 · 8:40 PM</span>
             </div>
+            <button className="sc-btn sc-btn-secondary" style={{ width: '100%', marginTop: 14 }}><Icon name="edit" size={18} /> Edit bill</button>
           </div>
 
           {/* receipts */}
@@ -48,7 +47,6 @@ function ExpenseDetail({ state = 'populated', onBack, onSettleThis }) {
             <div className="sc-section-label">Receipts</div>
             <div className="row gap12" style={{ overflow: 'hidden' }}>
               {[0,1].map(i => <Placeholder key={i} w={84} h={108} label="receipt" />)}
-              <button className="sc-iconbtn" style={{ width: 84, height: 108, borderRadius: 12, background: 'var(--surface)', flexDirection: 'column', gap: 4, color: 'var(--ink-2)', fontSize: 12, fontWeight: 600 }}><Icon name="camera" size={22} /> Add</button>
             </div>
           </div>
 
@@ -89,19 +87,14 @@ function ExpenseDetail({ state = 'populated', onBack, onSettleThis }) {
           </div>
 
           <Collapsible title="History" icon="history" sub="3 events" />
-          <Collapsible title="Refunds" icon="refund" sub="None yet" />
+          <button className="sc-row sc-row--tap" style={{ width: '100%', borderRadius: 14, color: 'var(--red)', background: 'var(--red-tint)', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--red) 22%, transparent)' }}>
+            <Icon name="trash" size={20} />
+            <span className="grow" style={{ textAlign: 'left' }}><b>Delete bill</b><small style={{ display: 'block', color: 'var(--ink-2)', marginTop: 3 }}>Moves to Recently deleted for 30 days.</small></span>
+          </button>
           <div style={{ height: 24 }} />
         </div>
       </Scroll>
       )}
-      {over && <Modal onClose={() => setOver(false)}>
-        <div className="col">
-          {[['edit','Edit'],['refund','Issue refund'],['camera','Add receipt'],['share','Share']].map(([ic,l]) => (
-            <button key={l} className="sc-row sc-row--tap" style={{ borderRadius: 10 }}><Icon name={ic} size={20} style={{ color: 'var(--ink-2)' }} /><span className="grow" style={{ fontSize: 15, fontWeight: 500 }}>{l}</span></button>
-          ))}
-          <button className="sc-row sc-row--tap" style={{ borderRadius: 10, color: 'var(--red)' }}><Icon name="trash" size={20} /><span className="grow" style={{ fontSize: 15, fontWeight: 600, textAlign: 'left' }}>Delete</span></button>
-        </div>
-      </Modal>}
     </div>
   );
 }

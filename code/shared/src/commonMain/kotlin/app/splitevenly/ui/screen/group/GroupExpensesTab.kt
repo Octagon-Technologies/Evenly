@@ -513,10 +513,10 @@ private fun ExpenseRowFrom(
 
                 it.stakeLabel != null && it.stakeAmount != null -> {
                     Column(horizontalAlignment = Alignment.End) {
-                        // Owed-to-you → amber (in your favour); you-owe → plain ink (white on dark). Blue as
+                        // Owed-to-you → green; you-owe → plain ink (white on dark). Blue as
                         // the "you owe" amount sank into the dark page; a neutral ink amount reads clearly and
                         // still lets the amber "you're owed" stand out as the one colour that matters.
-                        val stakeColor = if (it.stakeOwedToYou) c.credit else c.ink
+                        val stakeColor = if (it.stakeOwedToYou) c.settled else c.ink
                         Text(it.stakeLabel, color = stakeColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             it.stakeAmount,

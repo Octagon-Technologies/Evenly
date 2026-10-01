@@ -1,17 +1,22 @@
 # Evenly — Design reference
 
-This folder holds the finished mobile UI exported from **Claude Design**, plus its decoded
-source. It is the **visual source of truth** for the Compose Multiplatform UI built under
-`code/shared/src/commonMain/.../ui/`. When a screen's look and the prose spec (`../spec/`)
-disagree, **the design here wins** (per the build decision).
+This folder holds Evenly's current editable design-system website and the original mobile UI export
+from **Claude Design**. Together they are the **visual source of truth** for the Compose Multiplatform
+UI built under `code/shared/src/commonMain/.../ui/`. When a screen's look and the prose spec
+(`../spec/`) disagree, **the design here wins** (per the build decision).
+
+Start with `system/dist/index.html`. The site inventories current foundations, components, patterns,
+screens, and flows. The older standalone export remains useful as historical screen reference, but it
+does not describe every component or newer route.
 
 ## Contents
 
 | Path | What |
 |---|---|
+| `system/` | **Current editable website.** Open `system/dist/index.html` or follow `system/README.md`; run `node system/scripts/check-design-system.mjs` after UI-library changes. |
 | `Evenly-Standalone.html` | The original self-contained export (open in a browser to see the live, interactive design). |
 | `extract.py` | Decoder: unpacks the HTML's `__bundler/manifest` (gzip+base64 modules) and `__bundler/template` (the CSS) into `src/`. Re-run with `python3 extract.py`. |
-| `src/design.css` | **The complete design system**: `@font-face` (IBM Plex), `:root` tokens, and every `.sc-*` component class with exact px/weights/colors. The definitive styling reference. |
+| `src/design.css` | The original export's CSS tokens and `.sc-*` component classes. Use the current website and Compose sources for additions made after the export. |
 | `src/components.jsx` | Shared UI primitives (the React originals of our `ui/components/`). |
 | `src/icons.jsx` | The 70-icon line set (name → 24×24 SVG path), stroke 1.6, round caps. |
 | `src/overview.jsx` | Design principles + palette swatches (mirror in the component gallery). |

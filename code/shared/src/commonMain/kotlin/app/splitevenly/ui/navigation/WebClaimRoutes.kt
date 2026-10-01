@@ -18,8 +18,10 @@ import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.ClaimProgressState
+import app.splitevenly.domain.expense.ItemStatus
 import app.splitevenly.domain.expense.PendingEditDecision
 import app.splitevenly.domain.expense.WebBillLinkState
+import app.splitevenly.domain.expense.unresolvedLines
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.WebBillLinkRepository
@@ -30,6 +32,7 @@ import app.splitevenly.ui.screen.bill.BillClaimProgressState
 import app.splitevenly.ui.screen.bill.BillReviewEditsScreen
 import app.splitevenly.ui.screen.bill.BillShareLinkScreen
 import app.splitevenly.ui.screen.bill.ClaimProgressPersonUi
+import app.splitevenly.ui.screen.bill.ProgressLineUi
 import app.splitevenly.ui.screen.bill.ReviewEditUi
 import app.splitevenly.ui.screen.bill.ReviewEditsState
 import app.splitevenly.ui.screen.bill.ShareBillLinkState
@@ -59,7 +62,7 @@ private const val PROGRESS_POLL_MS = 5_000L
 /**
  * Device-local marker for "this device has seen the bill's changes up to here" (`WEB_CLAIM_PATCH_PLAN`
  * §3 P4). Keyed by expense, in [app.splitevenly.platform.SecureStorage], exactly like
- * `CLAIM_GUIDE_OPENS_KEY` in `BillRoutes.kt`.
+ * the other device-local markers.
  *
  * Chosen over a synced column deliberately: a new column on a synced entity is the heaviest change in
  * this codebase (`AGENTS.md` §4.4) and the cost of getting it wrong is that whole table's sync, for a
@@ -80,7 +83,11 @@ internal fun changesSeenKey(expenseId: String) = "web_changes_seen_at__$expenseI
  */
 @OptIn(ExperimentalTime::class)
 @Composable
-fun BillReviewEditsRoute(groupId: String, expenseId: String, onBack: () -> Unit) {
+fun BillReviewEditsRoute(
+    groupId: String,
+    expenseId: String,
+    onBack: () -> Unit,
+) {
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
@@ -108,39 +115,43 @@ fun BillReviewEditsRoute(groupId: String, expenseId: String, onBack: () -> Unit)
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
     val labelByItem = view.items.associate { it.id to it.label }
 
-    val state = ReviewEditsState(
-        billTitle = view.expense.title,
-        currency = view.expense.currency,
-        currentTotalSubunits = view.expense.amountSubunits,
-        edits = edits.map { edit ->
-            ReviewEditUi(
-                id = edit.id,
-                proposerName = nameByUser[edit.proposedBy.value] ?: "Someone",
-                kind = edit.kind,
-                // An ADD has no line yet, so its label is the proposal itself; every other kind names an
-                // existing line, and falls back to the label captured at proposal time if the payer has
-                // since removed it.
-                itemLabel = edit.proposedLabel
-                    ?: edit.itemId?.let { labelByItem[it] }
-                    ?: edit.previousLabel
-                    ?: "an item",
-                previousLabel = edit.previousLabel ?: edit.itemId?.let { labelByItem[it] },
-                previousQuantity = edit.previousQuantity,
-                previousUnitPriceSubunits = edit.previousUnitPriceSubunits,
-                proposedQuantity = edit.proposedQuantity,
-                proposedUnitPriceSubunits = edit.proposedUnitPriceSubunits,
-                deltaSubunits = edit.totalDeltaSubunits,
-                decision = edit.decision,
-                // `decided_by` is set on an APPLIED row too (it is the guest who made the change), so
-                // this is gated on the decision rather than on the column being present. Resolved to
-                // "you" for the reader, because the payer undoing their own change and reading their own
-                // name back is the kind of small wrongness that makes a screen feel like a database.
-                undoneByName = edit.decidedBy
-                    ?.takeIf { edit.decision == PendingEditDecision.UNDONE }
-                    ?.let { if (it == userId) "you" else nameByUser[it.value] },
-            )
-        },
-    )
+    val state =
+        ReviewEditsState(
+            billTitle = view.expense.title,
+            currency = view.expense.currency,
+            currentTotalSubunits = view.expense.amountSubunits,
+            edits =
+                edits.map { edit ->
+                    ReviewEditUi(
+                        id = edit.id,
+                        proposerName = nameByUser[edit.proposedBy.value] ?: "Someone",
+                        kind = edit.kind,
+                        // An ADD has no line yet, so its label is the proposal itself; every other kind names an
+                        // existing line, and falls back to the label captured at proposal time if the payer has
+                        // since removed it.
+                        itemLabel =
+                            edit.proposedLabel
+                                ?: edit.itemId?.let { labelByItem[it] }
+                                ?: edit.previousLabel
+                                ?: "an item",
+                        previousLabel = edit.previousLabel ?: edit.itemId?.let { labelByItem[it] },
+                        previousQuantity = edit.previousQuantity,
+                        previousUnitPriceSubunits = edit.previousUnitPriceSubunits,
+                        proposedQuantity = edit.proposedQuantity,
+                        proposedUnitPriceSubunits = edit.proposedUnitPriceSubunits,
+                        deltaSubunits = edit.totalDeltaSubunits,
+                        decision = edit.decision,
+                        // `decided_by` is set on an APPLIED row too (it is the guest who made the change), so
+                        // this is gated on the decision rather than on the column being present. Resolved to
+                        // "you" for the reader, because the payer undoing their own change and reading their own
+                        // name back is the kind of small wrongness that makes a screen feel like a database.
+                        undoneByName =
+                            edit.decidedBy
+                                ?.takeIf { edit.decision == PendingEditDecision.UNDONE }
+                                ?.let { if (it == userId) "you" else nameByUser[it.value] },
+                    )
+                },
+        )
 
     fun undo(editId: String) {
         val me = userId ?: return
@@ -179,6 +190,8 @@ fun BillClaimProgressRoute(
     expenseId: String,
     onBack: () -> Unit,
     onShareLink: () -> Unit,
+    onAssignItem: (itemId: String) -> Unit,
+    onReview: () -> Unit,
 ) {
     val bills = koinInject<BillRepository>()
     val groups = koinInject<GroupRepository>()
@@ -208,9 +221,12 @@ fun BillClaimProgressRoute(
                     linkState = result.value
                     lastUpdatedAt = Clock.System.nowEpochMillis()
                 }
+
                 // Don't blank the list on a blip: the numbers on screen are still the last true ones, and
                 // the "updated N ago" line is what tells the payer they're going stale.
-                is AppResult.Err -> Unit
+                is AppResult.Err -> {
+                    Unit
+                }
             }
             nowMs = Clock.System.nowEpochMillis()
             delay(PROGRESS_POLL_MS)
@@ -220,36 +236,56 @@ fun BillClaimProgressRoute(
     val view = bill ?: return
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
     val placeholderIds = members.filter { it.isPlaceholder }.mapTo(HashSet()) { it.userId.value }
-    val claimedUserIds = (view.claims.map { it.userId.value } + view.shares.map { it.userId.value }).toHashSet()
+    val itemsByUser = HashMap<String, MutableSet<String>>()
+    view.claims.forEach { itemsByUser.getOrPut(it.userId.value) { HashSet() }.add(it.itemId) }
+    view.shares.forEach { itemsByUser.getOrPut(it.userId.value) { HashSet() }.add(it.itemId) }
 
-    val claimed = view.tabByUser.values.sum()
-    val total = view.expense.amountSubunits
-    val outstanding = view.participants
-        .map { it.userId }
-        .filter { it.value !in claimedUserIds }
-        .map { uid ->
+    val people =
+        view.participants.map { p ->
+            val uid = p.userId
             ClaimProgressPersonUi(
                 userId = uid.value,
-                name = nameByUser[uid.value] ?: "Someone",
-                state = when {
-                    linkState.openedThisLink(uid) -> ClaimProgressState.OPENED_NOTHING_CLAIMED
-                    // "Hasn't opened the link" is only honest about someone who has no other way in.
-                    uid.value in placeholderIds -> ClaimProgressState.NOT_OPENED
-                    else -> ClaimProgressState.APP_MEMBER_NOT_CLAIMED
-                },
+                name = if (uid == me) "You" else nameByUser[uid.value] ?: "Someone",
+                isMe = uid == me,
+                done = p.doneAt != null,
+                itemCount = itemsByUser[uid.value]?.size ?: 0,
+                amountSubunits = view.tabByUser[uid] ?: 0L,
+                state =
+                    when {
+                        itemsByUser.containsKey(uid.value) -> ClaimProgressState.CLAIMED
+
+                        linkState.openedThisLink(uid) -> ClaimProgressState.OPENED_NOTHING_CLAIMED
+
+                        // "Hasn't opened the link" is only honest about someone who has no other way in.
+                        uid.value in placeholderIds -> ClaimProgressState.NOT_OPENED
+
+                        else -> ClaimProgressState.APP_MEMBER_NOT_CLAIMED
+                    },
             )
         }
-
-    val state = BillClaimProgressState(
-        billTitle = view.expense.title,
-        currency = view.expense.currency,
-        billTotalSubunits = total,
-        claimedSubunits = claimed,
-        outstanding = outstanding,
-        unclaimedSubunits = (total - claimed).coerceAtLeast(0L),
-        unclaimedItemCount = view.unclaimedCount,
-        lastUpdatedAgoMs = lastUpdatedAt?.let { (nowMs - it).coerceAtLeast(0L) },
-    )
+    val assigned = view.tabByUser.values.sum()
+    val state =
+        BillClaimProgressState(
+            billTitle = view.expense.title,
+            currency = view.expense.currency,
+            people = people,
+            remaining =
+                view.unresolvedLines().map { line ->
+                    ProgressLineUi(
+                        itemId = line.itemId,
+                        label = line.label,
+                        unassignedSubunits = line.unassignedSubunits,
+                        detail =
+                            when {
+                                line.status == ItemStatus.OVERCLAIMED -> "Too many servings assigned"
+                                line.quantity > 1 && line.assignedUnits > 0 -> "${line.quantity - line.assignedUnits} of ${line.quantity} servings left"
+                                else -> "No one has picked this yet"
+                            },
+                    )
+                },
+            notAssignedSubunits = (view.expense.amountSubunits - assigned).coerceAtLeast(0L),
+            lastUpdatedAgoMs = lastUpdatedAt?.let { (nowMs - it).coerceAtLeast(0L) },
+        )
 
     fun assign(memberIds: List<UserId>) {
         val actor = me ?: return
@@ -267,9 +303,11 @@ fun BillClaimProgressRoute(
     BillClaimProgressScreen(
         state = state,
         onBack = onBack,
-        onSplitBetweenOutstanding = { assign(outstanding.map { UserId(it.userId) }) },
+        onAssignItem = onAssignItem,
+        onShowQr = onShareLink,
+        onReview = onReview,
+        onSplitBetweenOutstanding = { assign(state.holdingNothing.map { UserId(it.userId) }) },
         onSplitAcrossEveryone = { assign(view.participants.map { it.userId }) },
-        onShareLink = onShareLink,
         notice = notice,
         onDismissNotice = { notice = null },
     )
@@ -294,6 +332,8 @@ fun ShareBillLinkRoute(
     expenseId: String,
     onBack: () -> Unit,
     onInviteToGroup: () -> Unit,
+    onAssignOnPhone: () -> Unit,
+    onSeeProgress: () -> Unit,
 ) {
     val bills = koinInject<BillRepository>()
     val links = koinInject<WebBillLinkRepository>()
@@ -322,17 +362,22 @@ fun ShareBillLinkRoute(
 
     val view = bill ?: return
     val now = Clock.System.nowEpochMillis()
-    val state = ShareBillLinkState(
-        billTitle = view.expense.title,
-        url = linkState.url,
-        exists = linkState.exists,
-        revoked = linkState.revokedAt != null,
-        hoursLeft = linkState.expiresAt?.let { ((it - now) / HOUR_MS).coerceAtLeast(0L) },
-        busy = busy,
-    )
+    val state =
+        ShareBillLinkState(
+            billTitle = view.expense.title,
+            url = linkState.url,
+            exists = linkState.exists,
+            revoked = linkState.revokedAt != null,
+            hoursLeft = linkState.expiresAt?.let { ((it - now) / HOUR_MS).coerceAtLeast(0L) },
+            busy = busy,
+            itemCount = view.items.size,
+        )
 
     /** Every lifecycle action is the same shape: try it, adopt the returned state, or say it failed. */
-    fun act(failure: String, block: suspend (UserId) -> AppResult<WebBillLinkState>) {
+    fun act(
+        failure: String,
+        block: suspend (UserId) -> AppResult<WebBillLinkState>,
+    ) {
         val actor = me ?: return
         busy = true
         scope.launch {
@@ -341,7 +386,10 @@ fun ShareBillLinkRoute(
                     linkState = result.value
                     notice = null
                 }
-                is AppResult.Err -> notice = failure
+
+                is AppResult.Err -> {
+                    notice = failure
+                }
             }
             busy = false
         }
@@ -355,11 +403,13 @@ fun ShareBillLinkRoute(
         onRevoke = { act("Couldn't turn the link off. Check your connection and try again.") { links.revoke(eid, it) } },
         onShare = {
             linkState.url?.let {
-                share.shareText("Claim what you had on ${view.expense.title}: $it", view.expense.title)
+                share.shareText("Pick what you had on ${view.expense.title}: $it", view.expense.title)
             }
         },
         onCopy = { linkState.url?.let { clipboard.setText(AnnotatedString(it)) } },
         onInviteToGroup = onInviteToGroup,
+        onAssignOnPhone = onAssignOnPhone,
+        onSeeProgress = onSeeProgress,
         notice = notice,
         onDismissNotice = { notice = null },
     )

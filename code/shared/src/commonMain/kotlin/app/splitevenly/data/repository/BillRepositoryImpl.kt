@@ -795,8 +795,9 @@ class BillRepositoryImpl(
                         )
                     val parts = partsByExpense[e.id].orEmpty()
                     val stillToClaim = parts.count { it.doneAt == null }
-                    // Unresolved = a line still needs someone, or a participant hasn't marked done.
-                    if (result.unclaimedCount == 0 && stillToClaim == 0) return@mapNotNull null
+                    // Unresolved = a line still needs someone (unclaimed or over-claimed), or a participant
+                    // hasn't marked done.
+                    if (result.fullyResolved && stillToClaim == 0) return@mapNotNull null
                     UnresolvedBill(
                         expenseId = ExpenseId(e.id),
                         title = e.title,
@@ -806,6 +807,8 @@ class BillRepositoryImpl(
                         participantCount = parts.size,
                         stillToClaimCount = stillToClaim,
                         youNeedToClaim = viewer != null && parts.any { it.userId == viewer.value && it.doneAt == null },
+                        itemCount = result.items.size,
+                        resolvedCount = result.items.count { it.status == ItemStatus.RESOLVED },
                     )
                 }.toList()
         }

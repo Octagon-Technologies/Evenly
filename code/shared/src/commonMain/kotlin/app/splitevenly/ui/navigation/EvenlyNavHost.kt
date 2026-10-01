@@ -1,7 +1,9 @@
 package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -109,7 +111,7 @@ fun EvenlyNavHost(
                 onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
-                onOpenBill = { navController.navigate(Route.ClaimBill(r.groupId, it)) },
+                onOpenBill = { navController.navigate(Route.FinishBill(r.groupId, it)) },
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
                 onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
                 onSettlePeer = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
@@ -149,7 +151,7 @@ fun EvenlyNavHost(
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onEdit = { navController.navigate(Route.EditExpense(r.groupId, r.expenseId)) },
-                onOpenClaim = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
+                onOpenClaim = { navController.navigate(Route.FinishBill(r.groupId, r.expenseId)) },
                 onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
                 onDeleted = { navController.popBackStack() },
             )
@@ -160,10 +162,10 @@ fun EvenlyNavHost(
                 groupId = r.groupId,
                 onBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
-                // An itemized ("By what each had") save creates the bill in-place, then opens its live claim
-                // screen — replacing this editor on the back stack so Back lands on the group, not here.
+                // An itemized ("By what each had") save creates the bill in-place, then asks how people will
+                // pick its items, replacing this editor on the back stack so Back lands on the group, not here.
                 onCreatedBill = { newId ->
-                    navController.navigate(Route.ClaimBill(r.groupId, newId)) {
+                    navController.navigate(Route.FinishBill(r.groupId, newId, justSaved = true)) {
                         popUpTo(Route.AddExpense(r.groupId)) { inclusive = true }
                     }
                 },
@@ -184,27 +186,50 @@ fun EvenlyNavHost(
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onCreated = { newId ->
-                    navController.navigate(Route.ClaimBill(r.groupId, newId)) {
+                    navController.navigate(Route.FinishBill(r.groupId, newId, justSaved = true)) {
                         popUpTo(Route.SplitBill(r.groupId, r.expenseId)) { inclusive = true }
                     }
                 },
             )
         }
+        composable<Route.FinishBill> { entry ->
+            val r = entry.toRoute<Route.FinishBill>()
+            BillChooserRoute(
+                expenseId = r.expenseId,
+                justSaved = r.justSaved,
+                onBack = { navController.popBackStack() },
+                onAssignOnPhone = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
+                onShowQr = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+            )
+        }
         composable<Route.ClaimBill> { entry ->
             val r = entry.toRoute<Route.ClaimBill>()
-            BillClaimRoute(
+            val focusRequest by entry.savedStateHandle.getStateFlow<String?>(FOCUS_ITEM_KEY, null).collectAsStateWithLifecycle()
+            BillAssignRoute(
+                groupId = r.groupId,
+                expenseId = r.expenseId,
+                focusItemId = r.focusItemId,
+                focusRequest = focusRequest,
+                onFocusConsumed = { entry.savedStateHandle[FOCUS_ITEM_KEY] = null },
+                onBack = { navController.popBackStack() },
+                onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
+                onReviewEdits = { navController.navigate(Route.ReviewBillEdits(r.groupId, r.expenseId)) },
+                onClaimProgress = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
+                onShowQr = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+                onReview = { navController.navigate(Route.BillReview(r.groupId, r.expenseId)) },
+            )
+        }
+        composable<Route.BillReview> { entry ->
+            val r = entry.toRoute<Route.BillReview>()
+            BillReviewRoute(
                 groupId = r.groupId,
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
-                onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
-                onAskGroup = { navController.navigate(Route.ExpenseDetail(r.groupId, r.expenseId)) },
-                onReviewEdits = { navController.navigate(Route.ReviewBillEdits(r.groupId, r.expenseId)) },
-                onWhoIsLeft = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
-                onShareLink = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+                onAssign = { itemId -> navController.openAssign(r.groupId, r.expenseId, itemId) },
+                onExit = { navController.exitBillFlow(r.groupId, r.expenseId) },
             )
         }
 
-        // ── The payer's three web-claim screens (WEB_CLAIM_SPEC.md §3.9) ─
         composable<Route.ReviewBillEdits> { entry ->
             val r = entry.toRoute<Route.ReviewBillEdits>()
             BillReviewEditsRoute(r.groupId, r.expenseId, onBack = { navController.popBackStack() })
@@ -216,6 +241,8 @@ fun EvenlyNavHost(
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onShareLink = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+                onAssignItem = { itemId -> navController.openAssign(r.groupId, r.expenseId, itemId) },
+                onReview = { navController.navigate(Route.BillReview(r.groupId, r.expenseId)) },
             )
         }
         composable<Route.ShareBillLink> { entry ->
@@ -226,6 +253,8 @@ fun EvenlyNavHost(
                 onBack = { navController.popBackStack() },
                 // The group invite is the OTHER link (§2.9) and lives with the group, not the bill.
                 onInviteToGroup = { navController.navigate(Route.GroupSettings(r.groupId)) },
+                onAssignOnPhone = { navController.openAssign(r.groupId, r.expenseId, null) },
+                onSeeProgress = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
             )
         }
 
@@ -276,5 +305,40 @@ fun EvenlyNavHost(
                 onDone = { navController.popBackStack() },
             )
         }
+    }
+}
+
+/** SavedStateHandle key carrying an "Assign it" request back to an assign visit already on the stack. */
+private const val FOCUS_ITEM_KEY = "assign_focus_item"
+
+/**
+ * Open the phone accordion for this bill, focused on [itemId]. If a visit is already on the stack
+ * (review or progress was pushed from it), pop back to it and hand it the focus, so its completion
+ * order survives and no duplicate assign screen sits underneath.
+ */
+private fun NavHostController.openAssign(
+    groupId: String,
+    expenseId: String,
+    itemId: String?,
+) {
+    val existing = runCatching { getBackStackEntry<Route.ClaimBill>() }.getOrNull()
+    if (existing != null && existing.toRoute<Route.ClaimBill>().expenseId == expenseId) {
+        existing.savedStateHandle[FOCUS_ITEM_KEY] = itemId
+        popBackStack<Route.ClaimBill>(inclusive = false)
+    } else {
+        navigate(Route.ClaimBill(groupId, expenseId, focusItemId = itemId))
+    }
+}
+
+/**
+ * Leave the bill flow onto this bill's details, with only group home underneath: Back from details
+ * lands on the group even when the flow was opened from details, with no duplicate detail route.
+ */
+private fun NavHostController.exitBillFlow(
+    groupId: String,
+    expenseId: String,
+) {
+    navigate(Route.ExpenseDetail(groupId, expenseId)) {
+        popUpTo<Route.GroupHome> { inclusive = false }
     }
 }

@@ -7,6 +7,13 @@ person. Money math lives in `../domain/AGENTS.md`; persistence in `../data/AGENT
 **`design/` is the visual source of truth.** The Claude-Design export is blue/light and intentionally
 **overrides** the older spec's dark/green. Do not "fix" the UI back toward the spec.
 
+**Use the living catalog before inventing a component treatment.** `design/system/` documents the
+current foundations, `Ev*` variants, patterns, screens, and flows in an editable website. When a
+shared component, theme token, route, or screen changes, update its catalog entry and run
+`node design/system/scripts/check-design-system.mjs` from the repo root in the same change. Compose
+remains authoritative for shipped rendering; the catalog is authoritative for discoverability and
+design intent.
+
 ## Before you write Compose
 
 1. **Mock it first.** For any new screen or non-trivial UI change, produce a faithful visual mockup for the
@@ -106,17 +113,22 @@ finishing.
 
 ## Feature-specific screen rules
 
-**"Who had what?" (`BillClaimScreen`) is assignment-first.** The person holding the phone taps who had each
-item, **for anyone — app user or not** (proxy assignment writes claims and portions on their behalf), so a
-bill works when only one person in the group has the app. Simple items are tap-chips (the same
-`EvParticipantChip` as the participant picker); a multi-count line with mixed amounts opens the portions
-builder. The old per-line "Ask the group" jump and the per-current-user "your tab" claim UI are **retired** —
-do not reintroduce either.
+**The split-by-items flow** (`docs/features/split-by-items-flow.md`): a scan opens `ReceiptReviewScreen`
+before anything is saved; every saved-bill entry (just saved, group home, expense details) lands on the
+`FinishBill` chooser; the phone path is the `BillAssignScreen` accordion; both paths meet at `BillReview`,
+whose exits all go to expense details over group home (`exitBillFlow` in `EvenlyNavHost.kt`).
 
-**The payer's three web-claim screens hang off the claim screen** (`BillReviewEditsScreen`,
-`BillClaimProgressScreen`, `BillShareLinkScreen`; wired in `ui/navigation/WebClaimRoutes.kt`). Their
-entry points are on `BillClaimScreen` and nowhere else: the phone-holder is already there while the
-table is claiming, and that is the only moment any of them is wanted. Three rules that look like taste
+**"Assign the items" (`BillAssignScreen`) is assignment-first.** The person holding the phone taps who had
+each item, **for anyone — app user or not** (proxy assignment writes claims and portions on their behalf).
+Simple items are tap-chips (`EvParticipantChip`); a multi-serving line opens `ServingsSheet`. **Ordering is
+`domain/expense/AssignOrder.kt`, never the screen:** the open card never moves under the user's finger, and
+a completed card joins the bottom of "Assigned" only once focus leaves it. The session lives in a ViewModel
+on the ClaimBill entry, so review/progress push and pop without losing it; "Assign" from those screens pops
+back to that entry with a focus request (`openAssign`) rather than stacking a second accordion.
+
+**The payer's three web-claim screens** (`BillReviewEditsScreen`, `BillClaimProgressScreen`,
+`BillShareLinkScreen`; wired in `ui/navigation/WebClaimRoutes.kt`) are reached from the chooser's QR option
+and the assign screen's ⋯ menu. Three rules that look like taste
 and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
 
 - **"What changed" reports; it does not adjudicate.** Every change on that screen has already applied
@@ -127,7 +139,7 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   is itself an attributed entry, and the log is the tiebreak. The banner clears by being **read** (a
   device-local marker in `SecureStorage`, `changesSeenKey` in `WebClaimRoutes.kt`), not by deciding.
   **A notification that clears itself needs a durable door beside it** — the "What changed" row in
-  `WebClaimActions` is that door. Without it, reading the banner once puts the record of who changed
+  the assign screen's ⋯ menu is that door. Without it, reading the banner once puts the record of who changed
   what, and the undo with it, permanently out of reach. Found by walking the screen, not by reading it.
 - **The bill QR and the group invite are different links and stay apart.** Per-expense, 72 hours,
   no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button.
@@ -142,9 +154,9 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
 chips; larger groups collapse to a summary row that opens a searchable member-picker sheet. Same underlying
 selection state either way.
 
-**Group home surfaces unresolved bills.** The "claim your items" card and the **Unresolved bills** section
-are fed by `BillRepository.observeUnresolvedBills`; tapping one opens the live claim screen
-(`Route.ClaimBill`). A bill is unresolved when a line still needs someone *or* a participant hasn't marked
+**Group home surfaces unresolved bills.** The "Needs your pick" card is fed by
+`BillRepository.observeUnresolvedBills`; tapping one opens the `FinishBill` chooser. Item progress and your
+own done state are separate facts and the copy keeps them apart. A bill is unresolved when a line still needs someone *or* a participant hasn't marked
 done — **claiming is not paying.**
 
 **The bill editor takes either price.** Type the per-unit ("each") *or* the whole-line ("total of N") — the
@@ -229,7 +241,5 @@ backlog. (`data/repository/BillRepositoryImpl.kt` at 804 is the one offender out
 verified 2026-08-03; the earlier figures for `LedgerRoutes` (580) and `BillRepositoryImpl` (636) had
 gone stale, which is the usual way a ceiling stops being one.
 
-**`BillClaimScreen.kt` sits at 598** and is one addition away from the ceiling. Step 6's entry surface
-was extracted to `bill/BillWebClaimEntry.kt` on the way in for exactly that reason; the money side went
-to `data/repository/BillPendingEdits.kt`. The next thing this screen grows should take the servings
-sheet or the how-to guide out with it.
+The old 598-line `BillClaimScreen.kt` was replaced (2026-09-30) by `BillAssignScreen` + `BillAssignCard` +
+`BillClaimModels`, each well under the ceiling. Keep new bill-flow surface in its own file.

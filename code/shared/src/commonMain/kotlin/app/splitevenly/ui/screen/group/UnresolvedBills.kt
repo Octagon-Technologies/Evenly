@@ -29,6 +29,8 @@ data class UnresolvedBillUi(
     val title: String,
     val subtitle: String,
     val youNeedToClaim: Boolean,
+    /** "3 of 5 items assigned": item progress, kept apart from the viewer's own done state. */
+    val progressLabel: String? = null,
 )
 
 /**
@@ -36,7 +38,7 @@ data class UnresolvedBillUi(
  * module**, not another expense card. Everything lives in one collapsible bordered card (tinted header +
  * checklist icon + count), the bills stack as quiet hairline rows, and crucially they carry **no dollar
  * total** — the amount belongs to the ledger row below, so the two never read as the same thing. Bills that
- * still need *you* lead with a blue "Claim" chip; ones you've done (waiting on others) show a quiet "Review".
+ * still need *you* lead with a blue "Pick your items" chip; ones you've done (waiting on others) show a quiet "Review".
  *
  * [expanded]/[onToggleExpanded] are hoisted so the collapse choice persists for the whole visit to the page.
  */
@@ -54,13 +56,22 @@ fun UnresolvedBillsSection(
             // Header — tap to collapse. The tinted strip + checklist glyph flag this as a to-do, distinct
             // from the plain expense cards below.
             Row(
-                Modifier.fillMaxWidth().background(c.blueTint).clickable(onClick = onToggleExpanded)
+                Modifier
+                    .fillMaxWidth()
+                    .background(c.blueTint)
+                    .clickable(onClick = onToggleExpanded)
                     .padding(horizontal = 13.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 EvIcon(EvIcons.CheckCircle, size = 18.dp, tint = c.blueText)
-                Text("Claim your items", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(
+                    if (bills.any { it.youNeedToClaim }) "Needs your pick" else "Still being picked",
+                    color = c.blueText,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
                 Box(
                     Modifier.clip(RoundedCornerShape(6.dp)).background(c.borderStrong).padding(horizontal = 7.dp, vertical = 2.dp),
                 ) { Text("${bills.size}", color = c.ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
@@ -70,24 +81,29 @@ fun UnresolvedBillsSection(
                 // The ones that need YOU first.
                 bills.sortedByDescending { it.youNeedToClaim }.forEach { b ->
                     Row(
-                        Modifier.fillMaxWidth().topHairline(c.border).background(c.page)
-                            .clickable { onOpenBill(b.id) }.padding(horizontal = 13.dp, vertical = 12.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .topHairline(c.border)
+                            .background(c.page)
+                            .clickable { onOpenBill(b.id) }
+                            .padding(horizontal = 13.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            b.progressLabel?.let {
+                                Text(it.uppercase(), color = c.blueText, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            }
                             Text(b.title, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (b.youNeedToClaim) "You haven't picked yet" else b.subtitle,
-                                color = c.ink2, fontSize = 12.sp,
-                            )
+                            Text(b.subtitle, color = c.ink2, fontSize = 12.sp)
                         }
                         if (b.youNeedToClaim) {
                             Row(
                                 Modifier.clip(RoundedCornerShape(999.dp)).background(c.blue).padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
-                                Text("Claim", color = c.onAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Pick your items", color = c.onAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 EvIcon(EvIcons.ChevR, size = 13.dp, tint = c.onAccent)
                             }
                         } else {

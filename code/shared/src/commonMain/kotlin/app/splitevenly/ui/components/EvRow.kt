@@ -125,11 +125,11 @@ fun EvDebtRow(
             Text(
                 text = if (owedToYou) "You're owed this" else "Tap to settle",
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (owedToYou) c.credit else c.ink2,
+                color = if (owedToYou) c.settled else c.ink2,
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Group-balance color code: you're owed / in credit → amber (attention, in your favor);
+            // Group-balance color code: you're owed → green; in credit remains a separate expense state;
             // you owe → blue (the action). Mirrors the home group card.
             EvChip(amount, variant = if (owedToYou) ChipVariant.Owed else ChipVariant.Owe, mono = true)
             EvIcon(EvIcons.ChevR, size = 16.dp, tint = c.ink3)

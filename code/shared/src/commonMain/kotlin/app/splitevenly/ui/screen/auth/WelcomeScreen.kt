@@ -56,10 +56,13 @@ import kotlinx.coroutines.launch
  * Stateless + previewable: takes a single [onFinish] callback, no DI.
  */
 @Composable
-fun WelcomeScreen(onFinish: () -> Unit = {}) {
+fun WelcomeScreen(
+    initialPage: Int = 0,
+    onFinish: () -> Unit = {},
+) {
     val c = EvenlyTheme.colors
     val pageCount = 5
-    val pager = rememberPagerState(pageCount = { pageCount })
+    val pager = rememberPagerState(initialPage = initialPage, pageCount = { pageCount })
     val scope = rememberCoroutineScope()
     val isLast = pager.currentPage == pageCount - 1
 
@@ -72,17 +75,17 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
             when (page) {
                 0 -> {
                     WelcomeSlide(
-                        title = "Group costs, kept ",
-                        accent = "fair.",
-                        body = "Split what you share and keep a clear record, so nothing gets lost or argued about later.",
+                        title = "Track group expenses",
+                        accent = " easily",
+                        body = "Split what you shared and keep a clear record, so nothing gets lost or argued about later.",
                         cardOnTop = false,
                     ) { GroupCard() }
                 }
 
                 1 -> {
                     WelcomeSlide(
-                        title = "Scan a receipt, ",
-                        accent = "done.",
+                        title = "Scan a receipt",
+                        accent = " in seconds",
                         body = "Snap the bill and we pull out every line item. You just confirm before we split it.",
                         cardOnTop = true,
                     ) { ReceiptCard() }
@@ -92,7 +95,7 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
                     WelcomeSlide(
                         title = "Everyone taps ",
                         accent = "what they had.",
-                        body = "Assign items in seconds. One person can sort the whole bill, no back-and-forth.",
+                        body = "Send the link to the gc, and they can pick what they ate",
                         cardOnTop = false,
                     ) { WhoHadWhatCard() }
                 }
@@ -109,7 +112,7 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
                 else -> {
                     WelcomeSlide(
                         title = "Always know ",
-                        accent = "where you stand.",
+                        accent = "your balances.",
                         body = "See who owes what, per person, never netted into one confusing number.",
                         cardOnTop = false,
                     ) { BalancesCard() }
@@ -230,7 +233,6 @@ private fun WelcomeSlide(
         }
     }
 }
-
 
 // ── Shared card primitives ─────────────────────────────────────────────────
 
@@ -698,7 +700,7 @@ private fun BalancesCard() {
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(13.dp))
-            EvButton("Settle up", onClick = {}, variant = ButtonVariant.Secondary)
+            EvButton("Settle up", onClick = {}, enabled = true, variant = ButtonVariant.Tonal)
         }
     }
 }
@@ -734,5 +736,5 @@ private fun Divider() {
 @Preview
 @Composable
 private fun WelcomePreview() {
-    EvenlyTheme { WelcomeScreen() }
+    EvenlyTheme { WelcomeScreen(initialPage = 5) }
 }
