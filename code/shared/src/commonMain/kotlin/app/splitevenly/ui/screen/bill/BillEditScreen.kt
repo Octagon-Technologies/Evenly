@@ -275,6 +275,8 @@ fun BillEditScreen(
     }
 
     val symbol = currencySymbol(currencyCode)
+    // Nothing typed or scanned yet: the Scan card leads the items section.
+    val noItemsYet = items.all { it.isUntouched() }
     val subtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
     val total =
         subtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
@@ -371,16 +373,6 @@ fun BillEditScreen(
             EvTopBar(
                 title = if (editing) "Edit bill" else "Split the bill",
                 navIcon = { EvIconButton(EvIcons.Back, { leave(force = false) }) },
-                actions = {
-                    EvButton(
-                        text = if (scanning) "Scanning…" else "Scan",
-                        onClick = { scanSource = true },
-                        variant = ButtonVariant.Text,
-                        leadingIcon = EvIcons.Camera,
-                        small = true,
-                        enabled = !scanning,
-                    )
-                },
             )
             // At the top of the page the card is in flow and pushes the content down as it expands.
             AnimatedVisibility(
@@ -446,6 +438,27 @@ fun BillEditScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        // Once the bill has items the card below is gone, so Scan stays reachable as a labelled entry.
+                        if (!noItemsYet) {
+                            Row(
+                                Modifier
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .border(1.dp, c.blueText, RoundedCornerShape(99.dp))
+                                    .clickable(enabled = !scanning) { scanSource = true }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                EvIcon(EvIcons.Camera, size = 14.dp, tint = c.blueText)
+                                Text(
+                                    if (scanning) "Scanning..." else "Scan",
+                                    color = c.blueText,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Box(Modifier.width(8.dp))
+                        }
                         Row(
                             Modifier
                                 .clip(RoundedCornerShape(8.dp))
@@ -458,6 +471,9 @@ fun BillEditScreen(
                             EvIcon(EvIcons.Plus, size = 15.dp, tint = c.blueText)
                             Text("Add item", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
+                    }
+                    if (noItemsYet) {
+                        ScanReceiptCard(scanning = scanning, onClick = { scanSource = true })
                     }
                     EvCard {
                         items.forEachIndexed { index, item ->
@@ -1049,5 +1065,39 @@ private fun SavedCard(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Text("Changes saved...", color = c.ink2, fontSize = 13.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/** The empty-bill entry point to scanning, above the manual rows so it is the first thing offered. */
+@Composable
+private fun ScanReceiptCard(
+    scanning: Boolean,
+    onClick: () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.selectionTint)
+            .border(1.dp, c.selectionStroke, shape)
+            .clickable(enabled = !scanning, onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(c.blue), contentAlignment = Alignment.Center) {
+            EvIcon(EvIcons.Camera, size = 20.dp, tint = c.onAccent)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                if (scanning) "Scanning..." else "Scan a receipt",
+                color = c.ink,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text("Snap a photo or PDF and we'll fill in the items.", color = c.ink2, fontSize = 12.sp)
+        }
     }
 }
