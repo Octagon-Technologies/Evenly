@@ -18,6 +18,12 @@ data class ReceiptDraft(
     // (never a dead end), but the caller should flag it rather than treat it as a quiet success.
     // Defaults true for manual-entry / non-OCR construction paths, where "verification" doesn't apply.
     val verified: Boolean = true,
+    // Header facts for the suggested bill name (see suggestBillTitle). Null when not printed or when the
+    // server predates them.
+    val merchantName: String? = null,
+    val venueKind: VenueKind? = null,
+    /** 24-hour "HH:MM" as printed on the receipt. */
+    val printedTime: String? = null,
 )
 
 data class ReceiptDraftItem(

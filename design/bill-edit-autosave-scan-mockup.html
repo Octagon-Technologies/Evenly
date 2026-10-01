@@ -49,7 +49,7 @@
 <body>
 <div class="board">
   <h1>Bill editor: back saves, Scan is findable, re-scan can Add or Replace</h1>
-  <div class="sub">Tasks T5a, T5b, T5c. Blue/light per design/. Owner decisions from the brief are applied as written. Frames 1-2 are T5a (saved card: in flow at the top, pinned to the viewport edge when scrolled), 3-4 are T5b, 5-7 are T5c.</div>
+  <div class="sub">Tasks T5a, T5b, T5c. Blue/light per design/. Owner decisions from the brief are applied as written. Frames 1-2 are T5a (saved card: in flow at the top, pinned to the viewport edge when scrolled), 3-4 are T5b (revised after owner review, 2026-10-01: Scan above Name, receipts under Name, name suggested from the scan), 5-6 are T5c.</div>
   <div class="row">
 
   <figure><div class="phone"><div class="scroll">
@@ -77,12 +77,23 @@
   <figure><div class="phone"><div class="scroll">
     <div class="top"><div class="ic">&#8592;</div><div class="t">Split the bill</div></div>
     <div class="body">
-      <div><div class="lbl">Name</div><div class="field">Dinner at Tavolo</div></div>
-      <div class="lbl">Items</div>
       <div class="scancard"><div class="cam">&#9711;</div><div><b>Scan a receipt</b><small>Snap a photo or PDF and we'll fill in the items.</small></div></div>
+      <div><div class="lbl">Name</div><div class="field" style="color:var(--ink3)">Dinner at Tavolo</div></div>
+      <div class="lbl">Items</div>
       <div class="link">+ Add item</div>
     </div></div></div>
-    <figcaption><b>3. Empty bill (T5b).</b> Prominent Scan card at the top of Items, above manual Add item. The top-bar Scan is removed, so there is one entry point per state.</figcaption></figure>
+    <figcaption><b>3. Nothing scanned yet (T5b, revised).</b> The Scan card opens the page, above Name: a scan fills the name and the items in one go. It gives way to the Scan pill beside Items once there is a receipt or an item.</figcaption></figure>
+
+  <figure><div class="phone"><div class="scroll">
+    <div class="top"><div class="ic">&#8592;</div><div class="t">Split the bill</div></div>
+    <div class="body">
+      <div><div class="lbl">Name</div><div class="field">Dinner at Tavolo</div></div>
+      <div class="lbl">Receipt (1 page, 3 items)</div>
+      <div class="thumbs"><div class="th">p.1</div></div>
+      <div class="hdr"><div class="lbl">Items</div><div class="scanbtn">&#9711; Scan</div><div class="link">+ Add item</div></div>
+      <div class="card"><div class="item"><div class="n">Pasta</div><div class="p">$18.50</div></div><div class="item"><div class="n">Wine</div><div class="p">$25.00</div></div><div class="item"><div class="n">Tiramisu</div><div class="p">$9.00</div></div></div>
+    </div></div></div>
+    <figcaption><b>3b. Right after the first scan.</b> The empty Name is filled from the receipt header: the place, what kind of place it is and the printed time (or the phone's clock if none) give "Dinner at Tavolo", "Lunch at...", "Coffee at...", "Evening shopping at Westgate". A name the user already typed is never replaced.</figcaption></figure>
 
   <figure><div class="phone"><div class="scroll">
     <div class="top"><div class="ic">&#8592;</div><div class="t">Edit bill</div></div>
@@ -92,9 +103,8 @@
       <div class="thumbs"><div class="th">p.1</div></div>
       <div class="hdr"><div class="lbl">Items</div><div class="scanbtn">&#9711; Scan</div><div class="link">+ Add item</div></div>
       <div class="card"><div class="item"><div class="n">Pasta</div><div class="p">$18.50</div></div><div class="item"><div class="n">Wine</div><div class="p">$25.00</div></div></div>
-      <div class="notice">Scanning page 2...</div>
     </div></div></div>
-    <figcaption><b>4. Bill with items (T5b, T5c).</b> Labelled "Scan" pill beside the Items header. Attached receipt pages show as thumbnails with the item count. While scanning, the existing progress sheet stays in place.</figcaption></figure>
+    <figcaption><b>4. Bill with items (T5b, T5c).</b> Receipt pages sit directly under the Name, with the item count. Labelled "Scan" pill beside the Items header. While scanning, only the existing progress sheet at the bottom shows; there is no second inline "Scanning" notice.</figcaption></figure>
 
   <figure><div class="phone"><div class="scroll">
     <div class="top"><div class="ic">&#8592;</div><div class="t">Edit bill</div></div>

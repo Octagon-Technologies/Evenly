@@ -6,6 +6,7 @@ import app.splitevenly.domain.receipt.ReceiptDraftItem
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.receipt.venueKindOf
 import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.ImageProcessor
 import app.splitevenly.platform.NetworkStatus
@@ -166,6 +167,9 @@ private class RcptDto(
     @SerialName("discount_subunits") val discount: Long = 0,
     @SerialName("other_charges_subunits") val otherCharges: Long = 0,
     @SerialName("detected_total_subunits") val detectedTotal: Long = 0,
+    @SerialName("merchant_name") val merchantName: String? = null,
+    @SerialName("venue_kind") val venueKind: String? = null,
+    @SerialName("printed_time") val printedTime: String? = null,
 ) {
     fun toDraft(verified: Boolean) =
         ReceiptDraft(
@@ -178,6 +182,9 @@ private class RcptDto(
             otherChargesSubunits = otherCharges,
             detectedTotalSubunits = detectedTotal,
             verified = verified,
+            merchantName = merchantName,
+            venueKind = venueKindOf(venueKind),
+            printedTime = printedTime,
         )
 }
 

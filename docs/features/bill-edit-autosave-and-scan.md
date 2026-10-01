@@ -150,3 +150,21 @@ duplicate on the next save (id hand-back matches by index and label).
   or this bill won't be saved."). The notice clears itself once the problem is fixed.
 - The "could duplicate" auto-save risk above does not hold: `editBill` tombstones any line whose id is not
   sent, so a row that misses its id hand-back is recreated once and the orphan is removed, never doubled.
+
+### Owner review changes (2026-10-01)
+- **Scan leads the page.** Until anything is scanned or typed, the Scan card sits above Name in the bill editor
+  and above Title in Add expense's "Restaurant bill" (the real new-bill path; the editor is only reached for
+  existing bills). After that it drops back to the Scan pill (editor) or the items section (Add expense).
+- **Receipts live under the name** in both screens.
+- **No inline "Scanning page 2" notice**: the progress sheet at the bottom is the only scan progress (mock only;
+  the code never had the inline notice).
+- **Suggested name from the scan.** Owner chose server-side over an on-device model (Gemma / Apple Foundation
+  Models would need a large download or iOS 26+, and would still wait for the server's read of the receipt).
+  `extract-receipt` now also returns `merchant_name`, `venue_kind` and `printed_time` (optional on the wire;
+  `contract.test.ts`). `domain/receipt/ReceiptTitle.kt` turns them into "Dinner at Tavolo", "Lunch at...",
+  "Coffee at...", "Drinks at...", "Evening shopping at Westgate", using the printed time or else the phone's
+  clock (`ReceiptTitleTest`). It only fills an empty name, never a typed one.
+- **Owner step (proposed, not performed):** deploy the function so the app gets the new fields:
+  `supabase functions deploy extract-receipt --project-ref wfpfgbipjmkysalfmyub`. Until then scans work exactly
+  as before, just without a suggested name. No schema change.
+

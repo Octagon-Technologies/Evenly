@@ -13,6 +13,7 @@ import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.localHour
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.upload.ReceiptUploadManager
@@ -30,6 +31,8 @@ import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.receipt.printedHourOf
+import app.splitevenly.domain.receipt.suggestBillTitle
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
@@ -408,9 +411,11 @@ fun BillEditRoute(
     CameraPermissionGateHost(cameraGate)
 }
 
+@OptIn(ExperimentalTime::class)
 private fun ReceiptDraft.toEditState(): EditBillState =
     EditBillState(
-        title = "",
+        // A suggestion only: the screen applies it when the user has not typed a name yet.
+        title = suggestBillTitle(merchantName, venueKind, printedHourOf(printedTime), Clock.System.localHour()).orEmpty(),
         // OCR now reports the line total directly (already inclusive of quantity) — pass it straight through.
         items =
             items

@@ -288,14 +288,16 @@ fun BillEditScreen(
     }
     LaunchedEffect(scanned) {
         scanned?.let { s ->
+            // The scan's suggested name ("Dinner at Tavolo") fills an empty Name field, never a typed one.
+            if (title.isBlank() && s.title.isNotBlank()) title = s.title
             if (items.any { it.isComplete() }) pendingScan = s else applyScan(s, ScanMergeMode.REPLACE)
         }
     }
 
     val symbol = currencySymbol(currencyCode)
     val allReceipts = savedReceipts + attachedReceipts
-    // Nothing typed or scanned yet: the Scan card leads the items section.
-    val noItemsYet = items.all { it.isUntouched() }
+    // Nothing typed or scanned yet: the Scan card leads the page.
+    val notScannedYet = items.all { it.isUntouched() } && allReceipts.isEmpty()
     val subtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
     val total =
         subtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
@@ -418,19 +420,6 @@ fun BillEditScreen(
                     UnverifiedReceiptNotice(onDismiss = { showUnverifiedNotice = false })
                 }
 
-                // A scanned receipt rides along as the expense's attachment, previewable before it is saved.
-                if (allReceipts.isNotEmpty()) {
-                    val itemCount = items.count { it.isComplete() }
-                    PickedReceiptStrip(
-                        receipts = allReceipts,
-                        label = if (allReceipts.size == 1) "Receipt" else "Receipt pages",
-                        caption = if (itemCount == 0) null else if (itemCount == 1) "1 item on this bill." else "$itemCount items on this bill.",
-                        onAddClick = null,
-                        onRemoveReceipt = { onRemoveAttachedReceipt(it - savedReceipts.size) },
-                        onOpenReceipt = { viewerIndex = it },
-                    )
-                }
-
                 // A second scan's totals usually repeat the first's, so they are offered, never added.
                 if (extraSuggestions.isNotEmpty()) {
                     ExtraSuggestionsCard(
@@ -443,11 +432,31 @@ fun BillEditScreen(
                     )
                 }
 
+                // Nothing scanned or typed yet: scanning leads, above Name, because a scan fills the name and the
+                // items in one go. Once there is a receipt or an item it moves to the Scan pill beside Items.
+                if (notScannedYet) {
+                    ScanReceiptCard(scanning = scanning, onClick = { scanSource = true })
+                }
+
                 EvField("Name") {
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         EvTextField(title, { title = it }, placeholder = "Dinner at Tavolo", isError = leaveNoticeText != null && title.isBlank())
                     }
                 }
+
+                // The bill's receipt pages sit under its name: what was scanned, then what it became.
+                if (allReceipts.isNotEmpty()) {
+                    val itemCount = items.count { it.isComplete() }
+                    PickedReceiptStrip(
+                        receipts = allReceipts,
+                        label = if (allReceipts.size == 1) "Receipt" else "Receipt pages",
+                        caption = if (itemCount == 0) null else if (itemCount == 1) "1 item on this bill." else "$itemCount items on this bill.",
+                        onAddClick = null,
+                        onRemoveReceipt = { onRemoveAttachedReceipt(it - savedReceipts.size) },
+                        onOpenReceipt = { viewerIndex = it },
+                    )
+                }
+
 
                 // Who's on this bill — defaults to everyone; take off anyone who wasn't there. Taking off
                 // someone who has claimed goes through the confirm sheet, since it discards their claims.
@@ -478,8 +487,8 @@ fun BillEditScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        // Once the bill has items the card below is gone, so Scan stays reachable as a labelled entry.
-                        if (!noItemsYet) {
+                        // Once the top Scan card is gone, Scan stays reachable as a labelled entry here.
+                        if (!notScannedYet) {
                             Row(
                                 Modifier
                                     .clip(RoundedCornerShape(99.dp))
@@ -511,9 +520,6 @@ fun BillEditScreen(
                             EvIcon(EvIcons.Plus, size = 15.dp, tint = c.blueText)
                             Text("Add item", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
-                    }
-                    if (noItemsYet) {
-                        ScanReceiptCard(scanning = scanning, onClick = { scanSource = true })
                     }
                     EvCard {
                         items.forEachIndexed { index, item ->

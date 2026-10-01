@@ -45,7 +45,10 @@ an anon-key-only caller used to bypass it entirely on a paid endpoint.
     "tip_subunits": 0,
     "discount_subunits": 1424,
     "other_charges_subunits": 0,
-    "detected_total_subunits": 10350
+    "detected_total_subunits": 10350,
+    "merchant_name": "Tom's Watch Bar",
+    "venue_kind": "restaurant",
+    "printed_time": "20:05"
   }
 }
 ```
@@ -65,6 +68,12 @@ extraction detail the app never sees, flattened into the five extras by `clientR
 deposit, bag fee, or card surcharge. It splits proportionally like tax, end to end (server column, Room
 entity, both money engines, the bill editor). It briefly had no slot and was folded into gratuity, which
 kept the total honest and mislabelled the row the user saw.
+
+`merchant_name`, `venue_kind` (`restaurant | cafe | bar | grocery | shop | other`) and `printed_time` (24-hour
+`HH:MM`) are read off the receipt header and are each `null` when not printed or malformed. They exist only so
+the app can suggest a bill name ("Dinner at Tom's Watch Bar"); the wording is a fixed table in the app
+(`domain/receipt/ReceiptTitle.kt`), not model output. All three are optional on the wire, so an app older than
+them ignores them and an app newer than the deployed function just gets no suggestion.
 
 ## The model transcribes. Code computes. No exceptions.
 
