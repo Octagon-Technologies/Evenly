@@ -46,7 +46,6 @@ import app.splitevenly.ui.components.EvEmojiPicker
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
-import app.splitevenly.ui.components.EvRadio
 import app.splitevenly.ui.components.EvSectionLabel
 import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvToggle

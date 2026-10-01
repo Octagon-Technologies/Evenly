@@ -84,3 +84,5 @@ Commits: one per task (`feat(group): …` T2, `refactor(group): …` T9, `refact
 - Both compile targets green for each commit (`:shared:compileAndroidMain`, `:shared:compileKotlinIosSimulatorArm64`). Tests and iOS sim run not performed for T9/T10 (deletions only); owner should eyeball Group settings and the invite sheet.
 - **T2 blocked** on owner sign-off: mock at `design/group-members-entry-mockup.html` (options A strip, B chip row, C solo card, plus Members sheet). Open point: the 2-tap criterion implies "Invite with link" should open the native share sheet directly rather than InviteSheet. Recommend A.
 - Outward-facing: none proposed.
+
+- Review (Opus, 2026-10-01): removed the `EvRadio` import T10 left unused in `GroupSettingsScreen.kt`.
