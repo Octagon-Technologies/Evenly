@@ -7,6 +7,8 @@ import app.splitevenly.ui.screen.bill.canAutoSave
 import app.splitevenly.ui.screen.bill.editBillItemUi
 import app.splitevenly.ui.screen.bill.incompleteItemCount
 import app.splitevenly.ui.screen.bill.incompleteItemsNotice
+import app.splitevenly.ui.screen.bill.leaveNotice
+import app.splitevenly.ui.screen.bill.submitRows
 import app.splitevenly.ui.screen.bill.mergeScan
 import app.splitevenly.ui.screen.bill.savableItems
 import app.splitevenly.ui.screen.bill.withExtra
@@ -70,5 +72,22 @@ class BillEditLogicTest {
         val onEmpty = mergeScan(state(listOf(item("", 0))), scanned, ScanMergeMode.ADD)
         assertEquals(listOf("Wine"), onEmpty.state.items.map { it.label })
         assertTrue(onEmpty.suggestions.isEmpty())
+    }
+
+    @Test
+    fun incompleteSavedRowIsWrittenAsItsLastSavedVersion() {
+        val saved = editBillItemUi("a", "Pasta", 1, 1800)
+        val retyping = saved.copy(label = "")
+        val rows = submitRows(listOf(retyping, item("", 0), item("Wine", 2500)), mapOf("a" to saved))
+        assertEquals(listOf(0, 2), rows.map { it.first })
+        assertEquals("Pasta", rows[0].second.label)
+    }
+
+    @Test
+    fun leaveNoticeCoversMissingNameAndIncompleteRows() {
+        assertNull(leaveNotice("Dinner", listOf(item("Pasta", 1800))))
+        assertNull(leaveNotice("", listOf(item("", 0))))
+        assertEquals("Give the bill a name or it won't be saved.", leaveNotice("", listOf(item("Pasta", 1800))))
+        assertEquals("1 item has no name or price. Fix it or remove it.", leaveNotice("Dinner", listOf(item("Pasta", 0))))
     }
 }

@@ -12,6 +12,25 @@ fun incompleteItemCount(items: List<EditBillItemUi>): Int = items.count { !it.is
 /** Items auto-save will write; incomplete rows stay local in the editor. */
 fun savableItems(items: List<EditBillItemUi>): List<EditBillItemUi> = items.filter { it.isComplete() }
 
+/**
+ * Rows an auto-save writes, as (index in [items], row). An incomplete row that was saved before is
+ * written as its last saved version, because omitting it would tombstone the item and its claims
+ * while the user is merely retyping its name.
+ */
+fun submitRows(items: List<EditBillItemUi>, lastSaved: Map<String, EditBillItemUi>): List<Pair<Int, EditBillItemUi>> =
+    items.mapIndexedNotNull { i, row ->
+        when {
+            row.isComplete() -> i to row
+            row.id != null -> lastSaved[row.id]?.let { i to it }
+            else -> null
+        }
+    }
+
+/** What Back must warn about before leaving, or null when nothing would be lost. */
+fun leaveNotice(title: String, items: List<EditBillItemUi>): String? =
+    incompleteItemsNotice(incompleteItemCount(items))
+        ?: if (title.trim().isEmpty() && items.any { !it.isUntouched() }) "Give the bill a name or it won't be saved." else null
+
 /** Auto-save runs only for a named bill with at least one complete item. */
 fun canAutoSave(title: String, items: List<EditBillItemUi>): Boolean = title.trim().isNotEmpty() && savableItems(items).isNotEmpty()
 
