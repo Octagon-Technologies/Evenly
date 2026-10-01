@@ -27,31 +27,21 @@ h1{font-size:18px;margin:0 0 4px}p.sub{margin:0 0 20px;color:var(--muted);font-s
 table{border-collapse:collapse;font-size:13px;margin-top:24px;background:#fff;border-radius:12px;overflow:hidden}td,th{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left}th{background:#EEF2FA}
 </style></head><body>
 <h1>T3: loading vs genuinely empty</h1>
-<p class="sub">Pending owner sign-off before any Compose. Light/blue per design/. Shimmer is a 1.3s sweep; reduced-motion shows static blocks.</p>
+<p class="sub">Owner decision: no skeletons. Blank until the first pull finishes, then content or the real empty state. Offline copy (state 3) still open.</p>
 <div class="row">
 
-<div class="col"><p class="cap">1. Home, first pull in flight<small>Room empty + never hydrated. Replaces "No groups".</small></p>
-<div class="phone sk"><div class="title">Groups</div>
-<div class="card"><div class="av"></div><div class="grow"><div class="l w60"></div><div class="l w40"></div></div><div class="pill"></div></div>
-<div class="card"><div class="av"></div><div class="grow"><div class="l w80"></div><div class="l w40"></div></div><div class="pill"></div></div>
-<div class="card"><div class="av"></div><div class="grow"><div class="l w60"></div><div class="l w40"></div></div><div class="pill"></div></div>
-</div></div>
+<div class="col"><p class="cap">1. Home, first pull in flight<small>Plain blank page: no skeleton, no shimmer, no hint. Replaces "No groups" until the pull lands.</small></p>
+<div class="phone"><div class="title">Groups</div></div></div>
 
-<div class="col"><p class="cap">2. Group expenses, post-join / first pull<small>Skeleton rows replace "No expenses yet" until the group's pull lands.</small></p>
-<div class="phone sk"><div class="title">Lisbon trip</div>
-<div class="card"><div class="av" style="border-radius:50%"></div><div class="grow"><div class="l w60"></div><div class="l w40"></div></div><div class="pill"></div></div>
-<div class="card"><div class="av" style="border-radius:50%"></div><div class="grow"><div class="l w80"></div><div class="l w40"></div></div><div class="pill"></div></div>
-<div class="card"><div class="av" style="border-radius:50%"></div><div class="grow"><div class="l w60"></div><div class="l w40"></div></div><div class="pill"></div></div>
-<div class="card"><div class="av" style="border-radius:50%"></div><div class="grow"><div class="l w80"></div><div class="l w40"></div></div><div class="pill"></div></div>
-</div></div>
+<div class="col"><p class="cap">2. Group expenses, post-join / first pull<small>Same blank list area under the group header until its pull lands.</small></p>
+<div class="phone"><div class="title">Lisbon trip</div></div></div>
 
 <div class="col"><p class="cap">3. Pull failed / offline, nothing local<small>Never claims "empty". Retry stays live.</small></p>
 <div class="phone"><div class="title">Groups</div>
 <div class="center"><div class="ic"></div><h3>Couldn't load your groups</h3><p>You seem to be offline. Your groups are safe and will show up once you're connected.</p><span class="btn">Try again</span></div></div></div>
 
-<div class="col"><p class="cap">4. Local data exists, pull running<small>Content instantly, no skeleton. Thin "Updating" hint only.</small></p>
-<div class="phone real"><div class="title">Groups</div><div class="upd"><i></i>Updating</div>
-<div class="card"><div class="av"></div><div class="grow"><div class="t">Lisbon trip</div><div class="s">4 people</div></div><div class="amt owe">You owe 24.50</div></div>
+<div class="col"><p class="cap">4. Local data exists, pull running<small>Content instantly. No loading indicator of any kind.</small></p>
+<div class="phone real"><div class="title">Groups</div><div class="card"><div class="av"></div><div class="grow"><div class="t">Lisbon trip</div><div class="s">4 people</div></div><div class="amt owe">You owe 24.50</div></div>
 <div class="card"><div class="av"></div><div class="grow"><div class="t">Flat</div><div class="s">3 people</div></div><div class="amt">Settled</div></div>
 </div></div>
 
@@ -61,8 +51,8 @@ table{border-collapse:collapse;font-size:13px;margin-top:24px;background:#fff;bo
 </div>
 
 <table><tr><th>Room</th><th>Hydration</th><th>Shows</th></tr>
-<tr><td>has rows</td><td>any</td><td>content (4), no flash</td></tr>
-<tr><td>empty</td><td>NotStarted / Pulling, never hydrated</td><td>skeleton (1/2)</td></tr>
+<tr><td>has rows</td><td>any</td><td>content (4), instantly</td></tr>
+<tr><td>empty</td><td>NotStarted / Pulling, never hydrated</td><td>blank page (1/2)</td></tr>
 <tr><td>empty</td><td>Done, or ever hydrated and not pulling</td><td>real empty (5)</td></tr>
 <tr><td>empty</td><td>Failed</td><td>couldn't load + retry (3)</td></tr></table>
 <style>@media (prefers-reduced-motion:reduce){.sk *::after{animation:none!important}}</style>

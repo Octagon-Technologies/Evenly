@@ -1,9 +1,12 @@
 # Loading vs genuinely empty (T3)
 
-**Status:** mock done, awaiting owner sign-off (no Compose yet)
+**Status:** implementing (owner signed off blank-until-loaded; no skeletons)
 **Worktree / branch:** `fb/loading-states` (from `feat/split-by-items-flow`)
-**Mockup:** skeleton rows for Home group cards and group expense rows — small HTML in
-`design/loading-skeletons-mockup.html`, owner sign-off before Compose.
+**Mockup:** `design/loading-skeletons-mockup.html`. **Owner decision (supersedes the skeleton
+design below):** no skeletons, shimmer or "Updating" hint. Most users have no groups or expenses, so a
+skeleton would flash and then fall back to "no groups". Show a plain blank page until the first pull
+finishes, then content or the genuine empty state. The offline/failed state with retry stays; its copy
+is still open for the owner.
 
 Paths below are under `code/shared/src/commonMain/kotlin/app/splitevenly/` unless noted. Read
 `data/AGENTS.md` and `ui/AGENTS.md` first.
@@ -30,7 +33,7 @@ an empty list before the first pull lands:
 
 ## User outcome
 
-A list area shows "empty" only when we *know* it is empty. Until then it shows skeletons; if the pull
+A list area shows "empty" only when we *know* it is empty. Until then it shows a blank page; if the pull
 fails or the phone is offline, it says so instead of claiming there's nothing.
 
 ## Design (planner's recommendation — implementer may refine, not replace)
@@ -42,22 +45,21 @@ fails or the phone is offline, it says so instead of claiming there's nothing.
 - **Post-join:** after `joinByToken` succeeds, trigger an immediate pull (don't wait for the realtime
   doorbell) and expose per-group hydration (`Set<groupId>` being hydrated) so the group screen can
   show skeletons for that group specifically.
-- **Persist "has ever hydrated"** per user in `SecureStorage` (device-local KV, already a Koin single)
-  so a returning user offline with a truly empty DB still gets the real empty state, not an endless
-  skeleton.
+- **No persisted "has ever hydrated" flag** (dropped under the blank-until-loaded rule): a persisted
+  flag would let a wiped cache claim the empty state before the new pull lands. Offline with nothing
+  local shows the offline/retry state instead.
 - **UI:** `HomeUiState` and `ExpensesState` gain the distinction:
-  empty Room + `Pulling`/`NotStarted` (and never hydrated) → skeleton; empty Room + `Done` → Empty;
+  empty Room + `Pulling`/`NotStarted` → blank page; empty Room + `Done` → Empty;
   empty Room + `Failed` → "Couldn't load your groups. Pull to retry." with retry. Non-empty Room
-  always renders content immediately (offline-first is unchanged), optionally with a thin
-  "Updating…" indicator while pulling.
+  always renders content immediately (offline-first is unchanged), with no loading indicator.
 
 ## Acceptance criteria
 
-- Given a fresh sign-in on a new device with 3 groups server-side, Home shows skeletons, never "No
+- Given a fresh sign-in on a new device with 3 groups server-side, Home stays blank, never "No
   groups", until the pull completes, then the 3 groups.
 - Given a brand-new account with no groups, Home shows the real empty state as soon as the first pull
   returns (≤ the pull latency, not a fixed timer).
-- Given I join a group by link that already has an expense, the group page shows skeletons, then the
+- Given I join a group by link that already has an expense, the group page stays blank, then the
   expense, without leaving and re-entering.
 - Given offline on first launch with no local data, the screen shows an offline message with retry,
   not "No groups yet".
