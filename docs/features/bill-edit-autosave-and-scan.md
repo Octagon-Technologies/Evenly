@@ -134,3 +134,19 @@ T5b and T5c (see `git log`). Each code commit was green on `:shared:compileAndro
 copied them (read-only) from the main checkout so the iOS build runs. Both stay ignored. Nothing outward-facing
 was done. Auto-save risk: a row removed or reordered within ~tens of ms of a save keeps a null id and could
 duplicate on the next save (id hand-back matches by index and label).
+
+### Review fixes (Opus, 2026-10-01)
+- A rejected `editBill` (validation `Err`) was ignored and still showed "Changes saved..."; the save now returns
+  null on `Err`, so no card and the editor retries on the next change.
+- Every debounced save wrote its own "edited" row to `expense_history` (append-only, synced). `recordHistory`
+  now coalesces an EDITED into the previous CREATED/EDITED by the same actor within 10 minutes
+  (`HistoryEventDao.latestForExpense`, no schema change). iOS test `BillHistoryCoalesceTest`.
+- Dismissing the Add/Replace sheet silently dropped the scanned items (the P2 above). Dismiss now takes Add, the
+  non-destructive default.
+- Double-tapping Back while the final save ran could pop twice; Back now latches.
+- `SCAN_RESULT_EDITED` fired on every Back, reporting an unsaved scan as "all items removed"; it now fires only
+  when something was saved.
+- Back on a named bill with no complete item left silently without saving; it now warns ("Add at least one item
+  or this bill won't be saved."). The notice clears itself once the problem is fixed.
+- The "could duplicate" auto-save risk above does not hold: `editBill` tombstones any line whose id is not
+  sent, so a row that misses its id hand-back is recreated once and the orphan is removed, never doubled.

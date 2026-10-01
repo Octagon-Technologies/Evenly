@@ -29,7 +29,12 @@ fun submitRows(items: List<EditBillItemUi>, lastSaved: Map<String, EditBillItemU
 /** What Back must warn about before leaving, or null when nothing would be lost. */
 fun leaveNotice(title: String, items: List<EditBillItemUi>): String? =
     incompleteItemsNotice(incompleteItemCount(items))
-        ?: if (title.trim().isEmpty() && items.any { !it.isUntouched() }) "Give the bill a name or it won't be saved." else null
+        ?: when {
+            title.trim().isEmpty() && items.any { !it.isUntouched() } -> "Give the bill a name or it won't be saved."
+            // Auto-save needs at least one complete item, so a named bill with none would leave unsaved.
+            title.trim().isNotEmpty() && savableItems(items).isEmpty() -> "Add at least one item or this bill won't be saved."
+            else -> null
+        }
 
 /** Auto-save runs only for a named bill with at least one complete item. */
 fun canAutoSave(title: String, items: List<EditBillItemUi>): Boolean = title.trim().isNotEmpty() && savableItems(items).isNotEmpty()

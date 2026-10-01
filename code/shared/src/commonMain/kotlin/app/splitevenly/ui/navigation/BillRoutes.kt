@@ -30,27 +30,23 @@ import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
+import app.splitevenly.platform.PdfRasterizer
 import app.splitevenly.platform.PickKind
 import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.bill.AssignRowUi
-import app.splitevenly.domain.repository.ActivityRepository
-import app.splitevenly.platform.PdfRasterizer
-import app.splitevenly.ui.screen.expense.PickedReceiptUi
-import io.ktor.client.HttpClient
-import io.ktor.client.request.get
-import io.ktor.client.statement.readRawBytes
 import app.splitevenly.ui.screen.bill.BillEditScreen
-import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ClaimItemUi
 import app.splitevenly.ui.screen.bill.ClaimParticipantUi
 import app.splitevenly.ui.screen.bill.EditBillState
+import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ParticipantChipUi
 import app.splitevenly.ui.screen.bill.ScanErrorKind
 import app.splitevenly.ui.screen.bill.ScanPageUi
@@ -59,7 +55,11 @@ import app.splitevenly.ui.screen.bill.analyticsKind
 import app.splitevenly.ui.screen.bill.editBillItemUi
 import app.splitevenly.ui.screen.bill.priceToSubunits
 import app.splitevenly.ui.screen.bill.scanEditStats
+import app.splitevenly.ui.screen.expense.PickedReceiptUi
 import app.splitevenly.ui.screen.expense.format2dp
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.readRawBytes
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -284,7 +284,8 @@ fun BillEditRoute(
             } else {
                 val eid = ExpenseId(current)
                 val before = bills.observeBill(eid).first()
-                bills.editBill(
+                val result =
+                    bills.editBill(
                     eid,
                     EditBill(
                         title = submit.title,
@@ -297,6 +298,8 @@ fun BillEditRoute(
                         editedBy = me,
                     ),
                 )
+                // A rejected edit must not light up "Changes saved"; the editor keeps the state and retries.
+                if (result is AppResult.Err) return null
                 eid
             }
         // Hand any newly staged pages to the upload pipeline exactly once.
@@ -364,7 +367,8 @@ fun BillEditRoute(
         initialOutsidePayerName = existing?.expense?.payerOutsideName,
         claimedItemsByUser = existing?.claimedItemsByUser().orEmpty(),
         onBack = {
-            reportScanResultEdited(analytics, scanned, lastSubmit?.items.orEmpty(), gid.value)
+            // Only a scan that was actually saved has a result to compare against.
+            lastSubmit?.let { reportScanResultEdited(analytics, scanned, it.items, gid.value) }
             val id = billId
             if (createdHere && id != null) onCreated(id) else onBack()
         },

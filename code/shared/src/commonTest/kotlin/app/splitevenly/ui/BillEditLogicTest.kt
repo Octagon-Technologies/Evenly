@@ -8,9 +8,9 @@ import app.splitevenly.ui.screen.bill.editBillItemUi
 import app.splitevenly.ui.screen.bill.incompleteItemCount
 import app.splitevenly.ui.screen.bill.incompleteItemsNotice
 import app.splitevenly.ui.screen.bill.leaveNotice
-import app.splitevenly.ui.screen.bill.submitRows
 import app.splitevenly.ui.screen.bill.mergeScan
 import app.splitevenly.ui.screen.bill.savableItems
+import app.splitevenly.ui.screen.bill.submitRows
 import app.splitevenly.ui.screen.bill.withExtra
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -89,5 +89,7 @@ class BillEditLogicTest {
         assertNull(leaveNotice("", listOf(item("", 0))))
         assertEquals("Give the bill a name or it won't be saved.", leaveNotice("", listOf(item("Pasta", 1800))))
         assertEquals("1 item has no name or price. Fix it or remove it.", leaveNotice("Dinner", listOf(item("Pasta", 0))))
+        assertEquals("Add at least one item or this bill won't be saved.", leaveNotice("Dinner", listOf(item("", 0))))
+        assertEquals("Add at least one item or this bill won't be saved.", leaveNotice("Dinner", emptyList()))
     }
 }

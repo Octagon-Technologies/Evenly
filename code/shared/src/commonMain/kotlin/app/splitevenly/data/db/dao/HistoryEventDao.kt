@@ -20,6 +20,10 @@ interface HistoryEventDao {
     @Query("SELECT * FROM expense_history WHERE expense_id = :expenseId ORDER BY created_at DESC")
     fun observeByExpense(expenseId: String): Flow<List<HistoryEventEntity>>
 
+    /** The expense's newest event, or null. Lets a burst of auto-saves coalesce into one "edited". */
+    @Query("SELECT * FROM expense_history WHERE expense_id = :expenseId ORDER BY created_at DESC, rowid DESC LIMIT 1")
+    suspend fun latestForExpense(expenseId: String): HistoryEventEntity?
+
     /** Every local row — the push side of sync. */
     @Query("SELECT * FROM expense_history")
     suspend fun allForSync(): List<HistoryEventEntity>

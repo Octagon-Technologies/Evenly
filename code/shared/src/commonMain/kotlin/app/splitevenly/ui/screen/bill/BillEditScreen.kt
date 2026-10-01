@@ -1,16 +1,16 @@
 package app.splitevenly.ui.screen.bill
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,8 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -370,13 +370,21 @@ fun BillEditScreen(
         showSaved = false
     }
 
+    // Once the user fixes what the notice named, it has nothing left to say.
+    LaunchedEffect(title, items) { if (leaveNotice(title, items) == null) leaveNoticeText = null }
+
+    // Set once Back commits to leaving, so a second tap while the final save runs cannot pop twice.
+    var leaving by remember { mutableStateOf(false) }
+
     /** Back: flush anything pending, then leave. Warns first when something would be lost silently. */
     fun leave(force: Boolean) {
+        if (leaving) return
         val notice = leaveNotice(title, items)
         if (notice != null && !force) {
             leaveNoticeText = notice
             return
         }
+        leaving = true
         val snap = submit
         val idx = rows.map { it.first }
         scope.launch {
@@ -579,7 +587,9 @@ fun BillEditScreen(
         pendingScan?.let { s ->
             val have = items.count { it.isComplete() }
             val found = s.items.count { it.isComplete() }
-            EvModalScaffold(onDismiss = { pendingScan = null }) {
+            // Dismissing is not "throw the scan away": that would drop items the user paid a scan for with no
+            // trace. It takes the non-destructive default, Add, and the new rows are right there to remove.
+            EvModalScaffold(onDismiss = { applyScan(s, ScanMergeMode.ADD) }) {
                 Text(
                     if (found == 1) "Found 1 item" else "Found $found items",
                     color = c.ink,
