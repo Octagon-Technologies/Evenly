@@ -89,4 +89,19 @@ existing items, no prompt.
 
 ## 7. Completion report
 
-_(fill in at the end)_
+**Done (commit 9fc278f).** Pure logic in `ui/screen/bill/BillEditLogic.kt` with `BillEditLogicTest`
+(passes): `isComplete`/`incompleteItemCount`/`savableItems`/`canAutoSave`/`incompleteItemsNotice` (T5a) and
+`mergeScan` Add/Replace with extras as `ExtraSuggestion`s, never summed (T5c). Both compiles green.
+Treated a half-filled row (name or price missing) as invalid; fully blank rows drop silently.
+
+**Blocked on owner sign-off:** the mock `design/bill-edit-autosave-scan-mockup.html` (6 frames: saved pill,
+Back with incomplete row, empty-bill Scan card, labelled Scan + receipt thumbnails, Add/Replace sheet,
+post-Add extras suggestions). No Compose written. Remaining after sign-off: back-arrow + debounced
+auto-save + pill + remove Save button (T5a), Scan card/labelled entry (T5b), receipt thumbnails + choice
+sheet + suggestions wiring (T5c), `ux-firsttimer`, iOS sim run.
+
+**Open decisions for the owner / scout items not yet done:** (1) mock removes the top-bar Scan in favour of
+the card/pill, confirm; (2) how Save enters `BillReviewEditsScreen` for claimed items and the new-bill
+create-on-first-valid-save wiring live in the route wrapper, not yet scouted; (3) multi-page receipt
+support (`attachedReceipts` is a list, so likely yes, schema unconfirmed); (4) design-system catalog entry
+and `check-design-system.mjs` to run with the UI commit.
