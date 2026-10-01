@@ -1,6 +1,6 @@
 # Bill edit: auto-save + discoverable, additive Scan (T5a–c)
 
-**Status:** not started
+**Status:** T5a/T5c logic done; UI blocked on mock sign-off
 **Worktree / branch:** `fb/bill-edit` (from `feat/split-by-items-flow`)
 **Mockup:** `design/bill-edit-autosave-scan-mockup.html` — required before Compose (top bar, saved
 pill, Scan placement, re-scan Add/Replace choice).
