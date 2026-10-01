@@ -1,6 +1,6 @@
 # Expense detail: working claim QR + carded comments/receipt (T4, T7)
 
-**Status:** mock done, awaiting owner sign-off (no Compose / web code written yet)
+**Status:** implemented on `fb/expense-detail`; server SQL, edge-function deploy and Vercel deploy are the owner's (see §7)
 **Worktree / branch:** `fb/expense-detail` (from `feat/split-by-items-flow`)
 **Mockup:** `design/expense-detail-cards-mockup.html` for T7 (and the QR entry point if it moves).
 
@@ -71,36 +71,67 @@ they read as unfinished.
 
 ## 7. Completion report
 
-**State (2026-10-01): STOPPED at the mock gate (AGENTS.md §7). T4 and T7 are not implemented.**
-T4 was not split out as "no UI": it adds a new web page (`/j/` landing), moves/relabels the bill-QR
-control and retitles the invite sheet, all visual. One mock covers both tasks:
-`design/expense-detail-cards-mockup.html` (T7 light+dark vs before; T4 entry point before/after; both
-sheet titles; the `/j/` landing). No compile was run because no source changed, and no feature commit was made.
+**Commits (branch `fb/expense-detail`).** `895b04c` + `6616b7d` mock (owner approved; `/j/` frame revised to
+show the group name with a generic fallback) · `00d4b54` T7 · `f6e3f3a` T4.
 
-**Owner decisions needed.** (1) Approve Comments + Receipt as `EvCard`s (section title "Receipt").
-(2) Approve a full-width outlined "Let friends pick their items" button in `BillPickCard`
-(replacing the small "Share" chip) with the line "Opens a QR for this bill only. No app or account
-needed."; bill QR sheet titled "Let friends pick their items" (today `BillShareLinkScreen` says "Let everyone
-pick"); group sheet retitled "Invite to group" (today `Invite to $groupName`, `GroupExpensesTab.kt:371`).
-(3) Approve generic-copy-only `/j/` landing.
+**T7.** Receipt thumbnails (title "Receipt") and the whole comment thread, composer included, sit in
+`EvCard(padded)` like the split card (`ExpenseDetailScreen.kt`). Checked on the iOS simulator in dark.
+Light was not toggled on the simulator; the cards use the same theme tokens as the split card.
 
-**Implementation plan once approved.** T7: wrap the comments `Column` (ExpenseDetailScreen.kt ~L570) and the
-receipts block (~L333) in `EvCard`; commit `feat(expense-detail): comments and receipt in cards (T7)`.
-T4 (app): edit `BillPickCard.kt` and the two titles. T4 (web): in `web/` add `{kind:'join'}` to `lib/router.ts`
-(`/j/<token>`), a `marketing/Join.svelte`, an entry in `prerender-entry.ts` `PRERENDERED`, `seo.ts` row (noindex),
-and `/j/(.*)` -> `/index.html`-style rewrite in `vercel.json` + `public/_redirects` (the three-file rule in
-`web/AGENTS.md`); run `cd web && npm ci && npm test && npm run typecheck`, preview both `/b/` and `/j/`.
-Commit `feat(web-claim): bill QR entry point and /j invite landing (T4)`.
+**T4 (app).** `BillPickCard` now has a full-width "Let friends pick their items" button plus "Opens a QR for
+this bill only. No app or account needed."; `BillShareLinkScreen` top bar says the same; the group sheet is
+titled "Invite to group" with "Anyone with this link joins <group>. To split just one bill, share that bill's
+QR instead." Verified on the iOS simulator. Note `GroupExpensesTab.kt` InviteSheet (~L371) is also touched by
+`fb/group-surface`; the hunk here is two lines.
 
-**Proposed, NOT performed (outward-facing).**
-- Production `/b/*` and `/j/*` 404 on split-evenly.app: the Vercel project is not serving this repo's
-  `web/` rewrites. In Vercel project settings set Root Directory = `web`, Framework Preset = Vite,
-  Build Command `npm run build`, Output Directory `dist`, Node >= 22.6; then from the repo root run
-  `cd web && vercel --prod` (or push and let the Git integration deploy) and verify with
-  `curl -sI https://split-evenly.app/b/<16+ char token>` (expect 200 with app.html) and `/j/x`.
-- Per memory note: before publishing, confirm `USE_LOCAL_WEB_CLAIM_HOST` is false (it is) and no `web-claim`
-  edge-function drift. No edge-function change is needed for T4.
-- Universal/app links: need Apple Team ID + bundle `app.splitevenly` for
-  `web/public/.well-known/apple-app-site-association`, and the Android release-key SHA-256 for
-  `web/public/.well-known/assetlinks.json` (package `app.splitevenly`). Neither value is in the repo; also add
-  `Content-Type: application/json` headers for the AASA path in `vercel.json`.
+**T4 (server + web).**
+- `supabase/schema.sql`: `invite_preview_group_name(p_token text) returns text`, `security definer`, returns
+  only `groups.name` for a non-deleted group, else NULL; revoked from public/anon/authenticated, granted to
+  `service_role` only.
+- `supabase/functions/web-claim/index.ts`: new action `invite-preview` (shape-checks the token, per-IP hashed
+  rate limit via `public_write_log` kind `invite-preview` using `_shared/rateLimit.ts`, calls the RPC). Every
+  outcome is HTTP 200 `{"groupName": string | null}`, so unknown, malformed, deleted, rate-limited and failed
+  lookups are indistinguishable. `handler(sb, body, req)` now receives the request (needed for the IP).
+- `web/`: `/j/:token` route (`router.ts`), `marketing/Join.svelte` (one plain `fetch` through `api.ts`, no
+  Supabase client or key), `seo.ts` noindex row, `vercel.json` + `public/_redirects` rewrite to `/app.html`.
+  Not prerendered. `npm test`, `npm run typecheck`, `npm run build` pass; the page was loaded on the Vite dev
+  server and the fallback heading renders when the lookup fails. The success path against a real backend is
+  untested until the owner steps below are done.
+- Compiles: `:shared:compileAndroidMain` and `:shared:compileKotlinIosSimulatorArm64` green. `testAndroidHostTest`
+  was not run (no logic under test changed). `ux-firsttimer` was applied as an inline cold read of the two UI
+  changes (a labelled control replacing an ambiguous chip; cards with no new flow), no P0/P1 found, rather than
+  a full skill walk.
+
+**Owner steps (NOT performed).** In this order:
+1. Apply SQL (dashboard SQL editor or MCP `apply_migration`, project `wfpfgbipjmkysalfmyub`), idempotent:
+```sql
+create or replace function public.invite_preview_group_name(p_token text)
+returns text language sql stable security definer set search_path = public, pg_temp
+as $$ select g.name from public.groups g where g.invite_token = p_token and g.deleted_at is null limit 1; $$;
+revoke all on function public.invite_preview_group_name(text) from public, anon, authenticated;
+grant execute on function public.invite_preview_group_name(text) to service_role;
+```
+2. Deploy the function: `supabase functions deploy web-claim --project-ref wfpfgbipjmkysalfmyub`
+   (`verify_jwt = false` is already pinned in `config.toml`). Check:
+   `curl -s -X POST https://wfpfgbipjmkysalfmyub.supabase.co/functions/v1/web-claim/invite-preview -H 'content-type: application/json' -d '{"token":"<real invite_token>"}'`
+   expects `{"groupName":"..."}`; a bogus token expects `{"groupName":null}`.
+3. Vercel: the production `/b/*` and `/j/*` 404s mean the project is not building `web/`. In the Vercel project
+   settings set Root Directory `web`, Framework Preset Vite, Build Command `npm run build`, Output `dist`,
+   Node >= 22.6, and set `VITE_WEB_CLAIM_URL` to `https://wfpfgbipjmkysalfmyub.supabase.co/functions/v1/web-claim`
+   (without it `/j/` and `/b/` post to a relative path and always fall back). Then `cd web && vercel --prod`
+   (or push). Verify `curl -sI https://split-evenly.app/b/<16+ char token>` and `/j/<invite token>` return 200,
+   and open the `/j/` link to see the group name.
+4. Do steps 1 and 2 before 3 so the page never ships ahead of its endpoint (it would only fall back, harmlessly).
+
+**Out of scope / found.**
+- Universal links and app links: need Apple Team ID + bundle `app.splitevenly` for
+  `web/public/.well-known/apple-app-site-association` and the Android release SHA-256 for
+  `web/public/.well-known/assetlinks.json` (package `app.splitevenly`), plus a `Content-Type: application/json`
+  header rule for the AASA path. Neither value is in the repo. Until then `/j/` opened from a camera lands on the
+  web page, whose "Open in Evenly" uses `splitevenly://j/<token>`.
+- The `/j/` rate limit is 30 requests/hour/IP (the shared `_shared/rateLimit.ts` constant); a shared NAT could
+  trip it, which only costs the name (fallback copy).
+- `design/system/scripts/check-design-system.mjs` fails on a missing `design/system/dist/catalog.js` in this
+  worktree (untracked build output), unrelated to this change; no catalog entry covers these screens.
+- Worktree setup: `run-ios-sim.sh` needed the gitignored `GoogleService-Info.plist` copied from the main
+  checkout into `code/iosApp/iosApp/` (left untracked and ignored).
