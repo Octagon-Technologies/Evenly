@@ -334,9 +334,12 @@ fun ExpenseDetailScreen(
 
                         // receipts
                         if (receipts.isNotEmpty() || pendingUploads.isNotEmpty()) {
-                            Column {
-                                EvSectionLabel("Receipts")
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            EvCard(Modifier.fillMaxWidth(), padded = true) {
+                                Text("Receipt", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                Row(
+                                    Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
                                     receipts.forEachIndexed { i, r -> ReceiptThumb(r, onClick = { viewerIndex = i }) }
                                     // In-flight uploads render right after the published ones, each with its own ring.
                                     pendingUploads.forEach { u ->
@@ -569,7 +572,7 @@ fun ExpenseDetailScreen(
 
                         // comments — collapsible. Defaults open for a short thread (≤2), collapsed once it's 3+
                         // so a long back-and-forth doesn't bury the split below it. The composer stays visible.
-                        Column {
+                        EvCard(padded = true) {
                             var commentsOverride by remember { mutableStateOf<Boolean?>(null) }
                             val commentsOpen = commentsOverride ?: (comments.size <= 2)
                             Row(
