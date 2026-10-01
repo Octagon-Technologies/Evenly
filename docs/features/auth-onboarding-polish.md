@@ -125,3 +125,6 @@ T6:
   (or toast then pop); header copy unchanged.
 - Settle-up: `SettlePersonScreen`/`SettleSingleSheet` use `PaymentApp`, which appears to show the payee's
   handles, not the user's own. Not yet confirmed which, so the "Edit" link there is unscoped pending owner.
+
+- Review (Opus, 2026-10-01): `magic-link.html`'s header comment was copied from the signup template and said new
+  users get it; corrected (returning users get Magic Link, new users get Confirm signup).
