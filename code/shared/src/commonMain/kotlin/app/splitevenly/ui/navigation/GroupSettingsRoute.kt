@@ -18,9 +18,10 @@ import app.splitevenly.domain.export.ExportOutcome
 import app.splitevenly.domain.export.GroupExporter
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.PlatformShare
+import app.splitevenly.ui.screen.group.addMemberByName
+import app.splitevenly.ui.screen.group.toMemberRows
 import app.splitevenly.ui.screen.settings.GroupDeleteImpactUi
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
-import app.splitevenly.ui.screen.settings.MemberRowUi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -73,20 +74,7 @@ fun GroupSettingsRoute(
     var exporting by remember { mutableStateOf(false) }
     var exportNote by remember { mutableStateOf<String?>(null) }
 
-    val rows =
-        members.map { m ->
-            MemberRowUi(
-                userId = m.userId.value,
-                name = m.displayName ?: "Someone",
-                role =
-                    when {
-                        m.isAdmin -> "Admin"
-                        m.isPlaceholder -> "No account"
-                        else -> ""
-                    },
-                isMe = m.userId == userId,
-            )
-        }
+    val rows = members.toMemberRows(userId)
 
     GroupSettingsScreen(
         groupName = group?.name ?: "",
@@ -131,15 +119,7 @@ fun GroupSettingsRoute(
             }
         },
         onBack = onBack,
-        onAddMember = { name, addToPast ->
-            scope.launch {
-                // Adds the member as a placeholder; "all past" sweeps existing expenses (03 §8.1).
-                val added = groups.addPlaceholder(gid, name, createdBy = userId)
-                if (added is AppResult.Ok && addToPast) {
-                    userId?.let { me -> groups.addMemberToPastExpenses(gid, added.value.userId, me) }
-                }
-            }
-        },
+        onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
         onRename = { name, emoji -> scope.launch { groups.renameGroup(gid, name, emoji) } },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
         onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },

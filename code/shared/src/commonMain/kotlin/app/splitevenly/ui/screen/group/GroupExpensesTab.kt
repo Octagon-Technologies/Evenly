@@ -53,6 +53,7 @@ import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import app.splitevenly.ui.theme.categoryColor
 import io.github.alexzhirkevich.qrose.rememberQrCodePainter
@@ -118,6 +119,9 @@ fun GroupExpensesTab(
     onOpenDrafts: () -> Unit = {},
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
+    // The roster for the members strip (T2). Empty until the members load, which hides the strip.
+    members: List<MemberRowUi> = emptyList(),
+    onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
     // "Is this you?" (identity claim). Rendered here because this is where people actually look; the
@@ -139,6 +143,8 @@ fun GroupExpensesTab(
     val c = EvenlyTheme.colors
     var sub by remember { mutableStateOf("Active") }
     var showInvite by remember { mutableStateOf(false) }
+    var showMembers by remember { mutableStateOf(false) }
+    var showAddMember by remember { mutableStateOf(false) }
     // Default open; the collapse choice sticks for the whole visit (state lives above the section so it
     // survives the bills momentarily emptying and re-appearing).
     var claimsExpanded by remember { mutableStateOf(true) }
@@ -165,11 +171,12 @@ fun GroupExpensesTab(
                 },
                 actions = {
                     EvIconButton(EvIcons.Search, onSearch)
-                    // Invite/share: the front-door entry to the group's join link (also in Group settings).
-                    EvIconButton(EvIcons.Share, { showInvite = true })
                     EvIconButton(EvIcons.Gear, onOpenSettings)
                 },
             )
+            // The members strip is the one front door for inviting (the top-bar share icon was a second,
+            // unlabelled one): a tester's first question in a new group was how to add someone.
+            if (members.isNotEmpty()) MembersStrip(members, onOpen = { showMembers = true })
             // Tab island: a segmented pill below the title (not an underline bar in the app bar), with the
             // advanced-filter funnel beside it so the bar stays uncluttered. This and the top bar are the
             // *only* fixed chrome on the page; see the scroll surface below.
@@ -345,11 +352,29 @@ fun GroupExpensesTab(
                 onDismiss = { showInvite = false },
             )
         }
+        if (showMembers) {
+            MembersSheet(
+                members = members,
+                onInviteWithLink = onShareInvite,
+                onShowQr = {
+                    showMembers = false
+                    showInvite = true
+                },
+                onAddByName = {
+                    showMembers = false
+                    showAddMember = true
+                },
+                onDismiss = { showMembers = false },
+            )
+        }
+        if (showAddMember) {
+            AddMemberSheet(onAdd = onAddMember, onDismiss = { showAddMember = false })
+        }
     }
 }
 
 /**
- * Invite bottom sheet: the group's join link with a one-tap copy and a (link-invalidating) rotate.
+ * Invite bottom sheet: the group's join link (as a QR) with Share and Copy.
  * Stateless — the link string and the copy/rotate actions are wired by GroupExpensesRoute; only the
  * transient "copied" affirmation lives here, and it resets whenever the link rotates.
  */
