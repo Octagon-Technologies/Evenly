@@ -40,6 +40,12 @@ import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.bill.AssignRowUi
+import app.splitevenly.domain.repository.ActivityRepository
+import app.splitevenly.platform.PdfRasterizer
+import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.readRawBytes
 import app.splitevenly.ui.screen.bill.BillEditScreen
 import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ClaimItemUi
@@ -56,6 +62,8 @@ import app.splitevenly.ui.screen.bill.scanEditStats
 import app.splitevenly.ui.screen.expense.format2dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.compose.getKoin
 import org.koin.compose.koinInject
@@ -104,11 +112,26 @@ fun BillEditRoute(
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
     val stagedPdf = rememberStagedPdfRenderers(uploadManager)
+    // Pages already saved to the bill, so the scan surface shows what a re-scan would be adding to.
+    val activity = koinInject<ActivityRepository>()
+    val http = koinInject<HttpClient>()
+    val rasterizer = remember { PdfRasterizer() }
+    val remotePdfBytes = remember { mutableMapOf<String, ByteArray>() }
+    suspend fun remotePdf(url: String): ByteArray? =
+        remotePdfBytes[url] ?: runCatching { http.get(url).readRawBytes() }.getOrNull()?.also { remotePdfBytes[url] = it }
     val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val scope = rememberCoroutineScope()
     // A new bill is created by its first valid auto-save; every later save edits that same bill.
     var billId by remember { mutableStateOf(expenseId) }
     var createdHere by remember { mutableStateOf(false) }
+    val savedReceipts by remember(billId) {
+        billId?.let { activity.observeReceipts(ExpenseId(it)) } ?: flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
+    val pendingUploadIds by remember(billId) {
+        val id = billId
+        val flow = if (id == null) null else uploadManager?.observe(ExpenseId(id))
+        flow?.map { list -> list.mapTo(HashSet<String>()) { it.id } } ?: flowOf(emptySet<String>())
+    }.collectAsStateWithLifecycle(emptySet<String>())
     var lastSubmit by remember { mutableStateOf<EditBillSubmit?>(null) }
     // Staged receipts already handed to the upload pipeline, so a later save never re-queues one.
     val attachedIds = remember { mutableSetOf<String>() }
@@ -217,6 +240,10 @@ fun BillEditRoute(
     }
 
     /** Creates the bill on the first valid save, edits it after; returns the saved line ids in order. */
+    // A page already handed to the upload pipeline shows as a saved receipt once it lands, so stop drawing the
+    // local copy then, or the same page would appear twice.
+    val displayAttached = attachedReceipts.filter { it.id !in attachedIds || it.id in pendingUploadIds }
+
     suspend fun saveBill(submit: EditBillSubmit): List<String>? {
         val me = userId ?: return null
         val extras =
@@ -288,10 +315,10 @@ fun BillEditRoute(
         scanned = scanned,
         currencyCode = currency,
         scanState = scanState,
-        attachedReceipts = attachedReceipts.map { it.toUi() },
+        attachedReceipts = displayAttached.map { it.toUi() },
         onRemoveAttachedReceipt = { i ->
-            val dropped = attachedReceipts.getOrNull(i)
-            attachedReceipts = attachedReceipts.filterIndexed { idx, _ -> idx != i }
+            val dropped = displayAttached.getOrNull(i)
+            attachedReceipts = attachedReceipts.filter { it.id != dropped?.id }
             dropped?.let {
                 scope.launch {
                     // Already queued for upload: cancel the outbox row too, or it would fail on a missing file.
@@ -299,8 +326,24 @@ fun BillEditRoute(
                 }
             }
         },
-        loadPdfPageCount = stagedPdf.pageCount,
-        renderPdfPage = stagedPdf.renderPage,
+        savedReceipts =
+            savedReceipts.map {
+                PickedReceiptUi(
+                    id = it.id.value,
+                    localPath = "",
+                    model = if (it.isPdf) null else it.url,
+                    isPdf = it.isPdf,
+                    remoteUrl = it.url,
+                    removable = false,
+                )
+            },
+        // Staged pages are local files; saved ones are remote, and a PDF has to be downloaded to rasterize.
+        loadPdfPageCount = { url ->
+            if (url.startsWith("file://")) stagedPdf.pageCount(url) else remotePdf(url)?.let { rasterizer.pageCount(it) } ?: 0
+        },
+        renderPdfPage = { url, page, width ->
+            if (url.startsWith("file://")) stagedPdf.renderPage(url, page, width) else remotePdf(url)?.let { rasterizer.renderPage(it, page, width) }
+        },
         participants =
             members.map {
                 ParticipantChipUi(
