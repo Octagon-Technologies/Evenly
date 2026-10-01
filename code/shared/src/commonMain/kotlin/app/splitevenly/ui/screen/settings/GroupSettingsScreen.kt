@@ -107,7 +107,6 @@ fun GroupSettingsScreen(
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
-    var reminder by remember { mutableStateOf("Weekly") }
     var showAdd by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
@@ -236,26 +235,6 @@ fun GroupSettingsScreen(
                 ) {
                     EvIcon(EvIcons.Plus, size = 18.dp, tint = c.blueText)
                     Text("Add member", style = t.itemTitle.copy(color = c.blueText))
-                }
-            }
-
-            // ── Conflict reminders ─────────────────────────────
-            SettingsGroup("Conflict reminders") {
-                listOf("Off", "Daily", "Weekly").forEachIndexed { i, r ->
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
-                                .clickable { reminder = r }
-                                .heightIn(min = 56.dp)
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(r, style = t.itemTitle, modifier = Modifier.weight(1f))
-                        EvRadio(selected = reminder == r)
-                    }
                 }
             }
 
