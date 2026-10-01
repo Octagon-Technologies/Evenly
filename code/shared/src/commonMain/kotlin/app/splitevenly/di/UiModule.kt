@@ -4,6 +4,7 @@ import app.splitevenly.data.auth.StubAuthSession
 import app.splitevenly.data.auth.SupabaseAuthSession
 import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.remote.supabase.FeedbackHttp
+import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.PushController
@@ -15,7 +16,6 @@ import app.splitevenly.data.remote.supabase.SupabasePlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.SupabaseReceiptStorage
 import app.splitevenly.data.remote.supabase.SupabaseRemoteGroupGateway
 import app.splitevenly.data.remote.supabase.SupabaseWebBillLinkGateway
-import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
 import app.splitevenly.data.remote.supabase.WebBillLinkGateway

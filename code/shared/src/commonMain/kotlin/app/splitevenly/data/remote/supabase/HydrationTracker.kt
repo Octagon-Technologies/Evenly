@@ -49,6 +49,10 @@ class HydrationTracker(
 ) {
     private val phases = MutableStateFlow<Map<String, HydrationState>>(emptyMap())
     private val pendingGroups = MutableStateFlow<Set<String>>(emptySet())
+
+    // Groups pending when each user's in-flight pull began. Only those are cleared when it lands: a pull
+    // that started before a join cannot carry the joined group's rows.
+    private val pendingAtPullStart = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     private var syncer: (suspend (String) -> AppResult<Unit>)? = null
 
     fun attachSyncer(syncNow: suspend (String) -> AppResult<Unit>) {
@@ -79,7 +83,21 @@ class HydrationTracker(
 
     fun markGroupPending(groupId: String) = pendingGroups.update { it + groupId }
 
-    fun pullStarted(userId: String) = setPhase(userId) { if (it == HydrationState.Done) it else HydrationState.Pulling }
+    fun pullStarted(userId: String) {
+        pendingAtPullStart.update { it + (userId to pendingGroups.value) }
+        setPhase(userId) { if (it == HydrationState.Done) it else HydrationState.Pulling }
+    }
+
+    /**
+     * Drop everything known about [userId]. Called after sign-out wipes the cache: the same account
+     * signing back in in this process must wait for a fresh pull rather than claim "empty" from a
+     * `Done` that described rows which no longer exist.
+     */
+    fun forget(userId: String) {
+        phases.update { it - userId }
+        pendingAtPullStart.update { it - userId }
+        pendingGroups.value = emptySet()
+    }
 
     fun pullFinished(
         userId: String,
@@ -88,7 +106,9 @@ class HydrationTracker(
         when (result) {
             is AppResult.Ok -> {
                 setPhase(userId) { HydrationState.Done }
-                pendingGroups.value = emptySet()
+                val covered = pendingAtPullStart.value[userId].orEmpty()
+                pendingAtPullStart.update { it - userId }
+                pendingGroups.update { it - covered }
             }
 
             is AppResult.Err -> {

@@ -9,7 +9,6 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.ExpenseStatus
-import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.db.dao.ConflictDao
 import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.GroupDao
@@ -27,6 +26,7 @@ import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.UserEntity
+import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.group.ClaimLine

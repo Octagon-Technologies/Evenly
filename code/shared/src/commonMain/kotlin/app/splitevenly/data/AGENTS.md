@@ -54,7 +54,9 @@ still valid. The mutex alone did not prevent it, it *scheduled* it. `SyncGateTes
 Room answers instantly with an empty list before the first pull, so "empty" must never be derived from Room
 alone. `HydrationTracker` (owned by `SyncEngine`, per user, in-memory) says whether a pull has landed; list
 screens show a blank page until then, and a retry state if it failed. A group joined by link is marked
-pending until the next successful pull. Do not persist a "hydrated" flag: it would outlive a cache wipe.
+pending until a pull that *started after* the join lands. Do not persist a "hydrated" flag: it would outlive a
+cache wipe, and for the same reason sign-out's wipe calls `hydration.forget(userId)` so the same account signing
+back in waits for a fresh pull.
 
 ## One list of synced tables
 

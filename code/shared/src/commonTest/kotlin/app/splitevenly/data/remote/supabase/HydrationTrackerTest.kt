@@ -2,10 +2,10 @@ package app.splitevenly.data.remote.supabase
 
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
-import app.splitevenly.domain.expense.Expense
-import app.splitevenly.domain.group.Group
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.domain.expense.Expense
+import app.splitevenly.domain.group.Group
 import app.splitevenly.ui.screen.group.ExpensesState
 import app.splitevenly.ui.screen.group.buildGroupExpenses
 import app.splitevenly.ui.screen.home.HomeUiState
@@ -64,8 +64,30 @@ class HydrationTrackerTest {
         assertEquals(ListReadiness.Ready, t.observeGroupReadiness("u", "other").first())
         t.pullFinished("u", offlineErr)
         assertEquals(ListReadiness.Failed(offline = true), t.observeGroupReadiness("u", "g").first())
+        t.pullStarted("u")
         t.pullFinished("u", ok)
         assertEquals(ListReadiness.Ready, t.observeGroupReadiness("u", "g").first())
+    }
+
+    @Test
+    fun aPullThatStartedBeforeTheJoinDoesNotClearIt() = runTest {
+        val t = HydrationTracker()
+        t.pullFinished("u", ok)
+        t.pullStarted("u")
+        t.markGroupPending("g")
+        t.pullFinished("u", ok)
+        assertEquals(ListReadiness.Waiting, t.observeGroupReadiness("u", "g").first())
+        t.pullStarted("u")
+        t.pullFinished("u", ok)
+        assertEquals(ListReadiness.Ready, t.observeGroupReadiness("u", "g").first())
+    }
+
+    @Test
+    fun signOutWipeMakesTheSameAccountWaitAgain() = runTest {
+        val t = HydrationTracker()
+        t.pullFinished("u", ok)
+        t.forget("u")
+        assertEquals(ListReadiness.Waiting, t.observeUserReadiness("u").first())
     }
 
     @Test

@@ -125,3 +125,9 @@ Deviations and flags:
 
 Still owed: `:shared:iosSimulatorArm64Test`, an iOS-sim run (wiped sim sign-in, join-by-link with a
 second account, airplane-mode first launch), and `ux-firsttimer`.
+
+### Review fixes (Opus, 2026-10-01)
+- `Done` survived sign-out, so the same account signing back in (cache wiped) saw "No groups" until the pull
+  landed: the exact bug T3 fixes. Sign-out's wipe now calls `HydrationTracker.forget(userId)`.
+- Any successful pull cleared every pending joined group, including a pull that began before the join and so
+  could not carry its rows. Only groups pending when the pull *started* are cleared now. Tests for both.
