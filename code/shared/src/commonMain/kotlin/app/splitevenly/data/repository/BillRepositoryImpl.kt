@@ -807,6 +807,12 @@ class BillRepositoryImpl(
                         participantCount = parts.size,
                         stillToClaimCount = stillToClaim,
                         youNeedToClaim = viewer != null && parts.any { it.userId == viewer.value && it.doneAt == null },
+                        youHavePicked =
+                            viewer != null &&
+                                (
+                                    claimsByExpense[e.id].orEmpty().any { it.userId == viewer.value } ||
+                                        sharedRows.any { it.userId == viewer.value }
+                                ),
                         itemCount = result.items.size,
                         resolvedCount = result.items.count { it.status == ItemStatus.RESOLVED },
                     )

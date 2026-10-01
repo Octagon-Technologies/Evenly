@@ -23,13 +23,12 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.theme.EvenlyTheme
 
-/** A group's unresolved "Split the bill" for the home surface. [subtitle] is pre-formatted claim status. */
+/** A bill that may still need the viewer's pick, for the home surface. [subtitle] is pre-formatted claim status. */
 data class UnresolvedBillUi(
     val id: String,
     val title: String,
     val subtitle: String,
-    val youNeedToClaim: Boolean,
-    /** "3 of 5 items assigned": item progress, kept apart from the viewer's own done state. */
+    /** "3 of 5 items picked": item progress, kept apart from the viewer's own state. */
     val progressLabel: String? = null,
 )
 
@@ -37,8 +36,9 @@ data class UnresolvedBillUi(
  * The home surface for bills that still need claiming — claiming ≠ paying, so this is a distinct **task
  * module**, not another expense card. Everything lives in one collapsible bordered card (tinted header +
  * checklist icon + count), the bills stack as quiet hairline rows, and crucially they carry **no dollar
- * total** — the amount belongs to the ledger row below, so the two never read as the same thing. Bills that
- * still need *you* lead with a blue "Pick your items" chip; ones you've done (waiting on others) show a quiet "Review".
+ * total** — the amount belongs to the ledger row below, so the two never read as the same thing. Only bills
+ * where *you* might be one of the missing pickers reach this list (filtered by the caller), so every row
+ * carries the same blue "Pick your items" chip.
  *
  * [expanded]/[onToggleExpanded] are hoisted so the collapse choice persists for the whole visit to the page.
  */
@@ -66,7 +66,7 @@ fun UnresolvedBillsSection(
             ) {
                 EvIcon(EvIcons.CheckCircle, size = 18.dp, tint = c.blueText)
                 Text(
-                    if (bills.any { it.youNeedToClaim }) "Needs your pick" else "Still being picked",
+                    "Needs your pick",
                     color = c.blueText,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -78,8 +78,7 @@ fun UnresolvedBillsSection(
                 EvIcon(if (expanded) EvIcons.ChevU else EvIcons.ChevD, size = 18.dp, tint = c.blueText)
             }
             if (expanded) {
-                // The ones that need YOU first.
-                bills.sortedByDescending { it.youNeedToClaim }.forEach { b ->
+                bills.forEach { b ->
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -97,20 +96,13 @@ fun UnresolvedBillsSection(
                             Text(b.title, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                             Text(b.subtitle, color = c.ink2, fontSize = 12.sp)
                         }
-                        if (b.youNeedToClaim) {
-                            Row(
-                                Modifier.clip(RoundedCornerShape(999.dp)).background(c.blue).padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Text("Pick your items", color = c.onAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                EvIcon(EvIcons.ChevR, size = 13.dp, tint = c.onAccent)
-                            }
-                        } else {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text("Review", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                EvIcon(EvIcons.ChevR, size = 13.dp, tint = c.ink3)
-                            }
+                        Row(
+                            Modifier.clip(RoundedCornerShape(999.dp)).background(c.blue).padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Text("Pick your items", color = c.onAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            EvIcon(EvIcons.ChevR, size = 13.dp, tint = c.onAccent)
                         }
                     }
                 }

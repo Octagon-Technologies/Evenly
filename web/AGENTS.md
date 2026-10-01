@@ -6,7 +6,7 @@ real person in the group, no app, no account, no password) and, as of 2026-08-04
 (`src/marketing/` — home, privacy, terms) that lives at the same domain. `src/lib/router.ts`'s
 `resolveRoute` is what decides which one a given URL gets.
 
-**The claim flow is still not a web version of Evenly.** One bill, one job, 72 hours. Spec §9 lists
+**The claim flow is still not a web version of Evenly.** One bill, one job, until its link is revoked or its bill is deleted. Spec §9 lists
 what that deliberately excludes — no group view, no balances, no settle-up, no expense creation, no
 offline. If you are adding a second *claim* screen that is not in `design/web-claim-mockup.html`,
 stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
@@ -96,7 +96,7 @@ goes through the `web-claim` edge function, which holds the service key and does
 authorisation per endpoint. A browser talking to PostgREST directly turns a known internal risk into
 a public breach — RLS is still `for all to authenticated using (true)`.
 
-The bill token is bill-scoped and expires; the session token is group-scoped and durable. They are
+The bill token is bill-scoped and permanent until revoked; the session token is group-scoped and durable. They are
 two different things with two different lifetimes (spec §2.2) and conflating them is the mistake that
 section exists to prevent.
 

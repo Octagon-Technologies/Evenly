@@ -117,6 +117,8 @@ data class UnresolvedBill(
     val stillToClaimCount: Int,
     /** True when the viewer is a participant who hasn't marked done — drives the personal "claim your items" card. */
     val youNeedToClaim: Boolean,
+    /** True when the viewer holds any claim or shared portion on this bill, solo or assigned by someone else. */
+    val youHavePicked: Boolean = false,
     val itemCount: Int = 0,
     /** Lines fully and correctly assigned (RESOLVED). Over-claimed lines count as unfinished. */
     val resolvedCount: Int = 0,

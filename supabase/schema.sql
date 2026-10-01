@@ -1659,20 +1659,19 @@ create index if not exists web_sessions_user_idx on public.web_sessions (user_id
 alter table public.web_sessions enable row level security;
 -- Deliberately no policies: anon and authenticated get zero access, matching spec §5.1.
 
--- The 72h, revocable, bill-scoped authorisation link (spec §2.2, §2.9, §4.2). The token itself is
--- 128-bit random base62, stored ONLY hashed; the plaintext lives in the URL/QR alone. RLS is enabled
--- with no policies for now — the web-claim edge function (service key) is the only writer/reader.
--- The payer's in-app share/revoke screen (build-order step 6) adds a membership-scoped read/write
--- policy in its own migration; this one deliberately does not pre-grant broader access than step 1
--- needs, since a token_hash column is more sensitive than the rest of this permissive-RLS schema.
+-- Permanent, revocable, bill-scoped authorisation link (WEB_CLAIM_SPEC.md §2.2, §2.9, §4.2).
+-- The token and its SHA-256 hash are stored only behind membership-checked RPCs; RLS remains enabled
+-- with no policies. The edge function uses the hash, while active group members can recover the same
+-- token through create_web_bill_link so every device renders the same QR.
 create table if not exists public.web_bill_links (
   id text primary key,
   expense_id text not null,
   group_id text not null,
   token_hash text not null unique,
+  token text,
   created_by text not null,
   created_at bigint not null,
-  expires_at bigint not null,
+  expires_at bigint,
   revoked_at bigint,
   extended_count integer not null default 0,
   updated_at bigint not null,
@@ -1681,6 +1680,15 @@ create table if not exists public.web_bill_links (
 create index if not exists web_bill_links_expense_idx on public.web_bill_links (expense_id);
 create index if not exists web_bill_links_group_idx on public.web_bill_links (group_id);
 alter table public.web_bill_links enable row level security;
+revoke all on public.web_bill_links from anon, authenticated;
+alter table public.web_bill_links add column if not exists token text;
+alter table public.web_bill_links alter column expires_at drop not null;
+-- Existing QR codes were already shared. Keep currently live ones usable permanently; their token
+-- cannot be recovered from its old hash, so a second device may mint one new stable token on first open.
+update public.web_bill_links
+   set expires_at = null
+ where revoked_at is null
+   and expires_at > (extract(epoch from clock_timestamp()) * 1000)::bigint;
 
 -- A guest edit awaiting the payer's individual approval (spec §2.7, §5.2). This IS synced — the
 -- payer's app reads and decides on it (build-order step 6) — so per data/AGENTS.md the server
@@ -2087,17 +2095,11 @@ alter table public.web_claim_write_log enable row level security;
 
 -- ── Web claim — §11 step 6: the payer's in-app link lifecycle + claim progress ────────────────────
 --
--- `web_bill_links` still carries RLS-with-no-policies, deliberately, and this section is the reason the
--- earlier comment's "step 6 adds a membership-scoped table policy" plan was NOT taken. A table policy
--- would make `token_hash` readable by every authenticated user (RLS is still `using (true)` app-wide),
--- which is exactly the column that must never leave the server: the hash is the whole authorisation
--- check the edge function performs, and a leaked hash column is a leaked bill for 72 hours. So the app
--- reaches the table only through these `security definer` RPCs, each of which re-derives membership
--- itself and never returns the hash.
---
--- The plaintext token is minted HERE and returned exactly once (spec §4.2: it exists only in the URL
--- and the QR). The creating device keeps it in its own SecureStorage so it can re-render the QR;
--- nothing server-side can hand it back. A payer on a second device makes a new link, which rotates.
+-- `web_bill_links` retains RLS with zero policies. Its bearer token remains private to the table and is
+-- returned only through the `security definer` RPCs below, each of which re-derives active group
+-- membership. Every member of that group can recover the same permanent token; guests still receive it
+-- only by being handed the QR/link. The token is bill-scoped and remains live until revoked or the bill
+-- or group is deleted.
 
 -- Base62 over a bytea, most-significant byte first. Pure arithmetic on `numeric`, which is exact well
 -- past 2^128, so no precision is lost. Used only for link tokens; `immutable` so it can be inlined.
@@ -2158,15 +2160,16 @@ end;
 $$;
 revoke all on function public.web_bill_link_guard(text, text) from public, anon, authenticated;
 
--- Mint a link for a bill. Any live link on the same expense is revoked first, so a bill has at most one
--- usable token at a time and "make a new link" is genuinely a rotation rather than an extra open door.
--- Entropy comes from `gen_random_uuid()` (a CSPRNG, 122 bits) rather than the client: Kotlin/Native has
--- no crypto-grade RNG in commonMain, and a guessable bill token is a public read of someone's bill.
+-- Get or mint the bill's permanent link. The same token is returned to each active group member, so
+-- opening the QR screen on another device reuses the same code. RLS has no policies and the RPC repeats
+-- the membership guard before returning this bearer credential. Legacy active rows have token=null;
+-- keep their QR working and mint one stable token row alongside them on first open after migration.
+-- Entropy comes from `gen_random_uuid()` (a CSPRNG, 122 bits), never the client.
 create or replace function public.create_web_bill_link(
   p_expense_id text,
   p_actor text,
   p_now bigint,
-  p_ttl_ms bigint default 259200000   -- 72 hours (spec §2.2)
+  p_ttl_ms bigint default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -2176,29 +2179,40 @@ declare
   v_group_id text := public.web_bill_link_guard(p_expense_id, p_actor);
   v_token text := public.base62_encode(uuid_send(gen_random_uuid()));
   v_id text := gen_random_uuid()::text;
-  v_expires bigint := p_now + p_ttl_ms;
+  v_existing public.web_bill_links%rowtype;
 begin
-  update public.web_bill_links set
-      revoked_at = p_now, updated_at = p_now, row_version = row_version + 1
-    where expense_id = p_expense_id and revoked_at is null;
+  -- Serialise first opens so two members arriving together cannot mint competing stable links.
+  perform 1 from public.expenses where id = p_expense_id for update;
+
+  select * into v_existing from public.web_bill_links
+    where expense_id = p_expense_id
+      and revoked_at is null
+      and (expires_at is null or expires_at > p_now)
+      and token is not null
+    order by created_at desc
+    limit 1
+    for update;
+
+  if v_existing.id is not null then
+    return jsonb_build_object('id', v_existing.id, 'token', v_existing.token, 'expires_at', v_existing.expires_at);
+  end if;
 
   insert into public.web_bill_links (
-    id, expense_id, group_id, token_hash, created_by, created_at, expires_at, updated_at
+    id, expense_id, group_id, token_hash, token, created_by, created_at, expires_at, updated_at
   ) values (
     v_id, p_expense_id, v_group_id,
     encode(sha256(convert_to(v_token, 'utf8')), 'hex'),
-    p_actor, p_now, v_expires, p_now
+    v_token, p_actor, p_now, null, p_now
   );
 
-  -- The only time the plaintext is ever readable. The caller stores it device-locally or loses it.
-  return jsonb_build_object('id', v_id, 'token', v_token, 'expires_at', v_expires);
+  return jsonb_build_object('id', v_id, 'token', v_token, 'expires_at', null);
 end;
 $$;
 revoke all on function public.create_web_bill_link(text, text, bigint, bigint) from public, anon;
 grant execute on function public.create_web_bill_link(text, text, bigint, bigint) to authenticated;
 
--- Extend the live link's expiry without changing the token (spec E27: "new expiry on the same token,
--- no new QR"). No-op when there is nothing live to extend — the caller then offers "make a new link".
+-- Compatibility RPC for older clients. Bill links no longer expire, so this validates membership but
+-- never changes the permanent link or its expiry.
 create or replace function public.extend_web_bill_link(
   p_expense_id text,
   p_actor text,
@@ -2211,16 +2225,8 @@ set search_path = public
 as $$
 declare
   v_group_id text := public.web_bill_link_guard(p_expense_id, p_actor);
-  v_expires bigint;
 begin
-  update public.web_bill_links set
-      expires_at = p_now + p_ttl_ms,
-      extended_count = extended_count + 1,
-      updated_at = p_now,
-      row_version = row_version + 1
-    where expense_id = p_expense_id and revoked_at is null
-    returning expires_at into v_expires;
-  return jsonb_build_object('ok', v_expires is not null, 'expires_at', v_expires);
+  return jsonb_build_object('ok', true, 'expires_at', null);
 end;
 $$;
 revoke all on function public.extend_web_bill_link(text, text, bigint, bigint) from public, anon;

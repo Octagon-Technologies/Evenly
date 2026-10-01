@@ -10,7 +10,7 @@
  *   `?mock`               → an unknown visitor, group has placeholders → frame 1
  *   `?mock&as=new`        → no placeholders at all                     → frame 2
  *   `?mock&as=purity`     → a recognised returning guest               → frame 3
- *   `?mock&state=expired` → the link died                              → frame 9
+ *   `?mock&state=expired` → legacy expiry or temporary refusal          → frame 9
  *   `?mock&state=gone`    → revoked / deleted
  *   `?mock&race=payer`    → every "I paid" loses the causal race (spec E25)
  */
@@ -102,7 +102,6 @@ function header() {
     itemCount: ITEMS.length,
     claimedCount: new Set(state.claims.map((c) => c.item_id)).size,
     participantCount: state.participants.length,
-    expiresAt: Date.now() + 60 * 60 * 1000 * 40,
   };
 }
 

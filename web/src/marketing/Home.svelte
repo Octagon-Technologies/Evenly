@@ -97,7 +97,7 @@
         <h3>No app? Claim from a text link.</h3>
         <p>
           Scan the QR at the table. Pick your name, tap what you had, and you're done, right in a
-          browser, gone in 72 hours, no account made.
+          browser, available until the group turns the link off, no account needed.
         </p>
       </div>
       <div class="site-f-art">

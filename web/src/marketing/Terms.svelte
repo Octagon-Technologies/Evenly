@@ -65,7 +65,7 @@
       <p>
         A bill link lets someone claim items without creating an account. By claiming items, you're
         confirming to the group that you had them, and that the resulting share is accurate to your
-        knowledge. The link and its claims expire 72 hours after the bill was shared.
+        knowledge. The bill link remains available until a group member turns it off or the bill is deleted.
       </p>
     </section>
 

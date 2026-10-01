@@ -202,27 +202,18 @@ fun GroupExpensesRoute(
     val sharesById = remember(withShares) { withShares.associate { it.expense.id.value to it.shares } }
     val ui = buildGroupExpenses(group, filtered, members, userId, today, sharesById)
     val unresolved by remember(gid, userId) { bills.observeUnresolvedBills(gid, userId) }.collectAsStateWithLifecycle(emptyList())
+    // Priority surface only: a bill makes the list when lines are still unclaimed AND you haven't picked
+    // anything yet, so you might be one of the missing people. Bills you've already picked on, or where
+    // every line has an owner, are reachable from the bill itself and would just be noise here.
     val unresolvedUi =
-        unresolved.map { u ->
-            // Your own pick and the bill's progress are different facts: say which one is waiting.
-            val left = u.itemCount - u.resolvedCount
-            val sub =
-                when {
-                    u.youNeedToClaim && left > 0 -> "You can choose your items. Others are still picking too."
-                    u.youNeedToClaim -> "Every item is assigned. Check yours and mark done."
-                    left > 0 -> "You're done. ${if (left == 1) "1 item still needs" else "$left items still need"} someone."
-                    else -> "${u.stillToClaimCount} still to finish picking"
-                }
-            val progress =
-                if (u.itemCount >
-                    0
-                ) {
-                    "${u.resolvedCount} of ${u.itemCount} ${if (u.itemCount == 1) "item" else "items"} assigned"
-                } else {
-                    null
-                }
-            UnresolvedBillUi(u.expenseId.value, u.title, sub, u.youNeedToClaim, progress)
-        }
+        unresolved
+            .filter { it.unclaimedCount > 0 && it.youNeedToClaim && !it.youHavePicked }
+            .map { u ->
+                val sub =
+                    if (u.unclaimedCount == 1) "1 item has no one yet. Is it yours?" else "${u.unclaimedCount} items have no one yet. Any yours?"
+                val progress = "${u.resolvedCount} of ${u.itemCount} ${if (u.itemCount == 1) "item" else "items"} picked"
+                UnresolvedBillUi(u.expenseId.value, u.title, sub, progress)
+            }
     // Invite link (same source/format as Group settings): the token resolves once the group has synced.
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current

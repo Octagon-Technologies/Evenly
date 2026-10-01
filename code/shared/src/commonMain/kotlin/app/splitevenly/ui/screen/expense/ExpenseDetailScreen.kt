@@ -176,8 +176,10 @@ fun ExpenseDetailScreen(
     // Non-null only for an itemized bill. The summary-card "Edit bill" button opens the menu/items/extras
     // editor (Route.SplitBill); a plain expense instead gets "Edit expense" → onEdit.
     onEditBill: (() -> Unit)? = null,
-    // Item progress for an itemized bill; drives the "still needs someone" card beside onClaimItems.
+    // Item progress for an itemized bill; drives the "Who ordered what" card beside onClaimItems.
     billPick: BillPickUi? = null,
+    // Opens the bill's QR / share-link sheet from the "Who ordered what" card.
+    onShareItems: () -> Unit = {},
     // Track F one-sided nudge: this device's split edit was superseded by a newer one while it was behind.
     // Shows a dismissible banner inviting the author to review the current split (never a two-sided card).
     supersededNotice: Boolean = false,
@@ -204,6 +206,9 @@ fun ExpenseDetailScreen(
                 title = if (state == ExpenseDetailState.Error) "" else title,
                 sub = if (state == ExpenseDetailState.Content) category.ifBlank { null } else null,
                 onBack = onBack,
+                // An itemized bill's "Edit bill" (prices, tax, tip) is rare next to picking, so it lives up
+                // here and the summary-card slot goes to the "Who ordered what" card.
+                onEdit = if (state == ExpenseDetailState.Content) onEditBill else null,
             )
             when (state) {
                 ExpenseDetailState.Loading -> {
@@ -307,13 +312,24 @@ fun ExpenseDetailScreen(
                                 }
                                 Text(dateLabel, color = c.ink2, fontSize = 12.sp)
                             }
-                            EvButton(
-                                if (onEditBill != null) "Edit bill" else "Edit expense",
-                                onEditBill ?: onEdit,
-                                modifier = Modifier.padding(top = 14.dp),
-                                variant = ButtonVariant.Secondary,
-                                leadingIcon = EvIcons.Edit,
-                            )
+                            if (onEditBill == null) {
+                                EvButton(
+                                    "Edit expense",
+                                    onEdit,
+                                    modifier = Modifier.padding(top = 14.dp),
+                                    variant = ButtonVariant.Secondary,
+                                    leadingIcon = EvIcons.Edit,
+                                )
+                            }
+                        }
+
+                        // Itemized bill: picking is the frequent action here, so it sits right under the money.
+                        onClaimItems?.let { open ->
+                            if (billPick != null) {
+                                BillPickCard(billPick, onPick = open, onShare = onShareItems)
+                            } else {
+                                EvButton("Pick your items", open, variant = ButtonVariant.Tonal, leadingIcon = EvIcons.Receipt)
+                            }
                         }
 
                         // receipts
@@ -375,22 +391,6 @@ fun ExpenseDetailScreen(
                         // split breakdown
                         Column {
                             EvSectionLabel(splitLabel)
-                            // For an itemized bill, the split is derived from who claimed what — so give people an
-                            // obvious way to open the claim screen and change what they had. This is the durable
-                            // entry once the home "claim your items" card is gone.
-                            onClaimItems?.let { open ->
-                                if (billPick != null) {
-                                    BillPickCard(billPick, currencyCode, open, Modifier.padding(bottom = 10.dp))
-                                } else {
-                                    EvButton(
-                                        "Pick items on this bill",
-                                        open,
-                                        modifier = Modifier.padding(bottom = 10.dp),
-                                        variant = ButtonVariant.Tonal,
-                                        leadingIcon = EvIcons.Receipt,
-                                    )
-                                }
-                            }
                             EvCard {
                                 split.forEachIndexed { i, s ->
                                     val divider = if (i > 0) Modifier.topHairline(c.border) else Modifier
@@ -668,30 +668,12 @@ fun ExpenseDetailScreen(
                                 }
                             }
                         }
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(c.dangerTint)
-                                .border(1.dp, c.danger.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
-                                .clickable { confirmDelete = true }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                EvIcon(EvIcons.Trash, size = 19.dp, tint = c.danger)
-                                Text("Delete bill", color = c.danger, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                            Text(
-                                "Moves to Recently deleted for 30 days.",
-                                color = c.ink2,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(start = 29.dp),
-                            )
-                        }
+                        EvButton(
+                            "Delete bill",
+                            onClick = { confirmDelete = true },
+                            variant = ButtonVariant.Danger,
+                            leadingIcon = EvIcons.Trash,
+                        )
                         Box(Modifier.height(8.dp))
                     }
                 }
@@ -944,6 +926,7 @@ private fun EvTopBarDetail(
     title: String,
     sub: String?,
     onBack: () -> Unit,
+    onEdit: (() -> Unit)? = null,
 ) {
     val c = EvenlyTheme.colors
     Column(Modifier.fillMaxWidth().background(c.page)) {
@@ -957,6 +940,7 @@ private fun EvTopBarDetail(
                 if (title.isNotEmpty()) Text(title, color = c.ink, style = MaterialTheme.typography.titleLarge, maxLines = 1)
                 if (sub != null) Text(sub, color = c.ink2, fontSize = 12.sp)
             }
+            onEdit?.let { EvButton("Edit", it, variant = ButtonVariant.Text, leadingIcon = EvIcons.Edit) }
         }
         EvDivider()
     }

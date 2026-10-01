@@ -18,14 +18,11 @@ import kotlin.time.ExperimentalTime
 /**
  * [WebBillLinkRepository] over the `security definer` link RPCs.
  *
- * The only local state is the **plaintext token**, kept in [SecureStorage] keyed by expense. The server
- * stores it hashed and returns it exactly once (spec §4.2), so this cache is the sole reason the payer's
- * phone can still draw the QR tomorrow morning. It lives in SecureStorage rather than Room because it is
- * a bearer credential for one bill, not application data: it must never ride the sync push, and clearing
- * it on sign-out is the correct behaviour.
+ * The server stores a stable token and its hash behind an RLS-closed table plus membership-checked RPCs.
+ * [SecureStorage] is a local cache for quick rendering, not the source of truth, and the plaintext never
+ * enters Room or the sync payload.
  *
- * Losing the cache is a normal state, not an error — [WebBillLinkState.url] simply goes null while
- * `exists` stays true, and the screen offers "make a new link".
+ * Losing the cache is a normal state. `create` recovers the same token from the guarded RPC.
  */
 @OptIn(ExperimentalTime::class)
 class WebBillLinkRepositoryImpl(
@@ -45,12 +42,6 @@ class WebBillLinkRepositoryImpl(
             // Store BEFORE reporting success. A crash between the two would leave a live link this device
             // can never render, which is exactly the state the token cache exists to prevent.
             storage.putString(tokenKey(expenseId), created.token)
-            gw.status(expenseId.value, actor.value).toState(expenseId)
-        }
-
-    override suspend fun extend(expenseId: ExpenseId, actor: UserId): AppResult<WebBillLinkState> =
-        call { gw ->
-            gw.extend(expenseId.value, actor.value, clock.nowEpochMillis())
             gw.status(expenseId.value, actor.value).toState(expenseId)
         }
 
@@ -85,7 +76,6 @@ class WebBillLinkRepositoryImpl(
                 createdAt = createdAt,
                 expiresAt = expiresAt,
                 revokedAt = revokedAt,
-                extendedCount = extendedCount,
                 openedAtByUser = sessions.associate { UserId(it.userId) to it.openedAt },
             ),
         )

@@ -169,12 +169,12 @@ rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
 
 - **`web_sessions`** — browser-to-placeholder binding, group-scoped and durable. RLS enabled, **zero**
   policies: only the `web-claim` edge function's service key ever touches it.
-- **`web_bill_links`** — the 72h revocable bill token, stored hashed. RLS enabled, **zero policies,
+- **`web_bill_links`** — the permanent-until-revoked bill token and hash. RLS enabled, **zero policies,
   permanently.** Step 6 was planned to add a membership-scoped table policy and deliberately did not,
   and tightening the rest of the schema did **not** change that: `token_hash` is the entire
-  authorisation check `web-claim` performs, so a member-readable policy would hand every member of a
-  group a working bearer token for its bills. Zero policies is the design, not a gap left to fill. The
-  app reaches the table only through the `security definer` RPCs below, none of which return the hash.
+    authorisation check `web-claim` performs. Zero policies is the design, not a gap left to fill. The
+    app reaches the table only through membership-checked `security definer` RPCs; the stable token is
+    returned to active group members so every device can show the same QR, never through table reads.
 - **`pending_item_edits`** — the bill's change log: a guest's add/relabel/reprice/requantify/remove,
   written **already `APPLIED`**. The name predates the drop of the approval gate
   (`WEB_CLAIM_PATCH_PLAN.md`) and the table is synced, so renaming it costs more than it explains.
@@ -199,15 +199,20 @@ rate-limit log, mirroring `receipt_scan_log`), landed with step 3.
 - **`create_web_bill_link` / `extend_web_bill_link` / `revoke_web_bill_link` / `web_bill_link_status`
   (`expense_id, actor[, now, ttl_ms]`)** — step 6's payer-side link lifecycle. All four share
   `web_bill_link_guard`, which re-derives ACTIVE membership of the expense's group and refuses to act
-  as anyone but `auth.uid()`. **The plaintext token is minted server-side and returned exactly once**:
+  as anyone but `auth.uid()`. `create_web_bill_link` returns the existing active token, or mints a
+  permanent one if needed. It takes an expense-row lock so simultaneous group-member opens converge on
+  one token. New tokens are stored both hashed (for the edge lookup) and plaintext behind this RLS-closed
+  table, so a membership-checked RPC can return the same token to every active group member:
   `gen_random_uuid()` through `base62_encode` (Kotlin/Native has no crypto-grade RNG in `commonMain`,
-  and a guessable bill token is a public read of someone's bill). It is stored only as
+  and a guessable bill token is a public read of someone's bill). The hash is stored as
   `encode(sha256(convert_to(token,'utf8')),'hex')` — byte-identical to the edge function's `sha256Hex`,
-  which is what makes a token minted here resolve there. The creating device keeps the plaintext in its
-  own `SecureStorage`; **nothing can hand it back**, so a payer on a second device sees a live link with
-  no QR and is offered a rotation. `create_*` revokes any live link on the same bill first, so a bill
-  has at most one usable token. `web_bill_link_status` also returns per-participant `web_sessions`
-  activity — the one fact Room cannot hold, since that table is service-key-only.
+  which is what makes a token resolve there. `web_bill_links` remains RLS-enabled with zero policies and
+  no client table grants. The app caches the token in `SecureStorage`; another device recovers it through
+  `create_web_bill_link`. Live legacy tokens were stored hash-only, so they remain valid while first
+  use of the updated app creates one additional stable token for all future devices. `extend` is a
+  no-op compatibility RPC; expiry is nullable and new links never expire. `web_bill_link_status` also
+  returns per-participant `web_sessions` activity — the one fact Room cannot hold, since that table is
+  service-key-only.
 - **`claim_web_placeholder(group_id, placeholder_user_id, session_id, session_token_hash, now)`** —
   "first wins" for a web guest's "That's me", but unlike `claim_placeholder` it's a **5-second race
   window**, not a permanent lock: a guest may legitimately re-claim the same placeholder from a second

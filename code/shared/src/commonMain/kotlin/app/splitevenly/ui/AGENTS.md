@@ -85,8 +85,8 @@ ShareCost-era and is fully retired; do not reintroduce it.
 - **Owe/owed colors are deliberate, not a bug:** amber for "you owe", green for "you're owed / settled". The
   palette intentionally departs from the "never green" principle *only* for settle-up states. Audit for
   consistency; do not revert these to blue.
-- **Sheets:** `EvDragSheet` is the no-dim, draggable sheet; `EvSheetScaffold` is the dimmed one. Pick by
-  whether the content behind should stay legible.
+- **Sheets:** `EvDragSheet` is draggable; `EvSheetScaffold` is fixed-height. Both leave the page behind
+  unchanged by default. Use `dimBackground = true` on `EvSheetScaffold` only when a dimmed backdrop is intended.
 
 ## Copy rules
 
@@ -141,8 +141,8 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   **A notification that clears itself needs a durable door beside it** — the "What changed" row in
   the assign screen's ⋯ menu is that door. Without it, reading the banner once puts the record of who changed
   what, and the undo with it, permanently out of reach. Found by walking the screen, not by reading it.
-- **The bill QR and the group invite are different links and stay apart.** Per-expense, 72 hours,
-  no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button.
+- **The bill QR and the group invite are different links and stay apart.** Per-expense, permanent until
+  revoked, no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button.
   The scope reassurance under it ("this bill only") is not decoration: the payer is deciding whether to
   pass a URL into their finances round a table.
 - **"Hasn't opened the link" is only said about someone without the app.** An app member who simply
@@ -155,7 +155,9 @@ chips; larger groups collapse to a summary row that opens a searchable member-pi
 selection state either way.
 
 **Group home surfaces unresolved bills.** The "Needs your pick" card is fed by
-`BillRepository.observeUnresolvedBills`; tapping one opens the `FinishBill` chooser. Item progress and your
+`BillRepository.observeUnresolvedBills`, filtered to bills with an unclaimed line where you are a participant
+who has picked nothing yet (you may be one of the missing people). Bills you've picked on live on the bill
+itself, not here. Tapping one opens the `FinishBill` chooser. Item progress and your
 own done state are separate facts and the copy keeps them apart. A bill is unresolved when a line still needs someone *or* a participant hasn't marked
 done — **claiming is not paying.**
 

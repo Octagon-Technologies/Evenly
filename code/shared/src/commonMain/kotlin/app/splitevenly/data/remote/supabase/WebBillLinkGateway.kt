@@ -21,20 +21,16 @@ private data class LinkStatusParams(
     @SerialName("p_actor") val pActor: String,
 )
 
-/** The one and only time the plaintext token is readable (spec §4.2). */
+/** Returned only to an authenticated active group member through the guarded RPC. */
 @Serializable
 data class WebBillLinkCreated(
     val id: String,
     val token: String,
-    @SerialName("expires_at") val expiresAt: Long,
-)
-
-/** `{ok, expires_at}` from extend; `{ok}` from revoke. */
-@Serializable
-data class WebBillLinkAck(
-    val ok: Boolean,
     @SerialName("expires_at") val expiresAt: Long? = null,
 )
+
+@Serializable
+data class WebBillLinkAck(val ok: Boolean)
 
 /** One participant's newest live web-session activity in this group. */
 @Serializable
@@ -51,7 +47,6 @@ data class WebBillLinkStatusDto(
     @SerialName("created_at") val createdAt: Long? = null,
     @SerialName("expires_at") val expiresAt: Long? = null,
     @SerialName("revoked_at") val revokedAt: Long? = null,
-    @SerialName("extended_count") val extendedCount: Int = 0,
     val sessions: List<WebSessionSeen> = emptyList(),
 )
 
@@ -59,10 +54,9 @@ data class WebBillLinkStatusDto(
  * The payer's half of the web claim link (`WEB_CLAIM_SPEC.md` §3.9.3), reached only through
  * `security definer` RPCs.
  *
- * `web_bill_links` has RLS enabled with **no policies** and must keep it. A table policy would expose
- * `token_hash` to every authenticated user — and that hash is the entire authorisation check the
- * `web-claim` edge function performs, so a readable hash column is a readable bill for 72 hours. These
- * RPCs re-derive group membership themselves and never return the hash.
+ * `web_bill_links` has RLS enabled with **no policies** and must keep it. The table contains the
+ * permanent bearer token and its hash; only membership-checked RPCs return the token to group members.
+ * The edge function uses the hash, and direct table reads remain closed.
  *
  * Bound only when Supabase is configured, same pattern as [PlaceholderClaimGateway]. Throws on failure:
  * a link is an authorisation, and "couldn't ask" must never be reported to the payer as "revoked".
@@ -70,7 +64,6 @@ data class WebBillLinkStatusDto(
 interface WebBillLinkGateway {
     suspend fun status(expenseId: String, actor: String): WebBillLinkStatusDto
     suspend fun create(expenseId: String, actor: String, now: Long): WebBillLinkCreated
-    suspend fun extend(expenseId: String, actor: String, now: Long): WebBillLinkAck
     suspend fun revoke(expenseId: String, actor: String, now: Long): WebBillLinkAck
 }
 
@@ -85,10 +78,6 @@ class SupabaseWebBillLinkGateway(
     override suspend fun create(expenseId: String, actor: String, now: Long): WebBillLinkCreated = client.postgrest
         .rpc("create_web_bill_link", LinkActionParams(expenseId, actor, now))
         .decodeAs<WebBillLinkCreated>()
-
-    override suspend fun extend(expenseId: String, actor: String, now: Long): WebBillLinkAck = client.postgrest
-        .rpc("extend_web_bill_link", LinkActionParams(expenseId, actor, now))
-        .decodeAs<WebBillLinkAck>()
 
     override suspend fun revoke(expenseId: String, actor: String, now: Long): WebBillLinkAck = client.postgrest
         .rpc("revoke_web_bill_link", LinkActionParams(expenseId, actor, now))

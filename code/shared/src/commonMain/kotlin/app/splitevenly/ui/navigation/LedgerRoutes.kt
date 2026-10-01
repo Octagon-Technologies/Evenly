@@ -559,9 +559,11 @@ fun ExpenseDetailRoute(
     expenseId: String,
     onBack: () -> Unit,
     onEdit: () -> Unit = {},
-    // Where "Pick items" goes for an ITEMIZED bill: the saved-bill chooser (Route.FinishBill).
+    // Where "Pick your items" / "Change picks" goes for an ITEMIZED bill: the assign screen (Route.ClaimBill).
     onOpenClaim: () -> Unit = {},
-    // The itemized bill's menu/items/extras editor (Route.SplitBill) — surfaced in the summary card.
+    // The bill's QR / share-link sheet (Route.ShareBillLink).
+    onShareItems: () -> Unit = {},
+    // The itemized bill's menu/items/extras editor (Route.SplitBill), surfaced as the top-bar "Edit".
     onEditBill: () -> Unit = {},
     onDeleted: () -> Unit = {},
 ) {
@@ -690,7 +692,7 @@ fun ExpenseDetailRoute(
         amountSubunits = e.amountSubunits,
         remainingSubunits = ews.shares.sumOf { it.remainingSubunits } + unclaimedSubunits,
         currencyCode = e.currency,
-        splitLabel = if (isItemized) "Split by items · ${ews.shares.size} claimed" else "Split between ${ews.shares.size} · ${e.splitMode.lowercase()}",
+        splitLabel = if (isItemized) "What each person owes" else "Split between ${ews.shares.size} · ${e.splitMode.lowercase()}",
         splitRows = rows,
         payments = paymentUi,
         receipts = receiptUi,
@@ -721,6 +723,7 @@ fun ExpenseDetailRoute(
         onEdit = onEdit,
         onClaimItems = if (isItemized) onOpenClaim else null,
         billPick = billPick,
+        onShareItems = onShareItems,
         onEditBill = if (isItemized) onEditBill else null,
         supersededNotice = supersededNotice,
         onDismissSupersededNotice = { scope.launch { expenses.dismissSupersededNotice(eid) } },

@@ -444,7 +444,7 @@ export class ClaimStore {
 
   #handle(e: unknown): void {
     if (e instanceof ApiError && e.isTerminal) {
-      // E26: expiry mid-session. Writes stop; the amount and the way to pay it stay (frame 9).
+      // A terminal or temporary link refusal stops writes; keep the amount and payment option visible.
       this.stopPolling();
       this.phase = e.code === 'EXPIRED' ? 'expired' : 'gone';
       return;

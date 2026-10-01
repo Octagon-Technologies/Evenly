@@ -59,12 +59,9 @@ fun rememberBillPick(
     }.collectAsStateWithLifecycle(null)
     val view = bill ?: return null
     val p = view.progress()
-    val assigned = view.tabByUser.values.sum()
     return BillPickUi(
         itemCount = p.itemCount,
         resolvedCount = p.resolvedCount,
-        assignedSubunits = assigned,
-        notAssignedSubunits = (view.expense.amountSubunits - assigned).coerceAtLeast(0L),
-        meDone = me != null && view.participants.any { it.userId == me && it.doneAt != null },
+        mePicked = me != null && (view.tabByUser[me] ?: 0L) > 0L,
     )
 }

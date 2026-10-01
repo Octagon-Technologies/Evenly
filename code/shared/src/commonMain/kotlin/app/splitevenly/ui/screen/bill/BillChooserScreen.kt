@@ -139,7 +139,7 @@ private fun Hero(returning: Boolean) {
     val c = EvenlyTheme.colors
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(56.dp).clip(RoundedCornerShape(17.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-            EvIcon(if (returning) EvIcons.Reload else EvIcons.Split, size = 26.dp, tint = c.blueText)
+            EvIcon(if (returning) EvIcons.Edit else EvIcons.Split, size = 26.dp, tint = c.blueText)
         }
         Text(
             if (returning) "Continue picking items" else "How should everyone pick their items?",

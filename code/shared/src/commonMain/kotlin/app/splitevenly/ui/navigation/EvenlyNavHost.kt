@@ -151,7 +151,9 @@ fun EvenlyNavHost(
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onEdit = { navController.navigate(Route.EditExpense(r.groupId, r.expenseId)) },
-                onOpenClaim = { navController.navigate(Route.FinishBill(r.groupId, r.expenseId)) },
+                // The card's own Share button covers the QR path, so picking skips the chooser.
+                onOpenClaim = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
+                onShareItems = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
                 onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
                 onDeleted = { navController.popBackStack() },
             )
@@ -253,7 +255,6 @@ fun EvenlyNavHost(
                 onBack = { navController.popBackStack() },
                 // The group invite is the OTHER link (§2.9) and lives with the group, not the bill.
                 onInviteToGroup = { navController.navigate(Route.GroupSettings(r.groupId)) },
-                onAssignOnPhone = { navController.openAssign(r.groupId, r.expenseId, null) },
                 onSeeProgress = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
             )
         }

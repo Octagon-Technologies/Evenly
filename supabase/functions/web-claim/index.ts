@@ -109,7 +109,7 @@ function serviceClient(): SupabaseClient {
 // ── Link/session resolution — the one place every action proves its scope (spec §4.2, §4.3) ──────
 
 interface LinkContext {
-  link: { id: string; token_hash: string; expense_id: string; group_id: string; expires_at: number; revoked_at: number | null };
+  link: { id: string; token_hash: string; expense_id: string; group_id: string; expires_at: number | null; revoked_at: number | null };
   expense: Record<string, unknown>;
   group: Record<string, unknown>;
 }
@@ -129,7 +129,7 @@ async function resolveLink(sb: SupabaseClient, token: string | undefined): Promi
   const { data: group } = await sb.from("groups").select("*").eq("id", link.group_id).maybeSingle();
   if (!group || group.deleted_at) return err("GONE", 404, "group deleted");
 
-  if (link.expires_at <= Date.now()) return err("EXPIRED", 410);
+  if (link.expires_at !== null && link.expires_at <= Date.now()) return err("EXPIRED", 410);
 
   return { link, expense, group };
 }
@@ -239,7 +239,7 @@ async function isWriteRateLimited(sb: SupabaseClient, tokenHash: string): Promis
 
 /** Records a write against the per-token budget, and drops that token's own rows older than the window
  *  it is measured over. Without the prune this table only ever grows: it is pure abuse-mitigation
- *  bookkeeping, nothing reads a row older than 60s, and a bill link lives 72 hours. The delete is
+ *  bookkeeping, nothing reads a row older than 60s. The delete is
  *  scoped to one token's expired rows — never a bare or prefix-wide DELETE (`supabase/AGENTS.md`). */
 async function logWrite(sb: SupabaseClient, tokenHash: string, now: number) {
   await sb.from("web_claim_write_log").insert({ id: newId(), token_hash: tokenHash, created_at: now });
@@ -290,7 +290,6 @@ async function buildHeader(sb: SupabaseClient, ctx: LinkContext) {
     itemCount: itemCount ?? 0,
     claimedCount: claimedCount ?? 0,
     participantCount: participantCount ?? 0,
-    expiresAt: ctx.link.expires_at,
   };
 }
 

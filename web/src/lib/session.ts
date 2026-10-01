@@ -1,9 +1,9 @@
 /**
- * Identity is group-scoped and durable; authorisation is bill-scoped and expires (spec §2.2).
+ * Identity is group-scoped and durable; bill authorisation stays live until revoked (spec §2.2).
  *
  * This file owns the durable half: a browser token that says "I am Purity in this group", kept so a
- * guest recognised at Ramen night is still recognised at Sunday roast, long after the Ramen night
- * link is dead. It stores nothing about the bill itself.
+ * guest recognised at Ramen night is still recognised at Sunday roast, independently of either bill
+ * link. It stores nothing about the bill itself.
  *
  * `localStorage`, not a cookie: the token is sent explicitly in the request body, so there is no
  * ambient credential for a cross-site request to ride on.

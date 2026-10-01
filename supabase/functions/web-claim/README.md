@@ -49,11 +49,11 @@ Payer-role assignment above is the one spec'd behaviour (§3.8, E24, E25) with n
 
 ## Security notes
 
-- Every action re-resolves the token from scratch (`resolveLink`): exists, not revoked, not expired,
+- Every action re-resolves the token from scratch (`resolveLink`): exists, not revoked, not expired (legacy links only),
   bill not deleted, group not deleted (spec §4.2). Nothing is cached across requests.
 - A session token resolves to a placeholder **scoped to the link's group**, not the bill — identity is
-  group-scoped and durable (spec §2.2), so a guest recognised at Ramen night is still recognised at
-  Sunday roast even after the Ramen night link expires.
+  group-scoped and durable (spec §2.2), so a guest recognised at Ramen night is still recognised in
+  that group even after the Ramen night bill link is revoked.
 - **The read-only gate lives in `resolveSession`, not in the landing action.** Once
   `members.placeholder_claim_completed_at` is stamped, every write path has to refuse (spec E10, §4.4);
   putting the check only where the landing screen is chosen left `claim`/`join`/`edit`/`done` writing as
@@ -68,8 +68,8 @@ Payer-role assignment above is the one spec'd behaviour (§3.8, E24, E25) with n
   "Joining someone else's claim").
 - Rate limits (spec §4.5): 120 writes/min per token (`web_claim_write_log`, best-effort — this is abuse
   mitigation, not a financial guardrail, so a logging hiccup must not lock a guest out of claiming their
-  own dinner; each write also prunes that token's own rows older than 5 min, so the log doesn't grow for
-  the life of a 72h link), 40 placeholders **per group** (the schema scopes placeholders to a group, not
+  own dinner; each write also prunes that token's own rows older than 5 min, so the log doesn't grow with
+  a permanent link), 40 placeholders **per group** (the schema scopes placeholders to a group, not
   a bill — see `supabase/AGENTS.md`), 200 items per bill (existing + unresolved pending `ADD`s).
 - Every write checks its own error and reports it. A guest gets no offline mode and no optimistic
   success (spec §6): if a claim did not land, the response has to say so, or she walks away from the

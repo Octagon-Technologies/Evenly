@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * Frame 9 — expiry without a dead end (spec §3.1, E26).
+   * Read-only link state without a dead end (legacy expiry or temporary rate limit; spec §3.1).
    *
    * Writes stop; the amount and the way to pay it stay. Paying is the primary action because it is
    * the only thing left worth doing here, and the install line stays a footnote even on the screen
@@ -21,8 +21,8 @@
 <div class="page">
   <div class="scroll">
     <div class="hdr" style="padding-bottom:10px">
-      <div class="h2">This link has expired</div>
-      <div class="sub">Claiming closed 72 hours after the bill was scanned.</div>
+      <div class="h2">This link can't be used right now</div>
+      <div class="sub">Ask someone in the group to share the bill QR again.</div>
     </div>
 
     {#if knowsTotal}
@@ -39,7 +39,7 @@
     {/if}
 
     <div class="note note--blue">
-      Need to change something? <b>Ask {payerName}</b> to reopen it.
+      Need to change something? <b>Ask {payerName}</b> to reopen the bill link.
     </div>
 
     {#if store.bill?.payer.handle}

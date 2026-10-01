@@ -52,7 +52,6 @@ export interface BillHeader {
   itemCount: number;
   claimedCount: number;
   participantCount: number;
-  expiresAt: number;
 }
 
 export interface Evidence {

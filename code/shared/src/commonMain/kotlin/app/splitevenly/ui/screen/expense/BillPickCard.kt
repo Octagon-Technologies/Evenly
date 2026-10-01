@@ -4,121 +4,130 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
-import app.splitevenly.ui.components.moneySubunits
-import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /** An itemized bill's picking state, for expense details. */
 data class BillPickUi(
     val itemCount: Int,
     val resolvedCount: Int,
-    val assignedSubunits: Long,
-    val notAssignedSubunits: Long,
-    val meDone: Boolean,
+    /** The viewer holds at least one claim or shared portion, whoever assigned it. */
+    val mePicked: Boolean,
 )
 
 /**
- * The durable door back into picking on a saved bill (frame 8). While lines remain it says how many and
- * splits the money into assigned vs not, keeping the viewer's own done state separate from the bill's:
- * being done with your picks does not mean the bill is. Leaving the bill never implies it is paid.
+ * "Who ordered what": the bill's hub for the three frequent jobs (pick your own, pick for someone else, share
+ * the QR). The title never changes so people learn where it lives; the primary button walks three stages
+ * whose fill steps down as the work shrinks: solid blue "Pick your items" (you haven't picked), tonal blue
+ * "Change picks" (you have, others haven't), neutral "Change picks" (every item claimed). Share gets its own
+ * button because it is the one job nobody guesses lives behind a "change" action.
  */
 @Composable
 internal fun BillPickCard(
     pick: BillPickUi,
-    currencyCode: String,
-    onOpen: () -> Unit,
+    onPick: () -> Unit,
+    onShare: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
-    val left = pick.itemCount - pick.resolvedCount
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (left > 0) {
-            val shape = RoundedCornerShape(12.dp)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(shape)
-                    .background(c.warningTint)
-                    .border(1.dp, c.warning.copy(alpha = 0.3f), shape)
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    if (left == 1) "1 item still needs someone" else "$left items still need someone",
-                    color = c.warning,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    if (pick.meDone) {
-                        "You have assigned your items. Others can pick theirs later."
-                    } else {
-                        "Pick yours when you're ready. Others can pick theirs too."
-                    },
-                    color = c.ink2,
-                    fontSize = 12.5.sp,
-                )
-                MoneyLine("Assigned so far", moneySubunits(pick.assignedSubunits, currencyCode), Modifier.padding(top = 6.dp))
-                MoneyLine("Not assigned yet", moneySubunits(pick.notAssignedSubunits, currencyCode))
-            }
-        }
-        EvCard {
-            Row(
-                Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+    val allClaimed = pick.itemCount > 0 && pick.resolvedCount >= pick.itemCount
+    val fraction = if (pick.itemCount == 0) 0f else pick.resolvedCount.toFloat() / pick.itemCount
+    EvCard(modifier) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(c.blueTint),
+                    contentAlignment = Alignment.Center,
+                ) { EvIcon(EvIcons.Receipt, size = 18.dp, tint = c.blueText) }
                 Column(Modifier.weight(1f)) {
-                    Text("Pick items on this bill", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Who ordered what", color = c.ink, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "${pick.resolvedCount} of ${pick.itemCount} ${if (pick.itemCount == 1) "item" else "items"} assigned",
-                        color = c.ink3,
-                        fontSize = 12.sp,
+                        "${pick.resolvedCount} of ${pick.itemCount} claimed",
+                        color = if (allClaimed) c.settled else c.blueText,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
                     )
                 }
-                Text(
-                    if (left >
-                        0
-                    ) {
-                        "Claim items"
-                    } else {
-                        "Change items"
-                    },
-                    color = c.blueText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+            }
+            Box(
+                Modifier.padding(vertical = 12.dp).fillMaxWidth().height(5.dp).clip(RoundedCornerShape(999.dp)).background(c.border),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (allClaimed) c.settled else c.blue),
                 )
-                EvIcon(EvIcons.ChevR, size = 14.dp, tint = c.blueText)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    !pick.mePicked -> PickButton("Pick your items", EvIcons.User, c.blue, c.onAccent, Color.Transparent, onPick)
+                    !allClaimed -> PickButton("Change picks", EvIcons.Users, c.blueTint, c.blueText, Color.Transparent, onPick)
+                    else -> PickButton("Change picks", EvIcons.Users, c.surface, c.ink, c.border, onPick)
+                }
+                Row(
+                    Modifier
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                        .clickable(onClick = onShare)
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    EvIcon(EvIcons.Qr, size = 16.dp, tint = c.blueText)
+                    Text("Share", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MoneyLine(
+private fun RowScope.PickButton(
     label: String,
-    amount: String,
-    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    bg: Color,
+    fg: Color,
+    border: Color,
+    onClick: () -> Unit,
 ) {
-    val c = EvenlyTheme.colors
-    Row(modifier.fillMaxWidth().topHairline(c.warning.copy(alpha = 0.2f)).padding(top = 6.dp)) {
-        Text(label, color = c.ink2, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(amount, color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily)
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        Modifier
+            .weight(1f)
+            .height(42.dp)
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
+    ) {
+        EvIcon(icon, size = 16.dp, tint = fg)
+        Text(label, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
 }

@@ -7,8 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
@@ -316,8 +314,6 @@ fun BillClaimProgressRoute(
 // ── 3. Share the link ────────────────────────────────────────────────────────────────────────────
 
 /** Milliseconds in an hour, for the "open for N hours" line. */
-private const val HOUR_MS = 3_600_000L
-
 /**
  * "Let everyone claim" — the QR, the link, and the link's lifecycle (§3.9.3, E26–E30).
  *
@@ -332,43 +328,55 @@ fun ShareBillLinkRoute(
     expenseId: String,
     onBack: () -> Unit,
     onInviteToGroup: () -> Unit,
-    onAssignOnPhone: () -> Unit,
     onSeeProgress: () -> Unit,
 ) {
     val bills = koinInject<BillRepository>()
     val links = koinInject<WebBillLinkRepository>()
     val auth = koinInject<AuthSession>()
     val share = koinInject<PlatformShare>()
-    val clipboard = LocalClipboardManager.current
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val bill by remember(eid) { bills.observeBill(eid) }.collectAsStateWithLifecycle(null)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
     var linkState by remember { mutableStateOf(WebBillLinkState.None) }
-    var busy by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(true) }
     var notice by remember { mutableStateOf<String?>(null) }
 
     val me = userId
     LaunchedEffect(eid, me) {
-        val actor = me ?: return@LaunchedEffect
+        val actor = me ?: run {
+            busy = false
+            return@LaunchedEffect
+        }
         busy = true
+        linkState = WebBillLinkState.None
+        notice = null
         when (val result = links.status(eid, actor)) {
-            is AppResult.Ok -> linkState = result.value
+            is AppResult.Ok -> {
+                linkState = result.value
+                val shouldCreateOrRecover =
+                    result.value.revokedAt == null &&
+                        (!result.value.isLive(Clock.System.nowEpochMillis()) || result.value.url == null)
+                if (shouldCreateOrRecover) {
+                    when (val created = links.create(eid, actor)) {
+                        is AppResult.Ok -> linkState = created.value
+                        is AppResult.Err -> notice = "Couldn't create the QR. Check your connection and try again."
+                    }
+                }
+            }
             is AppResult.Err -> notice = "Couldn't check the link. Check your connection."
         }
         busy = false
     }
 
     val view = bill ?: return
-    val now = Clock.System.nowEpochMillis()
     val state =
         ShareBillLinkState(
             billTitle = view.expense.title,
             url = linkState.url,
             exists = linkState.exists,
             revoked = linkState.revokedAt != null,
-            hoursLeft = linkState.expiresAt?.let { ((it - now) / HOUR_MS).coerceAtLeast(0L) },
             busy = busy,
             itemCount = view.items.size,
         )
@@ -399,16 +407,13 @@ fun ShareBillLinkRoute(
         state = state,
         onBack = onBack,
         onCreate = { act("Couldn't make the link. Check your connection and try again.") { links.create(eid, it) } },
-        onExtend = { act("Couldn't extend the link. Check your connection and try again.") { links.extend(eid, it) } },
         onRevoke = { act("Couldn't turn the link off. Check your connection and try again.") { links.revoke(eid, it) } },
         onShare = {
             linkState.url?.let {
                 share.shareText("Pick what you had on ${view.expense.title}: $it", view.expense.title)
             }
         },
-        onCopy = { linkState.url?.let { clipboard.setText(AnnotatedString(it)) } },
         onInviteToGroup = onInviteToGroup,
-        onAssignOnPhone = onAssignOnPhone,
         onSeeProgress = onSeeProgress,
         notice = notice,
         onDismissNotice = { notice = null },
