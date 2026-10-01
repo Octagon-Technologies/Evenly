@@ -22,7 +22,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.EvCard
@@ -101,18 +100,10 @@ internal fun BillPickCard(
                     .border(1.dp, c.border, RoundedCornerShape(8.dp))
                     .clickable(onClick = onShare),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
+                horizontalArrangement = Arrangement.Center,
             ) {
-                EvIcon(EvIcons.Qr, size = 16.dp, tint = c.blueText)
                 Text("Let friends pick their items", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
-            Text(
-                "Opens a QR for this bill only. No app or account needed.",
-                color = c.ink2,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }

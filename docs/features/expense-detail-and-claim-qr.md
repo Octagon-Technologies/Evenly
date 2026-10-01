@@ -78,8 +78,8 @@ show the group name with a generic fallback) · `00d4b54` T7 · `f6e3f3a` T4.
 `EvCard(padded)` like the split card (`ExpenseDetailScreen.kt`). Checked on the iOS simulator in dark.
 Light was not toggled on the simulator; the cards use the same theme tokens as the split card.
 
-**T4 (app).** `BillPickCard` now has a full-width "Let friends pick their items" button plus "Opens a QR for
-this bill only. No app or account needed."; `BillShareLinkScreen` top bar says the same; the group sheet is
+**T4 (app).** `BillPickCard` now has a full-width "Let friends pick their items" text button (no icon, no caption:
+owner review 2026-10-01) under "Change picks"; `BillShareLinkScreen` top bar says the same; the group sheet is
 titled "Invite to group" with "Anyone with this link joins <group>. To split just one bill, share that bill's
 QR instead." Verified on the iOS simulator. Note `GroupExpensesTab.kt` InviteSheet (~L371) is also touched by
 `fb/group-surface`; the hunk here is two lines.
