@@ -22,6 +22,8 @@ import app.splitevenly.data.claim.ClaimStatus
 import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
 import app.splitevenly.data.db.dao.ShareDao
+import app.splitevenly.data.remote.supabase.HydrationTracker
+import app.splitevenly.data.remote.supabase.ListReadiness
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.balance.Debt
 import app.splitevenly.domain.balance.OutstandingItem
@@ -200,7 +202,11 @@ fun GroupExpensesRoute(
     val today = remember { Clock.System.todayUtc() }
     val filtered = applyFilter(expenseList, filter, today)
     val sharesById = remember(withShares) { withShares.associate { it.expense.id.value to it.shares } }
-    val ui = buildGroupExpenses(group, filtered, members, userId, today, sharesById)
+    val hydration = koinInject<HydrationTracker>()
+    val readiness by remember(userId, groupId) {
+        userId?.let { hydration.observeGroupReadiness(it.value, groupId) } ?: flowOf(ListReadiness.Ready)
+    }.collectAsStateWithLifecycle(ListReadiness.Waiting)
+    val ui = buildGroupExpenses(group, filtered, members, userId, today, sharesById, readiness)
     val unresolved by remember(gid, userId) { bills.observeUnresolvedBills(gid, userId) }.collectAsStateWithLifecycle(emptyList())
     // Priority surface only: a bill makes the list when lines are still unclaimed AND you haven't picked
     // anything yet, so you might be one of the missing people. Bills you've already picked on, or where
@@ -330,6 +336,7 @@ fun GroupExpensesRoute(
         groupEmoji = ui.groupEmoji,
         groupName = ui.groupName,
         state = ui.state,
+        onRetry = { userId?.let { me -> scope.launch { hydration.retry(me.value) } } },
         days = ui.days,
         drafts = 0,
         filterActive = filter.isActive,

@@ -329,7 +329,10 @@ class SupabaseAuthSession(
                     // Best-effort: a failure here must not strand the user signed-in-but-wiped. Room is a
                     // cache of server truth, so the worst case is a stale row that the next account's pull
                     // overwrites — whereas refusing to sign out because a DELETE failed is a dead end.
-                    if (question == null) runCatching { signOutWipeDao?.wipeSignedOutAccount() }
+                    if (question == null) {
+                        runCatching { signOutWipeDao?.wipeSignedOutAccount() }
+                        engine.hydration.forget(userId)
+                    }
                     question
                 }
             if (question != null) {

@@ -45,9 +45,9 @@ import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvDot
+import app.splitevenly.ui.components.EvEmptyState
 import app.splitevenly.ui.components.EvSectionLabel
 import app.splitevenly.ui.components.EvSheetScaffold
-import app.splitevenly.ui.components.EvSkeletonRow
 import app.splitevenly.ui.components.groupIconLabel
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
@@ -69,7 +69,13 @@ data class GroupCardUi(
 enum class GroupBalanceStatus { Owe, Owed, Settled, Empty }
 
 sealed interface HomeUiState {
+    /** First pull not landed yet: render a blank page, never "No groups". */
     data object Loading : HomeUiState
+
+    /** Nothing local and the first pull failed; [offline] picks the copy. */
+    data class Failed(
+        val offline: Boolean,
+    ) : HomeUiState
 
     data object Empty : HomeUiState
 
@@ -104,6 +110,7 @@ fun HomeScreen(
      */
     deletedAlert: String? = null,
     onOpenSettings: () -> Unit = {},
+    onRetry: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
@@ -130,8 +137,21 @@ fun HomeScreen(
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (state) {
-                HomeUiState.Loading -> {
-                    Column(Modifier.padding(top = 8.dp)) { repeat(3) { EvSkeletonRow() } }
+                // Deliberately blank: most accounts are empty, so a skeleton would flash and then vanish.
+                HomeUiState.Loading -> {}
+
+                is HomeUiState.Failed -> {
+                    EvEmptyState(
+                        title = "Couldn't load your groups",
+                        text =
+                            if (state.offline) {
+                                "You seem to be offline. Your groups are safe and will show up once you're connected."
+                            } else {
+                                "Something went wrong on our side. Your groups are safe."
+                            },
+                        ctaText = "Try again",
+                        onCta = onRetry,
+                    )
                 }
 
                 HomeUiState.Empty -> {

@@ -4,6 +4,7 @@ import app.splitevenly.data.auth.StubAuthSession
 import app.splitevenly.data.auth.SupabaseAuthSession
 import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.remote.supabase.FeedbackHttp
+import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.PushController
@@ -48,7 +49,8 @@ val authModule =
     module {
         if (SupabaseConfig.isConfigured) {
             single { createEvenlySupabaseClient() }
-            single { SyncEngine(get<SupabaseClient>(), get<EvenlyDatabase>()) }
+            single { HydrationTracker() }
+            single { SyncEngine(get<SupabaseClient>(), get<EvenlyDatabase>(), get<HydrationTracker>()) }
             // Live sync driver (F7): push-on-write + Realtime pull + periodic safety net.
             single { SyncManager(get<SupabaseClient>(), get<SyncEngine>(), get<EvenlyDatabase>()) }
             // Push registration + delivery glue (F7): needs the platform PushService (from platformModule).
@@ -111,6 +113,8 @@ val authModule =
             single<WebBillLinkGateway> { SupabaseWebBillLinkGateway(get<SupabaseClient>()) }
         } else {
             single<AuthSession> { StubAuthSession(get()) }
+            // No server, so nothing to wait for: lists may claim "empty" straight away.
+            single { HydrationTracker(assumeHydrated = true) }
         }
     }
 
