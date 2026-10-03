@@ -1,6 +1,6 @@
 # Auth + onboarding polish (T1, T6, T8)
 
-**Status:** not started
+**Status:** T1 done (code + templates; hosted edit pending owner). T6, T8 blocked on copy sign-off.
 **Worktree / branch:** `fb/auth-onboarding` (from `feat/split-by-items-flow`)
 **Mockup:** copy-level changes for T8/T6 — paste the before/after copy into the completion report and
 get owner sign-off before committing; no new screens.
@@ -93,4 +93,38 @@ step `"handle"` at L77) wants at least one payment app.
 
 ## 7. Completion report
 
-_(fill in at the end)_
+### T1 (committed)
+- Scout: `verifyEmailOtp` already uses `OtpType.Email.EMAIL`, valid for new and returning users, so no
+  code change there. The wrong-code inline error and live "Resend code" already existed. Real gap is the
+  hosted "Confirm signup" template (not verified: I did not touch or read the hosted project).
+- Code: "Resend code" used to swallow failures silently; it now clears the error and shows the
+  rate-limit/send error inline (`WiredScreens.kt`, `onResend`).
+- Added `supabase/templates/confirm-signup.html` and `magic-link.html` (link + `{{ .Token }}`).
+- **Owner dashboard steps (proposed, not performed):** Supabase Dashboard > Authentication > Emails >
+  Templates. For "Confirm signup" and "Magic Link": set subject to `Your Evenly sign-in code is {{ .Token }}`,
+  paste the matching file from `supabase/templates/`, save. Then Authentication > Providers > Email: confirm
+  "Email OTP Length" is 8 (matches the 6-8 digit field; repo `config.toml` says 6 locally). Verify by
+  signing up a fresh `+test` address on the iOS sim and checking both a link and a code arrive.
+
+### T8 and T6 (blocked: owner copy sign-off required by the brief)
+T8, `OnboardingScreen.kt:167`, handle step:
+- Title before: "Add a payment handle". After: unchanged.
+- Subtitle before: "So friends can pay you back in one tap. Optional, you can skip."
+  After: "Friends see this when they settle up, so they can pay you in one tap." (13 words; shorter
+  alternative: "So friends can pay you back in one tap." = 8 words).
+- New muted second line: "Add at least one. You can change it later."
+- Conflict to resolve: today the step is skippable ("Optional") and Skip bypasses validation, while the
+  brief says "Add at least one". Owner must choose: keep Skip (then second line should read "You can add
+  this later in Settings.") or remove Skip on this step.
+
+T6:
+- `ProfileScreen.kt:158` row: today label "Payment apps", value "Venmo +2" / "Add one", hint
+  "So friends can pay you back", chevron only. Proposed: value lists names ("M-Pesa, Venmo"), plus a
+  visible "Edit" text affordance; empty state reads "Add a payment app".
+- `PaymentHandlesScreen`: today Save pops back silently. Proposed: stay and show "Saved" confirmation
+  (or toast then pop); header copy unchanged.
+- Settle-up: `SettlePersonScreen`/`SettleSingleSheet` use `PaymentApp`, which appears to show the payee's
+  handles, not the user's own. Not yet confirmed which, so the "Edit" link there is unscoped pending owner.
+
+- Review (Opus, 2026-10-01): `magic-link.html`'s header comment was copied from the signup template and said new
+  users get it; corrected (returning users get Magic Link, new users get Confirm signup).
