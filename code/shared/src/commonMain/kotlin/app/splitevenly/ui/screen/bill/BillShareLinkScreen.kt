@@ -100,7 +100,7 @@ fun BillShareLinkScreen(
     Column(Modifier.fillMaxSize().background(c.page)) {
         StatusBarScrim()
         EvTopBar(
-            "Let everyone pick",
+            "Let friends pick their items",
             subtitle = if (state.itemCount > 0) "${state.billTitle} · ${plural(state.itemCount, "item")}" else state.billTitle,
             navIcon = { EvIconButton(EvIcons.Back, onBack) },
             showDivider = false,

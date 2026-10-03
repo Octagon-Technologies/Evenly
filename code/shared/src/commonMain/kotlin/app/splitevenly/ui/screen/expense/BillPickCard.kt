@@ -88,19 +88,21 @@ internal fun BillPickCard(
                     !allClaimed -> PickButton("Change picks", EvIcons.Users, c.blueTint, c.blueText, Color.Transparent, onPick)
                     else -> PickButton("Change picks", EvIcons.Users, c.surface, c.ink, c.border, onPick)
                 }
-                Row(
-                    Modifier
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, c.border, RoundedCornerShape(8.dp))
-                        .clickable(onClick = onShare)
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
-                    EvIcon(EvIcons.Qr, size = 16.dp, tint = c.blueText)
-                    Text("Share", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
+            }
+            // Full width and labelled with the outcome: a bare "Share" chip was mistaken for sharing the
+            // group, and the tester sent the group invite QR instead of this bill's.
+            Row(
+                Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                    .clickable(onClick = onShare),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Text("Let friends pick their items", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }

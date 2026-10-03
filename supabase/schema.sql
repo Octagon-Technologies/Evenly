@@ -833,6 +833,31 @@ $$;
 revoke all on function public.resolve_group_by_invite_token(text) from public, anon;
 grant execute on function public.resolve_group_by_invite_token(text) to authenticated;
 
+-- ── Invite preview: the group NAME for a live invite token, nothing else ─────────────────────────
+-- The `/j/<token>` web landing ("You're invited to <group> on Evenly") has no Supabase session and the
+-- web bundle ships no Supabase client or key (web/AGENTS.md), so it reaches this only through the
+-- `web-claim` edge function's `invite-preview` action, which holds the service key and rate-limits per
+-- caller. Returns ONE text column: no member list, no other group field, no row-shaped result a future
+-- `select *` could widen. NULL for unknown, malformed and deleted-group tokens alike, so the response
+-- cannot be used to tell "no such token" from "deleted group". Executable by service_role only: granting
+-- it to anon would let anyone hit it straight through PostgREST without the edge function's rate limit.
+create or replace function public.invite_preview_group_name(p_token text)
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select g.name
+  from public.groups g
+  where g.invite_token = p_token
+    and g.deleted_at is null
+  limit 1;
+$$;
+
+revoke all on function public.invite_preview_group_name(text) from public, anon, authenticated;
+grant execute on function public.invite_preview_group_name(text) to service_role;
+
 -- ── Realtime: the per-group DOORBELL (replaces per-table CDC) ────────────────────────────────────
 -- The client IGNORES realtime payloads: an event only ever means "something changed, pull now".
 -- Publishing the 16 app tables therefore fanned out one message PER ROW PER CONNECTED CLIENT for no
@@ -3176,7 +3201,7 @@ revoke all on public.feedback_tickets from anon, authenticated;
 -- I seen this same caller 30 times in the last hour", which a hash answers exactly as well.
 create table if not exists public.public_write_log (
   id             uuid primary key default gen_random_uuid(),
-  kind           text not null,  -- 'waitlist' | 'feedback'
+  kind           text not null,  -- 'waitlist' | 'feedback' | 'invite-preview'
   principal_hash text not null,
   created_at     timestamptz not null default now()
 );

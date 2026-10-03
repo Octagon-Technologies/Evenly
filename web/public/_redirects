@@ -2,5 +2,6 @@
 # marketing route, so those are served as files and only the two unindexable routes plus the 404
 # fallback need a rule here.
 /b/*     /app.html    200
+/j/*     /app.html    200
 /admin   /app.html    200
 /*       /index.html  200

@@ -168,6 +168,20 @@ function post<T>(action: string, body: Record<string, unknown>): Promise<T> {
   return transport(action, body) as Promise<T>;
 }
 
+/**
+ * The group name behind a `/j/:token` invite link, or `null` for every other outcome (unknown token,
+ * deleted group, rate limit, backend error, no connection). The server answers all of those with the
+ * same 200, and so does this: the page falls back to generic copy and has nothing to branch on.
+ */
+export async function invitePreview(token: string): Promise<string | null> {
+  try {
+    const res = await post<{ groupName?: string | null }>('invite-preview', { token });
+    return typeof res.groupName === 'string' && res.groupName.trim() ? res.groupName : null;
+  } catch {
+    return null;
+  }
+}
+
 export const api = {
   /** Landing branch (spec §3.1). */
   resolve: (token: string, sessionToken: string | null) =>

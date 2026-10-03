@@ -89,6 +89,13 @@ the ledger *records*. If they disagree, Kotlin wins and the web is stale by one 
 - The gate is `.github/workflows/money-vectors.yml`, and `code/shared/build.gradle.kts` declares the
   vectors file as a test input so a vectors-only edit cannot pass as UP-TO-DATE.
 
+**`/j/:token` is a third, client-only route** (`marketing/Join.svelte`): the group invite landing, served from
+the same noindex `app.html` shell as `/b/` (rewrite in `vercel.json` + `public/_redirects`), never prerendered.
+It makes one plain `fetch` to the `web-claim` function's `invite-preview` action and shows the group **name
+only**. Every failure, unknown token and rate limit returns the same `{groupName: null}` and renders the generic
+heading, so the lookup cannot enumerate tokens. Do not widen that response (member lists, counts) or add a
+Supabase client to make it richer.
+
 ## The security boundary is the whole feature
 
 **No Supabase client and no anon key ship in this bundle** (spec §4.1). Every guest read and write

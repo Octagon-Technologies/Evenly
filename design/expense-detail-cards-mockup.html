@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Expense detail: cards, bill QR entry point, /j landing</title>
+<style>
+/* Mockup for docs/features/expense-detail-and-claim-qr.md (T4 + T7). Tokens from design/src/design.css (light)
+   and the app's dark theme. Comments and Receipt become EvCards identical to the split card (radius 12,
+   1px border, 14-16 padding, 12 gap between cards). */
+:root{--blue:#2563EB;--blueText:#1E40AF;--blueTint:#EFF4FF;--blueTint2:#DBE6FF;--page:#fff;--surface:#F6F8FB;--border:#E6EAF0;--ink:#0B1220;--ink2:#5B6577;--ink3:#9AA3B2;--on:#fff}
+.dark{--blue:#4C7DF0;--blueText:#8FB0FF;--blueTint:#17233F;--blueTint2:#22335C;--page:#0E1320;--surface:#161C2C;--border:#252D40;--ink:#EEF1F7;--ink2:#9AA5BA;--ink3:#667088}
+*{box-sizing:border-box}body{margin:0;background:#e9edf3;font:14px/1.35 "IBM Plex Sans",system-ui,sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}p.n{color:#5B6577;margin:0 0 20px;max-width:880px}
+.row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin-bottom:36px}
+.lbl{font-weight:600;margin:0 0 8px;font-size:13px;color:#0B1220}
+.ph{width:340px;background:var(--page);color:var(--ink);border-radius:28px;border:1px solid #cfd6e2;padding:14px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--page);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.pad{padding:14px}.h{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px}
+.h .sp{flex:1}.m{color:var(--ink2);font-size:12px;font-weight:400}
+.bar{height:5px;border-radius:9px;background:var(--border);margin:12px 0}.bar i{display:block;height:100%;width:60%;background:var(--blue);border-radius:9px}
+.btn{height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:600;font-size:14px}
+.pri{background:var(--blue);color:var(--on)}.tonal{background:var(--blueTint);color:var(--blueText)}
+.out{border:1px solid var(--border);color:var(--blueText)}
+.bub{background:var(--surface);border-radius:12px;padding:8px 10px;margin:8px 0;font-size:13px}.bub b{font-size:12px;color:var(--ink2);display:block}
+.bub.me{background:var(--blueTint);margin-left:36px}
+.comp{display:flex;gap:8px;margin-top:10px}.in{flex:1;height:44px;border:1px solid var(--border);border-radius:12px;padding:12px;color:var(--ink3)}.send{width:44px;height:44px;border-radius:12px;background:var(--blueTint2)}
+.th{display:flex;gap:10px}.th div{width:72px;height:94px;border-radius:10px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font:10px monospace;color:var(--ink3)}
+.old{display:flex;flex-direction:column;gap:10px;padding:2px}.old .t{font-weight:600}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;background:#FDECEC;color:#B42318;margin-left:6px}
+.tag.g{background:#E7F6EC;color:#15803D}
+.web{width:340px;background:#fff;border:1px solid #cfd6e2;border-radius:14px;padding:28px 22px;text-align:center;color:#0B1220}
+.web .logo{font-weight:700;color:#3762E3;font-size:20px;margin-bottom:22px}
+.web h2{font-size:24px;margin:0 0 8px;letter-spacing:-.02em}.web p{color:#5B6577;margin:0 0 18px}
+.web .b{height:46px;border-radius:10px;background:#3762E3;color:#fff;font-weight:600;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
+.web .b.s{background:#fff;color:#3762E3;border:1px solid #D6DCE6}.web small{color:#9AA3B2}
+.sheet{width:340px;background:var(--page);color:var(--ink);border-radius:20px 20px 0 0;border:1px solid var(--border);padding:16px;text-align:center}
+.qr{width:150px;height:150px;margin:12px auto;background:repeating-conic-gradient(var(--ink) 0 25%,var(--page) 0 50%) 0 0/20px 20px;border-radius:8px}
+</style></head><body>
+<h1>Expense detail: T7 cards, T4 bill-QR entry point and /j landing</h1>
+<p class="n">Three decisions to sign off. (1) Comments and Receipt each move into an EvCard matching the split card, the composer inside the card. (2) The bill QR gets an obvious full-width labelled control, and the group invite sheet is retitled so the two cannot be confused. (3) New <code>/j/&lt;token&gt;</code> web landing in the marketing shell, generic copy only (no group data without an RLS-permitted lookup).</p>
+
+<div class="lbl">T7. Light (left) and dark (right). Bottom of an item-split expense.</div>
+<div class="row">
+ <div class="ph">
+  <div class="card pad"><div class="h">Split <span class="sp"></span><span class="m">4 people</span></div><div class="m" style="margin-top:6px">Existing card, shown for padding/radius reference</div></div>
+  <div class="card pad"><div class="h">Receipt <span class="sp"></span><span class="m">2 photos</span></div><div class="th" style="margin-top:10px"><div>receipt</div><div>PDF</div><div style="border-style:dashed">+ Add</div></div></div>
+  <div class="card pad"><div class="h">Comments <span class="m">2</span><span class="sp"></span><span class="m">&#9650;</span></div>
+   <div class="bub"><b>Maya · 2h</b>I already sent Andrew $16 in cash</div><div class="bub me"><b>You · 1h</b>Nice, I'll settle my half tonight.</div>
+   <div class="comp"><div class="in">Add a comment…</div><div class="send"></div></div></div>
+ </div>
+ <div class="ph dark" style="background:#0E1320">
+  <div class="card pad"><div class="h">Split <span class="sp"></span><span class="m">4 people</span></div><div class="m" style="margin-top:6px">Existing card</div></div>
+  <div class="card pad"><div class="h">Receipt <span class="sp"></span><span class="m">uploading 1</span></div><div class="th" style="margin-top:10px"><div>receipt</div><div>62%</div></div></div>
+  <div class="card pad"><div class="h">Comments <span class="m">2</span><span class="sp"></span><span class="m">&#9650;</span></div>
+   <div class="bub"><b>Maya · 2h</b>I already sent Andrew $16 in cash</div><div class="bub me"><b>You · 1h</b>Nice, I'll settle my half tonight.</div>
+   <div class="comp"><div class="in">Add a comment…</div><div class="send"></div></div></div>
+ </div>
+ <div class="ph"><div class="lbl">Before (today)<span class="tag">bare on page</span></div><div class="old"><div class="t">Receipts</div><div class="th"><div>receipt</div></div><div class="t" style="margin-top:8px">Comments &nbsp;2</div><div class="m">bubbles + composer float on the page background</div></div></div>
+</div>
+<p class="n">Notes: card order stays Split, Who ordered what, Receipt, Comments, History. Section title changes "Receipts" to "Receipt" (as the brief says) and moves inside the card. Collapse chevron stays in the Comments header; collapsed state still peeks the last comment inside the card.</p>
+
+<div class="lbl">T4a. Bill QR entry point (expense detail, item-split bill, light)</div>
+<div class="row">
+ <div class="ph"><div class="lbl" style="margin:0">After</div>
+  <div class="card pad"><div class="h">Who ordered what</div><div class="m" style="color:var(--blueText);font-weight:500">3 of 5 claimed</div><div class="bar"><i></i></div>
+   <div class="btn tonal">Change picks</div>
+   <div class="btn out" style="margin-top:8px">Let friends pick their items</div></div></div>
+ <div class="ph"><div class="lbl" style="margin:0">Before<span class="tag">small "Share"</span></div>
+  <div class="card pad"><div class="h">Who ordered what</div><div class="m" style="color:var(--blueText)">3 of 5 claimed</div><div class="bar"><i></i></div>
+   <div style="display:flex;gap:8px"><div class="btn tonal" style="flex:1">Change picks</div><div class="btn out" style="padding:0 14px">&#9638; Share</div></div></div></div>
+ <div>
+  <div class="lbl">Sheets: titles</div>
+  <div class="sheet"><b>Let friends pick their items</b><div class="m">This bill only: Dinner at Nobu</div><div class="qr"></div><div class="m">Scan to pick your items</div><div class="m" style="margin-top:8px;color:var(--blueText)">Invite them to the group instead</div></div>
+  <div class="sheet" style="margin-top:12px"><b>Invite to group</b> <span class="tag g">retitled</span><div class="m">Anyone with this link joins Weekend Trip. For one bill, share that bill's QR instead.</div><div class="qr"></div></div>
+ </div>
+</div>
+
+<div class="lbl">T4b. https://split-evenly.app/j/&lt;token&gt; (new web landing, marketing shell). REVISED: shows the group name; falls back to generic copy.</div>
+<div class="row">
+ <div><div class="lbl" style="font-weight:400">Lookup succeeded</div><div class="web"><div class="logo">Evenly</div><h2>You're invited to Weekend Trip on Evenly</h2><p>Split bills with friends and settle up, without the awkward maths.</p>
+ <div class="b">Open in Evenly</div><div class="b s">Get the app</div><small>Opens splitevenly://j/&lt;token&gt; if the app is installed. Only the group name is shown here, never members or balances.</small></div></div>
+ <div><div class="lbl" style="font-weight:400">Fallback: lookup failed, rate-limited, or unknown token (identical)</div><div class="web"><div class="logo">Evenly</div><h2>You're invited to a group on Evenly</h2><p>Split bills with friends and settle up, without the awkward maths.</p>
+ <div class="b">Open in Evenly</div><div class="b s">Get the app</div><small>Opens splitevenly://j/&lt;token&gt; if the app is installed.</small></div></div>
+ <div class="web" style="width:320px;text-align:left"><b>How the name gets there</b><p style="margin-top:8px">The page makes one plain <code>fetch</code> (no Supabase client, no key) to the <code>web-claim</code> edge function, action <code>invite-preview</code>. It calls a service-role-only SQL function that returns just <code>groups.name</code> for a live invite token. Unknown, malformed, deleted-group and rate-limited requests all get the same <code>{"groupName": null}</code> 200 response, so tokens cannot be enumerated. While loading, the generic heading shows (no layout shift on fallback).</p></div></div>
+</body></html>

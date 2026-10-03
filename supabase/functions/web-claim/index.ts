@@ -17,6 +17,7 @@
 // edit (§3.6) IS implemented here; approving/rejecting it is not.
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callerIp, isRateLimited, recordSubmission } from "../_shared/rateLimit.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -865,8 +866,33 @@ async function actionRelease(sb: SupabaseClient, body: { token?: string; session
 
 // ── Router ──────────────────────────────────────────────────────────────────────────────────────
 
+// ── Invite preview (the /j/<token> landing) ────────────────────────────────────────────────────────
+//
+// The one action here that takes a GROUP invite token rather than a bill token, and the only one that is
+// not bill-scoped. It returns the group's name and nothing else. Every outcome, including a malformed or
+// unknown token, a deleted group, a rate-limited caller and a backend failure, is the same 200
+// `{ "groupName": null | string }` shape, so the endpoint cannot be used to enumerate tokens and the
+// page's fallback (generic invite copy) is the single path for everything that is not a clean hit.
+// Rate limiting is per caller IP (hashed) through `public_write_log`, kind "invite-preview".
+
+const INVITE_TOKEN_SHAPE = /^[0-9a-fA-F-]{32,40}$/;
+
+async function actionInvitePreview(sb: SupabaseClient, body: { token?: string }, req: Request): Promise<Response> {
+  const none = json({ groupName: null });
+  const token = typeof body.token === "string" ? body.token : "";
+  if (!INVITE_TOKEN_SHAPE.test(token)) return none;
+
+  const principal = callerIp(req);
+  if (await isRateLimited(sb, "invite-preview", principal)) return none;
+  await recordSubmission(sb, "invite-preview", principal);
+
+  const { data, error } = await sb.rpc("invite_preview_group_name", { p_token: token });
+  if (error || typeof data !== "string" || data.trim() === "") return none;
+  return json({ groupName: data });
+}
+
 // deno-lint-ignore no-explicit-any
-const ACTIONS: Record<string, (sb: SupabaseClient, body: any) => Promise<Response>> = {
+const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => Promise<Response>> = {
   resolve: actionResolve,
   name: actionName,
   "claim-placeholder": actionClaimPlaceholder,
@@ -880,6 +906,7 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any) => Promise<Respons
   payer: actionSetPayer,
   done: actionDone,
   release: actionRelease,
+  "invite-preview": actionInvitePreview,
 };
 
 Deno.serve(async (req) => {
@@ -900,7 +927,7 @@ Deno.serve(async (req) => {
 
   const sb = serviceClient();
   try {
-    return await handler(sb, body);
+    return await handler(sb, body, req);
   } catch (e) {
     console.error(`web-claim: unhandled error in "${action}": ${(e as Error).message}`);
     return err("BACKEND", 500);
