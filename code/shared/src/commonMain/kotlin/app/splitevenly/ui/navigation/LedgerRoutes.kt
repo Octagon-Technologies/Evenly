@@ -16,6 +16,7 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.localHour
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.upload.ReceiptUploadManager
@@ -37,6 +38,8 @@ import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.receipt.printedHourOf
+import app.splitevenly.domain.receipt.suggestBillTitle
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.CategoryRepository
@@ -414,9 +417,11 @@ fun AddExpenseRoute(
 }
 
 /** OCR draft → the itemized editor's initial items + extras (never a name — the shared header owns that). */
+@OptIn(ExperimentalTime::class)
 private fun ReceiptDraft.toAddEditState(): EditBillState =
     EditBillState(
-        title = "",
+        // A suggestion only: the screen applies it when the user has not typed a name yet.
+        title = suggestBillTitle(merchantName, venueKind, printedHourOf(printedTime), Clock.System.localHour()).orEmpty(),
         items =
             items
                 .map { editBillItemUi(null, it.label, it.quantity, it.lineTotalSubunits) }

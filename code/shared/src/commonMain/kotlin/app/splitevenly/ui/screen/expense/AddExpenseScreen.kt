@@ -59,7 +59,9 @@ import app.splitevenly.ui.screen.bill.ItemizedExpenseBody
 import app.splitevenly.ui.screen.bill.ReceiptReviewScreen
 import app.splitevenly.ui.screen.bill.ScanErrorSheet
 import app.splitevenly.ui.screen.bill.ScanProgressSheet
+import app.splitevenly.ui.screen.bill.ScanReceiptHero
 import app.splitevenly.ui.screen.bill.ScanUiState
+import app.splitevenly.ui.screen.bill.isUntouched
 import app.splitevenly.ui.screen.bill.priceToSubunits
 import app.splitevenly.ui.screen.bill.rememberItemizedBillState
 import app.splitevenly.ui.screen.group.CategoryCatalog
@@ -180,6 +182,8 @@ fun AddExpenseScreen(
     var reviewingScan by remember { mutableStateOf(false) }
     LaunchedEffect(scanned) {
         scanned?.let {
+            // The scan's suggested name ("Dinner at Tavolo") fills an empty Title, never a typed one.
+            if (title.isBlank() && it.title.isNotBlank()) title = it.title
             itemized.applyScan(it)
             splitApproach = SplitApproach.ByItem
             reviewingScan = true
@@ -343,6 +347,11 @@ fun AddExpenseScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    // A restaurant bill starts with the scan, above Title: one scan fills the title and the items.
+                    // After the first scan (or a typed item) the hero drops back into the items section below.
+                    val notScannedYet = isItemized && itemized.items.all { it.isUntouched() } && attachedReceipts.isEmpty()
+                    if (notScannedYet) ScanReceiptHero(onScanSource = { source -> startScan(source) })
+
                     // ── shared header: title, category, paid by, participants — entered once, both modes ──
                     EvField("Title") {
                         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -351,6 +360,17 @@ fun AddExpenseScreen(
                                 Text("Give it a title", color = c.danger, fontSize = 12.sp)
                             }
                         }
+                    }
+                    // The scanned pages sit under the bill's title, the thing they are the receipt for.
+                    if (isItemized && attachedReceipts.isNotEmpty()) {
+                        PickedReceiptStrip(
+                            receipts = attachedReceipts,
+                            label = if (attachedReceipts.size == 1) "Receipt" else "Receipt pages",
+                            caption = "Saves with the bill.",
+                            onAddClick = null,
+                            onRemoveReceipt = onRemoveAttachedReceipt,
+                            onOpenReceipt = { viewerIndex = it },
+                        )
                     }
 
                     // Who's splitting this — asked FIRST, before "Paid by": pick the people, THEN the payer. Testers
@@ -454,6 +474,8 @@ fun AddExpenseScreen(
                                 saveLabel = "Save & continue",
                                 onScanSource = { source -> startScan(source) },
                                 onSave = { submit() },
+                                showScanHero = !notScannedYet,
+                                showReceipts = false,
                             )
                         } else {
                             DivideSplitBody(

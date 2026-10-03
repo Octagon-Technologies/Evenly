@@ -13,6 +13,7 @@ import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.localHour
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.data.upload.ReceiptUploadManager
@@ -30,11 +31,15 @@ import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.receipt.printedHourOf
+import app.splitevenly.domain.receipt.suggestBillTitle
+import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
+import app.splitevenly.platform.PdfRasterizer
 import app.splitevenly.platform.PickKind
 import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
@@ -44,6 +49,7 @@ import app.splitevenly.ui.screen.bill.BillEditScreen
 import app.splitevenly.ui.screen.bill.ClaimItemUi
 import app.splitevenly.ui.screen.bill.ClaimParticipantUi
 import app.splitevenly.ui.screen.bill.EditBillState
+import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ParticipantChipUi
 import app.splitevenly.ui.screen.bill.ScanErrorKind
 import app.splitevenly.ui.screen.bill.ScanPageUi
@@ -52,8 +58,15 @@ import app.splitevenly.ui.screen.bill.analyticsKind
 import app.splitevenly.ui.screen.bill.editBillItemUi
 import app.splitevenly.ui.screen.bill.priceToSubunits
 import app.splitevenly.ui.screen.bill.scanEditStats
+import app.splitevenly.ui.screen.expense.PickedReceiptUi
 import app.splitevenly.ui.screen.expense.format2dp
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.readRawBytes
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.compose.getKoin
 import org.koin.compose.koinInject
@@ -102,9 +115,29 @@ fun BillEditRoute(
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
     val stagedPdf = rememberStagedPdfRenderers(uploadManager)
+    // Pages already saved to the bill, so the scan surface shows what a re-scan would be adding to.
+    val activity = koinInject<ActivityRepository>()
+    val http = koinInject<HttpClient>()
+    val rasterizer = remember { PdfRasterizer() }
+    val remotePdfBytes = remember { mutableMapOf<String, ByteArray>() }
+    suspend fun remotePdf(url: String): ByteArray? =
+        remotePdfBytes[url] ?: runCatching { http.get(url).readRawBytes() }.getOrNull()?.also { remotePdfBytes[url] = it }
     val analytics = remember { koin.getOrNull<EvAnalytics>() }
     val scope = rememberCoroutineScope()
-    var saving by remember { mutableStateOf(false) }
+    // A new bill is created by its first valid auto-save; every later save edits that same bill.
+    var billId by remember { mutableStateOf(expenseId) }
+    var createdHere by remember { mutableStateOf(false) }
+    val savedReceipts by remember(billId) {
+        billId?.let { activity.observeReceipts(ExpenseId(it)) } ?: flowOf(emptyList())
+    }.collectAsStateWithLifecycle(emptyList())
+    val pendingUploadIds by remember(billId) {
+        val id = billId
+        val flow = if (id == null) null else uploadManager?.observe(ExpenseId(id))
+        flow?.map { list -> list.mapTo(HashSet<String>()) { it.id } } ?: flowOf(emptySet<String>())
+    }.collectAsStateWithLifecycle(emptySet<String>())
+    var lastSubmit by remember { mutableStateOf<EditBillSubmit?>(null) }
+    // Staged receipts already handed to the upload pipeline, so a later save never re-queues one.
+    val attachedIds = remember { mutableSetOf<String>() }
     var scanState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
     var scanned by remember { mutableStateOf<EditBillState?>(null) }
     // The exact pages the user picked. Retained so a failed scan can retry, and — on success — handed to
@@ -119,9 +152,8 @@ fun BillEditRoute(
     // Staged bytes belong to this editor until a save attaches them. There is no BackHandler here, so
     // system back and swipe-back leave without ever reaching onBack — clean up on dispose instead, or an
     // abandoned scan sits in the sandbox forever.
-    var attached by remember { mutableStateOf(false) }
     DisposableEffect(Unit) {
-        onDispose { if (!attached) uploadManager?.discardStagedDetached(attachedReceipts) }
+        onDispose { uploadManager?.discardStagedDetached(attachedReceipts.filter { it.id !in attachedIds }) }
     }
 
     val existing =
@@ -138,6 +170,7 @@ fun BillEditRoute(
     fun runScan(
         files: List<PickedFile>,
         source: PickSource,
+        restage: Boolean = true,
     ) {
         if (files.isEmpty()) return
         scanFiles = files
@@ -151,10 +184,9 @@ fun BillEditRoute(
         // The pages the user just photographed ARE the receipt, whatever the OCR makes of them. Stage them
         // on a job of their own so a cancelled, failed or blocked scan still leaves the receipt attached —
         // scanJob gets cancelled, and this must not go with it.
-        scope.launch {
-            val superseded = attachedReceipts
-            attachedReceipts = uploadManager?.stage(files).orEmpty()
-            uploadManager?.discardStaged(superseded)
+        if (restage) scope.launch {
+            // Pages from earlier scans stay: a second scan adds a page, it never throws the first away.
+            attachedReceipts = attachedReceipts + uploadManager?.stage(files).orEmpty()
         }
         scanJob =
             scope.launch {
@@ -210,21 +242,114 @@ fun BillEditRoute(
             }
     }
 
+    /** Creates the bill on the first valid save, edits it after; returns the saved line ids in order. */
+    // A page already handed to the upload pipeline shows as a saved receipt once it lands, so stop drawing the
+    // local copy then, or the same page would appear twice.
+    val displayAttached = attachedReceipts.filter { it.id !in attachedIds || it.id in pendingUploadIds }
+
+    suspend fun saveBill(submit: EditBillSubmit): List<String>? {
+        val me = userId ?: return null
+        val extras =
+            BillExtrasInput(
+                taxSubunits = submit.taxSubunits,
+                gratuitySubunits = submit.gratuitySubunits,
+                tipSubunits = submit.tipSubunits,
+                tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
+                discountSubunits = submit.discountSubunits,
+                otherChargesSubunits = submit.otherChargesSubunits,
+            )
+        val outsidePayer = submit.payerOutsideName?.takeIf { it.isNotBlank() }
+        val payer = if (outsidePayer != null) null else submit.payerUserId?.let { UserId(it) }
+        // Neither set means the editor had no "Paid by" row at all, so the bill keeps its payer.
+        val keepPayer = outsidePayer == null && payer == null
+        val current = billId
+        val saved: ExpenseId =
+            if (current == null) {
+                val result =
+                    bills.createBill(
+                        NewBill(
+                            groupId = gid,
+                            title = submit.title,
+                            currency = currency,
+                            expenseDate = Clock.System.todayUtc(),
+                            payerUserId = if (outsidePayer != null) null else (payer ?: me),
+                            payerOutsideName = outsidePayer,
+                            createdBy = me,
+                            items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
+                            extras = extras,
+                            participantUserIds = submit.participantIds.map { UserId(it) },
+                        ),
+                    )
+                val id = (result as? AppResult.Ok)?.value ?: return null
+                billId = id.value
+                createdHere = true
+                id
+            } else {
+                val eid = ExpenseId(current)
+                val before = bills.observeBill(eid).first()
+                val result =
+                    bills.editBill(
+                    eid,
+                    EditBill(
+                        title = submit.title,
+                        expenseDate = before?.expense?.expenseDate ?: existing?.expense?.expenseDate ?: Clock.System.todayUtc(),
+                        payerUserId = if (keepPayer) (before?.expense?.payerUserId ?: me) else payer,
+                        payerOutsideName = if (keepPayer) before?.expense?.payerOutsideName else outsidePayer,
+                        items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
+                        extras = extras,
+                        participantUserIds = submit.participantIds.map { UserId(it) },
+                        editedBy = me,
+                    ),
+                )
+                // A rejected edit must not light up "Changes saved"; the editor keeps the state and retries.
+                if (result is AppResult.Err) return null
+                eid
+            }
+        // Hand any newly staged pages to the upload pipeline exactly once.
+        val fresh = attachedReceipts.filter { it.id !in attachedIds }
+        if (fresh.isNotEmpty()) {
+            attachedIds += fresh.map { it.id }
+            uploadManager?.attach(saved, gid, fresh)
+        }
+        lastSubmit = submit
+        return bills.observeBill(saved).first()?.items?.map { it.id }
+    }
+
     BillEditScreen(
         editing = expenseId != null,
         initial = existing?.toEditState(),
         scanned = scanned,
         currencyCode = currency,
-        saving = saving,
         scanState = scanState,
-        attachedReceipts = attachedReceipts.map { it.toUi() },
+        attachedReceipts = displayAttached.map { it.toUi() },
         onRemoveAttachedReceipt = { i ->
-            val dropped = attachedReceipts.getOrNull(i)
-            attachedReceipts = attachedReceipts.filterIndexed { idx, _ -> idx != i }
-            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+            val dropped = displayAttached.getOrNull(i)
+            attachedReceipts = attachedReceipts.filter { it.id != dropped?.id }
+            dropped?.let {
+                scope.launch {
+                    // Already queued for upload: cancel the outbox row too, or it would fail on a missing file.
+                    if (attachedIds.remove(it.id)) uploadManager?.cancel(it.id) else uploadManager?.discardStaged(listOf(it))
+                }
+            }
         },
-        loadPdfPageCount = stagedPdf.pageCount,
-        renderPdfPage = stagedPdf.renderPage,
+        savedReceipts =
+            savedReceipts.map {
+                PickedReceiptUi(
+                    id = it.id.value,
+                    localPath = "",
+                    model = if (it.isPdf) null else it.url,
+                    isPdf = it.isPdf,
+                    remoteUrl = it.url,
+                    removable = false,
+                )
+            },
+        // Staged pages are local files; saved ones are remote, and a PDF has to be downloaded to rasterize.
+        loadPdfPageCount = { url ->
+            if (url.startsWith("file://")) stagedPdf.pageCount(url) else remotePdf(url)?.let { rasterizer.pageCount(it) } ?: 0
+        },
+        renderPdfPage = { url, page, width ->
+            if (url.startsWith("file://")) stagedPdf.renderPage(url, page, width) else remotePdf(url)?.let { rasterizer.renderPage(it, page, width) }
+        },
         participants =
             members.map {
                 ParticipantChipUi(
@@ -244,7 +369,12 @@ fun BillEditRoute(
         initialPayerId = existing?.expense?.payerUserId?.value ?: userId?.value.orEmpty(),
         initialOutsidePayerName = existing?.expense?.payerOutsideName,
         claimedItemsByUser = existing?.claimedItemsByUser().orEmpty(),
-        onBack = onBack,
+        onBack = {
+            // Only a scan that was actually saved has a result to compare against.
+            lastSubmit?.let { reportScanResultEdited(analytics, scanned, it.items, gid.value) }
+            val id = billId
+            if (createdHere && id != null) onCreated(id) else onBack()
+        },
         onScanReceipt =
             cameraGate.wrap { source ->
                 // Fires before any cost is incurred — even if the user backs out of the file picker next.
@@ -271,85 +401,21 @@ fun BillEditRoute(
             scanJob?.cancel()
             scanState = ScanUiState.Idle
         },
-        onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
+        onRetryScan = { scanSource?.let { runScan(scanFiles, it, restage = false) } },
         onDismissScan = { scanState = ScanUiState.Idle },
         onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
-        onSave = { submit ->
-            val me = userId ?: return@BillEditScreen
-            saving = true
-            scope.launch {
-                val extras =
-                    BillExtrasInput(
-                        taxSubunits = submit.taxSubunits,
-                        gratuitySubunits = submit.gratuitySubunits,
-                        tipSubunits = submit.tipSubunits,
-                        tipSplitMode = TipSplitMode.EVEN, // tip is firmly an even split
-                        discountSubunits = submit.discountSubunits,
-                        otherChargesSubunits = submit.otherChargesSubunits,
-                    )
-                val outsidePayer = submit.payerOutsideName?.takeIf { it.isNotBlank() }
-                val payer = if (outsidePayer != null) null else submit.payerUserId?.let { UserId(it) }
-                // Neither set means the editor had no "Paid by" row at all, so the bill keeps its payer.
-                val keepPayer = outsidePayer == null && payer == null
-                if (expenseId == null) {
-                    val result =
-                        bills.createBill(
-                            NewBill(
-                                groupId = gid,
-                                title = submit.title,
-                                currency = currency,
-                                expenseDate = Clock.System.todayUtc(),
-                                payerUserId = if (outsidePayer != null) null else (payer ?: me),
-                                payerOutsideName = outsidePayer,
-                                createdBy = me,
-                                items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
-                                extras = extras,
-                                participantUserIds = submit.participantIds.map { UserId(it) },
-                            ),
-                        )
-                    when (result) {
-                        is AppResult.Ok -> {
-                            // The scanned pages ride along as the expense's receipt (background upload).
-                            attached = true
-                            uploadManager?.attach(result.value, gid, attachedReceipts)
-                            reportScanResultEdited(analytics, scanned, submit.items, gid.value)
-                            onCreated(result.value.value)
-                        }
-
-                        is AppResult.Err -> {
-                            saving = false
-                        }
-                    }
-                } else {
-                    bills.editBill(
-                        ExpenseId(expenseId),
-                        EditBill(
-                            title = submit.title,
-                            expenseDate = existing?.expense?.expenseDate ?: Clock.System.todayUtc(),
-                            payerUserId = if (keepPayer) (existing?.expense?.payerUserId ?: me) else payer,
-                            payerOutsideName = if (keepPayer) existing?.expense?.payerOutsideName else outsidePayer,
-                            items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
-                            extras = extras,
-                            participantUserIds = submit.participantIds.map { UserId(it) },
-                            editedBy = me,
-                        ),
-                    )
-                    attached = true
-                    uploadManager?.attach(ExpenseId(expenseId), gid, attachedReceipts)
-                    reportScanResultEdited(analytics, scanned, submit.items, gid.value)
-                    onBack()
-                }
-            }
-        },
+        onSave = { submit -> saveBill(submit) },
     )
 
     // Last, so the gate lands over the screen rather than under it.
     CameraPermissionGateHost(cameraGate)
 }
 
+@OptIn(ExperimentalTime::class)
 private fun ReceiptDraft.toEditState(): EditBillState =
     EditBillState(
-        title = "",
+        // A suggestion only: the screen applies it when the user has not typed a name yet.
+        title = suggestBillTitle(merchantName, venueKind, printedHourOf(printedTime), Clock.System.localHour()).orEmpty(),
         // OCR now reports the line total directly (already inclusive of quantity) — pass it straight through.
         items =
             items

@@ -104,64 +104,17 @@ fun ItemizedExpenseBody(
     saveLabel: String,
     onScanSource: (PickSource) -> Unit,
     onSave: () -> Unit,
+    // Add expense lifts these above its Title until the first scan, so the body can leave them out.
+    showScanHero: Boolean = true,
+    showReceipts: Boolean = true,
 ) {
     val c = EvenlyTheme.colors
-    // Scan is the marquee action — a hero card at the top. A whisper-soft neutral shadow
-    // (same restraint as EvButton/EvFab: no colored glow) lifts it off the page as the
-    // primary tap target; the icon chip gets its own matching lift so it reads as a button,
-    // not just a decorative glyph next to a chevron.
-    //
-    // The three sources sit ON the card rather than behind it. Tapping the card used to open
-    // ScanSourceSheet and only then the OS picker, which put two taps and a sheet between "scan this"
-    // and a camera; the sheet's own explanation now lives in the subtitle, which is the only part of it
-    // that was load-bearing.
-    val scanCardShape = RoundedCornerShape(16.dp)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .shadow(elevation = 1.dp, shape = scanCardShape, clip = false)
-            .clip(scanCardShape)
-            .background(c.page)
-            .border(1.dp, c.blue, scanCardShape)
-            .padding(start = 14.dp, end = 14.dp, top = 15.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(13.dp),
-        ) {
-            Box(
-                Modifier
-                    .size(46.dp)
-                    .shadow(elevation = 2.dp, shape = RoundedCornerShape(13.dp), clip = false)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(c.blue),
-                contentAlignment = Alignment.Center,
-            ) {
-                EvIcon(EvIcons.Camera, size = 22.dp, tint = c.onAccent)
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Scan the receipt", color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "We'll read the line items. Several pages count as one bill.",
-                    color = c.ink2,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScanSourceTile(Modifier.weight(1f), EvIcons.Camera, "Camera") { onScanSource(PickSource.Camera) }
-            ScanSourceTile(Modifier.weight(1f), EvIcons.Image, "Photos") { onScanSource(PickSource.Photos) }
-            ScanSourceTile(Modifier.weight(1f), EvIcons.Archive, "File or PDF") { onScanSource(PickSource.Files) }
-        }
-    }
+    if (showScanHero) ScanReceiptHero(onScanSource)
     // Sits directly under the scan card, above the items it is talking about.
     if (state.showUnverifiedNotice) {
         UnverifiedReceiptNotice(onDismiss = { state.showUnverifiedNotice = false })
     }
-    if (attachedReceipts.isNotEmpty()) {
+    if (showReceipts && attachedReceipts.isNotEmpty()) {
         PickedReceiptStrip(
             receipts = attachedReceipts,
             label = if (attachedReceipts.size == 1) "Receipt" else "Receipt pages",
@@ -255,5 +208,65 @@ private fun ScanSourceTile(
             maxLines = 1,
             textAlign = TextAlign.Center,
         )
+    }
+}
+
+/** The "Scan the receipt" hero with its three sources on the card. */
+@Composable
+fun ScanReceiptHero(
+    onScanSource: (PickSource) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = EvenlyTheme.colors
+    // Scan is the marquee action — a hero card at the top. A whisper-soft neutral shadow
+    // (same restraint as EvButton/EvFab: no colored glow) lifts it off the page as the
+    // primary tap target; the icon chip gets its own matching lift so it reads as a button,
+    // not just a decorative glyph next to a chevron.
+    //
+    // The three sources sit ON the card rather than behind it. Tapping the card used to open
+    // ScanSourceSheet and only then the OS picker, which put two taps and a sheet between "scan this"
+    // and a camera; the sheet's own explanation now lives in the subtitle, which is the only part of it
+    // that was load-bearing.
+    val scanCardShape = RoundedCornerShape(16.dp)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .shadow(elevation = 1.dp, shape = scanCardShape, clip = false)
+            .clip(scanCardShape)
+            .background(c.page)
+            .border(1.dp, c.blue, scanCardShape)
+            .padding(start = 14.dp, end = 14.dp, top = 15.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(46.dp)
+                    .shadow(elevation = 2.dp, shape = RoundedCornerShape(13.dp), clip = false)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(c.blue),
+                contentAlignment = Alignment.Center,
+            ) {
+                EvIcon(EvIcons.Camera, size = 22.dp, tint = c.onAccent)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Scan the receipt", color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "We'll read the line items. Several pages count as one bill.",
+                    color = c.ink2,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScanSourceTile(Modifier.weight(1f), EvIcons.Camera, "Camera") { onScanSource(PickSource.Camera) }
+            ScanSourceTile(Modifier.weight(1f), EvIcons.Image, "Photos") { onScanSource(PickSource.Photos) }
+            ScanSourceTile(Modifier.weight(1f), EvIcons.Archive, "File or PDF") { onScanSource(PickSource.Files) }
+        }
     }
 }

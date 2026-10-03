@@ -40,6 +40,10 @@ data class PickedReceiptUi(
     val localPath: String,
     val model: String?,
     val isPdf: Boolean,
+    /** Set for a receipt already saved to the bill: the viewer opens this instead of a local file. */
+    val remoteUrl: String? = null,
+    /** False for a saved receipt, which the bill editor shows but does not delete. */
+    val removable: Boolean = true,
 )
 
 /**
@@ -84,7 +88,7 @@ fun PickedReceiptStrip(
                             )
                         }
                     }
-                    Box(
+                    if (r.removable) Box(
                         Modifier.align(Alignment.TopEnd).padding(3.dp).size(18.dp).clip(CircleShape)
                             .background(c.surface).border(1.dp, c.borderStrong, CircleShape)
                             .clickable { onRemoveReceipt(i) },
@@ -123,7 +127,7 @@ fun StagedReceiptViewer(
     onClose: () -> Unit,
 ) {
     ReceiptViewerScreen(
-        receipts = receipts.map { ViewerReceipt(id = it.id, url = "file://${it.localPath}", isPdf = it.isPdf) },
+        receipts = receipts.map { ViewerReceipt(id = it.id, url = it.remoteUrl ?: "file://${it.localPath}", isPdf = it.isPdf) },
         initialIndex = initialIndex,
         loadPdfPageCount = loadPdfPageCount,
         renderPdfPage = renderPdfPage,

@@ -63,7 +63,14 @@ export interface Receipt {
   items: ReceiptItem[];
   summary: SummaryLine[];
   is_receipt: boolean;
+  /** Who and when, read off the header. Only used to suggest the bill's name; null when not printed. */
+  merchant_name?: string | null;
+  venue_kind?: VenueKind | null;
+  /** 24-hour "HH:MM" as printed, or null. */
+  printed_time?: string | null;
 }
+
+export type VenueKind = "restaurant" | "cafe" | "bar" | "grocery" | "shop" | "other";
 
 /** What the model emits: every amount is the digits AS PRINTED ("22.74"), never a converted integer. */
 export interface RawReceiptItem {
@@ -83,6 +90,9 @@ export interface RawReceipt {
   items: RawReceiptItem[];
   summary: RawSummaryLine[];
   is_receipt: boolean;
+  merchant_name?: string;
+  venue_kind?: string;
+  printed_time?: string;
 }
 
 const AMOUNT_DESC =
@@ -108,6 +118,26 @@ export const RECEIPT_TOOL = {
           "If false, leave items and summary empty — do not invent a plausible-looking receipt.",
       },
       currency: { type: "string", description: "ISO 4217 code, e.g. USD, EUR, KES. Best guess from symbols/locale." },
+      merchant_name: {
+        type: "string",
+        description:
+          "The business name as printed in the receipt header, e.g. \"Tavolo\" or \"Westgate Mall Carrefour\". " +
+          "Leave empty if no business name is printed. Do not include the address or a branch number.",
+      },
+      venue_kind: {
+        type: "string",
+        enum: ["restaurant", "cafe", "bar", "grocery", "shop", "other"],
+        description:
+          "What kind of place this receipt is from, judged from the business name and the items. " +
+          "'restaurant' a sit-down or takeaway meal. 'cafe' coffee shop or bakery. 'bar' pub, bar or club. " +
+          "'grocery' supermarket or grocery store. 'shop' any other retail. 'other' anything else.",
+      },
+      printed_time: {
+        type: "string",
+        description:
+          "The time of the transaction as printed, converted to 24-hour HH:MM (\"8:05 PM\" -> \"20:05\"). " +
+          "Leave empty if no time is printed. Never guess a time that is not printed.",
+      },
       items: {
         type: "array",
         description:
@@ -164,6 +194,8 @@ export const RECEIPT_TOOL = {
         },
       },
     },
+    // The three header fields below are optional and are reading, not arithmetic: the app turns them into a
+    // suggested bill name ("Dinner at Tavolo") when the user has not typed one.
     required: ["is_receipt", "currency", "items", "summary"],
   },
 } as const;
@@ -208,5 +240,28 @@ export function normalizeReceipt(raw: RawReceipt): Receipt {
       amount_subunits: parseAmountSubunits(s?.amount),
     })),
     is_receipt: raw?.is_receipt !== false,
+    merchant_name: normalizeMerchant(raw?.merchant_name),
+    venue_kind: VENUE_KINDS.has(raw?.venue_kind ?? "") ? (raw!.venue_kind as VenueKind) : null,
+    printed_time: normalizeTime(raw?.printed_time),
   };
+}
+
+const VENUE_KINDS: ReadonlySet<string> = new Set(["restaurant", "cafe", "bar", "grocery", "shop", "other"]);
+
+/** Trimmed, length-capped merchant name, or null. It becomes user-visible text, so keep it a short label. */
+function normalizeMerchant(name: unknown): string | null {
+  if (typeof name !== "string") return null;
+  const trimmed = name.replace(/\s+/g, " ").trim();
+  return trimmed ? trimmed.slice(0, 40) : null;
+}
+
+/** A valid 24-hour "HH:MM", zero-padded, or null. Anything else is dropped rather than half-trusted. */
+function normalizeTime(time: unknown): string | null {
+  if (typeof time !== "string") return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
 }

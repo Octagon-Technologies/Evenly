@@ -1,11 +1,16 @@
 package app.splitevenly.ui.screen.bill
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,7 +41,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -71,6 +78,8 @@ import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.math.roundToLong
 
 /** Which price the user is entering — the per-unit ("each") or the whole-line ("total"). */
@@ -160,15 +169,17 @@ fun priceToSubunits(text: String): Long {
  * after — saving re-derives shares without disturbing claims. DI-free; the wrapper supplies state and
  * handles persistence + the optional receipt scan.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun BillEditScreen(
     editing: Boolean,
     initial: EditBillState?,
     scanned: EditBillState? = null,
     currencyCode: String = "USD",
-    saving: Boolean = false,
     scanState: ScanUiState = ScanUiState.Idle,
     attachedReceipts: List<PickedReceiptUi> = emptyList(),
+    // Pages already saved to this bill. Shown ahead of [attachedReceipts] so a re-scan sees what is there.
+    savedReceipts: List<PickedReceiptUi> = emptyList(),
     onRemoveAttachedReceipt: (Int) -> Unit = {},
     // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
     loadPdfPageCount: suspend (url: String) -> Int = { 0 },
@@ -188,7 +199,10 @@ fun BillEditScreen(
     // Add someone who isn't in the group yet (a placeholder member) straight from the bill — so a bill can
     // include a friend without the app. The new member arrives via [participants] and is auto-selected.
     onAddPerson: (String) -> Unit = {},
-    onSave: (EditBillSubmit) -> Unit = {},
+    // Writes a snapshot and returns the saved line ids in the order of [EditBillSubmit.items], or null when
+    // the write failed. The ids let the editor update the same lines on the next auto-save instead of
+    // creating them again.
+    onSave: suspend (EditBillSubmit) -> List<String>? = { null },
 ) {
     val c = EvenlyTheme.colors
     val scope = rememberCoroutineScope()
@@ -198,8 +212,6 @@ fun BillEditScreen(
     fun startScan(source: PickSource) = onScanReceipt(source)
     // Which scanned page the full-screen viewer is open on; null = closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
-    // Flips true the first time Save is tapped while incomplete — then the missing fields turn red.
-    var showErrors by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf(initial?.title ?: "") }
     var items by remember { mutableStateOf(initial?.items ?: listOf(editBillItemUi(null, "", 1, 0L))) }
     var taxText by remember { mutableStateOf(initial?.taxText ?: "") }
@@ -249,48 +261,154 @@ fun BillEditScreen(
         }
     }
 
-    // A completed scan pre-fills ONLY the item list + extras — never the name or who's-on-the-bill the
-    // user already typed. Applied as an update (not by recreating the editor, which is what used to wipe
-    // the name). A re-scan replaces items again because [scanned] is a fresh instance each time.
+    // A completed scan pre-fills ONLY the item list + extras, never the name or who's-on-the-bill the user
+    // already typed. On a bill that already has items the user chooses Add or Replace; an empty bill just
+    // takes the scan. Applied as an update, and re-run for every scan because [scanned] is a fresh instance.
+    var pendingScan by remember { mutableStateOf<EditBillState?>(null) }
+    var extraSuggestions by remember { mutableStateOf<List<ExtraSuggestion>>(emptyList()) }
+    fun currentState() =
+        EditBillState(title, items, taxText, gratuityText, otherChargesText, tipText, discountText, !showUnverifiedNotice)
+    fun applyState(next: EditBillState) {
+        items = next.items
+        taxText = next.taxText
+        gratuityText = next.gratuityText
+        otherChargesText = next.otherChargesText
+        tipText = next.tipText
+        discountText = next.discountText
+        showUnverifiedNotice = !next.verified
+    }
+    fun applyScan(
+        s: EditBillState,
+        mode: ScanMergeMode,
+    ) {
+        val result = mergeScan(currentState(), s, mode)
+        applyState(result.state)
+        extraSuggestions = result.suggestions
+        pendingScan = null
+    }
     LaunchedEffect(scanned) {
         scanned?.let { s ->
-            items = s.items
-            taxText = s.taxText
-            gratuityText = s.gratuityText
-            otherChargesText = s.otherChargesText
-            tipText = s.tipText
-            discountText = s.discountText
-            showUnverifiedNotice = !s.verified
+            // The scan's suggested name ("Dinner at Tavolo") fills an empty Name field, never a typed one.
+            if (title.isBlank() && s.title.isNotBlank()) title = s.title
+            if (items.any { it.isComplete() }) pendingScan = s else applyScan(s, ScanMergeMode.REPLACE)
         }
     }
 
     val symbol = currencySymbol(currencyCode)
+    val allReceipts = savedReceipts + attachedReceipts
+    // Nothing typed or scanned yet: the Scan card leads the page.
+    val notScannedYet = items.all { it.isUntouched() } && allReceipts.isEmpty()
     val subtotal = items.sumOf { priceToSubunits(it.totalText) } // each line's total is the truth
     val total =
         subtotal + priceToSubunits(taxText) + priceToSubunits(gratuityText) +
             priceToSubunits(otherChargesText) +
             priceToSubunits(tipText) - priceToSubunits(discountText)
-    val nameValid = title.trim().isNotEmpty()
-    val hasItem = items.any { it.label.trim().isNotEmpty() }
-    val isValid = nameValid && hasItem
+
+    // ── Auto-save ───────────────────────────────────────────────────────────────────────────────────
+    // Last saved version of every line by id, so a half-retyped saved line is written as it was rather than
+    // dropped (dropping it would tombstone the item and its claims).
+    var lastSavedById by remember { mutableStateOf<Map<String, EditBillItemUi>>(initial?.items?.mapNotNull { r -> r.id?.let { it to r } }.orEmpty().toMap()) }
+    val rows = submitRows(items, lastSavedById)
+    val submit =
+        EditBillSubmit(
+            title = title.trim(),
+            items = rows.map { it.second },
+            taxSubunits = priceToSubunits(taxText),
+            gratuitySubunits = priceToSubunits(gratuityText),
+            otherChargesSubunits = priceToSubunits(otherChargesText),
+            tipSubunits = priceToSubunits(tipText),
+            discountSubunits = priceToSubunits(discountText),
+            participantIds = effectiveSelected,
+            payerUserId = payerId.takeIf { it.isNotBlank() },
+            payerOutsideName = outsidePayerName?.takeIf { it.isNotBlank() },
+        )
+    // The last snapshot written. For an existing bill it is captured once members have loaded, so opening
+    // the editor does not count as a change.
+    var lastSubmitted by remember { mutableStateOf<EditBillSubmit?>(null) }
+    val saveLock = remember { Mutex() }
+    // Bumped on each successful save; drives the "Changes saved" card.
+    var savedSignal by remember { mutableStateOf(0) }
+    var savedPinned by remember { mutableStateOf(false) }
+    var showSaved by remember { mutableStateOf(false) }
+    var leaveNoticeText by remember { mutableStateOf<String?>(null) }
+
+    /** Writes [snap] if it is savable and different from what is stored. Serialized so ids never race. */
+    suspend fun persist(snap: EditBillSubmit, ids: List<Int>) {
+        saveLock.withLock {
+            if (snap == lastSubmitted || snap.title.isEmpty() || snap.items.isEmpty()) return
+            val saved = onSave(snap) ?: return
+            val byIndex = ids.zip(saved).toMap()
+            // Hand the new ids to the rows they belong to, but only if the row is still the same line.
+            items = items.mapIndexed { i, row ->
+                val id = byIndex[i]
+                val sent = snap.items.getOrNull(ids.indexOf(i))
+                if (id != null && row.id == null && sent != null && row.label == sent.label) row.copy(id = id) else row
+            }
+            lastSavedById = lastSavedById + snap.items.mapIndexedNotNull { k, r -> saved.getOrNull(k)?.let { it to r.copy(id = it)  } }
+            lastSubmitted = snap.copy(items = snap.items.mapIndexed { k, r -> r.copy(id = saved.getOrNull(k) ?: r.id) })
+            savedPinned = scrollState.value > 0
+            savedSignal++
+        }
+    }
+
+    LaunchedEffect(submit, title, participants.isNotEmpty()) {
+        if (lastSubmitted == null && initial != null) {
+            // Existing bill: the first stable snapshot is the baseline, not a change.
+            if (participants.isNotEmpty() || initialSelectedIds.isNotEmpty()) lastSubmitted = submit
+            return@LaunchedEffect
+        }
+        if (submit == lastSubmitted || !canAutoSave(title, items)) return@LaunchedEffect
+        delay(AUTO_SAVE_DEBOUNCE_MS)
+        val snap = submit
+        val idx = rows.map { it.first }
+        scope.launch { persist(snap, idx) }
+    }
+
+    // Show the card for each save: expand, hold, collapse.
+    LaunchedEffect(savedSignal) {
+        if (savedSignal == 0) return@LaunchedEffect
+        showSaved = true
+        delay(SAVED_CARD_HOLD_MS)
+        showSaved = false
+    }
+
+    // Once the user fixes what the notice named, it has nothing left to say.
+    LaunchedEffect(title, items) { if (leaveNotice(title, items) == null) leaveNoticeText = null }
+
+    // Set once Back commits to leaving, so a second tap while the final save runs cannot pop twice.
+    var leaving by remember { mutableStateOf(false) }
+
+    /** Back: flush anything pending, then leave. Warns first when something would be lost silently. */
+    fun leave(force: Boolean) {
+        if (leaving) return
+        val notice = leaveNotice(title, items)
+        if (notice != null && !force) {
+            leaveNoticeText = notice
+            return
+        }
+        leaving = true
+        val snap = submit
+        val idx = rows.map { it.first }
+        scope.launch {
+            persist(snap, idx)
+            onBack()
+        }
+    }
+    BackHandler(enabled = true) { leave(force = false) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(c.page)) {
             StatusBarScrim()
             EvTopBar(
                 title = if (editing) "Edit bill" else "Split the bill",
-                navIcon = { EvIconButton(EvIcons.Close, onBack) },
-                actions = {
-                    EvButton(
-                        text = if (scanning) "Scanning…" else "Scan",
-                        onClick = { scanSource = true },
-                        variant = ButtonVariant.Text,
-                        leadingIcon = EvIcons.Camera,
-                        small = true,
-                        enabled = !scanning,
-                    )
-                },
+                navIcon = { EvIconButton(EvIcons.Back, { leave(force = false) }) },
             )
+            // At the top of the page the card is in flow and pushes the content down as it expands.
+            AnimatedVisibility(
+                visible = showSaved && !savedPinned,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) { SavedCard(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) }
             Column(
                 Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -302,26 +420,43 @@ fun BillEditScreen(
                     UnverifiedReceiptNotice(onDismiss = { showUnverifiedNotice = false })
                 }
 
-                // A scanned receipt rides along as the expense's attachment, previewable before it is saved.
-                if (attachedReceipts.isNotEmpty()) {
-                    PickedReceiptStrip(
-                        receipts = attachedReceipts,
-                        label = if (attachedReceipts.size == 1) "Receipt" else "Receipt pages",
-                        caption = "Saves with the bill.",
-                        onAddClick = null,
-                        onRemoveReceipt = onRemoveAttachedReceipt,
-                        onOpenReceipt = { viewerIndex = it },
+                // A second scan's totals usually repeat the first's, so they are offered, never added.
+                if (extraSuggestions.isNotEmpty()) {
+                    ExtraSuggestionsCard(
+                        suggestions = extraSuggestions,
+                        onUse = { sug ->
+                            applyState(currentState().withExtra(sug))
+                            extraSuggestions = extraSuggestions - sug
+                        },
+                        onDismiss = { extraSuggestions = emptyList() },
                     )
+                }
+
+                // Nothing scanned or typed yet: scanning leads, above Name, because a scan fills the name and the
+                // items in one go. Once there is a receipt or an item it moves to the Scan pill beside Items.
+                if (notScannedYet) {
+                    ScanReceiptCard(scanning = scanning, onClick = { scanSource = true })
                 }
 
                 EvField("Name") {
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        EvTextField(title, { title = it }, placeholder = "Dinner at Tavolo", isError = showErrors && !nameValid)
-                        if (showErrors && !nameValid) {
-                            Text("Give the bill a name", color = c.danger, fontSize = 12.sp)
-                        }
+                        EvTextField(title, { title = it }, placeholder = "Dinner at Tavolo", isError = leaveNoticeText != null && title.isBlank())
                     }
                 }
+
+                // The bill's receipt pages sit under its name: what was scanned, then what it became.
+                if (allReceipts.isNotEmpty()) {
+                    val itemCount = items.count { it.isComplete() }
+                    PickedReceiptStrip(
+                        receipts = allReceipts,
+                        label = if (allReceipts.size == 1) "Receipt" else "Receipt pages",
+                        caption = if (itemCount == 0) null else if (itemCount == 1) "1 item on this bill." else "$itemCount items on this bill.",
+                        onAddClick = null,
+                        onRemoveReceipt = { onRemoveAttachedReceipt(it - savedReceipts.size) },
+                        onOpenReceipt = { viewerIndex = it },
+                    )
+                }
+
 
                 // Who's on this bill — defaults to everyone; take off anyone who wasn't there. Taking off
                 // someone who has claimed goes through the confirm sheet, since it discards their claims.
@@ -352,6 +487,27 @@ fun BillEditScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Items", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        // Once the top Scan card is gone, Scan stays reachable as a labelled entry here.
+                        if (!notScannedYet) {
+                            Row(
+                                Modifier
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .border(1.dp, c.blueText, RoundedCornerShape(99.dp))
+                                    .clickable(enabled = !scanning) { scanSource = true }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                EvIcon(EvIcons.Camera, size = 14.dp, tint = c.blueText)
+                                Text(
+                                    if (scanning) "Scanning..." else "Scan",
+                                    color = c.blueText,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Box(Modifier.width(8.dp))
+                        }
                         Row(
                             Modifier
                                 .clip(RoundedCornerShape(8.dp))
@@ -371,13 +527,12 @@ fun BillEditScreen(
                                 item = item,
                                 symbol = symbol,
                                 showDivider = index > 0,
+                                hint = if (item.isComplete() || item.isUntouched()) null else if (item.label.isBlank()) "This item needs a name" else "Add a price",
+                                hintIsError = leaveNoticeText != null,
                                 onChange = { updated -> items = items.toMutableList().also { it[index] = updated } },
                                 onRemove = { items = items.filterIndexed { i, _ -> i != index } },
                             )
                         }
-                    }
-                    if (showErrors && !hasItem) {
-                        Text("Add at least one item with a name", color = c.danger, fontSize = 12.sp)
                     }
                 }
 
@@ -399,34 +554,63 @@ fun BillEditScreen(
                     onDiscount = { discountText = it },
                 )
 
+                // Back saves, so there is no Save button. A row Back would otherwise lose is called out here.
+                leaveNoticeText?.let { text ->
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.warningTint).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(text, color = c.ink, fontSize = 13.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                            Text(
+                                "Keep editing",
+                                color = c.blueText,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { leaveNoticeText = null },
+                            )
+                            Text(
+                                "Leave anyway",
+                                color = c.ink2,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { leave(force = true) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Scrolled away from the top: the card pins to the viewport instead of pushing, so it is never missed.
+        AnimatedVisibility(
+            visible = showSaved && savedPinned,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 112.dp),
+        ) { SavedCard(Modifier.padding(horizontal = 16.dp)) }
+
+        pendingScan?.let { s ->
+            val have = items.count { it.isComplete() }
+            val found = s.items.count { it.isComplete() }
+            // Dismissing is not "throw the scan away": that would drop items the user paid a scan for with no
+            // trace. It takes the non-destructive default, Add, and the new rows are right there to remove.
+            EvModalScaffold(onDismiss = { applyScan(s, ScanMergeMode.ADD) }) {
+                Text(
+                    if (found == 1) "Found 1 item" else "Found $found items",
+                    color = c.ink,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                Text(
+                    if (have == 1) "This bill already has 1 item." else "This bill already has $have items.",
+                    color = c.ink2,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // The button stays live. Tapping while incomplete reddens the gaps and scrolls back to
-                    // them (the contextual errors under Name/Items), so Save is never a silent dead end.
-                    EvButton(
-                        text = if (saving) "Saving…" else "Save bill",
-                        onClick = {
-                            if (!isValid) {
-                                showErrors = true
-                                scope.launch { scrollState.animateScrollTo(0) }
-                            } else {
-                                onSave(
-                                    EditBillSubmit(
-                                        title = title.trim(),
-                                        items = items.filter { it.label.trim().isNotEmpty() },
-                                        taxSubunits = priceToSubunits(taxText),
-                                        gratuitySubunits = priceToSubunits(gratuityText),
-                                        otherChargesSubunits = priceToSubunits(otherChargesText),
-                                        tipSubunits = priceToSubunits(tipText),
-                                        discountSubunits = priceToSubunits(discountText),
-                                        participantIds = effectiveSelected,
-                                        payerUserId = payerId.takeIf { it.isNotBlank() },
-                                        payerOutsideName = outsidePayerName?.takeIf { it.isNotBlank() },
-                                    ),
-                                )
-                            }
-                        },
-                        enabled = !saving,
-                    )
+                    EvButton("Add to current items", { applyScan(s, ScanMergeMode.ADD) })
+                    EvButton("Replace all items", { applyScan(s, ScanMergeMode.REPLACE) }, variant = ButtonVariant.Secondary)
                 }
             }
         }
@@ -559,12 +743,12 @@ fun BillEditScreen(
         }
 
         // Covers the editor, so it renders last and outside the scrolling Column.
-        LaunchedEffect(attachedReceipts.size) {
-            if ((viewerIndex ?: -1) >= attachedReceipts.size) viewerIndex = null
+        LaunchedEffect(allReceipts.size) {
+            if ((viewerIndex ?: -1) >= allReceipts.size) viewerIndex = null
         }
-        viewerIndex?.takeIf { it in attachedReceipts.indices }?.let { index ->
+        viewerIndex?.takeIf { it in allReceipts.indices }?.let { index ->
             StagedReceiptViewer(
-                receipts = attachedReceipts,
+                receipts = allReceipts,
                 initialIndex = index,
                 loadPdfPageCount = loadPdfPageCount,
                 renderPdfPage = renderPdfPage,
@@ -581,6 +765,8 @@ internal fun ItemEditorRow(
     showDivider: Boolean,
     onChange: (EditBillItemUi) -> Unit,
     onRemove: () -> Unit,
+    hint: String? = null,
+    hintIsError: Boolean = false,
 ) {
     val c = EvenlyTheme.colors
     Column(
@@ -600,6 +786,7 @@ internal fun ItemEditorRow(
             )
             EvIconButton(EvIcons.Trash, onRemove, tint = c.ink3, size = 18.dp)
         }
+        if (hint != null) Text(hint, color = if (hintIsError) c.danger else c.ink3, fontSize = 12.sp)
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // Qty is always shown and labeled (and typable) so it's obvious that raising it reveals the
             // "each / total of N" pair — the discoverability the old hidden stepper lacked.
@@ -935,4 +1122,93 @@ private fun StepBtn(
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center,
     ) { EvIcon(icon, size = 15.dp, tint = tint) }
+}
+
+private const val AUTO_SAVE_DEBOUNCE_MS = 700L
+private const val SAVED_CARD_HOLD_MS = 2500L
+
+/** The small centered "Changes saved..." card. Muted so it confirms without competing with the form. */
+@Composable
+private fun SavedCard(modifier: Modifier = Modifier) {
+    val c = EvenlyTheme.colors
+    Box(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(vertical = 10.dp, horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("Changes saved...", color = c.ink2, fontSize = 13.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/** The empty-bill entry point to scanning, above the manual rows so it is the first thing offered. */
+@Composable
+private fun ScanReceiptCard(
+    scanning: Boolean,
+    onClick: () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.selectionTint)
+            .border(1.dp, c.selectionStroke, shape)
+            .clickable(enabled = !scanning, onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(c.blue), contentAlignment = Alignment.Center) {
+            EvIcon(EvIcons.Camera, size = 20.dp, tint = c.onAccent)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                if (scanning) "Scanning..." else "Scan a receipt",
+                color = c.ink,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text("Snap a photo or PDF and we'll fill in the items.", color = c.ink2, fontSize = 12.sp)
+        }
+    }
+}
+
+/** Totals found on a second scan that differ from the bill's. Each is applied only on tap. */
+@Composable
+private fun ExtraSuggestionsCard(
+    suggestions: List<ExtraSuggestion>,
+    onUse: (ExtraSuggestion) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("This page also printed", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            EvIconButton(EvIcons.Close, onDismiss, tint = c.ink3, size = 16.dp)
+        }
+        suggestions.forEach { sug ->
+            val name =
+                when (sug.field) {
+                    ExtraField.TAX -> "Tax"
+                    ExtraField.GRATUITY -> "Gratuity"
+                    ExtraField.OTHER_CHARGES -> "Other charges"
+                    ExtraField.TIP -> "Tip"
+                    ExtraField.DISCOUNT -> "Discount"
+                }
+            val now = if (sug.currentText.isBlank()) "" else " (bill has ${sug.currentText})"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("$name ${sug.scannedText}$now", color = c.ink, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(
+                    "Use",
+                    color = c.blueText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onUse(sug) }.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
 }

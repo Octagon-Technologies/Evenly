@@ -623,6 +623,10 @@ function clientReceipt(receipt: Receipt, math: BillMath) {
     discount_subunits: math.extras.discount_subunits,
     other_charges_subunits: math.extras.other_subunits,
     detected_total_subunits: math.printedTotal,
+    // Header facts for the app's suggested bill name. Optional on the wire: an older app ignores them.
+    merchant_name: receipt.merchant_name ?? null,
+    venue_kind: receipt.venue_kind ?? null,
+    printed_time: receipt.printed_time ?? null,
   };
 }
 
