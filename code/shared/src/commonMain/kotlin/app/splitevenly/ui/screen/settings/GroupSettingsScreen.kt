@@ -30,30 +30,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ButtonVariant
-import app.splitevenly.ui.components.ChipVariant
-import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
-import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvEmojiPicker
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
-import app.splitevenly.ui.components.EvRadio
 import app.splitevenly.ui.components.EvSectionLabel
 import app.splitevenly.ui.components.EvTextField
-import app.splitevenly.ui.components.EvToggle
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
+import app.splitevenly.ui.screen.group.AddMemberSheet
+import app.splitevenly.ui.screen.group.MemberRow
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /**
@@ -88,7 +83,6 @@ fun GroupSettingsScreen(
     onRename: (name: String, emoji: String) -> Unit = { _, _ -> },
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
-    onRotateInvite: () -> Unit = {},
     onRemoveMember: (MemberRowUi) -> Unit = {},
     onReconcile: () -> Unit = {},
     /** Names in this group with no account that the viewer hasn't answered. 0 hides the claim row. */
@@ -108,7 +102,6 @@ fun GroupSettingsScreen(
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
-    var reminder by remember { mutableStateOf("Weekly") }
     var showAdd by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
@@ -162,27 +155,20 @@ fun GroupSettingsScreen(
                             )
                         }
                     }
-                    EvButton(
-                        "Share link",
-                        onShareInvite,
-                        leadingIcon = EvIcons.Share,
-                        small = true,
-                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        EvButton(
+                            "Share link",
+                            onShareInvite,
+                            modifier = Modifier.weight(1f),
+                            leadingIcon = EvIcons.Share,
+                            small = true,
+                        )
                         EvButton(
                             "Copy link",
                             onCopyInvite,
                             modifier = Modifier.weight(1f),
                             variant = ButtonVariant.Secondary,
                             leadingIcon = EvIcons.Copy,
-                            small = true,
-                        )
-                        EvButton(
-                            "New link",
-                            onRotateInvite,
-                            modifier = Modifier.weight(1f),
-                            variant = ButtonVariant.Secondary,
-                            leadingIcon = EvIcons.Reload,
                             small = true,
                         )
                     }
@@ -203,34 +189,7 @@ fun GroupSettingsScreen(
                     )
                 }
                 members.forEachIndexed { i, m ->
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .then(if (i > 0 || unclaimedNameCount > 0) Modifier.topHairline(c.border) else Modifier)
-                                .clickable(enabled = !m.isMe) { removeTarget = m }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        EvAvatar(m.name, me = m.isMe, size = AvatarSize.Sm)
-                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Text(m.name, style = t.itemTitle)
-                            if (m.isMe) Text(" · you", style = t.itemTitle.copy(color = c.ink2, fontWeight = FontWeight.Medium))
-                        }
-                        if (m.role.isNotEmpty()) {
-                            EvChip(
-                                m.role,
-                                variant =
-                                    when (m.role) {
-                                        "Admin" -> ChipVariant.Blue
-                                        "Left" -> ChipVariant.Red
-                                        else -> ChipVariant.Amber
-                                    },
-                            )
-                        }
-                        EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)
-                    }
+                    MemberRow(m, showDivider = i > 0 || unclaimedNameCount > 0, onClick = if (m.isMe) null else ({ removeTarget = m }))
                 }
                 Row(
                     modifier =
@@ -244,26 +203,6 @@ fun GroupSettingsScreen(
                 ) {
                     EvIcon(EvIcons.Plus, size = 18.dp, tint = c.blueText)
                     Text("Add member", style = t.itemTitle.copy(color = c.blueText))
-                }
-            }
-
-            // ── Conflict reminders ─────────────────────────────
-            SettingsGroup("Conflict reminders") {
-                listOf("Off", "Daily", "Weekly").forEachIndexed { i, r ->
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .then(if (i > 0) Modifier.topHairline(c.border) else Modifier)
-                                .clickable { reminder = r }
-                                .heightIn(min = 56.dp)
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(r, style = t.itemTitle, modifier = Modifier.weight(1f))
-                        EvRadio(selected = reminder == r)
-                    }
                 }
             }
 
@@ -338,31 +277,7 @@ fun GroupSettingsScreen(
     }
 
     if (showAdd) {
-        var name by remember { mutableStateOf("") }
-        var addToPast by remember { mutableStateOf(false) }
-        EvModalScaffold(onDismiss = { showAdd = false }) {
-            Text("Add a member", style = t.sheetTitle, modifier = Modifier.padding(bottom = 12.dp))
-            EvField("Name") { EvTextField(name, { name = it }, placeholder = "e.g. Tyler") }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Add to all past expenses", style = t.itemTitle)
-                    Text("Even splits update automatically; others become conflicts to resolve.", style = t.caption)
-                }
-                EvToggle(addToPast, { addToPast = it })
-            }
-            Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                EvButton("Add", {
-                    if (name.isNotBlank()) {
-                        onAddMember(name.trim(), addToPast)
-                        showAdd = false
-                    }
-                }, enabled = name.isNotBlank())
-            }
-        }
+        AddMemberSheet(onAdd = onAddMember, onDismiss = { showAdd = false })
     }
 
     if (showRename) {

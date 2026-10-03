@@ -1,6 +1,6 @@
 # Group members + sharing cleanup (T2, T9, T10)
 
-**Status:** not started
+**Status:** T2, T9, T10 done
 **Worktree / branch:** `fb/group-surface` (from `feat/split-by-items-flow`)
 **Mockup:** `design/group-members-entry-mockup.html` — required for T2 before Compose.
 
@@ -79,4 +79,17 @@ Commits: one per task (`feat(group): …` T2, `refactor(group): …` T9, `refact
 
 ## 7. Completion report
 
-_(fill in at the end)_
+- **T9 done** (e335670): "New link" removed from GroupSettingsScreen and InviteSheet; Share + Copy are one row of two equal buttons; `onRotateInvite` removed from both screens and both Route wrappers. `rotateInviteToken` in the repository untouched.
+- **T10 done** (b67a77e): Conflict reminders group + `reminder` state deleted. No user-level toggle exists in `ui/` (grep for conflictReminders/reminder is empty). Schema, Room, `push-notify` untouched.
+- Both compile targets green for each commit (`:shared:compileAndroidMain`, `:shared:compileKotlinIosSimulatorArm64`). Tests and iOS sim run not performed for T9/T10 (deletions only); owner should eyeball Group settings and the invite sheet.
+- **T2 blocked** on owner sign-off: mock at `design/group-members-entry-mockup.html` (options A strip, B chip row, C solo card, plus Members sheet). Open point: the 2-tap criterion implies "Invite with link" should open the native share sheet directly rather than InviteSheet. Recommend A.
+- Outward-facing: none proposed.
+
+- Review (Opus, 2026-10-01): removed the `EvRadio` import T10 left unused in `GroupSettingsScreen.kt`.
+- **T2 done** (owner picked option A, 2026-10-01): `MembersStrip` under the top bar (solo: tinted, "Just you",
+  "Add people" pill; N: up to 4 avatars + "+N"), opening `MembersSheet`. "Invite with link" goes straight to the
+  native share sheet (2 taps from the group page); "Show QR code" opens the existing `InviteSheet`; "Add by name"
+  opens `AddMemberSheet`. The top-bar Share icon is gone. `MemberRow`, `AddMemberSheet`, `toMemberRows` and
+  `addMemberByName` (all in `ui/screen/group/GroupMembers.kt`) are shared with Group settings. The Add button
+  now validates on tap ("Type their name first") instead of greying out. Checked on the iOS sim (dark): solo
+  strip, sheet, add-sheet validation. No member was actually added on the dev account.
