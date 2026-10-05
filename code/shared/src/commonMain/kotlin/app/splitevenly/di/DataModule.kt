@@ -152,7 +152,7 @@ val dataModule: Module =
         // "Is this you?" claims: schedules the merge behind a 5-second undo window and runs the
         // first-claim-wins guard before writing anything. A single, because it has to outlive the screen
         // that started it (backgrounding flushes a pending claim).
-        // "Later" and the closing note are deliberately not persisted; see IdentityPromptSnooze.
+        // The closing note is deliberately not persisted; see IdentityPromptSnooze.
         single { IdentityPromptSnooze() }
         single {
             PlaceholderClaimCoordinator(

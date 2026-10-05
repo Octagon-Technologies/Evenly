@@ -58,8 +58,6 @@ import app.splitevenly.ui.screen.home.HomeScreen
 import app.splitevenly.ui.screen.home.HomeUiState
 import app.splitevenly.ui.screen.home.HomeViewModel
 import app.splitevenly.ui.screen.home.JoinByLinkSheet
-import app.splitevenly.ui.screen.home.JoinGroupSheet
-import app.splitevenly.ui.screen.home.JoinPlaceholderOption
 import app.splitevenly.ui.screen.home.NewGroupSheet
 import app.splitevenly.ui.screen.home.RecentlyDeletedScreen
 import app.splitevenly.ui.screen.settings.PaymentHandlesScreen
@@ -349,55 +347,6 @@ fun HomeRoute(
         deletedAlert = deletedAlertText(deletedGroups, meId, seenAt),
         onOpenSettings = onOpenSettings,
         onRetry = vm::retry,
-    )
-}
-
-/** Join-by-invite, wired: resolves the token to a group preview, then joins via [GroupRepository.joinByToken]. */
-@Composable
-fun JoinRoute(
-    token: String,
-    onDismiss: () -> Unit,
-    onOpenGroup: (String) -> Unit,
-) {
-    val groups = koinInject<GroupRepository>()
-    val auth = koinInject<AuthSession>()
-    val scope = rememberCoroutineScope()
-    val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    var group by remember(token) { mutableStateOf<Group?>(null) }
-    var resolved by remember(token) { mutableStateOf(false) }
-    LaunchedEffect(token) {
-        group = groups.findGroupByToken(token)
-        resolved = true
-    }
-    val g = group
-    // Existing roster (placeholders + everyone who's joined via the link) so the sheet can show the
-    // member count for "is this actually my group?" confirmation. Empty until the token resolves.
-    val membersFlow = remember(g?.id) { g?.id?.let { groups.observeMembers(it) } ?: flowOf(emptyList()) }
-    val members by membersFlow.collectAsStateWithLifecycle(emptyList())
-    // Claimable identities = the still-active placeholders in this roster (already filtered to
-    // unclaimed by observeMembers). Reusing the roster flow avoids a second query/injection.
-    val placeholderOptions =
-        members
-            .filter { it.isPlaceholder }
-            .map { JoinPlaceholderOption(it.userId.value, it.displayName?.takeIf { n -> n.isNotBlank() } ?: "Member") }
-    JoinGroupSheet(
-        groupName = g?.name ?: if (resolved) "" else "Checking invite…",
-        emoji = g?.emoji ?: "🔗",
-        memberNames = members.map { it.displayName?.takeIf { n -> n.isNotBlank() } ?: "Member" },
-        placeholders = placeholderOptions,
-        found = g != null || !resolved,
-        onDismiss = onDismiss,
-        onJoin = { claimId ->
-            userId?.let { me ->
-                scope.launch {
-                    when (val r = groups.joinByToken(token, me, claimId?.let(::UserId))) {
-                        is AppResult.Ok -> onOpenGroup(r.value.id.value)
-                        is AppResult.Err -> Unit
-                    }
-                }
-            }
-        },
-        onOpen = { g?.let { onOpenGroup(it.id.value) } },
     )
 }
 

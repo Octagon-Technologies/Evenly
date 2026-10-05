@@ -34,9 +34,11 @@ sealed interface ClaimStatus {
      */
     data class Undoable(
         val groupId: GroupId,
-        val placeholderUserId: UserId,
-        val name: String,
-    ) : ClaimStatus
+        val targets: List<ClaimTarget>,
+    ) : ClaimStatus {
+        /** Every name in the claim as one phrase ("Mamba and Mslow"), for the toast and the notices. */
+        val name: String get() = joinNames(targets.map { it.name })
+    }
 
     /** Flushed: asking the server who gets the name. Past the point of undo. */
     data class Confirming(
@@ -62,6 +64,21 @@ sealed interface ClaimStatus {
         val name: String,
     ) : ClaimStatus
 }
+
+/** One name being claimed. Held by id, never looked up again by name: two names can read identically. */
+data class ClaimTarget(
+    val placeholderUserId: UserId,
+    val name: String,
+)
+
+/** "A", "A and B", "A, B, and C". */
+fun joinNames(names: List<String>): String =
+    when (names.size) {
+        0 -> ""
+        1 -> names.single()
+        2 -> "${names[0]} and ${names[1]}"
+        else -> names.dropLast(1).joinToString(", ") + ", and " + names.last()
+    }
 
 /**
  * Undo by DELAY, not by inverse.
@@ -133,19 +150,28 @@ class PlaceholderClaimCoordinator(
      */
     private var latestSeq = 0L
 
-    /**
-     * Schedule a claim. Only one can be pending at a time: confirming a second **flushes the first**
-     * rather than queueing or silently dropping it.
-     */
+    /** Schedule a claim of one name. */
     suspend fun confirm(
         groupId: GroupId,
         placeholderUserId: UserId,
         name: String,
         claimer: UserId,
+    ) = confirm(groupId, listOf(ClaimTarget(placeholderUserId, name)), claimer)
+
+    /**
+     * Schedule a claim of every name in [targets] as one undoable unit: the checklist confirms several
+     * names with one tap, so one Undo has to take all of them back. Only one claim can be pending at a
+     * time: confirming a second **flushes the first** rather than queueing or silently dropping it.
+     */
+    suspend fun confirm(
+        groupId: GroupId,
+        targets: List<ClaimTarget>,
+        claimer: UserId,
     ) {
+        if (targets.isEmpty()) return
         flush()
         lock.withLock {
-            val claim = ClaimStatus.Undoable(groupId, placeholderUserId, name)
+            val claim = ClaimStatus.Undoable(groupId, targets)
             latestSeq += 1
             pending = Pending(claim, claimer, latestSeq)
             _status.value = claim
@@ -165,6 +191,21 @@ class PlaceholderClaimCoordinator(
                     flush()
                 }
         }
+    }
+
+    /**
+     * Record one answer to the "Are any of these you?" checklist. A checklist answer covers every name it
+     * showed: [notMe] are the ones left unticked (or all of them, for "none of these are me") and are
+     * written now, since a "not me" moves no money and needs no undo; [claim] goes behind the undo window.
+     */
+    suspend fun answer(
+        groupId: GroupId,
+        claim: List<ClaimTarget>,
+        notMe: List<UserId>,
+        claimer: UserId,
+    ) {
+        if (notMe.isNotEmpty()) groups.answerNotMe(groupId, notMe, claimer)
+        confirm(groupId, claim, claimer)
     }
 
     /** Take it back. Only possible while the commit is still pending, which is the whole design. */
@@ -245,9 +286,24 @@ class PlaceholderClaimCoordinator(
         scope.launch { resumePending() }
     }
 
+    /**
+     * Commit each name in turn, each parked and guarded on its own. A name lost to someone else or not
+     * confirmed by the server is the outcome worth showing, since the others landed and the list already
+     * reflects them; a clean run reports every name.
+     */
     private suspend fun commit(p: Pending): ClaimStatus {
-        val claim = p.claim
-        val parked = ParkedClaim(claim.groupId, claim.placeholderUserId, p.claimer)
+        val results = p.claim.targets.map { commitOne(p.claim.groupId, it, p.claimer) }
+        return results.firstOrNull { it is ClaimStatus.Lost }
+            ?: results.firstOrNull { it is ClaimStatus.Failed }
+            ?: ClaimStatus.Claimed(p.claim.groupId, p.claim.name)
+    }
+
+    private suspend fun commitOne(
+        groupId: GroupId,
+        target: ClaimTarget,
+        claimer: UserId,
+    ): ClaimStatus {
+        val parked = ParkedClaim(groupId, target.placeholderUserId, claimer)
         // Parked BEFORE the guard is asked, because the window this class could not survive is the one
         // between a *won* guard and the merge: the RPC retires the placeholder server-side and stamps it
         // claimed, so the next pull drops it out of `observePlaceholdersInGroup` and it disappears from
@@ -257,7 +313,7 @@ class PlaceholderClaimCoordinator(
         // A throw parks it too, and must: "the RPC committed but the reply was lost" and "the RPC never
         // ran" are indistinguishable from here, and the first one strands the name identically.
         store.park(parked)
-        return finish(parked, claim.name) ?: ClaimStatus.Failed(claim.groupId, claim.name)
+        return finish(parked, target.name) ?: ClaimStatus.Failed(groupId, target.name)
     }
 
     /**

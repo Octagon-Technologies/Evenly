@@ -128,10 +128,8 @@ fun GroupExpensesTab(
     // settings row and the full-screen list are the deliberate second and third doors, not the first.
     identityNames: List<UnclaimedNameUi> = emptyList(),
     identityFinished: Boolean = false,
-    onIdentityThatsMe: (String) -> Unit = {},
-    onIdentityNotMe: (String) -> Unit = {},
-    onIdentityNoneOfThese: () -> Unit = {},
-    onIdentityLater: () -> Unit = {},
+    onIdentityConfirm: (selected: List<UnclaimedNameUi>, shown: List<UnclaimedNameUi>) -> Unit = { _, _ -> },
+    onIdentityNoneOfThese: (shown: List<UnclaimedNameUi>) -> Unit = {},
     onIdentitySeeAll: () -> Unit = {},
     /** Non-null while a claim is still cancellable. The merge has not been written yet. */
     undoToastText: String? = null,
@@ -217,10 +215,8 @@ fun GroupExpensesTab(
                             if (identityNames.isNotEmpty()) {
                                 IdentityClaimCard(
                                     names = identityNames,
-                                    onThatsMe = onIdentityThatsMe,
-                                    onNotMe = onIdentityNotMe,
+                                    onConfirm = onIdentityConfirm,
                                     onNoneOfThese = onIdentityNoneOfThese,
-                                    onLater = onIdentityLater,
                                     onSeeAll = onIdentitySeeAll,
                                 )
                             } else if (identityFinished) {
