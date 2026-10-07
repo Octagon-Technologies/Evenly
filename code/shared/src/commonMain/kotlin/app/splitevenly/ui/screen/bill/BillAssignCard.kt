@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -60,6 +61,7 @@ internal fun AccordionCard(
     onToggle: (userId: String) -> Unit,
     onEveryone: () -> Unit,
     onOpenServings: () -> Unit,
+    onAddPerson: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
@@ -80,7 +82,7 @@ internal fun AccordionCard(
             NumberMark(item.number, complete)
             Column(Modifier.weight(1f)) {
                 Text(
-                    "${item.number}. ${item.label}",
+                    item.label,
                     color = c.ink,
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -142,6 +144,7 @@ internal fun AccordionCard(
                             onClick = { onToggle(p.userId) },
                         )
                     }
+                    AddPersonChip(onAddPerson)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -167,6 +170,29 @@ internal fun AccordionCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * The "Add person" chip at the end of the roster. It opens the people sheet, which offers group members
+ * not on the bill as well as brand-new names, because the person forgotten is usually already in the group.
+ */
+@Composable
+private fun AddPersonChip(onClick: () -> Unit) {
+    val c = EvenlyTheme.colors
+    Row(
+        Modifier
+            .height(38.dp)
+            .clip(CircleShape)
+            .background(c.surface)
+            .border(1.dp, c.border, CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        EvIcon(EvIcons.Plus, size = 14.dp, tint = c.ink3)
+        Text("Add person", color = c.ink2, fontSize = 14.sp, fontWeight = FontWeight.Medium)
     }
 }
 

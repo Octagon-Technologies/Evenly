@@ -125,10 +125,14 @@ Simple items are tap-chips (`EvParticipantChip`); a multi-serving line opens `Se
 a completed card joins the bottom of "Assigned" only once focus leaves it. The session lives in a ViewModel
 on the ClaimBill entry, so review/progress push and pop without losing it; "Assign" from those screens pops
 back to that entry with a focus request (`openAssign`) rather than stacking a second accordion.
+A card's "Add person" chip opens `PeoplePickerSheet` (`bill/PeoplePickerSheet.kt`): the whole group plus
+anyone on the bill, the line's current people ticked and tagged, and a create row. It writes nothing until
+Done, because the forgotten person is usually already in the group, not new. Reuse it for any other
+"who's in" question rather than adding another picker.
 
 **The payer's three web-claim screens** (`BillReviewEditsScreen`, `BillClaimProgressScreen`,
 `BillShareLinkScreen`; wired in `ui/navigation/WebClaimRoutes.kt`) are reached from the chooser's QR option
-and the assign screen's ⋯ menu. Three rules that look like taste
+and expense details. The assign screen's ⋯ menu was removed (owner call, 2026-10-03: not intuitive). Three rules that look like taste
 and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
 
 - **"What changed" reports; it does not adjudicate.** Every change on that screen has already applied
@@ -138,9 +142,9 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   approval gate. **No "undo all"** either, and no rights hierarchy: anyone on the bill may undo, an undo
   is itself an attributed entry, and the log is the tiebreak. The banner clears by being **read** (a
   device-local marker in `SecureStorage`, `changesSeenKey` in `WebClaimRoutes.kt`), not by deciding.
-  **A notification that clears itself needs a durable door beside it** — the "What changed" row in
-  the assign screen's ⋯ menu is that door. Without it, reading the banner once puts the record of who changed
-  what, and the undo with it, permanently out of reach. Found by walking the screen, not by reading it.
+  **A notification that clears itself needs a durable door beside it.** The "What changed" row in
+  the assign screen's ⋯ menu was that door and went with the menu; until a replacement lands, reading the
+  banner once puts the record of who changed what, and the undo with it, out of reach.
 - **The bill QR and the group invite are different links and stay apart.** Per-expense, permanent until
   revoked, no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button. On the expense detail the bill QR is the full-width
   "Let friends pick their items" button in `BillPickCard`, and the group sheet is titled "Invite to group".

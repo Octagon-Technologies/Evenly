@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,7 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -34,11 +32,8 @@ import app.splitevenly.domain.expense.ItemStatus
 import app.splitevenly.ui.components.BannerVariant
 import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvButton
-import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
-import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvSkeleton
-import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.icon.EvIcon
@@ -61,6 +56,8 @@ data class AssignScreenState(
     val activeItemId: String?,
     val participants: List<ClaimParticipantUi>,
     val resolvedCount: Int,
+    // Group members not on the bill yet: the "Add person" sheet offers them alongside the bill's people.
+    val groupPeople: List<ClaimParticipantUi> = emptyList(),
 ) {
     val remainingCount: Int get() = items.size - resolvedCount
 }
@@ -69,8 +66,7 @@ data class AssignScreenState(
  * "Assign the items" — one open card at a time (frames 5A, 6A, 11). Tapping a header opens that card
  * and closes the last one; the route owns the completion order, so a card just completed under the
  * user's finger stays put until focus moves. The phone holder may assign for anyone, or only their own
- * items and leave the rest. Multi-serving lines open the existing per-serving sheet. The web-claim doors
- * (QR, progress, "What changed") and bill editing sit in the top bar's menu. DI-free.
+ * items and leave the rest. Multi-serving lines open the existing per-serving sheet. DI-free.
  */
 @Composable
 fun BillAssignScreen(
@@ -80,21 +76,17 @@ fun BillAssignScreen(
     // Replaces a single-serving line's assignees: they share the whole line.
     onSetMembers: (itemId: String, memberIds: List<String>) -> Unit = { _, _ -> },
     onSetServings: (itemId: String, servings: List<List<String>>) -> Unit = { _, _ -> },
-    onAddPerson: (name: String) -> Unit = {},
-    onEditBill: () -> Unit = {},
-    onShowQr: () -> Unit = {},
-    onClaimProgress: () -> Unit = {},
+    // The "Add person" sheet's answer for one line: who shares it, including people new to the bill.
+    onPickPeople: (itemId: String, pick: PeoplePick) -> Unit = { _, _ -> },
     onReviewEdits: () -> Unit = {},
     onReview: () -> Unit = {},
     unseenChangeCount: Int = 0,
-    changeCount: Int = 0,
     notice: String? = null,
     onDismissNotice: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var servingsItemId by remember { mutableStateOf<String?>(null) }
-    var showAddPerson by remember { mutableStateOf(false) }
-    var showMenu by remember { mutableStateOf(false) }
+    var pickerItemId by remember { mutableStateOf<String?>(null) }
     val byId = state.items.associateBy { it.id }
 
     Box(Modifier.fillMaxSize()) {
@@ -104,7 +96,6 @@ fun BillAssignScreen(
                 title = "Assign the items",
                 subtitle = "${state.title} · ${moneySubunits(state.totalSubunits, state.currency)}",
                 navIcon = { EvIconButton(EvIcons.Back, onBack) },
-                actions = { EvIconButton(EvIcons.More, { showMenu = true }) },
                 showDivider = false,
             )
             notice?.let {
@@ -159,42 +150,17 @@ fun BillAssignScreen(
                             },
                             onEveryone = { onSetMembers(id, state.participants.map { it.userId }) },
                             onOpenServings = { servingsItemId = id },
+                            onAddPerson = { pickerItemId = id },
                             modifier = Modifier.animateItem(),
                         )
                     }
                 }
                 section("h-done", "Assigned", state.completedIds)
                 section("h-todo", "Still to assign", state.unfinishedIds)
-                item(key = "add-person") {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { showAddPerson = true }
-                            .padding(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        EvIcon(EvIcons.Plus, size = 16.dp, tint = c.blueText)
-                        Text("Add someone new", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
             }
 
             Box(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp)) {
-                EvButton(onReview) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Review assignments", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            when (state.remainingCount) {
-                                0 -> "Every item is assigned"
-                                1 -> "1 item still needs someone"
-                                else -> "${state.remainingCount} items still need someone"
-                            },
-                            fontSize = 11.5.sp,
-                        )
-                    }
-                }
+                EvButton("Review assignments", onReview)
             }
         }
 
@@ -208,58 +174,28 @@ fun BillAssignScreen(
             )
         }
 
-        if (showMenu) {
-            EvModalScaffold(onDismiss = { showMenu = false }) {
-                MenuRow(EvIcons.Qr, "Show the QR code") {
-                    showMenu = false
-                    onShowQr()
-                }
-                MenuRow(EvIcons.Users, "Claim progress") {
-                    showMenu = false
-                    onClaimProgress()
-                }
-                if (changeCount > 0) {
-                    MenuRow(EvIcons.History, "What changed ($changeCount)") {
-                        showMenu = false
-                        onReviewEdits()
+        pickerItemId?.let { id -> byId[id] }?.let { item ->
+            val onBill = state.participants.map { it.userId }.toSet()
+            val people =
+                (state.participants + state.groupPeople.filter { it.userId !in onBill })
+                    .map { PickerPersonUi(it.userId, it.name, it.isMe) }
+            PeoplePickerSheet(
+                title = "Who shared ${item.label}?",
+                sub = moneySubunits(item.lineTotalSubunits, state.currency),
+                people = people,
+                initiallySelected = item.assignedMemberIds,
+                sectionLabel = "People",
+                selectedTag = "On this dish",
+                summary = { n ->
+                    when (n) {
+                        0 -> "No one picked yet"
+                        1 -> "${moneySubunits(item.lineTotalSubunits, state.currency)} for 1 person"
+                        else -> "Split $n ways · ${moneySubunits(item.lineTotalSubunits / n, state.currency)} each"
                     }
-                }
-                MenuRow(EvIcons.Plus, "Add someone new") {
-                    showMenu = false
-                    showAddPerson = true
-                }
-                MenuRow(EvIcons.Edit, "Edit bill") {
-                    showMenu = false
-                    onEditBill()
-                }
-            }
-        }
-
-        if (showAddPerson) {
-            var name by remember { mutableStateOf("") }
-            EvModalScaffold(onDismiss = { showAddPerson = false }) {
-                Text(
-                    "Add a person",
-                    color = c.ink,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-                Text(
-                    "They join the bill so you can assign items to them, even if they don't have the app.",
-                    color = c.ink2,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-                EvField("Name") { EvTextField(name, { name = it }, placeholder = "e.g. Mary") }
-                Box(Modifier.fillMaxWidth().padding(top = 14.dp)) {
-                    EvButton("Add", {
-                        if (name.isNotBlank()) {
-                            onAddPerson(name.trim())
-                            showAddPerson = false
-                        }
-                    }, enabled = name.isNotBlank())
-                }
-            }
+                },
+                onDone = { pick -> onPickPeople(item.id, pick) },
+                onDismiss = { pickerItemId = null },
+            )
         }
     }
 }
@@ -273,27 +209,6 @@ private fun SectionHeader(
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 2.dp)) {
         Text(label.uppercase(), style = EvenlyTheme.text.sectionLabel, modifier = Modifier.weight(1f))
         Text("$count", color = c.ink3, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun MenuRow(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        EvIcon(icon, size = 19.dp, tint = c.blueText)
-        Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }
 

@@ -214,10 +214,7 @@ fun EvenlyNavHost(
                 focusRequest = focusRequest,
                 onFocusConsumed = { entry.savedStateHandle[FOCUS_ITEM_KEY] = null },
                 onBack = { navController.popBackStack() },
-                onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
                 onReviewEdits = { navController.navigate(Route.ReviewBillEdits(r.groupId, r.expenseId)) },
-                onClaimProgress = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
-                onShowQr = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
                 onReview = { navController.navigate(Route.BillReview(r.groupId, r.expenseId)) },
             )
         }

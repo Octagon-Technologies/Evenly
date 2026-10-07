@@ -57,10 +57,7 @@ fun BillAssignRoute(
     focusRequest: String?,
     onFocusConsumed: () -> Unit,
     onBack: () -> Unit,
-    onEditBill: () -> Unit,
     onReviewEdits: () -> Unit,
-    onClaimProgress: () -> Unit,
-    onShowQr: () -> Unit,
     onReview: () -> Unit,
 ) {
     val bills = koinInject<BillRepository>()
@@ -126,6 +123,10 @@ fun BillAssignRoute(
             activeItemId = layout.activeItemId,
             participants = names.participants,
             resolvedCount = view.progress().resolvedCount,
+            groupPeople =
+                members.map {
+                    ClaimParticipantUi(it.userId.value, it.displayName ?: "Someone", me != null && it.userId == me)
+                },
         )
 
     fun qtyOf(itemId: String) = view.items.firstOrNull { it.id == itemId }?.quantity ?: 1
@@ -160,14 +161,37 @@ fun BillAssignRoute(
                 }
             }
         },
-        onAddPerson = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
-        onEditBill = onEditBill,
-        onShowQr = onShowQr,
-        onClaimProgress = onClaimProgress,
+        // The roster is the bill's participants, so a group member or a new placeholder only shows up
+        // here once they join the bill. A bill with no participant rows falls back to the whole group, so
+        // that roster is written down first or adding one person would hide everyone else.
+        onPickPeople = { itemId, pick ->
+            val who = me ?: return@BillAssignScreen
+            scope.launch {
+                val created = mutableListOf<UserId>()
+                for (name in pick.newNames) {
+                    val added = groups.addPlaceholder(gid, name, createdBy = userId)
+                    if (added !is AppResult.Ok) {
+                        notice = "Couldn't add $name. Check your connection and try again."
+                        return@launch
+                    }
+                    created += added.value.userId
+                }
+                val ids = pick.userIds.map { UserId(it) } + created
+                val onBill = names.participants.map { it.userId }.toSet()
+                val joining = ids.filter { it.value !in onBill }
+                if (joining.isNotEmpty() && view.participants.isEmpty()) {
+                    names.participants.forEach { bills.setParticipant(eid, UserId(it.userId), included = true) }
+                }
+                joining.forEach { bills.setParticipant(eid, it, included = true) }
+                if (qtyOf(itemId) > 1) return@launch
+                if (bills.setPortion(eid, itemId, "${itemId}__all", ids, if (ids.isEmpty()) 0 else qtyOf(itemId), who) is AppResult.Err) {
+                    notice = "Couldn't save that. Check your connection and tap again."
+                }
+            }
+        },
         onReviewEdits = onReviewEdits,
         onReview = onReview,
         unseenChangeCount = pendingEdits.count { it.proposedAt > changesSeenAt },
-        changeCount = pendingEdits.size,
         notice = notice,
         onDismissNotice = { notice = null },
     )
