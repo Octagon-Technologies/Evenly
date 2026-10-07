@@ -34,6 +34,7 @@ import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.screen.expense.PickedReceiptStrip
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.ui.screen.expense.UndoRemoval
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /**
@@ -97,7 +98,7 @@ fun ItemizedExpenseBody(
     symbol: String,
     currencyCode: String,
     attachedReceipts: List<PickedReceiptUi>,
-    onRemoveAttachedReceipt: (Int) -> Unit,
+    onRemoveAttachedReceipt: (Int) -> UndoRemoval,
     onOpenAttachedReceipt: (Int) -> Unit,
     showErrors: Boolean,
     saving: Boolean,

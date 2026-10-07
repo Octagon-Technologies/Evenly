@@ -3,7 +3,6 @@ package app.splitevenly.ui.screen.expense
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,11 +11,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,10 +50,17 @@ data class PickedReceiptUi(
     val removable: Boolean = true,
 )
 
+/** How long a removed receipt can be brought back. Routes wait a little longer before deleting for good. */
+const val RECEIPT_UNDO_MS = 5_000L
+
+/** A removal the strip can take back: called with no arguments, it puts the receipt back where it was. */
+typealias UndoRemoval = () -> Unit
+
 /**
- * The receipt strip shared by both editors: the divide flow's optional attachment and the itemized flow's
- * scanned pages. Tiles show the actual image and open the full-screen viewer on tap, because a receipt you
- * cannot look at is the one thing a receipt is for. Only the caption differs between the two callers.
+ * The receipt list shared by both editors: the divide flow's optional attachment and the itemized flow's
+ * scanned pages. Each receipt is a full-width row with its real thumbnail (tap to view) and a delete button
+ * big enough to hit. Delete takes effect at once, so a save in the next few seconds never keeps it, and the
+ * row turns into "Receipt removed · Undo" for [RECEIPT_UNDO_MS]: [onRemoveReceipt] returns the way back.
  */
 @Composable
 fun PickedReceiptStrip(
@@ -57,60 +68,139 @@ fun PickedReceiptStrip(
     label: String,
     caption: String?,
     onAddClick: (() -> Unit)?,
-    onRemoveReceipt: (Int) -> Unit,
+    onRemoveReceipt: (Int) -> UndoRemoval,
     onOpenReceipt: (Int) -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    // The last removal, its row position, and how to undo it. One at a time; a new one ends the last.
+    var removed by remember { mutableStateOf<Triple<PickedReceiptUi, Int, UndoRemoval>?>(null) }
+    LaunchedEffect(removed) {
+        if (removed != null) {
+            delay(RECEIPT_UNDO_MS)
+            removed = null
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(label, color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            if (onAddClick != null && receipts.isEmpty()) {
+            if (onAddClick != null && receipts.isEmpty() && removed == null) {
                 Text("optional", color = c.ink3, fontSize = 12.sp)
             }
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            receipts.forEachIndexed { i, r ->
-                val shape = RoundedCornerShape(8.dp)
-                Box(Modifier.size(width = 56.dp, height = 72.dp)) {
-                    Box(
-                        Modifier.matchParentSize().clip(shape).background(c.blueTint).border(1.dp, c.border, shape)
-                            .clickable { onOpenReceipt(i) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (r.model == null) {
-                            EvIcon(if (r.isPdf) EvIcons.Receipt else EvIcons.Image, size = 22.dp, tint = c.blueText)
-                        } else {
-                            AsyncImage(
-                                model = r.model,
-                                contentDescription = "Receipt",
-                                modifier = Modifier.fillMaxSize().clip(shape),
-                                contentScale = ContentScale.Crop,
-                            )
-                        }
-                    }
-                    if (r.removable) Box(
-                        Modifier.align(Alignment.TopEnd).padding(3.dp).size(18.dp).clip(CircleShape)
-                            .background(c.surface).border(1.dp, c.borderStrong, CircleShape)
-                            .clickable { onRemoveReceipt(i) },
-                        contentAlignment = Alignment.Center,
-                    ) { EvIcon(EvIcons.Close, size = 11.dp, tint = c.ink2) }
-                }
-            }
-            if (onAddClick != null) {
-                Column(
-                    Modifier.size(width = 56.dp, height = 72.dp).clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, c.borderStrong, RoundedCornerShape(8.dp)).clickable(onClick = onAddClick),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    EvIcon(EvIcons.Plus, size = 18.dp, tint = c.blueText)
-                    Text("Add", color = c.blueText, fontSize = 11.sp)
-                }
+        val rows: List<PickedReceiptUi?> = receipts.toMutableList<PickedReceiptUi?>().also { list ->
+            removed?.let { (_, at, _) -> list.add(at.coerceIn(0, list.size), null) }
+        }
+        var index = 0
+        rows.forEach { r ->
+            if (r == null) {
+                UndoRow(onUndo = {
+                    removed?.third?.invoke()
+                    removed = null
+                })
+            } else {
+                val i = index++
+                ReceiptRow(
+                    receipt = r,
+                    title = receiptTitle(r, i, receipts.size),
+                    caption = if (r.remoteUrl != null) "Saved" else caption,
+                    onOpen = { onOpenReceipt(i) },
+                    onRemove = if (r.removable) {
+                        { removed = Triple(r, i, onRemoveReceipt(i)) }
+                    } else null,
+                )
             }
         }
-        if (caption != null && receipts.isNotEmpty()) {
-            Text(caption, color = c.ink3, fontSize = 12.sp)
+        if (onAddClick != null) {
+            val shape = RoundedCornerShape(12.dp)
+            Row(
+                Modifier.fillMaxWidth().clip(shape).border(1.dp, c.borderStrong, shape).clickable(onClick = onAddClick)
+                    .padding(vertical = 14.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                EvIcon(EvIcons.Plus, size = 16.dp, tint = c.blueText)
+                Text(
+                    if (receipts.isEmpty()) " Add a receipt" else " Add another",
+                    color = c.blueText,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
+    }
+}
+
+private fun receiptTitle(r: PickedReceiptUi, index: Int, count: Int): String =
+    when {
+        count > 1 -> "Page ${index + 1}"
+        r.isPdf -> "PDF"
+        else -> "Photo"
+    }
+
+@Composable
+private fun ReceiptRow(
+    receipt: PickedReceiptUi,
+    title: String,
+    caption: String?,
+    onOpen: () -> Unit,
+    onRemove: (() -> Unit)?,
+) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(c.surface).border(1.dp, c.border, shape)
+            .clickable(onClick = onOpen).padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        val thumb = RoundedCornerShape(7.dp)
+        Box(
+            Modifier.size(width = 44.dp, height = 56.dp).clip(thumb).background(c.blueTint).border(1.dp, c.border, thumb),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (receipt.model == null) {
+                EvIcon(if (receipt.isPdf) EvIcons.Receipt else EvIcons.Image, size = 20.dp, tint = c.blueText)
+            } else {
+                AsyncImage(
+                    model = receipt.model,
+                    contentDescription = "Receipt",
+                    modifier = Modifier.fillMaxSize().clip(thumb),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            if (caption != null) Text(caption, color = c.ink3, fontSize = 12.sp)
+        }
+        if (onRemove != null) {
+            val btn = RoundedCornerShape(10.dp)
+            Box(
+                Modifier.size(40.dp).clip(btn).border(1.dp, c.borderStrong, btn).clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) { EvIcon(EvIcons.Trash, size = 18.dp, tint = c.ink2, contentDescription = "Remove receipt") }
+        }
+    }
+}
+
+@Composable
+private fun UndoRow(onUndo: () -> Unit) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).border(1.dp, c.border, shape).padding(start = 14.dp, end = 4.dp)
+            .heightIn(min = 52.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Receipt removed", color = c.ink2, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(
+            "Undo",
+            color = c.blueText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onUndo)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        )
     }
 }
 

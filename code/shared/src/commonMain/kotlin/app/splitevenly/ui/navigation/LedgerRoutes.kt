@@ -148,6 +148,7 @@ fun AddExpenseRoute(
     // system back and swipe-back leave without ever reaching onBack — clean up on dispose instead, or an
     // abandoned pick sits in the sandbox forever.
     var attached by remember { mutableStateOf(false) }
+    val deferred = remember { DeferredRemovals() }
     DisposableEffect(Unit) {
         onDispose { if (!attached) uploadManager?.discardStagedDetached(pickedReceipts + billReceipts) }
     }
@@ -252,9 +253,7 @@ fun AddExpenseRoute(
         onDismissNotice = { notice = null },
         attachedReceipts = billReceipts.map { it.toUi() },
         onRemoveAttachedReceipt = { i ->
-            val dropped = billReceipts.getOrNull(i)
-            billReceipts = billReceipts.filterIndexed { idx, _ -> idx != i }
-            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+            removeStaged({ billReceipts }, i, deferred, uploadManager) { billReceipts = it }
         },
         loadPdfPageCount = stagedPdf.pageCount,
         renderPdfPage = stagedPdf.renderPage,
@@ -303,9 +302,7 @@ fun AddExpenseRoute(
                 }
             },
         onRemoveReceipt = { i ->
-            val dropped = pickedReceipts.getOrNull(i)
-            pickedReceipts = pickedReceipts.filterIndexed { idx, _ -> idx != i }
-            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+            removeStaged({ pickedReceipts }, i, deferred, uploadManager) { pickedReceipts = it }
         },
         onSave = { submit ->
             val me = userId
@@ -457,6 +454,8 @@ fun EditExpenseRoute(
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
+    val cameraGate = rememberCameraPermissionGate()
+    val receipts = rememberEditExpenseReceipts(eid, gid)
 
     val ews = detail
     if (ews == null) {
@@ -496,6 +495,12 @@ fun EditExpenseRoute(
         notice = notice,
         onDismissNotice = { notice = null },
         prefill = prefill,
+        receipts = receipts.ui,
+        receiptsEnabled = receipts.enabled,
+        onPickReceipt = cameraGate.wrap(receipts.pick),
+        onRemoveReceipt = receipts.remove,
+        loadPdfPageCount = receipts.loadPdfPageCount,
+        renderPdfPage = receipts.renderPdfPage,
         onBack = onBack,
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
         onSave = { submit ->
@@ -529,6 +534,7 @@ fun EditExpenseRoute(
                         )
                     when (val saved = expenses.editExpense(eid, input)) {
                         is AppResult.Ok -> {
+                            receipts.attachOnSave()
                             onSaved()
                         }
 
@@ -551,6 +557,7 @@ fun EditExpenseRoute(
             }
         },
     )
+    CameraPermissionGateHost(cameraGate)
 }
 
 /**

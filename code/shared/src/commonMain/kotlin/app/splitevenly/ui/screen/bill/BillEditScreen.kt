@@ -73,6 +73,7 @@ import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.expense.PickedReceiptStrip
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.ui.screen.expense.UndoRemoval
 import app.splitevenly.ui.screen.expense.StagedReceiptViewer
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.theme.EvenlyTheme
@@ -180,7 +181,7 @@ fun BillEditScreen(
     attachedReceipts: List<PickedReceiptUi> = emptyList(),
     // Pages already saved to this bill. Shown ahead of [attachedReceipts] so a re-scan sees what is there.
     savedReceipts: List<PickedReceiptUi> = emptyList(),
-    onRemoveAttachedReceipt: (Int) -> Unit = {},
+    onRemoveBillReceipt: (PickedReceiptUi) -> UndoRemoval = { {} },
     // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
     loadPdfPageCount: suspend (url: String) -> Int = { 0 },
     renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
@@ -452,7 +453,7 @@ fun BillEditScreen(
                         label = if (allReceipts.size == 1) "Receipt" else "Receipt pages",
                         caption = if (itemCount == 0) null else if (itemCount == 1) "1 item on this bill." else "$itemCount items on this bill.",
                         onAddClick = null,
-                        onRemoveReceipt = { onRemoveAttachedReceipt(it - savedReceipts.size) },
+                        onRemoveReceipt = { onRemoveBillReceipt(allReceipts[it]) },
                         onOpenReceipt = { viewerIndex = it },
                     )
                 }

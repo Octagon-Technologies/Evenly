@@ -116,7 +116,7 @@ fun AddExpenseScreen(
     // The pages that were scanned. They are a receipt in their own right, kept whatever the OCR made of
     // them, so they get the same strip (and the same viewer) as a hand-picked one.
     attachedReceipts: List<PickedReceiptUi> = emptyList(),
-    onRemoveAttachedReceipt: (Int) -> Unit = {},
+    onRemoveAttachedReceipt: (Int) -> UndoRemoval = { {} },
     // Local-file PDF rendering for the staged viewer, wired by the route (mirrors ExpenseDetailScreen).
     loadPdfPageCount: suspend (url: String) -> Int = { 0 },
     renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
@@ -129,7 +129,7 @@ fun AddExpenseScreen(
     onDismissScan: () -> Unit = {},
     onAddPlaceholder: (String) -> Unit = {},
     onPickReceipt: (PickSource) -> Unit = {},
-    onRemoveReceipt: (Int) -> Unit = {},
+    onRemoveReceipt: (Int) -> UndoRemoval = { {} },
     // Analytics-only hook (split_approach_chosen) — fired the moment the up-front chooser is answered.
     onSplitApproachChosen: (SplitApproach) -> Unit = {},
 ) {

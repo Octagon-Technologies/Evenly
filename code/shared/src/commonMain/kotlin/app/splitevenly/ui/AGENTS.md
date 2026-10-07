@@ -203,6 +203,12 @@ ships with a working callback, or it does not ship.
 **Export is always free.** Group settings invokes the CSV export directly after membership checks; it
 must never branch to a tier gate or upgrade prompt.
 
+**Removing a receipt in an editor is instant and undoable, with no confirm.** `PickedReceiptStrip`'s
+`onRemoveReceipt` returns an `UndoRemoval`: the route drops the receipt from its list at once (so a save or
+auto-save inside the window never keeps it) and hands the real delete (staged-file discard, upload cancel,
+saved-receipt soft-delete) to `DeferredRemovals`, which waits out `RECEIPT_UNDO_MS` on its own scope so a
+Save-and-leave still completes it. Don't delete in the click handler; Undo has nothing to restore then.
+
 **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
 full-screen `ReceiptViewerScreen` — a `HorizontalPager` over the expense's receipts with a bottom thumbnail
 filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer` platform abstraction

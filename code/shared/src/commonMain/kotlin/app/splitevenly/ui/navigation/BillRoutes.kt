@@ -12,6 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
+import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.localHour
 import app.splitevenly.core.time.nowEpochMillis
@@ -138,6 +139,9 @@ fun BillEditRoute(
     var lastSubmit by remember { mutableStateOf<EditBillSubmit?>(null) }
     // Staged receipts already handed to the upload pipeline, so a later save never re-queues one.
     val attachedIds = remember { mutableSetOf<String>() }
+    // Receipts removed in this editor, kept out of view while their delete waits out the Undo window.
+    var hiddenReceiptIds by remember { mutableStateOf(emptySet<String>()) }
+    val deferred = remember { DeferredRemovals() }
     var scanState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
     var scanned by remember { mutableStateOf<EditBillState?>(null) }
     // The exact pages the user picked. Retained so a failed scan can retry, and — on success — handed to
@@ -245,7 +249,8 @@ fun BillEditRoute(
     /** Creates the bill on the first valid save, edits it after; returns the saved line ids in order. */
     // A page already handed to the upload pipeline shows as a saved receipt once it lands, so stop drawing the
     // local copy then, or the same page would appear twice.
-    val displayAttached = attachedReceipts.filter { it.id !in attachedIds || it.id in pendingUploadIds }
+    val displayAttached =
+        attachedReceipts.filter { (it.id !in attachedIds || it.id in pendingUploadIds) && it.id !in hiddenReceiptIds }
 
     suspend fun saveBill(submit: EditBillSubmit): List<String>? {
         val me = userId ?: return null
@@ -322,25 +327,37 @@ fun BillEditRoute(
         currencyCode = currency,
         scanState = scanState,
         attachedReceipts = displayAttached.map { it.toUi() },
-        onRemoveAttachedReceipt = { i ->
-            val dropped = displayAttached.getOrNull(i)
-            attachedReceipts = attachedReceipts.filter { it.id != dropped?.id }
-            dropped?.let {
-                scope.launch {
-                    // Already queued for upload: cancel the outbox row too, or it would fail on a missing file.
-                    if (attachedIds.remove(it.id)) uploadManager?.cancel(it.id) else uploadManager?.discardStaged(listOf(it))
+        // Hidden at once and deleted only after the strip's Undo window. A page already queued for upload
+        // is cancelled and soft-deleted by id, which covers it whether or not it finished uploading.
+        onRemoveBillReceipt = { r ->
+            val staged = attachedReceipts.firstOrNull { it.id == r.id }
+            val queued = attachedIds.remove(r.id)
+            hiddenReceiptIds = hiddenReceiptIds + r.id
+            if (staged != null) attachedReceipts = attachedReceipts - staged
+            deferred.schedule(r.id) {
+                if (staged != null && !queued) {
+                    uploadManager?.discardStaged(listOf(staged))
+                } else {
+                    uploadManager?.cancel(r.id)
+                    activity.deleteReceipt(ReceiptId(r.id))
                 }
             }
+            ({
+                if (deferred.cancel(r.id)) {
+                    hiddenReceiptIds = hiddenReceiptIds - r.id
+                    if (queued) attachedIds += r.id
+                    if (staged != null) attachedReceipts = attachedReceipts + staged
+                }
+            })
         },
         savedReceipts =
-            savedReceipts.map {
+            savedReceipts.filter { it.id.value !in hiddenReceiptIds }.map {
                 PickedReceiptUi(
                     id = it.id.value,
                     localPath = "",
                     model = if (it.isPdf) null else it.url,
                     isPdf = it.isPdf,
                     remoteUrl = it.url,
-                    removable = false,
                 )
             },
         // Staged pages are local files; saved ones are remote, and a PDF has to be downloaded to rasterize.
