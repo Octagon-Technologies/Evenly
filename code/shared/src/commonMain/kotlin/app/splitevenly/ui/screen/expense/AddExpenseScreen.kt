@@ -57,8 +57,8 @@ import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ItemizedExpenseBody
 import app.splitevenly.ui.screen.bill.ReceiptReviewScreen
-import app.splitevenly.ui.screen.bill.ScanErrorSheet
-import app.splitevenly.ui.screen.bill.ScanProgressSheet
+import app.splitevenly.ui.screen.bill.PickerPersonUi
+import app.splitevenly.ui.screen.bill.ScanStateSheets
 import app.splitevenly.ui.screen.bill.ScanReceiptHero
 import app.splitevenly.ui.screen.bill.ScanUiState
 import app.splitevenly.ui.screen.bill.isUntouched
@@ -167,6 +167,7 @@ fun AddExpenseScreen(
     var outsidePayerName by remember { mutableStateOf(prefill?.payerOutsideName) }
     var showPayerDialog by remember { mutableStateOf(false) }
     var showScanSource by remember { mutableStateOf(false) }
+    var showPeoplePicker by remember { mutableStateOf(false) }
 
     fun startScan(source: PickSource) = onScanReceipt(source)
 
@@ -293,7 +294,11 @@ fun AddExpenseScreen(
                     currencyCode = currency,
                     attachedReceipts = attachedReceipts,
                     showErrors = showErrors,
-                    peopleMissing = selected.isEmpty(),
+                    people = selectedList.map { PickerPersonUi(it.userId, it.name, it.isMe) },
+                    payerName = payerDisplayName,
+                    payerIsMe = !isOutsidePayer && payer?.isMe == true,
+                    onEditPeople = { showPeoplePicker = true },
+                    onChangePayer = { showPayerDialog = true },
                     saving = saving,
                     onOpenReceipt = { viewerIndex = it },
                     onBack = { reviewingScan = false },
@@ -350,7 +355,10 @@ fun AddExpenseScreen(
                     // A restaurant bill starts with the scan, above Title: one scan fills the title and the items.
                     // After the first scan (or a typed item) the hero drops back into the items section below.
                     val notScannedYet = isItemized && itemized.items.all { it.isUntouched() } && attachedReceipts.isEmpty()
-                    if (notScannedYet) ScanReceiptHero(onScanSource = { source -> startScan(source) })
+                    if (notScannedYet) {
+                        ScanReceiptHero(onScanSource = { source -> startScan(source) })
+                        ScanPeopleHint(selected.size)
+                    }
 
                     // ── shared header: title, category, paid by, participants — entered once, both modes ──
                     EvField("Title") {
@@ -560,34 +568,28 @@ fun AddExpenseScreen(
     if (showScanSource) {
         ScanSourceSheet(onScan = { source -> startScan(source) }, onDismiss = { showScanSource = false })
     }
-    when (val s = scanState) {
-        is ScanUiState.Working -> {
-            ScanProgressSheet(pages = s.pages, onCancel = onCancelScan)
-        }
+    ScanStateSheets(
+        scanState = scanState,
+        onCancel = onCancelScan,
+        onRetry = onRetryScan,
+        onManual = onDismissScan,
+        onPickAgain = {
+            onDismissScan()
+            showScanSource = true
+        },
+    )
 
-        is ScanUiState.Failed -> {
-            ScanErrorSheet(
-                kind = s.kind,
-                onManual = onDismissScan,
-                onRetry = onRetryScan,
-                onPickAgain = {
-                    onDismissScan()
-                    showScanSource = true
-                },
-            )
-        }
-
-        ScanUiState.Idle -> {}
+    if (showPeoplePicker) {
+        ExpensePeopleSheet(
+            participants = participants,
+            selected = selected,
+            title = title,
+            onPick = { selected = it },
+            onAddPlaceholder = onAddPlaceholder,
+            onDismiss = { showPeoplePicker = false },
+        )
     }
 }
-
-private val DemoParticipants =
-    listOf(
-        AddParticipantUi("u1", "You", true),
-        AddParticipantUi("u2", "Andrew", false),
-        AddParticipantUi("u3", "Bob", false),
-        AddParticipantUi("u4", "Maya", false),
-    )
 
 @Preview
 @Composable

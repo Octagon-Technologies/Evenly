@@ -264,3 +264,19 @@ internal fun ScanSourceRow(
         Text(label, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }
+
+/** The progress or error sheet for the current scan, or nothing while idle. */
+@Composable
+fun ScanStateSheets(
+    scanState: ScanUiState,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onManual: () -> Unit,
+    onPickAgain: () -> Unit,
+) {
+    when (scanState) {
+        is ScanUiState.Working -> ScanProgressSheet(pages = scanState.pages, onCancel = onCancel)
+        is ScanUiState.Failed -> ScanErrorSheet(kind = scanState.kind, onManual = onManual, onRetry = onRetry, onPickAgain = onPickAgain)
+        ScanUiState.Idle -> Unit
+    }
+}

@@ -50,8 +50,8 @@ import app.splitevenly.ui.theme.EvenlyTheme
  * of text fields hides the numbers being compared.
  *
  * Reads and writes the same [ItemizedBillState] as the editor behind it, so Back keeps every correction.
- * The title and people live on that editor; when they are missing on tap, the title is asked for here
- * and the missing-people case points back, rather than leaving a live button that silently does nothing.
+ * A scan lands here before anyone may have picked people, so who's splitting and who paid are shown and
+ * editable at the top ([ReviewWhoRows]); the sheets are the editor's. A missing title is asked for here.
  */
 @Composable
 fun ReceiptReviewScreen(
@@ -62,7 +62,11 @@ fun ReceiptReviewScreen(
     currencyCode: String,
     attachedReceipts: List<PickedReceiptUi>,
     showErrors: Boolean,
-    peopleMissing: Boolean,
+    people: List<PickerPersonUi>,
+    payerName: String,
+    payerIsMe: Boolean,
+    onEditPeople: () -> Unit,
+    onChangePayer: () -> Unit,
     saving: Boolean,
     onOpenReceipt: (Int) -> Unit,
     onBack: () -> Unit,
@@ -76,7 +80,7 @@ fun ReceiptReviewScreen(
         Column(Modifier.fillMaxSize().background(c.page)) {
             EvTopBar(
                 title = "Review the receipt",
-                subtitle = "Check items and prices",
+                subtitle = "Check items, people and prices",
                 navIcon = { EvIconButton(EvIcons.Back, onBack) },
             )
             Column(
@@ -95,14 +99,14 @@ fun ReceiptReviewScreen(
                         }
                     }
                 }
-                if (showErrors && peopleMissing) {
-                    Text(
-                        "Pick who is splitting this. Go back to add people.",
-                        color = c.danger,
-                        fontSize = 12.5.sp,
-                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onBack).padding(vertical = 2.dp),
-                    )
-                }
+                ReviewWhoRows(
+                    people = people,
+                    payerName = payerName,
+                    payerIsMe = payerIsMe,
+                    showErrors = showErrors,
+                    onEditPeople = onEditPeople,
+                    onChangePayer = onChangePayer,
+                )
                 if (state.showUnverifiedNotice) {
                     UnverifiedReceiptNotice(onDismiss = { state.showUnverifiedNotice = false })
                 }
@@ -326,7 +330,11 @@ private fun ReceiptReviewPreview() {
             currencyCode = "USD",
             attachedReceipts = emptyList(),
             showErrors = false,
-            peopleMissing = false,
+            people = listOf(PickerPersonUi("u1", "Andrew", true), PickerPersonUi("u2", "Purity", false)),
+            payerName = "You",
+            payerIsMe = true,
+            onEditPeople = {},
+            onChangePayer = {},
             saving = false,
             onOpenReceipt = {},
             onBack = {},
