@@ -74,7 +74,10 @@ only** (revoked from `anon` and `authenticated`, unlike `resolve_group_by_invite
 `groups.name` for a live invite token and NULL otherwise, so unknown and deleted-group tokens are
 indistinguishable. Its only caller is the `web-claim` function's `invite-preview` action, which adds the
 per-IP rate limit (`public_write_log`, kind `invite-preview`). Never grant it to `anon`: that skips the rate
-limit, and never widen the return type past the name.
+limit, and never widen the return type past the name. (The `/j/` page now joins the group through the
+function's `invite-*` actions; those read the group with the service key directly and do not go through
+this RPC, so it stays name-only.) `create_web_placeholder` takes a NULL `p_expense_id` for that join and then
+writes no `bill_participants` row.
 
 ## Account deletion — request/cancel/purge, never a direct delete of shared data
 

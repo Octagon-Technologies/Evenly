@@ -2098,8 +2098,11 @@ begin
   insert into public.web_sessions (id, group_id, user_id, token_hash, created_at, last_seen_at)
   values (p_session_id, p_group_id, p_user_id, p_session_token_hash, p_now, p_now);
 
-  insert into public.bill_participants (id, expense_id, group_id, user_id, created_at, updated_at)
-  values (p_participant_id, p_expense_id, p_group_id, p_user_id, p_now, p_now);
+  -- NULL from the group invite page (`/j/`), which joins the group without a bill.
+  if p_expense_id is not null then
+    insert into public.bill_participants (id, expense_id, group_id, user_id, created_at, updated_at)
+    values (p_participant_id, p_expense_id, p_group_id, p_user_id, p_now, p_now);
+  end if;
 
   return jsonb_build_object('created', true, 'conflict', false, 'name', v_name);
 end;

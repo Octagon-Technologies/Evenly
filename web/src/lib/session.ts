@@ -73,3 +73,30 @@ export function clearSessionToken(billToken: string, groupName: string): void {
   s.removeItem(billKey(billToken));
   s.removeItem(groupKey(groupName));
 }
+
+function inviteKey(inviteToken: string): string {
+  return `${PREFIX}i.${inviteToken}`;
+}
+
+/** A session made on the group invite page (`/j/`). Read before the group's name is known, like a bill's. */
+export function tokenForInvite(inviteToken: string): string | null {
+  return safeStorage()?.getItem(inviteKey(inviteToken)) ?? null;
+}
+
+/**
+ * Filed under the invite and under the group name, so a guest who joins from the invite page is
+ * recognised later on any bill link in that group (the §2.2 path above).
+ */
+export function saveInviteSession(inviteToken: string, groupName: string, sessionToken: string): void {
+  const s = safeStorage();
+  if (!s) return;
+  s.setItem(inviteKey(inviteToken), sessionToken);
+  s.setItem(groupKey(groupName), sessionToken);
+}
+
+export function clearInviteSession(inviteToken: string, groupName: string): void {
+  const s = safeStorage();
+  if (!s) return;
+  s.removeItem(inviteKey(inviteToken));
+  s.removeItem(groupKey(groupName));
+}

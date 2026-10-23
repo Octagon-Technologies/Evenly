@@ -89,12 +89,21 @@ the ledger *records*. If they disagree, Kotlin wins and the web is stale by one 
 - The gate is `.github/workflows/money-vectors.yml`, and `code/shared/build.gradle.kts` declares the
   vectors file as a test input so a vectors-only edit cannot pass as UP-TO-DATE.
 
-**`/j/:token` is a third, client-only route** (`marketing/Join.svelte`): the group invite landing, served from
-the same noindex `app.html` shell as `/b/` (rewrite in `vercel.json` + `public/_redirects`), never prerendered.
-It makes one plain `fetch` to the `web-claim` function's `invite-preview` action and shows the group **name
-only**. Every failure, unknown token and rate limit returns the same `{groupName: null}` and renders the generic
-heading, so the lookup cannot enumerate tokens. Do not widen that response (member lists, counts) or add a
-Supabase client to make it richer.
+**`/j/:token` is the group invite page, and it joins you to the group** (`marketing/Join.svelte`, state in
+`lib/join.svelte.ts`, screens in `screens/join/`, mockup `design/web-group-join-mockup.html`). Client-only,
+served from the same noindex `app.html` shell as `/b/`, never prerendered. It is the bill flow's identity half
+and nothing more: "Are any of these you?" or a typed name makes the same placeholder member + group-scoped
+session as a bill does (`web-claim` actions `invite-resolve` / `invite-name` / `invite-claim`), filed under
+the group's name so a later bill link in that group recognises them. **No group view, balances or expenses
+here**; that line is the same one the claim flow holds. Anyone with the app installed never reaches this page:
+the link is an iOS universal link / Android App Link (`public/.well-known/`), so the page is built for the
+friend without the app.
+
+**The rewrites point at `/app` and `/`, never at `.html` files.** With `cleanUrls: true`, Vercel serves
+`app.html` at `/app` only, so a rewrite to `/app.html` matches no file and 404s. That shipped once and took
+down every `/b/`, `/j/` and unknown path in production while the marketing pages kept working.
+`/.well-known/*` must stay reachable on the **apex** without a redirect (Apple and Google do not follow
+them), which is why `split-evenly.app` is the primary domain and `www` redirects to it.
 
 ## The security boundary is the whole feature
 

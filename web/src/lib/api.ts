@@ -58,6 +58,8 @@ export interface Evidence {
   title: string;
   date: string;
   amountSubunits: number;
+  /** The expense's own currency. The bill flow formats with the bill's; the invite page has no bill. */
+  currency?: string;
 }
 
 export interface Candidate {
@@ -181,6 +183,40 @@ export async function invitePreview(token: string): Promise<string | null> {
     return null;
   }
 }
+
+/** What the `/j/` invite page shows before asking for anything: proof the group is real. */
+export interface InviteHeader {
+  groupName: string;
+  emoji: string;
+  memberCount: number;
+  /** First names of the earliest members, at most four. */
+  memberNames: string[];
+}
+
+export type InviteResolveResponse =
+  | { state: 'welcome_back'; header: InviteHeader; identity: { userId: string; name: string } }
+  | { state: 'pick_name'; header: InviteHeader; candidates: Candidate[] }
+  | { state: 'name_entry'; header: InviteHeader }
+  | { state: 'claimed_elsewhere'; header: InviteHeader };
+
+export type InviteNameResponse =
+  | { blocked: true; suggestions: string[] }
+  | { suggestion: Candidate }
+  | { created: true; userId: string; name: string; sessionToken: string };
+
+export type InviteClaimResponse =
+  | { won: false }
+  | { won: true; sessionToken: string; userId: string; name: string };
+
+/** Joining a group from its invite link, no app (`marketing/Join.svelte`). Same identity model as a bill. */
+export const inviteApi = {
+  resolve: (token: string, sessionToken: string | null) =>
+    post<InviteResolveResponse>('invite-resolve', { token, sessionToken }),
+  name: (token: string, name: string, force = false) =>
+    post<InviteNameResponse>('invite-name', { token, name, force }),
+  claim: (token: string, placeholderUserId: string) =>
+    post<InviteClaimResponse>('invite-claim', { token, placeholderUserId }),
+};
 
 export const api = {
   /** Landing branch (spec §3.1). */

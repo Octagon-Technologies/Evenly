@@ -25,6 +25,9 @@ in a cookie, since identity here is a `localStorage` value the client sends expl
 | `edit`                | `{ token, sessionToken, kind, itemId?, label?, quantity?, unitPriceSubunits? }` | Propose add/relabel/reprice/requantify/remove (spec §2.7, §3.6) — always lands as a **pending** edit |
 | `done`                | `{ token, sessionToken, done }`                                        | "I'm done" / undo (a nudge-silencer, not a lock — spec E31)       |
 | `release`             | `{ token, sessionToken }`                                              | "Not Purity? Use a different name" (spec E4, E5) — revokes this browser's session and drops back to the landing branch |
+| `invite-resolve`      | `{ token, sessionToken? }` (GROUP invite token)                        | The `/j/` join page's landing: `welcome_back` / `pick_name` / `name_entry` / `claimed_elsewhere`, with a header of group name, emoji, member count and the first four members' first names. Per-IP limit (`public_write_log`, kind `invite-resolve`) |
+| `invite-name`         | `{ token, name, force? }`                                              | The bill `name` action with no bill: blocks/suggests/creates a placeholder member + session (`create_web_placeholder` with a NULL expense) |
+| `invite-claim`        | `{ token, placeholderUserId }`                                         | "That's me" on the join page (`claim_web_placeholder`). Writes for these two are rate limited per invite token like a bill link |
 | `invite-preview`      | `{ token }` (a GROUP invite token, not a bill token)                   | The `/j/` landing's group name. Always 200 `{ groupName: string \| null }`; unknown, malformed, deleted, rate-limited and failed lookups are all `null`. Per-IP limit via `public_write_log`. Not bill-scoped |
 
 Every response is JSON; errors are `{ "error": "<CODE>", "detail"? }` with a matching HTTP status.

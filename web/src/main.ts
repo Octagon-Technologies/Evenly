@@ -5,13 +5,15 @@ import App from './App.svelte';
 import { store } from './lib/store.svelte.ts';
 import { resolveRoute } from './lib/router.ts';
 
+// Dev-only walkthrough fixture: `?mock` serves a canned bill in memory so every frame can be
+// walked without a live link. Guarded by `import.meta.env.DEV`, so it is dead code in a build.
+// Installed before mounting: the invite page (`/j/`) starts its own fetch from `onMount`.
+if (import.meta.env.DEV && new URLSearchParams(location.search).has('mock')) {
+  const { installMockTransport } = await import('./lib/mock.ts');
+  installMockTransport();
+}
+
 async function boot() {
-  // Dev-only walkthrough fixture: `?mock` serves a canned bill in memory so every frame can be
-  // walked without a live link. Guarded by `import.meta.env.DEV`, so it is dead code in a build.
-  if (import.meta.env.DEV && new URLSearchParams(location.search).has('mock')) {
-    const { installMockTransport } = await import('./lib/mock.ts');
-    installMockTransport();
-  }
   // The marketing pages (home, privacy, terms) have no bill session to open — only a `/b/:token`
   // route starts one. Starting it regardless would leave the store mid-fetch under pages that never
   // read `store.phase`, for no reason.

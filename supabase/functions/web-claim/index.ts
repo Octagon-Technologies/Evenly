@@ -258,9 +258,18 @@ async function withWriteGuard(
   ctx: LinkContext,
   action: () => Promise<Response>,
 ): Promise<Response> {
-  const tokenHash = ctx.link.token_hash;
+  return withTokenWriteGuard(sb, ctx.link.token_hash, `expense ${ctx.link.expense_id}`, action);
+}
+
+/** The write guard keyed on any token hash: a bill link's, or a group invite token's for the `/j/` join. */
+async function withTokenWriteGuard(
+  sb: SupabaseClient,
+  tokenHash: string,
+  scope: string,
+  action: () => Promise<Response>,
+): Promise<Response> {
   if (await isWriteRateLimited(sb, tokenHash)) {
-    console.error(`web-claim: rate limit hit for token ${tokenHash.slice(0, 8)}… on expense ${ctx.link.expense_id}`);
+    console.error(`web-claim: rate limit hit for token ${tokenHash.slice(0, 8)}… on ${scope}`);
     return err("EXPIRED", 410, "rate limited");
   }
   const result = await action();
@@ -346,13 +355,16 @@ async function withEvidence(sb: SupabaseClient, groupId: string, placeholder: { 
       .order("created_at", { ascending: false }).limit(EVIDENCE_SCAN),
   ]);
   const expenseIds = Array.from(new Set([...(claimIds ?? []), ...(shareIds ?? [])].map((r) => r.expense_id as string)));
-  let evidence: Array<{ title: string; date: string; amountSubunits: number }> = [];
+  let evidence: Array<{ title: string; date: string; amountSubunits: number; currency: string }> = [];
   if (expenseIds.length > 0) {
     const { data: expenses } = await sb
-      .from("expenses").select("title, expense_date, amount_subunits, created_at")
+      .from("expenses").select("title, expense_date, amount_subunits, currency, created_at")
       .eq("group_id", groupId).in("id", expenseIds).is("deleted_at", null)
       .order("created_at", { ascending: false }).limit(2);
-    evidence = (expenses ?? []).map((e) => ({ title: e.title as string, date: e.expense_date as string, amountSubunits: e.amount_subunits as number }));
+    evidence = (expenses ?? []).map((e) => ({
+      title: e.title as string, date: e.expense_date as string, amountSubunits: e.amount_subunits as number,
+      currency: e.currency as string,
+    }));
   }
   return { userId: placeholder.id, name: placeholder.display_name, evidence };
 }
@@ -891,6 +903,182 @@ async function actionInvitePreview(sb: SupabaseClient, body: { token?: string },
   return json({ groupName: data });
 }
 
+// ── Group join from the invite link (the /j/<token> page, no app) ─────────────────────────────────
+//
+// The invite token already grants full membership through the app (`resolve_group_by_invite_token`), so
+// these actions expose nothing it does not: the group's name, emoji and member first names, so the page
+// can prove it is real before asking for a name, and the unclaimed placeholders with their recognition
+// evidence, the same list the bill flow shows. Account holders are never selectable (spec §4.4).
+//
+// Identity is the bill flow's: a placeholder `users` row plus an ACTIVE `members` row plus a group-scoped
+// `web_sessions` row, created by the same two RPCs. A guest who joins here is recognised later on any
+// bill link in the group. `resolve` is rate limited per caller IP; writes per invite token, like a bill link.
+
+interface InviteContext {
+  group: { id: string; name: string; emoji: string };
+  tokenHash: string;
+}
+
+async function resolveInvite(sb: SupabaseClient, token: unknown): Promise<InviteContext | Response> {
+  if (typeof token !== "string" || !INVITE_TOKEN_SHAPE.test(token)) return err("GONE", 404, "unknown invite");
+  const { data: group } = await sb
+    .from("groups").select("id, name, emoji")
+    .eq("invite_token", token).is("deleted_at", null)
+    .maybeSingle();
+  if (!group) return err("GONE", 404, "unknown invite");
+  return { group: group as InviteContext["group"], tokenHash: await sha256Hex(`invite:${token}`) };
+}
+
+const INVITE_HEADER_NAMES = 4;
+
+/** What the landing shows before asking for anything: who is already in the group. First names only. */
+async function buildInviteHeader(sb: SupabaseClient, group: InviteContext["group"]) {
+  const { data: members } = await sb
+    .from("members").select("user_id, joined_at")
+    .eq("group_id", group.id).eq("status", "ACTIVE")
+    .order("joined_at", { ascending: true });
+  const ids = (members ?? []).map((m) => m.user_id as string);
+  let names: string[] = [];
+  if (ids.length > 0) {
+    const { data: users } = await sb.from("users").select("id, display_name").in("id", ids.slice(0, INVITE_HEADER_NAMES));
+    const byId = new Map((users ?? []).map((u) => [u.id as string, (u.display_name as string) ?? ""]));
+    names = ids.slice(0, INVITE_HEADER_NAMES)
+      .map((id) => (byId.get(id) ?? "").trim().split(/\s+/)[0])
+      .filter((n) => n.length > 0);
+  }
+  return { groupName: group.name, emoji: group.emoji, memberCount: ids.length, memberNames: names };
+}
+
+/** POST /web-claim/invite-resolve — `{ token, sessionToken? }`. Same states as the bill `resolve`. */
+async function actionInviteResolve(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string },
+  req: Request,
+): Promise<Response> {
+  const principal = callerIp(req);
+  if (await isRateLimited(sb, "invite-resolve", principal)) return err("EXPIRED", 410, "rate limited");
+  await recordSubmission(sb, "invite-resolve", principal);
+
+  const ctx = await resolveInvite(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  const header = await buildInviteHeader(sb, ctx.group);
+
+  const session = await resolveSession(sb, ctx.group.id, body.sessionToken);
+  if (session) {
+    if (session.claimedElsewhere) return json({ state: "claimed_elsewhere", header });
+    const { data: user } = await sb.from("users").select("id, display_name").eq("id", session.user_id).maybeSingle();
+    return json({ state: "welcome_back", header, identity: { userId: user?.id, name: user?.display_name } });
+  }
+
+  const candidates = await unclaimedCandidates(sb, ctx.group.id);
+  if (candidates.length === 0) return json({ state: "name_entry", header });
+  return json({ state: "pick_name", header, candidates });
+}
+
+/** The group's placeholders nobody has merged into an account yet, each with its recognition evidence. */
+async function unclaimedCandidates(sb: SupabaseClient, groupId: string) {
+  const { data: placeholders } = await sb
+    .from("users").select("id, display_name")
+    .eq("placeholder_group_id", groupId).eq("is_placeholder", true);
+  if (!placeholders?.length) return [];
+  const { data: members } = await sb
+    .from("members").select("user_id, status, placeholder_claim_completed_at")
+    .eq("group_id", groupId).in("user_id", placeholders.map((p) => p.id));
+  const live = new Set(
+    (members ?? [])
+      .filter((m) => m.status === "ACTIVE" && !m.placeholder_claim_completed_at)
+      .map((m) => m.user_id as string),
+  );
+  const unclaimed = placeholders.filter((p) => live.has(p.id as string));
+  return Promise.all(unclaimed.map((p) => withEvidence(sb, groupId, p as { id: string; display_name: string })));
+}
+
+/** POST /web-claim/invite-name — `{ token, name, force? }`. The bill `name` action, minus the bill. */
+async function actionInviteName(
+  sb: SupabaseClient,
+  body: { token?: string; name?: string; force?: boolean },
+): Promise<Response> {
+  const ctx = await resolveInvite(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  const groupId = ctx.group.id;
+  return withTokenWriteGuard(sb, ctx.tokenHash, `group ${groupId}`, async () => {
+    const name = normalizeName(body.name ?? "");
+    if (!name) return err("BAD_REQUEST", 400, "name required");
+
+    const { data: activeMembers } = await sb.from("members").select("user_id").eq("group_id", groupId).eq("status", "ACTIVE");
+    const memberIds = (activeMembers ?? []).map((m) => m.user_id as string);
+    const { data: memberUsers } = memberIds.length
+      ? await sb.from("users").select("id, display_name, is_placeholder").in("id", memberIds)
+      : { data: [] as Array<{ id: string; display_name: string; is_placeholder: boolean }> };
+
+    const exact = (memberUsers ?? []).find((u) => namesExactlyMatch(u.display_name as string, name));
+    if (exact) {
+      const suffixes: string[] = [];
+      for (let n = 2; suffixes.length < 3 && n < 10; n++) {
+        const candidate = `${name} ${n}`;
+        if (!(memberUsers ?? []).some((u) => namesExactlyMatch(u.display_name as string, candidate))) suffixes.push(candidate);
+      }
+      return json({ blocked: true, suggestions: suffixes });
+    }
+
+    if (!body.force) {
+      const fuzzy = (memberUsers ?? []).find((u) => u.is_placeholder && namesFuzzyMatch(u.display_name as string, name));
+      if (fuzzy) {
+        const evidence = await withEvidence(sb, groupId, { id: fuzzy.id as string, display_name: fuzzy.display_name as string });
+        return json({ suggestion: evidence });
+      }
+    }
+
+    const { count: placeholderCount } = await sb
+      .from("users").select("id", { count: "exact", head: true })
+      .eq("placeholder_group_id", groupId).eq("is_placeholder", true);
+    if ((placeholderCount ?? 0) >= MAX_PLACEHOLDERS_PER_GROUP) return err("EXPIRED", 410, "too many placeholders");
+
+    const now = Date.now();
+    const userId = newId();
+    const sessionToken = newPlaintextToken();
+    const { data: created, error: createErr } = await sb.rpc("create_web_placeholder", {
+      p_group_id: groupId,
+      p_expense_id: null,
+      p_name: name,
+      p_user_id: userId,
+      p_member_id: newId(),
+      p_session_id: newId(),
+      p_session_token_hash: await sha256Hex(sessionToken),
+      p_participant_id: null,
+      p_now: now,
+    });
+    if (createErr) return err("BACKEND", 500, createErr.message);
+    if (!created.created) return json({ blocked: true, suggestions: [`${name} 2`, `${name} 3`, `${name} 4`] });
+
+    return json({ created: true, userId, name: created.name, sessionToken });
+  });
+}
+
+/** POST /web-claim/invite-claim — `{ token, placeholderUserId }`. "That's me" on the invite page. */
+async function actionInviteClaim(
+  sb: SupabaseClient,
+  body: { token?: string; placeholderUserId?: string },
+): Promise<Response> {
+  const ctx = await resolveInvite(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withTokenWriteGuard(sb, ctx.tokenHash, `group ${ctx.group.id}`, async () => {
+    if (!body.placeholderUserId) return err("BAD_REQUEST", 400, "placeholderUserId required");
+    const sessionToken = newPlaintextToken();
+    const { data, error } = await sb.rpc("claim_web_placeholder", {
+      p_group_id: ctx.group.id,
+      p_placeholder_user_id: body.placeholderUserId,
+      p_session_id: newId(),
+      p_session_token_hash: await sha256Hex(sessionToken),
+      p_now: Date.now(),
+    });
+    if (error) return err("BACKEND", 500, error.message);
+    if (!data.won) return json({ won: false });
+    const { data: user } = await sb.from("users").select("display_name").eq("id", body.placeholderUserId).maybeSingle();
+    return json({ won: true, sessionToken, userId: body.placeholderUserId, name: user?.display_name });
+  });
+}
+
 // deno-lint-ignore no-explicit-any
 const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => Promise<Response>> = {
   resolve: actionResolve,
@@ -907,6 +1095,9 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => P
   done: actionDone,
   release: actionRelease,
   "invite-preview": actionInvitePreview,
+  "invite-resolve": actionInviteResolve,
+  "invite-name": actionInviteName,
+  "invite-claim": actionInviteClaim,
 };
 
 Deno.serve(async (req) => {
