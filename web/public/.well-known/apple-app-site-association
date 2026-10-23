@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["3VC8F74G23.app.splitevenly"],
+        "components": [{ "/": "/j/*", "comment": "Group invite links open the app when installed." }]
+      },
+      {
+        "appID": "3VC8F74G23.app.splitevenly",
+        "paths": ["/j/*"]
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.splitevenly",
+      "sha256_cert_fingerprints": [
+        "69:65:1D:9E:48:A0:4E:DE:34:9F:69:3D:B1:95:0F:85:8F:E6:5F:36:1D:9F:24:6E:88:F3:48:16:CA:68:92:C7"
+      ]
+    }
+  }
+]

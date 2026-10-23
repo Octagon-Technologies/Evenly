@@ -146,7 +146,10 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   the assign screen's ⋯ menu was that door and went with the menu; until a replacement lands, reading the
   banner once puts the record of who changed what, and the undo with it, out of reach.
 - **The bill QR and the group invite are different links and stay apart.** Per-expense, permanent until
-  revoked, no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button. On the expense detail the bill QR is the full-width
+  revoked vs. the whole group (joinable on the web without the app, `web/src/marketing/Join.svelte`).
+  Build and parse invite links only through `domain/group/InviteLink`: the shared form must carry
+  `https://` (a bare `split-evenly.app/j/…` was searched, not opened, by QR scanners), and incoming links on
+  both platforms go through `PendingInvite`, never a `navDeepLink` (Android-only, and lost on `onNewIntent`). The QR leads; the invite is the tertiary text button. On the expense detail the bill QR is the full-width
   "Let friends pick their items" button in `BillPickCard`, and the group sheet is titled "Invite to group".
   The scope reassurance under it ("this bill only") is not decoration: the payer is deciding whether to
   pass a URL into their finances round a table.

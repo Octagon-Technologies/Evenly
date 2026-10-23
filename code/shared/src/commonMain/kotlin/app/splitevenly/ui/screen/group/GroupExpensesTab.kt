@@ -108,7 +108,7 @@ fun GroupExpensesTab(
     drafts: Int = 1,
     offline: Boolean = false,
     filterActive: Boolean = false,
-    inviteLink: String = "split-evenly.app/j/8Kk2-Tulum",
+    inviteLink: String = "https://split-evenly.app/j/8Kk2-Tulum",
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onAdd: () -> Unit = {},
@@ -428,7 +428,7 @@ private fun InviteSheet(
         ) {
             EvIcon(EvIcons.Link, size = 16.dp, tint = c.ink3)
             Text(
-                inviteLink,
+                inviteLink.removePrefix("https://"),
                 modifier = Modifier.weight(1f),
                 color = c.ink,
                 fontSize = 13.sp,

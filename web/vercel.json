@@ -2,12 +2,16 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/b/(.*)", "destination": "/app.html" },
-    { "source": "/j/(.*)", "destination": "/app.html" },
-    { "source": "/admin", "destination": "/app.html" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/b/(.*)", "destination": "/app" },
+    { "source": "/j/(.*)", "destination": "/app" },
+    { "source": "/admin", "destination": "/app" },
+    { "source": "/(.*)", "destination": "/" }
   ],
   "headers": [
+    {
+      "source": "/.well-known/apple-app-site-association",
+      "headers": [{ "key": "Content-Type", "value": "application/json" }]
+    },
     {
       "source": "/(.*)",
       "headers": [

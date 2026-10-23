@@ -28,6 +28,7 @@ import app.splitevenly.domain.balance.Debt
 import app.splitevenly.domain.balance.OutstandingItem
 import app.splitevenly.domain.balance.Overpayment
 import app.splitevenly.domain.expense.ConflictSide
+import app.splitevenly.domain.group.InviteLink
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.ExpenseRepository
@@ -212,7 +213,13 @@ fun GroupExpensesRoute(
             .filter { it.unclaimedCount > 0 && it.youNeedToClaim && !it.youHavePicked }
             .map { u ->
                 val sub =
-                    if (u.unclaimedCount == 1) "1 item has no one yet. Is it yours?" else "${u.unclaimedCount} items have no one yet. Any yours?"
+                    if (u.unclaimedCount ==
+                        1
+                    ) {
+                        "1 item has no one yet. Is it yours?"
+                    } else {
+                        "${u.unclaimedCount} items have no one yet. Any yours?"
+                    }
                 val progress = "${u.resolvedCount} of ${u.itemCount} ${if (u.itemCount == 1) "item" else "items"} picked"
                 UnresolvedBillUi(u.expenseId.value, u.title, sub, progress)
             }
@@ -221,7 +228,7 @@ fun GroupExpensesRoute(
     val clipboard = LocalClipboardManager.current
     val share = koinInject<PlatformShare>()
     val inviteToken = group?.inviteToken
-    val inviteLink = inviteToken?.let { "split-evenly.app/j/$it" } ?: "Generating link…"
+    val inviteLink = inviteToken?.let { InviteLink.url(it) } ?: "Generating link…"
 
     // ── "Is this you?" ───────────────────────────────────────────────────────────────────────────
     val claims = koinInject<PlaceholderClaimCoordinator>()
@@ -238,7 +245,11 @@ fun GroupExpensesRoute(
     // A claim in flight is not a question any more: hide the names being claimed so the card can't
     // offer them again while their 5 seconds run down.
     val pendingIds =
-        (claimStatus as? ClaimStatus.Undoable)?.targets?.map { it.placeholderUserId.value }?.toSet().orEmpty()
+        (claimStatus as? ClaimStatus.Undoable)
+            ?.targets
+            ?.map { it.placeholderUserId.value }
+            ?.toSet()
+            .orEmpty()
     val myName = members.firstOrNull { it.userId == userId }?.displayName.orEmpty()
     val identityNames =
         remember(unclaimed, pendingIds, myName, group?.baseCurrency) {
@@ -310,8 +321,8 @@ fun GroupExpensesRoute(
                 true
         },
         onClearFilter = { store.clear(groupId) },
-        onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
-        onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },
+        onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString(InviteLink.url(it))) } },
+        onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: ${InviteLink.url(it)}", "Join my Evenly group") } },
         members = members.toMemberRows(userId),
         onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
         unresolvedBills = unresolvedUi,

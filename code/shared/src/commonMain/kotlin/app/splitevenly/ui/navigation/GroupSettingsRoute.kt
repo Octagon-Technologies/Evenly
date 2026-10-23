@@ -16,6 +16,7 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.export.ExportOutcome
 import app.splitevenly.domain.export.GroupExporter
+import app.splitevenly.domain.group.InviteLink
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.PlatformShare
 import app.splitevenly.ui.screen.group.addMemberByName
@@ -46,7 +47,7 @@ fun GroupSettingsRoute(
     val clipboard = LocalClipboardManager.current
     val share = koinInject<PlatformShare>()
     val inviteToken = group?.inviteToken
-    val inviteLink = inviteToken?.let { "split-evenly.app/j/$it" } ?: "Generating link…"
+    val inviteLink = inviteToken?.let { InviteLink.url(it) } ?: "Generating link…"
 
     // The delete confirm sheet's facts. Loaded when the screen opens rather than when the sheet does,
     // so the sheet never renders half-empty; five indexed counts, re-read whenever the roster or the
@@ -121,8 +122,8 @@ fun GroupSettingsRoute(
         onBack = onBack,
         onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
         onRename = { name, emoji -> scope.launch { groups.renameGroup(gid, name, emoji) } },
-        onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString("split-evenly.app/j/$it")) } },
-        onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: split-evenly.app/j/$it", "Join my Evenly group") } },
+        onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString(InviteLink.url(it))) } },
+        onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: ${InviteLink.url(it)}", "Join my Evenly group") } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
         onReconcile = onReconcile,
         unclaimedNameCount = unclaimed.size,

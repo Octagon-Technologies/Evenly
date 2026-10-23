@@ -37,7 +37,22 @@
                 <data android:scheme="splitevenly" android:host="login-callback" />
             </intent-filter>
 
-            <!-- Join-by-invite deep link (splitevenly://j/<token>) → NavHost Route.Join. -->
+            <!-- Invite App Link: https://split-evenly.app/j/<token> opens the app when installed (the
+                 shared form; verified against web/public/.well-known/assetlinks.json) and the web join
+                 page when not. Apex only: www redirects, so it can't verify, and before Android 12 one
+                 unverifiable host disables the whole filter. Both forms go through PendingInvite, not a NavHost deep link. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="split-evenly.app" />
+                <data android:pathPrefix="/j/" />
+            </intent-filter>
+
+            <!-- Legacy join deep link (splitevenly://j/<token>), still used by the web page's "Open in Evenly". -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
 

@@ -1,14 +1,16 @@
 package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import app.splitevenly.platform.PlaceholderClaimSources
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
@@ -36,6 +38,7 @@ fun EvenlyNavHost(
     startDestination: Route = Route.SignIn,
     modifier: Modifier = Modifier,
 ) {
+    OpenPendingInvite(navController)
     NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
         // ── Auth ────────────────────────────────────────────────────────
         composable<Route.Welcome> {
@@ -91,9 +94,7 @@ fun EvenlyNavHost(
                 onResolved = { token -> navController.navigate(Route.Join(token)) },
             )
         }
-        composable<Route.Join>(
-            deepLinks = listOf(navDeepLink { uriPattern = "splitevenly://j/{token}" }),
-        ) { entry ->
+        composable<Route.Join> { entry ->
             val r = entry.toRoute<Route.Join>()
             JoinRoute(
                 token = r.token,
@@ -338,5 +339,26 @@ private fun NavHostController.exitBillFlow(
 ) {
     navigate(Route.ExpenseDetail(groupId, expenseId)) {
         popUpTo<Route.GroupHome> { inclusive = false }
+    }
+}
+
+/**
+ * Opens the join screen for an invite link the app was launched or resumed with ([PendingInvite]).
+ * Waits while the user is still on a sign-in or onboarding screen, because joining needs an account.
+ */
+@Composable
+private fun OpenPendingInvite(navController: NavHostController) {
+    val token by PendingInvite.token.collectAsStateWithLifecycle()
+    val entry by navController.currentBackStackEntryAsState()
+    val destination = entry?.destination
+    LaunchedEffect(token, destination) {
+        val t = token ?: return@LaunchedEffect
+        val d = destination ?: return@LaunchedEffect
+        val inAuth =
+            d.hasRoute<Route.Welcome>() || d.hasRoute<Route.SignIn>() ||
+                d.hasRoute<Route.MagicLink>() || d.hasRoute<Route.Onboarding>()
+        if (inAuth) return@LaunchedEffect
+        PendingInvite.consume()
+        navController.navigate(Route.Join(t))
     }
 }

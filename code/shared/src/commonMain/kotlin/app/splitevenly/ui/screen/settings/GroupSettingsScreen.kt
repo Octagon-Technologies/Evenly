@@ -76,7 +76,7 @@ fun GroupSettingsScreen(
             MemberRowUi("u4", "Maya Kapoor"),
             MemberRowUi("u5", "Tyler Reed", "No account"),
         ),
-    inviteLink: String = "split-evenly.app/j/8Kk2-Tulum",
+    inviteLink: String = "https://split-evenly.app/j/8Kk2-Tulum",
     storageUsedBytes: Long = 212L * 1024 * 1024,
     onBack: () -> Unit = {},
     onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
@@ -150,7 +150,7 @@ fun GroupSettingsScreen(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Invite link", style = t.itemTitle)
                             Text(
-                                inviteLink,
+                                inviteLink.removePrefix("https://"),
                                 style = t.caption.copy(color = c.ink2, fontFamily = EvenlyTheme.monoFamily),
                             )
                         }
@@ -223,7 +223,10 @@ fun GroupSettingsScreen(
                             style = t.itemTitle,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("${formatBytes(storageUsedBytes)} used", style = t.caption.copy(color = c.ink2, fontFamily = EvenlyTheme.monoFamily))
+                        Text(
+                            "${formatBytes(storageUsedBytes)} used",
+                            style = t.caption.copy(color = c.ink2, fontFamily = EvenlyTheme.monoFamily),
+                        )
                     }
                 }
             }
