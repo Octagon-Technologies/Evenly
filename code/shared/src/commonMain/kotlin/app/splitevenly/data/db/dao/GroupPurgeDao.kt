@@ -90,15 +90,9 @@ interface GroupPurgeDao {
         //    for a purged group has nowhere left to land, and its staged bytes are cleaned up by the
         //    caller before this runs.
         clearSupersededNotices(groupId)
-        clearGroupScanUsage(groupId)
         clearReceiptUploads(groupId)
 
-        // 4. The pull-only Pro mirror. The SERVER keeps `group_passes` (a pass is a purchase, and
-        //    support needs the record) but the local mirror is only ever read to badge a group that no
-        //    longer exists, so it goes with it.
-        clearGroupPasses(groupId)
-
-        // 5. The roster. Placeholders are group-private by construction and die with the group; real
+        // 4. The roster. Placeholders are group-private by construction and die with the group; real
         //    users are shared across groups and are never touched here.
         clearPlaceholderUsers(groupId)
         clearMembers(groupId)
@@ -219,16 +213,10 @@ interface GroupPurgeDao {
     @Query("DELETE FROM placeholder_claim_answers WHERE group_id = :groupId")
     suspend fun clearPlaceholderClaimAnswers(groupId: String)
 
-    @Query("DELETE FROM group_passes WHERE group_id = :groupId")
-    suspend fun clearGroupPasses(groupId: String)
-
     // --- Device-local caches ----------------------------------------------------------------------
 
     @Query("DELETE FROM superseded_notices WHERE group_id = :groupId")
     suspend fun clearSupersededNotices(groupId: String)
-
-    @Query("DELETE FROM group_scan_usage WHERE group_id = :groupId")
-    suspend fun clearGroupScanUsage(groupId: String)
 
     @Query("DELETE FROM receipt_uploads WHERE group_id = :groupId")
     suspend fun clearReceiptUploads(groupId: String)

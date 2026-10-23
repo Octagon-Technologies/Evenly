@@ -52,7 +52,6 @@ fun MainShell(
     onSignIn: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
     onSendFeedback: () -> Unit = {},
-    onOpenPro: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var tab by rememberSaveable(stateSaver = RootTabSaver) { mutableStateOf(RootTab.Groups) }
@@ -80,7 +79,6 @@ fun MainShell(
                             onSignIn = onSignIn,
                             onEditPaymentApps = onEditPaymentApps,
                             onSendFeedback = onSendFeedback,
-                            onOpenPro = onOpenPro,
                         )
                     }
                 }

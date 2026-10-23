@@ -81,9 +81,6 @@ fun EvSectionLabel(
     Text(
         text = text.uppercase(),
         modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
-        color = EvenlyTheme.colors.ink3,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 0.6.sp,
+        style = EvenlyTheme.text.sectionLabel,
     )
 }

@@ -86,7 +86,7 @@ fun IncludeMemberSheet(
                     }
                     if (valid) Text(moneySubunits(othersCover, currencyCode), color = c.ink, fontWeight = FontWeight.Bold, fontFamily = EvenlyTheme.monoFamily)
                 }
-                EvButton("Confirm split", { onConfirm(shareSubunits) }, leadingIcon = EvIcons.Check, enabled = valid && !saving)
+                EvButton("Confirm split", { onConfirm(shareSubunits) }, enabled = valid && !saving)
             }
         }
     }

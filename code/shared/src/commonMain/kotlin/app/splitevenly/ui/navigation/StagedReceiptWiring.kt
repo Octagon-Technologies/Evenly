@@ -7,6 +7,7 @@ import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.platform.PdfRasterizer
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.ui.screen.expense.UndoRemoval
 
 /** UI view of a staged receipt; the strip and viewer render it straight off disk. */
 internal fun StagedReceipt.toUi(): PickedReceiptUi =
@@ -35,3 +36,24 @@ internal fun rememberStagedPdfRenderers(manager: ReceiptUploadManager?): StagedP
 
 private suspend fun ReceiptUploadManager.readStagedAt(url: String): ByteArray? =
     readStaged(url.removePrefix("file://"))
+
+/**
+ * Takes the staged receipt at [index] out of [list] at once, so a save inside the Undo window never
+ * attaches it, and discards its file only once that window passes. The returned undo puts it back in place.
+ */
+internal fun removeStaged(
+    current: () -> List<StagedReceipt>,
+    index: Int,
+    deferred: DeferredRemovals,
+    manager: ReceiptUploadManager?,
+    update: (List<StagedReceipt>) -> Unit,
+): UndoRemoval {
+    val dropped = current().getOrNull(index) ?: return {}
+    update(current() - dropped)
+    deferred.schedule(dropped.id) { manager?.discardStaged(listOf(dropped)) }
+    return {
+        if (deferred.cancel(dropped.id)) {
+            update(current().toMutableList().apply { add(index.coerceAtMost(size), dropped) })
+        }
+    }
+}

@@ -26,6 +26,7 @@ import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.UserEntity
+import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.group.ClaimLine
@@ -83,6 +84,8 @@ class GroupRepositoryImpl(
     private val groupPurgeDao: GroupPurgeDao? = null,
     // Sandbox bytes of queued receipt uploads, deleted with the group they belong to. Null in tests.
     private val receiptFiles: ReceiptFileStore? = null,
+    // Lets a just-joined group pull its rows before the UI navigates in. Null in tests / offline stub.
+    private val hydration: HydrationTracker? = null,
 ) : GroupRepository {
     override suspend fun addPlaceholder(
         groupId: GroupId,
@@ -252,6 +255,13 @@ class GroupRepositoryImpl(
             }
         }
         analytics?.capture(AnalyticsEvents.GROUP_JOINED, mapOf("group_id" to group.id))
+        // The membership is only local so far and the group's expenses are not on this device. Push the
+        // membership and pull now rather than waiting for the doorbell, so the group opens populated; if
+        // the pull fails the group stays pending and its screen shows a retry instead of "No expenses".
+        hydration?.let {
+            it.markGroupPending(group.id)
+            it.retry(userId.value)
+        }
         return group.toDomain().asOk()
     }
 
@@ -313,13 +323,11 @@ class GroupRepositoryImpl(
         groupDao.observeByIdIncludingDeleted(groupId.value).map { it?.toDomain() }
 
     override suspend fun deleteImpact(groupId: GroupId): GroupDeleteImpact {
-        val now = clock.nowEpochMillis()
         return GroupDeleteImpact(
             memberCount = groupDao.activeMemberCount(groupId.value),
             expenseCount = groupDao.liveExpenseCount(groupId.value),
             receiptCount = groupDao.liveReceiptCount(groupId.value),
             unsettledCount = groupDao.unsettledBalanceCount(groupId.value),
-            proPassExpiresAt = groupDao.liveProPassExpiry(groupId.value, now),
         )
     }
 

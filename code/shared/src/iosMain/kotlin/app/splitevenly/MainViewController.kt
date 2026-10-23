@@ -3,13 +3,14 @@ package app.splitevenly
 import androidx.compose.ui.window.ComposeUIViewController
 import app.splitevenly.di.initKoin
 import app.splitevenly.platform.setupAnalytics
+import app.splitevenly.ui.navigation.PendingInvite
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.samuolis.posthog.PostHogContext
-import kotlin.native.Platform
 import org.koin.mp.KoinPlatform
 import platform.Foundation.NSURL
 import platform.UIKit.UIViewController
+import kotlin.native.Platform
 
 @OptIn(kotlin.experimental.ExperimentalNativeApi::class)
 fun MainViewController(): UIViewController {
@@ -29,4 +30,12 @@ fun MainViewController(): UIViewController {
 fun handleAuthDeeplink(url: NSURL) {
     val client = runCatching { KoinPlatform.getKoin().getOrNull<SupabaseClient>() }.getOrNull() ?: return
     client.handleDeeplinks(url)
+}
+
+/**
+ * Queue an invite link for the nav host. Call from Swift `.onOpenURL`, which receives both universal
+ * links and `splitevenly://` URLs; anything that is not an invite is ignored.
+ */
+fun handleInviteLink(url: NSURL) {
+    PendingInvite.offer(url.absoluteString)
 }

@@ -60,17 +60,6 @@ export function initial(name: string): string {
   return [...(name ?? '').trim()][0]?.toUpperCase() ?? '?';
 }
 
-/** "2 days left" / "4 hours left" — the link's remaining life, never a raw timestamp. */
-export function expiresIn(expiresAt: number, now: number = Date.now()): string {
-  const ms = expiresAt - now;
-  if (ms <= 0) return 'expired';
-  const hours = Math.floor(ms / 3_600_000);
-  if (hours >= 48) return `${Math.floor(hours / 24)} days left`;
-  if (hours >= 1) return `${hours} ${hours === 1 ? 'hour' : 'hours'} left`;
-  const minutes = Math.max(1, Math.floor(ms / 60_000));
-  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} left`;
-}
-
 /** How each payment app spells its own name — the DB stores a lowercase key, people read a brand. */
 const PAYMENT_APPS: Record<string, string> = {
   venmo: 'Venmo',

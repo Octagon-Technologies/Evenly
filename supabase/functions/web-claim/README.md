@@ -25,6 +25,10 @@ in a cookie, since identity here is a `localStorage` value the client sends expl
 | `edit`                | `{ token, sessionToken, kind, itemId?, label?, quantity?, unitPriceSubunits? }` | Propose add/relabel/reprice/requantify/remove (spec §2.7, §3.6) — always lands as a **pending** edit |
 | `done`                | `{ token, sessionToken, done }`                                        | "I'm done" / undo (a nudge-silencer, not a lock — spec E31)       |
 | `release`             | `{ token, sessionToken }`                                              | "Not Purity? Use a different name" (spec E4, E5) — revokes this browser's session and drops back to the landing branch |
+| `invite-resolve`      | `{ token, sessionToken? }` (GROUP invite token)                        | The `/j/` join page's landing: `welcome_back` / `pick_name` / `name_entry` / `claimed_elsewhere`, with a header of group name, emoji, member count and the first four members' first names. Per-IP limit (`public_write_log`, kind `invite-resolve`) |
+| `invite-name`         | `{ token, name, force? }`                                              | The bill `name` action with no bill: blocks/suggests/creates a placeholder member + session (`create_web_placeholder` with a NULL expense) |
+| `invite-claim`        | `{ token, placeholderUserId }`                                         | "That's me" on the join page (`claim_web_placeholder`). Writes for these two are rate limited per invite token like a bill link |
+| `invite-preview`      | `{ token }` (a GROUP invite token, not a bill token)                   | The `/j/` landing's group name. Always 200 `{ groupName: string \| null }`; unknown, malformed, deleted, rate-limited and failed lookups are all `null`. Per-IP limit via `public_write_log`. Not bill-scoped |
 
 Every response is JSON; errors are `{ "error": "<CODE>", "detail"? }` with a matching HTTP status.
 `GONE` (404) and `EXPIRED` (410) are both meant to be read as a dead link by the client — a rate-limit
@@ -49,11 +53,11 @@ Payer-role assignment above is the one spec'd behaviour (§3.8, E24, E25) with n
 
 ## Security notes
 
-- Every action re-resolves the token from scratch (`resolveLink`): exists, not revoked, not expired,
+- Every action re-resolves the token from scratch (`resolveLink`): exists, not revoked, not expired (legacy links only),
   bill not deleted, group not deleted (spec §4.2). Nothing is cached across requests.
 - A session token resolves to a placeholder **scoped to the link's group**, not the bill — identity is
-  group-scoped and durable (spec §2.2), so a guest recognised at Ramen night is still recognised at
-  Sunday roast even after the Ramen night link expires.
+  group-scoped and durable (spec §2.2), so a guest recognised at Ramen night is still recognised in
+  that group even after the Ramen night bill link is revoked.
 - **The read-only gate lives in `resolveSession`, not in the landing action.** Once
   `members.placeholder_claim_completed_at` is stamped, every write path has to refuse (spec E10, §4.4);
   putting the check only where the landing screen is chosen left `claim`/`join`/`edit`/`done` writing as
@@ -68,8 +72,8 @@ Payer-role assignment above is the one spec'd behaviour (§3.8, E24, E25) with n
   "Joining someone else's claim").
 - Rate limits (spec §4.5): 120 writes/min per token (`web_claim_write_log`, best-effort — this is abuse
   mitigation, not a financial guardrail, so a logging hiccup must not lock a guest out of claiming their
-  own dinner; each write also prunes that token's own rows older than 5 min, so the log doesn't grow for
-  the life of a 72h link), 40 placeholders **per group** (the schema scopes placeholders to a group, not
+  own dinner; each write also prunes that token's own rows older than 5 min, so the log doesn't grow with
+  a permanent link), 40 placeholders **per group** (the schema scopes placeholders to a group, not
   a bill — see `supabase/AGENTS.md`), 200 items per bill (existing + unresolved pending `ADD`s).
 - Every write checks its own error and reports it. A guest gets no offline mode and no optimistic
   success (spec §6): if a claim did not land, the response has to say so, or she walks away from the

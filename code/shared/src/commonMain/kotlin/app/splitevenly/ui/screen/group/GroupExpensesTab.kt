@@ -48,11 +48,11 @@ import app.splitevenly.ui.components.EvFab
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSegmented
 import app.splitevenly.ui.components.EvSheetScaffold
-import app.splitevenly.ui.components.EvSkeletonRow
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import app.splitevenly.ui.theme.categoryColor
 import io.github.alexzhirkevich.qrose.rememberQrCodePainter
@@ -82,7 +82,7 @@ data class ExpenseDayUi(
     val items: List<ExpenseItemUi>,
 )
 
-enum class ExpensesState { Loading, Empty, Populated }
+enum class ExpensesState { Loading, Failed, Empty, Populated }
 
 /** Shared corner radius for the expense feed's per-row cards (and the settled tray). */
 private val ExpenseCardShape = RoundedCornerShape(14.dp)
@@ -103,11 +103,12 @@ fun GroupExpensesTab(
     groupEmoji: String = "🏝️",
     groupName: String = "Tulum Trip",
     state: ExpensesState = ExpensesState.Populated,
+    onRetry: () -> Unit = {},
     days: List<ExpenseDayUi> = GroupSamples.days,
     drafts: Int = 1,
     offline: Boolean = false,
     filterActive: Boolean = false,
-    inviteLink: String = "split-evenly.app/j/8Kk2-Tulum",
+    inviteLink: String = "https://split-evenly.app/j/8Kk2-Tulum",
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onAdd: () -> Unit = {},
@@ -118,17 +119,17 @@ fun GroupExpensesTab(
     onOpenDrafts: () -> Unit = {},
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
-    onRotateInvite: () -> Unit = {},
+    // The roster for the members strip (T2). Empty until the members load, which hides the strip.
+    members: List<MemberRowUi> = emptyList(),
+    onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
     // "Is this you?" (identity claim). Rendered here because this is where people actually look; the
     // settings row and the full-screen list are the deliberate second and third doors, not the first.
     identityNames: List<UnclaimedNameUi> = emptyList(),
     identityFinished: Boolean = false,
-    onIdentityThatsMe: (String) -> Unit = {},
-    onIdentityNotMe: (String) -> Unit = {},
-    onIdentityNoneOfThese: () -> Unit = {},
-    onIdentityLater: () -> Unit = {},
+    onIdentityConfirm: (selected: List<UnclaimedNameUi>, shown: List<UnclaimedNameUi>) -> Unit = { _, _ -> },
+    onIdentityNoneOfThese: (shown: List<UnclaimedNameUi>) -> Unit = {},
     onIdentitySeeAll: () -> Unit = {},
     /** Non-null while a claim is still cancellable. The merge has not been written yet. */
     undoToastText: String? = null,
@@ -140,6 +141,8 @@ fun GroupExpensesTab(
     val c = EvenlyTheme.colors
     var sub by remember { mutableStateOf("Active") }
     var showInvite by remember { mutableStateOf(false) }
+    var showMembers by remember { mutableStateOf(false) }
+    var showAddMember by remember { mutableStateOf(false) }
     // Default open; the collapse choice sticks for the whole visit (state lives above the section so it
     // survives the bills momentarily emptying and re-appearing).
     var claimsExpanded by remember { mutableStateOf(true) }
@@ -166,11 +169,12 @@ fun GroupExpensesTab(
                 },
                 actions = {
                     EvIconButton(EvIcons.Search, onSearch)
-                    // Invite/share: the front-door entry to the group's join link (also in Group settings).
-                    EvIconButton(EvIcons.Share, { showInvite = true })
                     EvIconButton(EvIcons.Gear, onOpenSettings)
                 },
             )
+            // The members strip is the one front door for inviting (the top-bar share icon was a second,
+            // unlabelled one): a tester's first question in a new group was how to add someone.
+            if (members.isNotEmpty()) MembersStrip(members, onOpen = { showMembers = true })
             // Tab island: a segmented pill below the title (not an underline bar in the app bar), with the
             // advanced-filter funnel beside it so the bar stays uncluttered. This and the top bar are the
             // *only* fixed chrome on the page; see the scroll surface below.
@@ -211,10 +215,8 @@ fun GroupExpensesTab(
                             if (identityNames.isNotEmpty()) {
                                 IdentityClaimCard(
                                     names = identityNames,
-                                    onThatsMe = onIdentityThatsMe,
-                                    onNotMe = onIdentityNotMe,
+                                    onConfirm = onIdentityConfirm,
                                     onNoneOfThese = onIdentityNoneOfThese,
-                                    onLater = onIdentityLater,
                                     onSeeAll = onIdentitySeeAll,
                                 )
                             } else if (identityFinished) {
@@ -250,9 +252,20 @@ fun GroupExpensesTab(
                     }
 
                     when {
+                        // Blank on purpose: an empty group is the common case, so a skeleton would just flash.
                         state == ExpensesState.Loading -> {
-                            item(key = "loading") {
-                                Column(Modifier.padding(top = 8.dp)) { repeat(5) { EvSkeletonRow() } }
+                            item(key = "loading") { Spacer(Modifier.height(1.dp)) }
+                        }
+
+                        state == ExpensesState.Failed -> {
+                            item(key = "failed") {
+                                EvEmptyState(
+                                    icon = EvIcons.Receipt,
+                                    title = "Couldn't load expenses",
+                                    text = "Check your connection and try again. Nothing was lost.",
+                                    ctaText = "Try again",
+                                    onCta = onRetry,
+                                )
                             }
                         }
 
@@ -343,15 +356,32 @@ fun GroupExpensesTab(
                 inviteLink = inviteLink,
                 onCopy = onCopyInvite,
                 onShare = onShareInvite,
-                onRotate = onRotateInvite,
                 onDismiss = { showInvite = false },
             )
+        }
+        if (showMembers) {
+            MembersSheet(
+                members = members,
+                onInviteWithLink = onShareInvite,
+                onShowQr = {
+                    showMembers = false
+                    showInvite = true
+                },
+                onAddByName = {
+                    showMembers = false
+                    showAddMember = true
+                },
+                onDismiss = { showMembers = false },
+            )
+        }
+        if (showAddMember) {
+            AddMemberSheet(onAdd = onAddMember, onDismiss = { showAddMember = false })
         }
     }
 }
 
 /**
- * Invite bottom sheet: the group's join link with a one-tap copy and a (link-invalidating) rotate.
+ * Invite bottom sheet: the group's join link (as a QR) with Share and Copy.
  * Stateless — the link string and the copy/rotate actions are wired by GroupExpensesRoute; only the
  * transient "copied" affirmation lives here, and it resets whenever the link rotates.
  */
@@ -361,15 +391,14 @@ private fun InviteSheet(
     inviteLink: String,
     onCopy: () -> Unit,
     onShare: () -> Unit,
-    onRotate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
     var copied by remember(inviteLink) { mutableStateOf(false) }
     EvSheetScaffold(
         onDismiss = onDismiss,
-        title = "Invite to $groupName",
-        sub = "Anyone with this link can join.",
+        title = "Invite to group",
+        sub = "Anyone with this link joins $groupName. To split just one bill, share that bill's QR instead.",
     ) {
         // Scannable QR of the join link — hand the phone across the table instead of typing a URL.
         // White plate + dark modules so it scans in both light and dark themes. Hidden until the token
@@ -399,7 +428,7 @@ private fun InviteSheet(
         ) {
             EvIcon(EvIcons.Link, size = 16.dp, tint = c.ink3)
             Text(
-                inviteLink,
+                inviteLink.removePrefix("https://"),
                 modifier = Modifier.weight(1f),
                 color = c.ink,
                 fontSize = 13.sp,
@@ -409,29 +438,24 @@ private fun InviteSheet(
             )
         }
         Spacer(Modifier.height(12.dp))
-        EvButton(
-            text = "Share link",
-            onClick = onShare,
-            leadingIcon = EvIcons.Share,
-        )
-        Spacer(Modifier.height(8.dp))
-        EvButton(
-            text = if (copied) "Link copied" else "Copy link",
-            onClick = {
-                onCopy()
-                copied = true
-            },
-            variant = ButtonVariant.Secondary,
-            leadingIcon = if (copied) EvIcons.Check else EvIcons.Copy,
-        )
-        Spacer(Modifier.height(4.dp))
-        EvButton(
-            text = "New link",
-            onClick = onRotate,
-            variant = ButtonVariant.Text,
-            leadingIcon = EvIcons.Reload,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EvButton(
+                text = "Share link",
+                onClick = onShare,
+                modifier = Modifier.weight(1f),
+                leadingIcon = EvIcons.Share,
+            )
+            EvButton(
+                text = if (copied) "Link copied" else "Copy link",
+                onClick = {
+                    onCopy()
+                    copied = true
+                },
+                modifier = Modifier.weight(1f),
+                variant = ButtonVariant.Secondary,
+                leadingIcon = if (copied) EvIcons.Check else EvIcons.Copy,
+            )
+        }
     }
 }
 
@@ -513,10 +537,10 @@ private fun ExpenseRowFrom(
 
                 it.stakeLabel != null && it.stakeAmount != null -> {
                     Column(horizontalAlignment = Alignment.End) {
-                        // Owed-to-you → amber (in your favour); you-owe → plain ink (white on dark). Blue as
+                        // Owed-to-you → green; you-owe → plain ink (white on dark). Blue as
                         // the "you owe" amount sank into the dark page; a neutral ink amount reads clearly and
                         // still lets the amber "you're owed" stand out as the one colour that matters.
-                        val stakeColor = if (it.stakeOwedToYou) c.credit else c.ink
+                        val stakeColor = if (it.stakeOwedToYou) c.settled else c.ink
                         Text(it.stakeLabel, color = stakeColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             it.stakeAmount,

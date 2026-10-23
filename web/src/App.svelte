@@ -18,6 +18,7 @@
   import DeleteAccount from './marketing/DeleteAccount.svelte';
   import Support from './marketing/Support.svelte';
   import Waitlist from './marketing/Waitlist.svelte';
+  import Join from './marketing/Join.svelte';
   import AdminPlaceholder from './marketing/AdminPlaceholder.svelte';
   import { store } from './lib/store.svelte.ts';
   import { resolveRoute } from './lib/router.ts';
@@ -44,6 +45,8 @@
   <Support />
 {:else if route.kind === 'waitlist'}
   <Waitlist />
+{:else if route.kind === 'join'}
+  <Join token={route.token} />
 {:else if route.kind === 'admin'}
   <AdminPlaceholder />
 {:else}

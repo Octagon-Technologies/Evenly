@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Web group join</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* Tokens are web/src/app.css's, unchanged: the join flow is the claim flow's sibling, not a new system. */
+  :root {
+    --blue: #2563eb; --blue-tint: #eff4ff; --page: #fff; --surface: #f6f8fb; --border: #e6eaf0;
+    --border-strong: #d6dce6; --ink: #0b1220; --ink-2: #5b6577; --ink-3: #9aa3b2; --red: #e0686b;
+    --red-tint: #fdeeed; --green: #16a34a; --green-tint: #e7f4ec; --r-card: 16px; --r-sm: 10px;
+    --font: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: #e9edf3; color: var(--ink); padding: 32px 16px 60px; }
+  h1.title { font-size: 22px; margin: 0 auto 6px; max-width: 1240px; }
+  p.lead { color: var(--ink-2); max-width: 1240px; margin: 0 auto 24px; font-size: 14px; line-height: 1.5; }
+  .row-frames { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+  .frame { width: 290px; }
+  .cap { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 0 0 8px 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .phone { background: var(--page); border-radius: 28px; height: 590px; overflow: hidden; box-shadow: 0 8px 30px rgba(11,18,32,.12); display: flex; flex-direction: column; }
+  .url { background: var(--surface); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--ink-2); padding: 10px 14px; text-align: center; }
+  .scroll { padding: 22px 18px; flex: 1; display: flex; flex-direction: column; }
+  .eyebrow { font-size: 12px; font-weight: 600; color: var(--blue); text-transform: uppercase; letter-spacing: .05em; }
+  .h1 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; margin: 6px 0 6px; }
+  .sub { font-size: 13px; color: var(--ink-2); line-height: 1.45; }
+  .emoji { width: 56px; height: 56px; border-radius: 16px; background: var(--blue-tint); display: grid; place-items: center; font-size: 28px; margin-bottom: 14px; }
+  .faces { display: flex; margin: 14px 0 4px; }
+  .av { width: 30px; height: 30px; border-radius: 50%; background: var(--blue-tint); color: var(--blue); border: 2px solid #fff; font-size: 12px; font-weight: 600; display: grid; place-items: center; margin-left: -6px; }
+  .av:first-child { margin-left: 0; }
+  .card { border: 1px solid var(--border); border-radius: var(--r-card); margin: 14px 0; }
+  .r { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--border); }
+  .r:first-child { border-top: 0; }
+  .grow { flex: 1; min-width: 0; }
+  .lbl { font-weight: 600; font-size: 14px; }
+  .meta { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+  .act { border: 1px solid var(--border-strong); background: #fff; color: var(--blue); font: 600 13px var(--font); padding: 7px 12px; border-radius: 999px; white-space: nowrap; }
+  .btn { display: block; width: 100%; height: 48px; border: 0; border-radius: 12px; background: var(--blue); color: #fff; font: 600 15px var(--font); margin-top: 8px; }
+  .btn--ghost { background: transparent; color: var(--blue); border: 1px solid var(--border-strong); }
+  .btn--sm { height: 40px; font-size: 14px; }
+  .spacer { flex: 1; }
+  .note { border-radius: var(--r-sm); padding: 11px 12px; font-size: 13px; line-height: 1.45; margin: 10px 0; background: var(--blue-tint); }
+  .note--red { background: var(--red-tint); }
+  .note--green { background: var(--green-tint); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .chip { border: 1px solid var(--border-strong); background: #fff; border-radius: 999px; font: 500 12px var(--font); padding: 5px 10px; }
+  .flbl { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 16px 0 6px; display: block; }
+  .inp { width: 100%; height: 46px; border: 1px solid var(--border-strong); border-radius: 12px; padding: 0 12px; font: 15px var(--font); }
+  .inp--bad { border-color: var(--red); }
+  .foot { font-size: 12px; color: var(--ink-3); text-align: center; margin-top: 14px; line-height: 1.5; }
+  .foot a { color: var(--blue); text-decoration: none; }
+  .check { width: 56px; height: 56px; border-radius: 50%; background: var(--green-tint); color: var(--green); display: grid; place-items: center; font-size: 28px; margin-bottom: 14px; }
+  ol.steps { margin: 12px 0 0 18px; font-size: 13px; color: var(--ink-2); line-height: 1.6; }
+  .notes { max-width: 1240px; margin: 28px auto 0; background: #fff; border-radius: 16px; padding: 18px 22px; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+  .notes b { color: var(--ink); }
+</style>
+</head>
+<body>
+<h1 class="title">Joining a group from the invite link, no app</h1>
+<p class="lead">Who sees this: a friend who scanned the group QR or tapped the shared link without Evenly installed. If the app is installed, the link opens the app directly (universal link / App Link) and none of this shows.</p>
+
+<div class="row-frames">
+  <!-- 1. Landing -->
+  <div class="frame">
+    <div class="cap">1 · Invite landing</div>
+    <div class="phone">
+      <div class="url">split-evenly.app/j/01a1…7339</div>
+      <div class="scroll">
+        <div class="emoji">🏝️</div>
+        <div class="eyebrow">You're invited</div>
+        <div class="h1">Join Tulum trip on Evenly</div>
+        <div class="sub">Split bills with friends and settle up, without the awkward maths.</div>
+        <div class="faces"><span class="av">A</span><span class="av">M</span><span class="av">P</span><span class="av">J</span></div>
+        <div class="sub">Andrew, Mary and 2 others are in this group</div>
+        <div class="spacer"></div>
+        <button class="btn">Join Tulum trip</button>
+        <button class="btn btn--ghost btn--sm">I have the app, open it</button>
+        <p class="foot">No account or download needed to join.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Pick -->
+  <div class="frame">
+    <div class="cap">2 · Are any of these you?</div>
+    <div class="phone">
+      <div class="url">split-evenly.app/j/01a1…7339</div>
+      <div class="scroll">
+        <div class="eyebrow">Tulum trip</div>
+        <div class="h1">Are any of these you?</div>
+        <div class="note">Andrew may have added you already. Tap your name so your expenses stay with you.</div>
+        <div class="card">
+          <div class="r"><div class="grow"><div class="lbl">Purity</div><div class="meta">Tacos al pastor · 12 Oct · $18.00</div></div><button class="act">That's me</button></div>
+          <div class="r"><div class="grow"><div class="lbl">Jules</div><div class="meta">Added to the group, no expenses yet</div></div><button class="act">That's me</button></div>
+        </div>
+        <button class="btn btn--ghost btn--sm">I'm not on the list</button>
+        <div class="spacer"></div>
+        <p class="foot">Only names that aren't linked to an Evenly account are shown.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Name -->
+  <div class="frame">
+    <div class="cap">3 · Your name (exact duplicate blocked)</div>
+    <div class="phone">
+      <div class="url">split-evenly.app/j/01a1…7339</div>
+      <div class="scroll">
+        <div class="eyebrow">Tulum trip</div>
+        <div class="h1">What should the group call you?</div>
+        <label class="flbl">Your name</label>
+        <input class="inp inp--bad" value="Mary" />
+        <div class="note note--red"><b>There's already a Mary in this group.</b><br />Add something so people can tell you apart.
+          <div class="chips"><span class="chip">Mary 2</span><span class="chip">Mary 3</span></div>
+        </div>
+        <button class="btn">Join group</button>
+        <button class="btn btn--ghost btn--sm">Wait, I'm already in this group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Done -->
+  <div class="frame">
+    <div class="cap">4 · You're in</div>
+    <div class="phone">
+      <div class="url">split-evenly.app/j/01a1…7339</div>
+      <div class="scroll">
+        <div class="check">✓</div>
+        <div class="eyebrow">Tulum trip</div>
+        <div class="h1">You're in, Jules</div>
+        <div class="sub">The group can now add you to expenses.</div>
+        <div class="note note--green">When someone shares a bill with you, open its link and tap what you had. This browser will remember you.</div>
+        <div class="spacer"></div>
+        <button class="btn btn--ghost btn--sm">Not Jules? Use a different name</button>
+        <p class="foot">See what you owe and settle up in the app.<br /><a href="#">Get early access →</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <b>Decisions baked in.</b> (1) The landing proves it's real before asking for anything: emoji, group name and who's in it, the same rule as the bill page's header. (2) Only unlinked names are ever offered; account holders are never selectable, same as the bill flow, so nobody can "be Andrew". (3) Exact duplicate names are blocked with one-tap suffixes; a near match asks "did you mean her?" instead of blocking. (4) Joining makes you a real member of the group immediately. In the app you show up like any member someone added by name, and if you sign up later you can claim that name. (5) The install prompt is a one-line footnote, never a button (web/AGENTS.md). Pre-launch it goes to early access; after launch, to the right store. (6) No balances or group activity on the web. That stays app-only.
+</div>
+</body>
+</html>

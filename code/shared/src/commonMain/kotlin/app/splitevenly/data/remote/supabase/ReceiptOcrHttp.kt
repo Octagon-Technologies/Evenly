@@ -6,6 +6,7 @@ import app.splitevenly.domain.receipt.ReceiptDraftItem
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.receipt.venueKindOf
 import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.ImageProcessor
 import app.splitevenly.platform.NetworkStatus
@@ -92,11 +93,6 @@ class ReceiptOcrHttp(
             // fields silently default to a fake "no receipt found" success shape.
             if (!response.status.isSuccess()) {
                 if (response.status == HttpStatusCode.TooManyRequests) return ScanOutcome.Blocked(reason = "rate_limited")
-                // 402: the group is out of free scans and holds no Pro pass (PRO_PASS_SPEC.md §7). A
-                // refusal, not a failure — nothing went wrong and retrying changes nothing, so it must
-                // not read as an error the user could fix by trying again. Kept distinct from
-                // "rate_limited" because that one resolves by waiting and this one does not.
-                if (response.status == HttpStatusCode.PaymentRequired) return ScanOutcome.Blocked(reason = "quota_exhausted")
                 val message = runCatching { json.decodeFromString<ErrorResp>(raw).error }.getOrNull()
                 return ScanOutcome.Failed(message)
             }
@@ -171,6 +167,9 @@ private class RcptDto(
     @SerialName("discount_subunits") val discount: Long = 0,
     @SerialName("other_charges_subunits") val otherCharges: Long = 0,
     @SerialName("detected_total_subunits") val detectedTotal: Long = 0,
+    @SerialName("merchant_name") val merchantName: String? = null,
+    @SerialName("venue_kind") val venueKind: String? = null,
+    @SerialName("printed_time") val printedTime: String? = null,
 ) {
     fun toDraft(verified: Boolean) =
         ReceiptDraft(
@@ -183,6 +182,9 @@ private class RcptDto(
             otherChargesSubunits = otherCharges,
             detectedTotalSubunits = detectedTotal,
             verified = verified,
+            merchantName = merchantName,
+            venueKind = venueKindOf(venueKind),
+            printedTime = printedTime,
         )
 }
 

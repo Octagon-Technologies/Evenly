@@ -3,12 +3,8 @@ package app.splitevenly.ui.theme
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.res.Configuration
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -23,22 +19,6 @@ actual fun SystemBarsAppearance(darkTheme: Boolean) {
         controller.isAppearanceLightStatusBars = !darkTheme
         controller.isAppearanceLightNavigationBars = !darkTheme
     }
-}
-
-@Composable
-actual fun ForceNativeDarkMode(
-    darkTheme: Boolean,
-    content: @Composable () -> Unit,
-) {
-    val base = LocalConfiguration.current
-    val overridden =
-        remember(base, darkTheme) {
-            Configuration(base).apply {
-                uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
-                    if (darkTheme) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
-            }
-        }
-    CompositionLocalProvider(LocalConfiguration provides overridden) { content() }
 }
 
 /** Unwrap the Compose view's (possibly wrapped) context to the hosting Activity. */

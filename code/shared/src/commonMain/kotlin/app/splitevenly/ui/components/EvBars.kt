@@ -40,10 +40,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.components.icon.EvIcon
+import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvMotion
 import app.splitevenly.ui.theme.EvenlyTheme
 
@@ -173,7 +175,14 @@ private fun MaterialBottomNav(
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
             items.forEach { item ->
                 val on = item.id == selectedId
-                val tint by animateColorAsState(if (on) c.blue else c.ink3, EvMotion.quick())
+                val tint by animateColorAsState(
+                    if (on) {
+                        if (c.isDark) Color.White else c.blue
+                    } else {
+                        c.ink3
+                    },
+                    EvMotion.quick(),
+                )
                 Column(
                     modifier =
                         Modifier
@@ -230,7 +239,14 @@ private fun IosFloatingNav(
         ) {
             items.forEach { item ->
                 val on = item.id == selectedId
-                val tint by animateColorAsState(if (on) c.blue else c.ink3, EvMotion.quick())
+                val tint by animateColorAsState(
+                    if (on) {
+                        if (c.isDark) Color.White else c.blue
+                    } else {
+                        c.ink3
+                    },
+                    EvMotion.quick(),
+                )
                 val pillColor by animateColorAsState(if (on) c.blueTint else Color.Transparent, EvMotion.quick())
                 Box(
                     modifier =
@@ -361,6 +377,25 @@ fun EvSegmented(
                     textAlign = TextAlign.Center,
                 )
             }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun DarkBottomNavPreview() {
+    EvenlyTheme(darkTheme = true) {
+        Box(Modifier.background(EvenlyTheme.colors.page).padding(vertical = 12.dp)) {
+            IosFloatingNav(
+                items =
+                    listOf(
+                        BottomNavItem("expenses", "Expenses", EvIcons.Receipt),
+                        BottomNavItem("balances", "Balances", EvIcons.Swap),
+                        BottomNavItem("overview", "Overview", EvIcons.Chart),
+                    ),
+                selectedId = "expenses",
+                onSelect = {},
+            )
         }
     }
 }

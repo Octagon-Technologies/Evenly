@@ -1,4 +1,4 @@
-// Evenly group export (PRO_PASS_SPEC.md §3, build step 7). Returns a group's whole ledger as a single
+// Evenly group export. Returns a group's whole ledger as a single
 // CSV: every expense, who paid, what each person's share was, and every settlement.
 //
 // The directory for this function existed empty for months and `supabase/AGENTS.md` listed it as live.
@@ -7,10 +7,7 @@
 //   POST { "groupId": "..." }  ->  200 text/csv
 //
 // Auth: the signed-in user's access token as the Bearer, anon key in `apikey` (same shape as
-// extract-receipt). The caller must be an ACTIVE member, and the group must hold a live Pro pass.
-//
-// PRO-GATED SERVER-SIDE, on purpose. A gate that lives only in the client is decoration: the endpoint is
-// reachable with any member's token, so the check has to be here or it is not a check.
+// extract-receipt). The caller must be an ACTIVE member. Export is part of the free product.
 //
 // ── The CSV shape ────────────────────────────────────────────────────────────────────────────────
 // One row per expense and per settlement, with ONE COLUMN PER MEMBER holding that person's net for the
@@ -102,18 +99,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .maybeSingle();
   if (memberError) return json({ error: "membership check unavailable" }, 503);
   if (!membership) return json({ error: "not a member of this group" }, 403);
-
-  // No row means not Pro (group_pro_status returns at most one).
-  const { data: proRows, error: proError } = await db
-    .rpc("group_pro_status", { p_group_id: groupId, p_now: Date.now() });
-  if (proError) return json({ error: "pass check unavailable" }, 503);
-  const isPro = Array.isArray(proRows) ? proRows.length > 0 : !!proRows;
-  if (!isPro) {
-    return json(
-      { error: "Export needs a Pro pass.", reason: "pro_required" },
-      402,
-    );
-  }
 
   const { data: group } = await db.from("groups").select("name, base_currency").eq("id", groupId).maybeSingle();
 

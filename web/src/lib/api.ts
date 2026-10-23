@@ -52,13 +52,14 @@ export interface BillHeader {
   itemCount: number;
   claimedCount: number;
   participantCount: number;
-  expiresAt: number;
 }
 
 export interface Evidence {
   title: string;
   date: string;
   amountSubunits: number;
+  /** The expense's own currency. The bill flow formats with the bill's; the invite page has no bill. */
+  currency?: string;
 }
 
 export interface Candidate {
@@ -168,6 +169,54 @@ export function setTransport(next: Transport): void {
 function post<T>(action: string, body: Record<string, unknown>): Promise<T> {
   return transport(action, body) as Promise<T>;
 }
+
+/**
+ * The group name behind a `/j/:token` invite link, or `null` for every other outcome (unknown token,
+ * deleted group, rate limit, backend error, no connection). The server answers all of those with the
+ * same 200, and so does this: the page falls back to generic copy and has nothing to branch on.
+ */
+export async function invitePreview(token: string): Promise<string | null> {
+  try {
+    const res = await post<{ groupName?: string | null }>('invite-preview', { token });
+    return typeof res.groupName === 'string' && res.groupName.trim() ? res.groupName : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What the `/j/` invite page shows before asking for anything: proof the group is real. */
+export interface InviteHeader {
+  groupName: string;
+  emoji: string;
+  memberCount: number;
+  /** First names of the earliest members, at most four. */
+  memberNames: string[];
+}
+
+export type InviteResolveResponse =
+  | { state: 'welcome_back'; header: InviteHeader; identity: { userId: string; name: string } }
+  | { state: 'pick_name'; header: InviteHeader; candidates: Candidate[] }
+  | { state: 'name_entry'; header: InviteHeader }
+  | { state: 'claimed_elsewhere'; header: InviteHeader };
+
+export type InviteNameResponse =
+  | { blocked: true; suggestions: string[] }
+  | { suggestion: Candidate }
+  | { created: true; userId: string; name: string; sessionToken: string };
+
+export type InviteClaimResponse =
+  | { won: false }
+  | { won: true; sessionToken: string; userId: string; name: string };
+
+/** Joining a group from its invite link, no app (`marketing/Join.svelte`). Same identity model as a bill. */
+export const inviteApi = {
+  resolve: (token: string, sessionToken: string | null) =>
+    post<InviteResolveResponse>('invite-resolve', { token, sessionToken }),
+  name: (token: string, name: string, force = false) =>
+    post<InviteNameResponse>('invite-name', { token, name, force }),
+  claim: (token: string, placeholderUserId: string) =>
+    post<InviteClaimResponse>('invite-claim', { token, placeholderUserId }),
+};
 
 export const api = {
   /** Landing branch (spec §3.1). */

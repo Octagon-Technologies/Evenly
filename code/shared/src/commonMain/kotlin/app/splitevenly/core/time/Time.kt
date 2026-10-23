@@ -27,6 +27,10 @@ import kotlin.time.Instant
 @OptIn(ExperimentalTime::class)
 fun Clock.nowEpochMillis(): Long = ServerClock.clamp(now().toEpochMilliseconds())
 
+/** The current hour (0-23) on the phone's local clock. */
+@OptIn(ExperimentalTime::class)
+fun Clock.localHour(): Int = now().toLocalDateTime(TimeZone.currentSystemDefault()).hour
+
 /** Today's calendar date in UTC as an ISO-8601 string ("YYYY-MM-DD") — the FX rate-date key (03 §6). */
 @OptIn(ExperimentalTime::class)
 fun Clock.todayUtc(): String = now().toLocalDateTime(TimeZone.UTC).date.toString()

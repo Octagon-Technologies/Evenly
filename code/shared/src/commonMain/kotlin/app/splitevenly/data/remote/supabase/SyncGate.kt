@@ -13,7 +13,7 @@ import kotlinx.coroutines.sync.withLock
  * delivered push (deliberately ungated — background FCM → pull is intended). Sign-out used to (1) push,
  * (2) null `currentUserId`, (3) wipe Room, (4) sign out of Supabase. A pull queued behind step 1's push
  * acquired the mutex the moment that push released it, ran with account A's session still fully valid
- * (step 4 is last), and re-landed A's groups, expenses, members and `group_passes` into the cache step
+ * (step 4 is last), and re-landed A's groups, expenses, and members into the cache step
  * 3 had just emptied. The mutex did not prevent that — it *scheduled* it, by holding the pull until
  * exactly the window the wipe runs in. Nulling `currentUserId` cancels `SyncManager`'s loops, which
  * are children of the gate collector, and none of the three above.

@@ -37,8 +37,7 @@ interface PendingClaimStore {
  * escaping, and a record that will not parse is dropped rather than retried forever.
  *
  * Room would have been the other option and is deliberately not used: this is a receipt for one
- * in-flight action on this phone, exactly like [app.splitevenly.data.repository.ProPurchaseCoordinator]'s
- * parked purchase, and it must never ride the sync push.
+ * in-flight action on this phone, and it must never ride the sync push.
  */
 class SecureStoragePendingClaims(
     private val storage: SecureStorage,

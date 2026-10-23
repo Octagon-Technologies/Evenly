@@ -5,30 +5,27 @@ import app.splitevenly.core.id.UserId
 /**
  * The payer's view of a bill's web claim link (WEB_CLAIM_SPEC.md §2.9, §3.9.3, E26–E30).
  *
- * Two links exist in this product and are kept apart on purpose: this one is **per-expense, 72 hours,
- * claim-only**; the group invite is permanent and needs an account. Do not merge them.
+ * Two links exist in this product and are kept apart on purpose: this one is **per-expense, claim-only**;
+ * the group invite is permanent and needs an account. Do not merge them.
  *
  * ## Why [url] can be null while [exists] is true
  *
- * The token is minted server-side and returned exactly once, hashed at rest (§4.2). The device that
- * created the link keeps the plaintext locally; nothing can hand it back afterwards. So a payer opening
- * this screen on a second device sees a live link it cannot render a QR for. That is the honest state,
- * not an error: the fix on offer is "make a new link", which rotates the token and revokes the old one.
+ * The token is minted server-side and stored behind the membership-checked link RPC. Every group member
+ * can recover and render the same QR when opening this screen on another device.
  */
 data class WebBillLinkState(
     /** A link row exists for this bill (live, expired, or revoked). */
     val exists: Boolean,
-    /** `split-evenly.app/b/<token>`, or null when this device does not hold the plaintext. */
+    /** `split-evenly.app/b/<token>`, or null while the route is loading or the link was revoked. */
     val url: String?,
     val createdAt: Long?,
     val expiresAt: Long?,
     val revokedAt: Long?,
-    val extendedCount: Int,
     /** Newest web-session activity per participant, in this group. See [openedThisLink]. */
     val openedAtByUser: Map<UserId, Long>,
 ) {
     fun isLive(now: Long): Boolean =
-        exists && revokedAt == null && (expiresAt ?: 0L) > now
+        exists && revokedAt == null && (expiresAt == null || expiresAt > now)
 
     /**
      * Whether this person has opened *this* link, rather than merely having a session in the group from
@@ -43,7 +40,7 @@ data class WebBillLinkState(
 
     companion object {
         /** Nothing has ever been shared for this bill. */
-        val None = WebBillLinkState(false, null, null, null, null, 0, emptyMap())
+        val None = WebBillLinkState(false, null, null, null, null, emptyMap())
     }
 }
 

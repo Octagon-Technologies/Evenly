@@ -1,9 +1,9 @@
 /**
- * Identity is group-scoped and durable; authorisation is bill-scoped and expires (spec §2.2).
+ * Identity is group-scoped and durable; bill authorisation stays live until revoked (spec §2.2).
  *
  * This file owns the durable half: a browser token that says "I am Purity in this group", kept so a
- * guest recognised at Ramen night is still recognised at Sunday roast, long after the Ramen night
- * link is dead. It stores nothing about the bill itself.
+ * guest recognised at Ramen night is still recognised at Sunday roast, independently of either bill
+ * link. It stores nothing about the bill itself.
  *
  * `localStorage`, not a cookie: the token is sent explicitly in the request body, so there is no
  * ambient credential for a cross-site request to ride on.
@@ -71,5 +71,32 @@ export function clearSessionToken(billToken: string, groupName: string): void {
   const s = safeStorage();
   if (!s) return;
   s.removeItem(billKey(billToken));
+  s.removeItem(groupKey(groupName));
+}
+
+function inviteKey(inviteToken: string): string {
+  return `${PREFIX}i.${inviteToken}`;
+}
+
+/** A session made on the group invite page (`/j/`). Read before the group's name is known, like a bill's. */
+export function tokenForInvite(inviteToken: string): string | null {
+  return safeStorage()?.getItem(inviteKey(inviteToken)) ?? null;
+}
+
+/**
+ * Filed under the invite and under the group name, so a guest who joins from the invite page is
+ * recognised later on any bill link in that group (the §2.2 path above).
+ */
+export function saveInviteSession(inviteToken: string, groupName: string, sessionToken: string): void {
+  const s = safeStorage();
+  if (!s) return;
+  s.setItem(inviteKey(inviteToken), sessionToken);
+  s.setItem(groupKey(groupName), sessionToken);
+}
+
+export function clearInviteSession(inviteToken: string, groupName: string): void {
+  const s = safeStorage();
+  if (!s) return;
+  s.removeItem(inviteKey(inviteToken));
   s.removeItem(groupKey(groupName));
 }

@@ -17,7 +17,6 @@ import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.OAuthProvider
 import app.splitevenly.domain.auth.PLAY_REVIEW_DEMO_EMAIL
 import app.splitevenly.domain.auth.SignOutOutcome
-import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.EvAnalytics
@@ -61,7 +60,7 @@ import kotlin.time.ExperimentalTime
 /**
  * Real [AuthSession] over Supabase Auth (06 §5.5). Supports the three providers the sign-in screen
  * offers — **Google / Apple** (browser OAuth via the `splitevenly://login-callback` redirect) and
- * **Email** (magic-link + 6-digit OTP) — plus an anonymous fallback for the offline-first path.
+ * **Email** (magic-link + OTP) — plus an anonymous fallback for the offline-first path.
  *
  * Provider/OTP sessions arrive asynchronously (browser redirect or email tap → [SupabaseClient]
  * handles the deep link → `sessionStatus` flips), so [mirrorCurrentUser] runs off the session-status
@@ -82,9 +81,6 @@ class SupabaseAuthSession(
     // Calls the apple-link-token / apple-revoke-token edge functions (Apple Sign In native plan §5 P4).
     // Optional-ctor-dep: unwired (tests) just skips both calls, same as no [analytics].
     private val httpClient: HttpClient? = null,
-    // RevenueCat's subscriber identity (PRO_PASS_SPEC.md §9). Optional-ctor-dep like the rest: tests and
-    // the offline build pass nothing and the SDK is simply never told who is signed in.
-    private val proBilling: ProBilling? = null,
     // Sign-out's cache wipe (#24). Optional-ctor-dep like the rest: a test that passes nothing gets
     // the old sign-out behaviour rather than a null-pointer, and production DI always wires it.
     private val signOutWipeDao: SignOutWipeDao? = null,
@@ -120,11 +116,6 @@ class SupabaseAuthSession(
         syncManager?.bind(scope, currentUserId, appForeground?.state ?: flowOf(true))
         // Push (F7): register the FCM token for the signed-in user + pull on delivered messages.
         pushController?.bind(scope, currentUserId)
-        // Evenly Pro: make the RevenueCat app user id OUR user id, which is what makes webhook
-        // attribution and support lookups possible. Bound here, next to the sync and push binds, rather
-        // than from each of the five sign-in paths — and the sign-out half matters just as much, or one
-        // device's subscription follows the next person who signs in on it.
-        proBilling?.bind(scope, currentUserId)
     }
 
     override suspend fun signIn(displayName: String): UserId {
@@ -195,11 +186,37 @@ class SupabaseAuthSession(
         }
     }
 
-    override suspend fun sendEmailOtp(email: String): AppResult<Unit> =
-        runCatching {
-            client.auth.signInWith(OTP) { this.email = email.trim() }
+    override suspend fun sendEmailOtp(email: String): AppResult<Unit> {
+        val trimmed = email.trim()
+        if (isDebugBuild() && trimmed.lowercase().endsWith(DEBUG_TEST_EMAIL_DOMAIN)) return relayDebugOtp(trimmed)
+        return runCatching {
+            client.auth.signInWith(OTP) { this.email = trimmed }
             AppResult.Ok(Unit)
         }.getOrElse { it.toEmailSendError().asErr() }
+    }
+
+    /**
+     * Debug builds only: `@sharecost.test` personas have no real inbox, so the `debug-otp-relay` edge
+     * function mints the same OTP Supabase would have sent and mails it to the owner instead.
+     * Verification still goes through [verifyEmailOtp], so the rest of sign-in is the production path.
+     */
+    private suspend fun relayDebugOtp(email: String): AppResult<Unit> {
+        val http = httpClient ?: return AppError.NotAuthorized.asErr()
+        return runCatching {
+            val res =
+                http.post("${SupabaseConfig.URL}/functions/v1/debug-otp-relay") {
+                    header("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+                    header("apikey", SupabaseConfig.ANON_KEY)
+                    contentType(ContentType.Application.Json)
+                    setBody(Json.encodeToString(DebugOtpReq(email)))
+                }
+            when (res.status.value) {
+                in 200..299 -> AppResult.Ok(Unit)
+                429 -> AppError.Backend(status = 429, code = "over_email_send_rate_limit", detail = null).asErr()
+                else -> AppError.Backend(status = res.status.value, code = "debug_otp_relay", detail = null).asErr()
+            }
+        }.getOrElse { AppError.Unexpected(it).asErr() }
+    }
 
     /**
      * Map an email-send failure to a typed error. Supabase throttles the built-in email service (a few
@@ -274,7 +291,7 @@ class SupabaseAuthSession(
      *
      * This used to be four lines that touched Room not at all, so signing in as someone else on the
      * same device left account A's rows in place and the next [SyncEngine.push] sent them up under
-     * account B's session. `group_passes` / `user_subscriptions` are per-user, so Pro rode along too.
+     * account B's session.
      *
      * The order below is the whole design, and each step is load-bearing:
      *
@@ -312,7 +329,10 @@ class SupabaseAuthSession(
                     // Best-effort: a failure here must not strand the user signed-in-but-wiped. Room is a
                     // cache of server truth, so the worst case is a stale row that the next account's pull
                     // overwrites — whereas refusing to sign out because a DELETE failed is a dead end.
-                    if (question == null) runCatching { signOutWipeDao?.wipeSignedOutAccount() }
+                    if (question == null) {
+                        runCatching { signOutWipeDao?.wipeSignedOutAccount() }
+                        engine.hydration.forget(userId)
+                    }
                     question
                 }
             if (question != null) {
@@ -504,4 +524,13 @@ private data class PendingDeletionRow(
 @Serializable
 private data class LinkAppleTokenReq(
     val authorizationCode: String,
+)
+
+/** Seeded test personas live on this non-routable domain; debug builds relay their OTPs (see `debug-otp-relay`). */
+private const val DEBUG_TEST_EMAIL_DOMAIN = "@sharecost.test"
+
+/** Body for the `debug-otp-relay` edge function call in [SupabaseAuthSession.relayDebugOtp]. */
+@Serializable
+private data class DebugOtpReq(
+    val email: String,
 )

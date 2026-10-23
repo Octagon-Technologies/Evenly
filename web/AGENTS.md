@@ -6,7 +6,7 @@ real person in the group, no app, no account, no password) and, as of 2026-08-04
 (`src/marketing/` — home, privacy, terms) that lives at the same domain. `src/lib/router.ts`'s
 `resolveRoute` is what decides which one a given URL gets.
 
-**The claim flow is still not a web version of Evenly.** One bill, one job, 72 hours. Spec §9 lists
+**The claim flow is still not a web version of Evenly.** One bill, one job, until its link is revoked or its bill is deleted. Spec §9 lists
 what that deliberately excludes — no group view, no balances, no settle-up, no expense creation, no
 offline. If you are adding a second *claim* screen that is not in `design/web-claim-mockup.html`,
 stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
@@ -89,6 +89,22 @@ the ledger *records*. If they disagree, Kotlin wins and the web is stale by one 
 - The gate is `.github/workflows/money-vectors.yml`, and `code/shared/build.gradle.kts` declares the
   vectors file as a test input so a vectors-only edit cannot pass as UP-TO-DATE.
 
+**`/j/:token` is the group invite page, and it joins you to the group** (`marketing/Join.svelte`, state in
+`lib/join.svelte.ts`, screens in `screens/join/`, mockup `design/web-group-join-mockup.html`). Client-only,
+served from the same noindex `app.html` shell as `/b/`, never prerendered. It is the bill flow's identity half
+and nothing more: "Are any of these you?" or a typed name makes the same placeholder member + group-scoped
+session as a bill does (`web-claim` actions `invite-resolve` / `invite-name` / `invite-claim`), filed under
+the group's name so a later bill link in that group recognises them. **No group view, balances or expenses
+here**; that line is the same one the claim flow holds. Anyone with the app installed never reaches this page:
+the link is an iOS universal link / Android App Link (`public/.well-known/`), so the page is built for the
+friend without the app.
+
+**The rewrites point at `/app` and `/`, never at `.html` files.** With `cleanUrls: true`, Vercel serves
+`app.html` at `/app` only, so a rewrite to `/app.html` matches no file and 404s. That shipped once and took
+down every `/b/`, `/j/` and unknown path in production while the marketing pages kept working.
+`/.well-known/*` must stay reachable on the **apex** without a redirect (Apple and Google do not follow
+them), which is why `split-evenly.app` is the primary domain and `www` redirects to it.
+
 ## The security boundary is the whole feature
 
 **No Supabase client and no anon key ship in this bundle** (spec §4.1). Every guest read and write
@@ -96,7 +112,7 @@ goes through the `web-claim` edge function, which holds the service key and does
 authorisation per endpoint. A browser talking to PostgREST directly turns a known internal risk into
 a public breach — RLS is still `for all to authenticated using (true)`.
 
-The bill token is bill-scoped and expires; the session token is group-scoped and durable. They are
+The bill token is bill-scoped and permanent until revoked; the session token is group-scoped and durable. They are
 two different things with two different lifetimes (spec §2.2) and conflating them is the mistake that
 section exists to prevent.
 

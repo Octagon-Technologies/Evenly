@@ -795,8 +795,9 @@ class BillRepositoryImpl(
                         )
                     val parts = partsByExpense[e.id].orEmpty()
                     val stillToClaim = parts.count { it.doneAt == null }
-                    // Unresolved = a line still needs someone, or a participant hasn't marked done.
-                    if (result.unclaimedCount == 0 && stillToClaim == 0) return@mapNotNull null
+                    // Unresolved = a line still needs someone (unclaimed or over-claimed), or a participant
+                    // hasn't marked done.
+                    if (result.fullyResolved && stillToClaim == 0) return@mapNotNull null
                     UnresolvedBill(
                         expenseId = ExpenseId(e.id),
                         title = e.title,
@@ -806,6 +807,14 @@ class BillRepositoryImpl(
                         participantCount = parts.size,
                         stillToClaimCount = stillToClaim,
                         youNeedToClaim = viewer != null && parts.any { it.userId == viewer.value && it.doneAt == null },
+                        youHavePicked =
+                            viewer != null &&
+                                (
+                                    claimsByExpense[e.id].orEmpty().any { it.userId == viewer.value } ||
+                                        sharedRows.any { it.userId == viewer.value }
+                                ),
+                        itemCount = result.items.size,
+                        resolvedCount = result.items.count { it.status == ItemStatus.RESOLVED },
                     )
                 }.toList()
         }
@@ -824,6 +833,19 @@ class BillRepositoryImpl(
         now: Long,
     ) {
         val dao = historyEventDao ?: return
+        // The bill editor auto-saves while the user types, so one sitting would otherwise log an "edited"
+        // per pause (and a bill created by its first auto-save would log "edited" seconds later). Consecutive
+        // writes by the same person within the window read as the one action they are.
+        if (type == HistoryEventType.EDITED) {
+            val last = dao.latestForExpense(expenseId)
+            if (last != null &&
+                (last.type == HistoryEventType.EDITED.name || last.type == HistoryEventType.CREATED.name) &&
+                last.actorUserId == actorUserId &&
+                now - last.createdAt < EDIT_HISTORY_COALESCE_MS
+            ) {
+                return
+            }
+        }
         dao.upsert(
             HistoryEventEntity(
                 id = newId(),
@@ -905,3 +927,6 @@ private fun List<BillShareView>.toSharedPortions(): List<SharedPortion> =
     filter { it.portionId != null }
         .groupBy { it.itemId to it.portionId!! }
         .map { (key, rows) -> SharedPortion(key.first, key.second, rows.first().quantity, rows.map { it.userId }) }
+
+/** Edits by one person closer together than this are one "edited" history entry (see recordHistory). */
+private const val EDIT_HISTORY_COALESCE_MS = 10 * 60 * 1000L

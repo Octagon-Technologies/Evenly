@@ -15,4 +15,11 @@ package app.splitevenly.platform
 expect class UrlOpener {
     /** Attempt to open [url] in an external handler; returns `true` if a handler accepted it. */
     fun open(url: String): Boolean
+
+    /**
+     * Open this app's own page in system settings, where a refused permission can be switched back on.
+     * Returns `false` if the OS refused to open it, so the caller can leave its written instructions up
+     * rather than replacing them with a screen that never arrived.
+     */
+    fun openAppSettings(): Boolean
 }

@@ -51,10 +51,10 @@ interface AuthSession {
         authorizationCode: String?,
     ): AppResult<Unit>
 
-    /** Email a magic link + 6-digit OTP to [email] (Supabase email provider). */
+    /** Email a magic link + OTP to [email] (Supabase email provider). */
     suspend fun sendEmailOtp(email: String): AppResult<Unit>
 
-    /** Verify the 6-digit [token] emailed to [email]; on success [currentUserId] becomes non-null. */
+    /** Verify the OTP [token] emailed to [email]; on success [currentUserId] becomes non-null. */
     suspend fun verifyEmailOtp(
         email: String,
         token: String,
@@ -87,8 +87,7 @@ interface AuthSession {
      * Sign out, and clear this device's cache of the account that just left.
      *
      * Clearing is the point, not a tidy-up: without it the next account to sign in on this device
-     * inherits the previous one's rows and pushes them up under its own session (#24). Pro made that
-     * worse — passes and subscriptions are per-user.
+     * inherits the previous one's rows and pushes them up under its own session (#24).
      *
      * The cache may hold local writes that never reached the server, and those are real user data
      * (`data/AGENTS.md` Rule 1). So the flow is: push first; if everything lands, wipe and return

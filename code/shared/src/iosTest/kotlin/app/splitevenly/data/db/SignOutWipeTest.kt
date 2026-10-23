@@ -6,7 +6,6 @@ import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ExpenseItemEntity
 import app.splitevenly.data.db.entity.ExpenseSyncStateEntity
 import app.splitevenly.data.db.entity.GroupEntity
-import app.splitevenly.data.db.entity.GroupPassEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
@@ -161,24 +160,6 @@ class SignOutWipeTest {
                 ),
             ),
         )
-        // The Pro entitlement mirror: per-USER, so inheriting it hands the next account paid scans.
-        db.groupPassDao().upsertAll(
-            listOf(
-                GroupPassEntity(
-                    id = "p1",
-                    groupId = "g1",
-                    purchasedBy = "a",
-                    tier = "week",
-                    store = "app_store",
-                    storeTxnId = "t1",
-                    rcAppUserId = "a",
-                    startsAt = 1,
-                    expiresAt = 9_999_999,
-                    createdAt = 1,
-                    updatedAt = 1,
-                ),
-            ),
-        )
         // Sync bookkeeping. If these outlive the rows they describe, the NEXT account's freshly-pulled
         // rows look already-pushed and never sync at all.
         db.rowSyncStateDao().upsertAll(listOf(RowSyncStateEntity("users", "a", 42L)))
@@ -205,18 +186,6 @@ class SignOutWipeTest {
             assertTrue(db.itemClaimDao().allForSync().isEmpty(), "item_claims")
             assertTrue(db.billParticipantDao().allForSync().isEmpty(), "bill_participants")
             assertTrue(db.shareDao().getByExpense("e1").isEmpty(), "shares")
-        }
-
-    @Test
-    fun wipe_dropsTheProEntitlementMirror() =
-        runTest {
-            seedAccountA()
-
-            db.signOutWipeDao().wipeSignedOutAccount()
-
-            // Pull-only and per-user: a surviving pass is free unlimited paid Claude-vision calls for the
-            // next person to sign in on this phone.
-            assertTrue(db.groupPassDao().forGroup("g1").isEmpty(), "group_passes")
         }
 
     @Test

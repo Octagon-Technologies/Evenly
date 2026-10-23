@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -65,7 +68,7 @@ fun MagicLinkScreen(
 
         if (state == MagicLinkState.Sent) {
             Column(
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth().keyboardAwareBody().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -75,28 +78,28 @@ fun MagicLinkScreen(
                 Text("Check your email", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.ink)
                 Text(
                     buildAnnotatedString {
-                        append("We sent a magic link + 6-digit code to ")
+                        append("We sent a magic link and a sign-in code to ")
                         withStyle(SpanStyle(color = c.ink, fontWeight = FontWeight.SemiBold)) { append(email) }
                         append(". Tap the link, or enter the code below.")
                     },
                     color = c.ink2, fontSize = 15.sp, lineHeight = 22.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.widthIn(max = 280.dp),
                 )
-                EvField("6-digit code") {
-                    EvTextField(code, { code = it.filter { ch -> ch.isDigit() }.take(6) }, placeholder = "123456", keyboardType = KeyboardType.Number)
+                EvField("Sign-in code") {
+                    EvTextField(code, { code = it.filter { ch -> ch.isDigit() }.take(OTP_MAX_DIGITS) }, placeholder = "12345678", keyboardType = KeyboardType.Number)
                 }
                 error?.let { Text(it, color = c.danger, fontSize = 13.sp, textAlign = TextAlign.Center) }
-                EvButton("Verify & sign in", { onVerify(code) }, enabled = code.length == 6)
+                EvButton("Verify & sign in", { onVerify(code) }, enabled = code.length >= OTP_MIN_DIGITS)
                 EvButton("Resend code", onResend, variant = ButtonVariant.Text)
             }
         } else {
             Column(
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth().keyboardAwareBody().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Sign in with email", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = c.ink, letterSpacing = (-0.5).sp)
-                    Text("We'll email you a link and a 6-digit code.", fontSize = 15.sp, color = c.ink2)
+                    Text("We'll email you a link and a sign-in code.", fontSize = 15.sp, color = c.ink2)
                 }
                 EvField("Email address") {
                     EvTextField(email, { email = it }, placeholder = "you@email.com", keyboardType = KeyboardType.Email)
@@ -130,6 +133,18 @@ fun MagicLinkScreen(
     }
 }
 
+/**
+ * Ends the body above the software keyboard and lets it scroll if what is left is too short.
+ *
+ * Both states put their submit button *below* a focused field ("Email me a code" under the address,
+ * "Verify & sign in" under the code), so without the ime inset the keyboard covers the only way
+ * forward. `imePadding` before `verticalScroll` shrinks the viewport rather than the content, which
+ * keeps the centered arrangement re-centering in the visible strip and keeps bring-into-view aiming
+ * at the space above the keyboard.
+ */
+@Composable
+private fun Modifier.keyboardAwareBody(): Modifier = this.imePadding().padding(bottom = 8.dp)
+
 @Preview
 @Composable
 private fun MagicLinkInputPreview() {
@@ -141,3 +156,11 @@ private fun MagicLinkInputPreview() {
 private fun MagicLinkSentPreview() {
     EvenlyTheme { MagicLinkScreen(state = MagicLinkState.Sent) }
 }
+
+/**
+ * Supabase's email OTP length is a dashboard setting (6 to 10), and the hosted project issues 8 while
+ * `supabase/config.toml` says 6. Accepting the whole common range keeps sign-in working if either side
+ * changes; the server rejects a wrong-length code anyway.
+ */
+private const val OTP_MIN_DIGITS = 6
+private const val OTP_MAX_DIGITS = 8

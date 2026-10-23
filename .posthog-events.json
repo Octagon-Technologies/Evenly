@@ -140,46 +140,6 @@
     "file": "supabase/functions/extract-receipt/index.ts"
   },
   {
-    "event_name": "free_scan_used",
-    "event_description": "Fires after a successful receipt scan on a free group, carrying the count the SERVER settled on (scans_used, scans_remaining) rather than a locally decremented one.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/BillRoutes.kt"
-  },
-  {
-    "event_name": "pro_offer_shown",
-    "event_description": "Impression of either Pro door. `surface` separates Evenly's group-pass sheet from RevenueCat's subscription paywall so ONE funnel spans both; also records the product ids shown, which tier was preselected, which carried the best-value flag, the mode (fresh/extend/already_covered) and scans_used.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/ProRoutes.kt"
-  },
-  {
-    "event_name": "pro_offer_selected",
-    "event_description": "A pass tier was tapped. RevenueCat's paywall does not report plan selection, so this exists only on the pass sheet; it separates 'nobody engaged' from 'everybody engaged and balked at the price'.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/ProRoutes.kt"
-  },
-  {
-    "event_name": "pro_offer_dismissed",
-    "event_description": "The sheet or paywall closed with no purchase started. The funnel's denominator: without it, shown-minus-purchased silently absorbs every crash and backgrounding.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/ProRoutes.kt"
-  },
-  {
-    "event_name": "purchase_started",
-    "event_description": "The store's payment sheet is about to open. Carries product_id, price_micros, price, currency and the experiment variant.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/ProRoutes.kt"
-  },
-  {
-    "event_name": "purchase_activated",
-    "event_description": "Money changed hands AND the server turned the entitlement on. Deliberately fired on activation, not on the charge, so a purchase our server never activated is not counted as a conversion.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/ProRoutes.kt"
-  },
-  {
-    "event_name": "purchase_activation_failed",
-    "event_description": "The store charged (reason=activation) or refused (reason=store). The activation case is the one failure that costs someone money, tracked separately so its rate is visible.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/ProRoutes.kt"
-  },
-  {
-    "event_name": "manual_entry_after_paywall",
-    "event_description": "Someone hit the out-of-scans refusal and typed the bill in by hand instead. The honest counterpart to conversion rate: how many people the gate pushed onto the slow path.",
-    "file": "code/shared/src/commonMain/kotlin/app/splitevenly/ui/navigation/BillRoutes.kt"
-  },
-  {
     "event_name": "claim_page_viewed",
     "event_description": "Web claim flow only. Fires once per ClaimStore instance when the claim link first resolves. No bill-identifying properties: neither BillHeader nor the pre-bill-load resolve responses expose a safe, non-bearer id (the bill token itself is a live credential and must never be sent to an analytics vendor).",
     "file": "web/src/lib/store.svelte.ts"

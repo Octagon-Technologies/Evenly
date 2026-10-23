@@ -1,8 +1,8 @@
 # Spec — claiming from the web, without the app
 
-Status: **ready to build.** Owner decisions are locked in §2 and recorded in §10.
+Status: **implemented; permanent-link behavior revised 2026-09-30.** Owner decisions are locked in §2 and recorded in §10.
 Branch target: `feat/web-claim`
-Mockup: `design/web-claim-mockup.html` (13 mobile frames, the visual source of truth for this feature)
+Mockups: `design/web-claim-mockup.html` (13 web-claim frames); revised mobile QR state: `design/bill-share-link-auto-qr-redesign.svg`.
 
 ---
 
@@ -18,7 +18,7 @@ no app, no account, and no password. They leave as a real person in the group, c
 Success looks like: a 12-person itemised bill fully claimed before anyone leaves the restaurant, and one
 row per real human afterwards.
 
-**Non-goal:** a web version of Evenly. This is one bill, one job, 72 hours. Everything else stays in the
+**Non-goal:** a web version of Evenly. This is one bill, one job, until its link is revoked or the bill is deleted. Everything else stays in the
 app, and §9 lists what that deliberately excludes.
 
 ---
@@ -41,7 +41,7 @@ indistinguishable, in the database, from a name the payer typed in the app. Whic
 This is the load-bearing decision. Everything else follows from it. If a future change makes a web guest
 anything other than a placeholder user, it has broken the feature's integration with the app.
 
-### 2.2 Identity is group-scoped and durable. Authorisation is bill-scoped and expires.
+### 2.2 Identity is group-scoped and durable. Authorisation is bill-scoped and revocable.
 
 These are two different things with two different lifetimes, and conflating them is the mistake this
 section exists to prevent.
@@ -51,11 +51,10 @@ section exists to prevent.
 | **What** | "I am Purity in this group" | "I may write to bill `7fq2`" |
 | **Where** | `web_sessions` row + `localStorage` token | Signed link, checked per request |
 | **Scope** | The group, forever | One expense |
-| **Expires** | Never | 72 hours after the bill was scanned |
+| **Expires** | Never | Never automatically; a group member can revoke it |
 
 The consequence the owner asked for: a guest who claimed at Ramen night is **recognised** at Sunday
-roast without typing anything, even though the Ramen night link is long dead. Her placeholder persists;
-only her permission to edit that particular bill expired.
+roast without typing anything. Her placeholder persists independently of either bill link.
 
 ### 2.3 Recognition, not a search box
 
@@ -158,7 +157,7 @@ Copy is benefit-first and never mentions "downloading":
 | | Bill link | Group invite |
 | --- | --- | --- |
 | Scope | One expense | The group |
-| Life | 72 hours | Until rotated |
+| Life | Until revoked or the bill is deleted | Until rotated |
 | Needs an account | No | Yes |
 | Surfaced as | QR on the expense, primary | `Invite them to the group on Evenly`, secondary |
 
@@ -207,7 +206,7 @@ Per §2.5 and §2.6. Sticky footer carries the running total and `I'm done`. Pro
 amount against bill total and people-claimed against participants.
 
 `I'm done` writes `bill_participants.done_at`. It is a nudge-silencer, not a lock: the guest can come
-back and change anything until the link expires.
+back and change anything while the bill link remains active.
 
 ### 3.4 The share sheet
 
@@ -271,10 +270,12 @@ If a future change has the browser talking to PostgREST directly, this feature h
 
 ### 4.2 The token
 
-`/b/:token` where token is a 128-bit random value, base62. Stored **hashed** (SHA-256) in
-`web_bill_links`; the plaintext exists only in the URL and the QR.
+`/b/:token` where token is a 128-bit random value, base62. `web_bill_links` stores the SHA-256 hash used
+by the edge function and the plaintext token behind RLS with no policies. Only the authenticated,
+membership-checked RPC returns the token, allowing every group member's device to render the same QR.
 
-Checked on every request: exists, not revoked, not expired, bill not deleted, group not deleted.
+Checked on every request: exists, not revoked, bill not deleted, group not deleted. New links have no
+expiry; a migration preserves existing live QR codes and gives newly minted links a recoverable token.
 
 ### 4.3 What a valid token authorises
 
@@ -304,8 +305,10 @@ Per-token, enforced in the edge function: 120 writes/min, 40 new placeholders pe
 bill. Exceeding a limit returns the expired-style screen rather than an error, and flags the bill for the
 payer.
 
-A leaked link costs one bill's item list for 72 hours, and the payer can revoke it in one tap. That
-bounded blast radius is the entire reason for §2.2.
+A shared link remains usable until a group member revokes it or the bill/group is deleted. The bearer
+token exposes only the single bill scope described in §4.3; group members can revoke it from the QR
+screen. This is a permanent-access choice, so anyone sharing the QR should treat it as public to anyone
+who receives a copy.
 
 ### 4.6 Privacy of the evidence rows
 
@@ -429,7 +432,7 @@ missing bump means the payer's phone never learns the bill was claimed.
 
 ### 5.7 New columns
 
-`web_bill_links` (token, expense, expiry, revocation, creator) is new. On `expenses`, nothing new.
+`web_bill_links` (token, expense, optional legacy expiry, revocation, creator) is new. On `expenses`, nothing new.
 On `users`, nothing new: a web guest is `is_placeholder = true`, `placeholder_group_id = <group>`,
 `created_by = <the guest's own session's user id>` once created.
 
@@ -530,7 +533,7 @@ only the claimed part.
 | --- | --- | --- |
 | E19 | **Guest's total includes her edit** | Because it *applied*, not because it is provisional. There is no `waiting for Andrew` state and no line marked as such. If someone undoes it her next poll shows the line as it was, and the change stays in the bill's history with her name on it. She must never see a number she cannot account for |
 | E20 | Two guests edit the same line | Last write wins on the item; both edits are logged, attributed, and separately undoable |
-| E21 | Link expires with edits already made | The edits and the log survive. Expiry ends writes, not history |
+| E21 | A legacy expiring link expires with edits already made | The edits and the log survive. Expiry ends writes, not history |
 | E22 | An added line is undone after other people claimed it | The line is soft-deleted and the claims on it go with it, with a note to each claimer. Undoing a `REMOVE` revives only the claims that removal killed, matched on its exact `deleted_at` stamp, so a claim someone dropped themselves at the same moment is not resurrected |
 | E23 | Guest deletes a scanned line | It goes immediately, claims and all, and is announced as an undoable change like any other edit |
 
@@ -540,8 +543,8 @@ only the claimed part.
 | --- | --- | --- |
 | E24 | Guest names themselves payer | Allowed. Advances `split_version` via merge semantics (§5.5) |
 | E25 | Two guests both claim to be payer | Causal `split_version`: second read is stale, loses, and is told who the payer now is |
-| E26 | Link expires mid-session | Next write returns expired; the page becomes the read-only Expired screen with the total and the payment handle intact |
-| E27 | Payer extends or reopens | New expiry on the same token, no new QR |
+| E26 | A legacy link expires mid-session or a request is temporarily rate limited | The page becomes read-only with the total and payment handle intact; new links do not expire |
+| E27 | Any active group member opens the QR screen on another device | The same permanent token is returned through the membership-checked RPC, so the same QR is rendered |
 | E28 | Payer revokes | Token dead immediately; page shows "Link no longer works" with **no** bill data |
 | E29 | Bill or group deleted | Same as revoked. Soft-delete only, per `AGENTS.md §4.5` |
 | E30 | Link shared publicly | Bounded by §4.3 and §4.5. Payer can revoke |
@@ -573,7 +576,7 @@ Naming these prevents them being smuggled in as "obvious".
 | Decision | Choice | §|
 | --- | --- | --- |
 | What a web guest *is* | A placeholder user | 2.1 |
-| Link scope | One bill, 72 hours, revocable | 2.2 |
+| Link scope | One bill, permanent until revoked, revocable | 2.2 |
 | Identity persistence | Browser token → placeholder, group-scoped, durable | 2.2 |
 | Returning guest | Recognised, never asked to search | 2.3 |
 | Duplicate names | Exact match blocked, suffix offered | 2.4 |

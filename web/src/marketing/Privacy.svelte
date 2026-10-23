@@ -47,9 +47,9 @@
       <h2>The web claim link</h2>
       <p>A payer can send a bill as a link that opens in any browser, no account required. It only ever handles the one bill it was sent for:</p>
       <ul>
-        <li>The link expires automatically after 72 hours.</li>
+        <li>The link stays available until a group member turns it off or the bill is deleted.</li>
         <li>The person opening it types just a first name to say which items they had.</li>
-        <li>Nothing is stored beyond that claim, and it disappears from view once the link expires.</li>
+        <li>Claims are saved to the bill so the group can see the split.</li>
       </ul>
     </section>
 

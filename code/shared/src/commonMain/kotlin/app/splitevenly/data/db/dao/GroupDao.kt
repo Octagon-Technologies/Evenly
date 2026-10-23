@@ -145,24 +145,6 @@ interface GroupDao {
     )
     suspend fun unsettledBalanceCount(groupId: String): Int
 
-    /**
-     * When this group's Evenly Pro pass runs out, or null if it has none live.
-     *
-     * Deliberately the *local* mirror rather than `group_pro_status`: the confirm sheet must render
-     * offline, and it is telling the user something they cannot act on anyway (the pass survives the
-     * purge and is not refunded), so a stale answer costs a sentence, not money.
-     */
-    @Query(
-        """
-        SELECT MAX(expires_at) FROM group_passes
-        WHERE group_id = :groupId AND revoked_at IS NULL AND deleted_at IS NULL AND expires_at > :now
-        """,
-    )
-    suspend fun liveProPassExpiry(
-        groupId: String,
-        now: Long,
-    ): Long?
-
     /** Rotate a group's invite token (Group settings → "Rotate"). */
     @Query("UPDATE groups SET invite_token = :token, updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
     suspend fun updateInviteToken(

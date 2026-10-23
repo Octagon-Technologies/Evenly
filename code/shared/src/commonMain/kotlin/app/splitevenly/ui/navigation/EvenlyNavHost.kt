@@ -1,15 +1,18 @@
 package app.splitevenly.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import app.splitevenly.platform.PlaceholderClaimSources
-import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.OnboardingScreen
 import app.splitevenly.ui.screen.expense.AddExpenseScreen
@@ -35,6 +38,7 @@ fun EvenlyNavHost(
     startDestination: Route = Route.SignIn,
     modifier: Modifier = Modifier,
 ) {
+    OpenPendingInvite(navController)
     NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
         // ── Auth ────────────────────────────────────────────────────────
         composable<Route.Welcome> {
@@ -74,7 +78,6 @@ fun EvenlyNavHost(
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
                 onSendFeedback = { navController.navigate(Route.Feedback) },
-                onOpenPro = { navController.navigate(Route.Pro(ProTriggers.PROFILE)) },
             )
         }
         composable<Route.NewGroup> {
@@ -91,9 +94,7 @@ fun EvenlyNavHost(
                 onResolved = { token -> navController.navigate(Route.Join(token)) },
             )
         }
-        composable<Route.Join>(
-            deepLinks = listOf(navDeepLink { uriPattern = "splitevenly://j/{token}" }),
-        ) { entry ->
+        composable<Route.Join> { entry ->
             val r = entry.toRoute<Route.Join>()
             JoinRoute(
                 token = r.token,
@@ -111,7 +112,7 @@ fun EvenlyNavHost(
                 onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
-                onOpenBill = { navController.navigate(Route.ClaimBill(r.groupId, it)) },
+                onOpenBill = { navController.navigate(Route.FinishBill(r.groupId, it)) },
                 onSearch = { navController.navigate(Route.Search(r.groupId)) },
                 onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
                 onSettlePeer = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
@@ -151,7 +152,9 @@ fun EvenlyNavHost(
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onEdit = { navController.navigate(Route.EditExpense(r.groupId, r.expenseId)) },
+                // The card's own Share button covers the QR path, so picking skips the chooser.
                 onOpenClaim = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
+                onShareItems = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
                 onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
                 onDeleted = { navController.popBackStack() },
             )
@@ -162,10 +165,10 @@ fun EvenlyNavHost(
                 groupId = r.groupId,
                 onBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
-                // An itemized ("By what each had") save creates the bill in-place, then opens its live claim
-                // screen — replacing this editor on the back stack so Back lands on the group, not here.
+                // An itemized ("By what each had") save creates the bill in-place, then asks how people will
+                // pick its items, replacing this editor on the back stack so Back lands on the group, not here.
                 onCreatedBill = { newId ->
-                    navController.navigate(Route.ClaimBill(r.groupId, newId)) {
+                    navController.navigate(Route.FinishBill(r.groupId, newId, justSaved = true)) {
                         popUpTo(Route.AddExpense(r.groupId)) { inclusive = true }
                     }
                 },
@@ -186,27 +189,47 @@ fun EvenlyNavHost(
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onCreated = { newId ->
-                    navController.navigate(Route.ClaimBill(r.groupId, newId)) {
+                    navController.navigate(Route.FinishBill(r.groupId, newId, justSaved = true)) {
                         popUpTo(Route.SplitBill(r.groupId, r.expenseId)) { inclusive = true }
                     }
                 },
             )
         }
+        composable<Route.FinishBill> { entry ->
+            val r = entry.toRoute<Route.FinishBill>()
+            BillChooserRoute(
+                expenseId = r.expenseId,
+                justSaved = r.justSaved,
+                onBack = { navController.popBackStack() },
+                onAssignOnPhone = { navController.navigate(Route.ClaimBill(r.groupId, r.expenseId)) },
+                onShowQr = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+            )
+        }
         composable<Route.ClaimBill> { entry ->
             val r = entry.toRoute<Route.ClaimBill>()
-            BillClaimRoute(
+            val focusRequest by entry.savedStateHandle.getStateFlow<String?>(FOCUS_ITEM_KEY, null).collectAsStateWithLifecycle()
+            BillAssignRoute(
+                groupId = r.groupId,
+                expenseId = r.expenseId,
+                focusItemId = r.focusItemId,
+                focusRequest = focusRequest,
+                onFocusConsumed = { entry.savedStateHandle[FOCUS_ITEM_KEY] = null },
+                onBack = { navController.popBackStack() },
+                onReviewEdits = { navController.navigate(Route.ReviewBillEdits(r.groupId, r.expenseId)) },
+                onReview = { navController.navigate(Route.BillReview(r.groupId, r.expenseId)) },
+            )
+        }
+        composable<Route.BillReview> { entry ->
+            val r = entry.toRoute<Route.BillReview>()
+            BillReviewRoute(
                 groupId = r.groupId,
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
-                onEditBill = { navController.navigate(Route.SplitBill(r.groupId, r.expenseId)) },
-                onAskGroup = { navController.navigate(Route.ExpenseDetail(r.groupId, r.expenseId)) },
-                onReviewEdits = { navController.navigate(Route.ReviewBillEdits(r.groupId, r.expenseId)) },
-                onWhoIsLeft = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
-                onShareLink = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+                onAssign = { itemId -> navController.openAssign(r.groupId, r.expenseId, itemId) },
+                onExit = { navController.exitBillFlow(r.groupId, r.expenseId) },
             )
         }
 
-        // ── The payer's three web-claim screens (WEB_CLAIM_SPEC.md §3.9) ─
         composable<Route.ReviewBillEdits> { entry ->
             val r = entry.toRoute<Route.ReviewBillEdits>()
             BillReviewEditsRoute(r.groupId, r.expenseId, onBack = { navController.popBackStack() })
@@ -218,6 +241,8 @@ fun EvenlyNavHost(
                 expenseId = r.expenseId,
                 onBack = { navController.popBackStack() },
                 onShareLink = { navController.navigate(Route.ShareBillLink(r.groupId, r.expenseId)) },
+                onAssignItem = { itemId -> navController.openAssign(r.groupId, r.expenseId, itemId) },
+                onReview = { navController.navigate(Route.BillReview(r.groupId, r.expenseId)) },
             )
         }
         composable<Route.ShareBillLink> { entry ->
@@ -228,6 +253,7 @@ fun EvenlyNavHost(
                 onBack = { navController.popBackStack() },
                 // The group invite is the OTHER link (§2.9) and lives with the group, not the bill.
                 onInviteToGroup = { navController.navigate(Route.GroupSettings(r.groupId)) },
+                onSeeProgress = { navController.navigate(Route.BillClaimProgress(r.groupId, r.expenseId)) },
             )
         }
 
@@ -248,8 +274,6 @@ fun EvenlyNavHost(
             val sgGroupId = sgRoute.groupId
             GroupSettingsRoute(
                 groupId = sgGroupId,
-                openPassSheet = sgRoute.openPassSheet,
-                onOpenPro = { trigger -> navController.navigate(Route.Pro(trigger)) },
                 onBack = { navController.popBackStack() },
                 onLeft = { navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } } },
                 onReconcile = {
@@ -271,25 +295,6 @@ fun EvenlyNavHost(
         composable<Route.Feedback> {
             FeedbackRoute(onBack = { navController.popBackStack() })
         }
-        composable<Route.Pro> { entry ->
-            ProRoute(
-                trigger = entry.toRoute<Route.Pro>().trigger,
-                onBack = { navController.popBackStack() },
-                onPickGroupForPass = { navController.navigate(Route.ProGroupPicker) },
-            )
-        }
-        composable<Route.ProGroupPicker> {
-            ProGroupPickerRoute(
-                onBack = { navController.popBackStack() },
-                // Straight to that group's settings, which is where the pass sheet lives. One place owns
-                // the sheet, rather than a second copy of the buy flow hanging off the picker.
-                onPicked = { gid ->
-                    navController.navigate(Route.GroupSettings(gid, openPassSheet = true)) {
-                        popUpTo(Route.ProGroupPicker) { inclusive = true }
-                    }
-                },
-            )
-        }
         composable<Route.Reconcile> { entry ->
             val r = entry.toRoute<Route.Reconcile>()
             ReconcileRoute(
@@ -299,5 +304,61 @@ fun EvenlyNavHost(
                 onDone = { navController.popBackStack() },
             )
         }
+    }
+}
+
+/** SavedStateHandle key carrying an "Assign it" request back to an assign visit already on the stack. */
+private const val FOCUS_ITEM_KEY = "assign_focus_item"
+
+/**
+ * Open the phone accordion for this bill, focused on [itemId]. If a visit is already on the stack
+ * (review or progress was pushed from it), pop back to it and hand it the focus, so its completion
+ * order survives and no duplicate assign screen sits underneath.
+ */
+private fun NavHostController.openAssign(
+    groupId: String,
+    expenseId: String,
+    itemId: String?,
+) {
+    val existing = runCatching { getBackStackEntry<Route.ClaimBill>() }.getOrNull()
+    if (existing != null && existing.toRoute<Route.ClaimBill>().expenseId == expenseId) {
+        existing.savedStateHandle[FOCUS_ITEM_KEY] = itemId
+        popBackStack<Route.ClaimBill>(inclusive = false)
+    } else {
+        navigate(Route.ClaimBill(groupId, expenseId, focusItemId = itemId))
+    }
+}
+
+/**
+ * Leave the bill flow onto this bill's details, with only group home underneath: Back from details
+ * lands on the group even when the flow was opened from details, with no duplicate detail route.
+ */
+private fun NavHostController.exitBillFlow(
+    groupId: String,
+    expenseId: String,
+) {
+    navigate(Route.ExpenseDetail(groupId, expenseId)) {
+        popUpTo<Route.GroupHome> { inclusive = false }
+    }
+}
+
+/**
+ * Opens the join screen for an invite link the app was launched or resumed with ([PendingInvite]).
+ * Waits while the user is still on a sign-in or onboarding screen, because joining needs an account.
+ */
+@Composable
+private fun OpenPendingInvite(navController: NavHostController) {
+    val token by PendingInvite.token.collectAsStateWithLifecycle()
+    val entry by navController.currentBackStackEntryAsState()
+    val destination = entry?.destination
+    LaunchedEffect(token, destination) {
+        val t = token ?: return@LaunchedEffect
+        val d = destination ?: return@LaunchedEffect
+        val inAuth =
+            d.hasRoute<Route.Welcome>() || d.hasRoute<Route.SignIn>() ||
+                d.hasRoute<Route.MagicLink>() || d.hasRoute<Route.Onboarding>()
+        if (inAuth) return@LaunchedEffect
+        PendingInvite.consume()
+        navController.navigate(Route.Join(t))
     }
 }

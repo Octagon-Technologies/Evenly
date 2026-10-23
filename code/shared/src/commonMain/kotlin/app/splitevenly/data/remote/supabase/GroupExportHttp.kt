@@ -11,7 +11,6 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.flow.first
@@ -20,9 +19,8 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Calls the `export_group` edge function and returns the group's ledger as CSV text.
  *
- * Every failure is a distinct [ExportOutcome] so the screen can say the true thing: offline, needs a
- * pass, or something broke. Same shape as [ReceiptOcrHttp], including authenticating **as the user** so
- * the server can check membership. The Pro gate is enforced server-side; this client can only report it.
+ * Every failure is a distinct [ExportOutcome] so the screen can say the true thing: offline,
+ * unavailable, or something broke. It authenticates as the user so the server can check membership.
  */
 class GroupExportHttp(
     private val http: HttpClient,
@@ -44,10 +42,6 @@ class GroupExportHttp(
             val body = response.bodyAsText()
             when {
                 response.status.isSuccess() -> ExportOutcome.Success(body)
-
-                // 402 is the Pro gate, and it is a refusal rather than a failure: nothing went wrong and
-                // retrying changes nothing, so the screen must not offer a retry.
-                response.status == HttpStatusCode.PaymentRequired -> ExportOutcome.NeedsPro
 
                 else -> ExportOutcome.Failed(body.takeIf { it.isNotBlank() })
             }

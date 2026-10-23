@@ -28,9 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
@@ -52,18 +50,19 @@ import kotlinx.coroutines.launch
 /**
  * First-launch welcome carousel (design/ "Evenly Onboarding"). Five swipeable slides that pitch
  * the product before sign-in: fair splitting, receipt scan, tap-to-assign, add-anyone, and per-person
- * balances. Each slide pairs a headline with an illustrative mock card, glowing with a soft halo tint
- * unique to that slide (mockup-approved direction: corner-anchored, 190dp-equivalent spread, dimmed
- * opacity — see the "welcome screen gradient" design review). Dismissing (Skip or Get started) marks
+ * balances. Each slide pairs a headline with an illustrative mock card. Dismissing (Skip or Get started) marks
  * the flow seen so it never shows again — that persistence lives in the Route wrapper.
  *
  * Stateless + previewable: takes a single [onFinish] callback, no DI.
  */
 @Composable
-fun WelcomeScreen(onFinish: () -> Unit = {}) {
+fun WelcomeScreen(
+    initialPage: Int = 0,
+    onFinish: () -> Unit = {},
+) {
     val c = EvenlyTheme.colors
     val pageCount = 5
-    val pager = rememberPagerState(pageCount = { pageCount })
+    val pager = rememberPagerState(initialPage = initialPage, pageCount = { pageCount })
     val scope = rememberCoroutineScope()
     val isLast = pager.currentPage == pageCount - 1
 
@@ -76,21 +75,19 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
             when (page) {
                 0 -> {
                     WelcomeSlide(
-                        title = "Group costs, kept ",
-                        accent = "fair.",
-                        body = "Split what you share and keep a clear record, so nothing gets lost or argued about later.",
+                        title = "Track group expenses",
+                        accent = " easily",
+                        body = "Split what you shared and keep a clear record, so nothing gets lost or argued about later.",
                         cardOnTop = false,
-                        haloTint = c.blue,
                     ) { GroupCard() }
                 }
 
                 1 -> {
                     WelcomeSlide(
-                        title = "Scan a receipt, ",
-                        accent = "done.",
+                        title = "Scan a receipt",
+                        accent = " in seconds",
                         body = "Snap the bill and we pull out every line item. You just confirm before we split it.",
                         cardOnTop = true,
-                        haloTint = HaloTealTint,
                     ) { ReceiptCard() }
                 }
 
@@ -98,9 +95,8 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
                     WelcomeSlide(
                         title = "Everyone taps ",
                         accent = "what they had.",
-                        body = "Assign items in seconds. One person can sort the whole bill, no back-and-forth.",
+                        body = "Send the link to the gc, and they can pick what they ate",
                         cardOnTop = false,
-                        haloTint = HaloLilacTint,
                     ) { WhoHadWhatCard() }
                 }
 
@@ -110,17 +106,15 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
                         accent = "even before they join.",
                         body = "Split with people who aren't here yet. When they join, they claim their spot, no re-entry.",
                         cardOnTop = true,
-                        haloTint = HaloPeachTint,
                     ) { ClaimCard() }
                 }
 
                 else -> {
                     WelcomeSlide(
                         title = "Always know ",
-                        accent = "where you stand.",
+                        accent = "your balances.",
                         body = "See who owes what, per person, never netted into one confusing number.",
                         cardOnTop = false,
-                        haloTint = c.settled,
                     ) { BalancesCard() }
                 }
             }
@@ -155,7 +149,7 @@ fun WelcomeScreen(onFinish: () -> Unit = {}) {
             }
 
             if (isLast) {
-                EvButton("Get started", onClick = onFinish, leadingIcon = EvIcons.Check)
+                EvButton("Get started", onClick = onFinish)
             } else {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -192,7 +186,6 @@ private fun WelcomeSlide(
     accent: String,
     body: String,
     cardOnTop: Boolean,
-    haloTint: Color,
     card: @Composable () -> Unit,
 ) {
     val c = EvenlyTheme.colors
@@ -228,12 +221,7 @@ private fun WelcomeSlide(
                 Modifier.fillMaxWidth().weight(1f).padding(horizontal = 26.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                // Card sits at the bottom of the art area when the header leads (cardOnTop = false),
-                // so the halo anchors to its bottom-right; when the card leads, top-left instead —
-                // in both cases the corner nearest the headline.
-                HaloBehindCard(tint = haloTint, corner = if (cardOnTop) Alignment.TopStart else Alignment.BottomEnd) {
-                    card()
-                }
+                card()
             }
         }
         if (cardOnTop) {
@@ -245,53 +233,6 @@ private fun WelcomeSlide(
         }
     }
 }
-
-/**
- * A soft, blurred radial glow tucked behind one corner of [content], bleeding past its edge into
- * the page. Mockup-approved "less spread" treatment: ~180dp diameter, dimmed opacity so the tint
- * reads as ambient light rather than a coloured shape. Never sits under [content] itself — the
- * card's own background fully occludes it, so line-item contrast is untouched.
- *
- * Alpha is theme-aware, not a straight port of the mockup's numbers: the mockup's ground was a
- * pale grey (`#f3f6f7`), but the app's actual light page is pure white, and the mockup's dimmed
- * opacity all but disappeared against it on a real device — confirmed by running this on the iOS
- * simulator. Dark mode's near-black page gave the same numbers plenty of contrast already, so only
- * light mode needed boosting.
- */
-@Composable
-private fun HaloBehindCard(
-    tint: Color,
-    corner: Alignment,
-    content: @Composable () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    val haloOffset = if (corner == Alignment.BottomEnd) 26.dp else (-26).dp
-    val (peakAlpha, midAlpha) = if (c.isDark) 0.44f to 0.18f else 0.7f to 0.32f
-    Box(contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .align(corner)
-                .offset(x = haloOffset, y = haloOffset)
-                .size(180.dp)
-                .blur(30.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors =
-                            listOf(
-                                tint.copy(alpha = peakAlpha),
-                                tint.copy(alpha = midAlpha),
-                                tint.copy(alpha = 0f),
-                            ),
-                    ),
-                ),
-        )
-        content()
-    }
-}
-
-private val HaloTealTint = Color(0xFF83E3DE)
-private val HaloLilacTint = Color(0xFFB9A6FF)
-private val HaloPeachTint = Color(0xFFFFAB94)
 
 // ── Shared card primitives ─────────────────────────────────────────────────
 
@@ -759,7 +700,7 @@ private fun BalancesCard() {
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(13.dp))
-            EvButton("Settle up", onClick = {}, variant = ButtonVariant.Secondary)
+            EvButton("Settle up", onClick = {}, enabled = true, variant = ButtonVariant.Tonal)
         }
     }
 }
@@ -795,5 +736,5 @@ private fun Divider() {
 @Preview
 @Composable
 private fun WelcomePreview() {
-    EvenlyTheme { WelcomeScreen() }
+    EvenlyTheme { WelcomeScreen(initialPage = 5) }
 }

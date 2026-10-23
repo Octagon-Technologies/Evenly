@@ -398,6 +398,12 @@ verify_jwt = false
 [functions.feedback]
 verify_jwt = false
 
+# Debug-only OTP relay for `@sharecost.test` personas. verify_jwt stays ON: the debug app presents the
+# anon key (a valid JWT), and the domain allowlist + fixed DEBUG_OTP_INBOX recipient inside the function
+# are the real boundary.
+[functions.debug-otp-relay]
+verify_jwt = true
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.

@@ -7,6 +7,13 @@ person. Money math lives in `../domain/AGENTS.md`; persistence in `../data/AGENT
 **`design/` is the visual source of truth.** The Claude-Design export is blue/light and intentionally
 **overrides** the older spec's dark/green. Do not "fix" the UI back toward the spec.
 
+**Use the living catalog before inventing a component treatment.** `design/system/` documents the
+current foundations, `Ev*` variants, patterns, screens, and flows in an editable website. When a
+shared component, theme token, route, or screen changes, update its catalog entry and run
+`node design/system/scripts/check-design-system.mjs` from the repo root in the same change. Compose
+remains authoritative for shipped rendering; the catalog is authoritative for discoverability and
+design intent.
+
 ## Before you write Compose
 
 1. **Mock it first.** For any new screen or non-trivial UI change, produce a faithful visual mockup for the
@@ -78,8 +85,8 @@ ShareCost-era and is fully retired; do not reintroduce it.
 - **Owe/owed colors are deliberate, not a bug:** amber for "you owe", green for "you're owed / settled". The
   palette intentionally departs from the "never green" principle *only* for settle-up states. Audit for
   consistency; do not revert these to blue.
-- **Sheets:** `EvDragSheet` is the no-dim, draggable sheet; `EvSheetScaffold` is the dimmed one. Pick by
-  whether the content behind should stay legible.
+- **Sheets:** `EvDragSheet` is draggable; `EvSheetScaffold` is fixed-height. Both leave the page behind
+  unchanged by default. Use `dimBackground = true` on `EvSheetScaffold` only when a dimmed backdrop is intended.
 
 ## Copy rules
 
@@ -106,17 +113,26 @@ finishing.
 
 ## Feature-specific screen rules
 
-**"Who had what?" (`BillClaimScreen`) is assignment-first.** The person holding the phone taps who had each
-item, **for anyone — app user or not** (proxy assignment writes claims and portions on their behalf), so a
-bill works when only one person in the group has the app. Simple items are tap-chips (the same
-`EvParticipantChip` as the participant picker); a multi-count line with mixed amounts opens the portions
-builder. The old per-line "Ask the group" jump and the per-current-user "your tab" claim UI are **retired** —
-do not reintroduce either.
+**The split-by-items flow** (`docs/features/split-by-items-flow.md`): a scan opens `ReceiptReviewScreen`
+before anything is saved; every saved-bill entry (just saved, group home, expense details) lands on the
+`FinishBill` chooser; the phone path is the `BillAssignScreen` accordion; both paths meet at `BillReview`,
+whose exits all go to expense details over group home (`exitBillFlow` in `EvenlyNavHost.kt`).
 
-**The payer's three web-claim screens hang off the claim screen** (`BillReviewEditsScreen`,
-`BillClaimProgressScreen`, `BillShareLinkScreen`; wired in `ui/navigation/WebClaimRoutes.kt`). Their
-entry points are on `BillClaimScreen` and nowhere else: the phone-holder is already there while the
-table is claiming, and that is the only moment any of them is wanted. Three rules that look like taste
+**"Assign the items" (`BillAssignScreen`) is assignment-first.** The person holding the phone taps who had
+each item, **for anyone — app user or not** (proxy assignment writes claims and portions on their behalf).
+Simple items are tap-chips (`EvParticipantChip`); a multi-serving line opens `ServingsSheet`. **Ordering is
+`domain/expense/AssignOrder.kt`, never the screen:** the open card never moves under the user's finger, and
+a completed card joins the bottom of "Assigned" only once focus leaves it. The session lives in a ViewModel
+on the ClaimBill entry, so review/progress push and pop without losing it; "Assign" from those screens pops
+back to that entry with a focus request (`openAssign`) rather than stacking a second accordion.
+A card's "Add person" chip opens `PeoplePickerSheet` (`bill/PeoplePickerSheet.kt`): the whole group plus
+anyone on the bill, the line's current people ticked and tagged, and a create row. It writes nothing until
+Done, because the forgotten person is usually already in the group, not new. Reuse it for any other
+"who's in" question rather than adding another picker.
+
+**The payer's three web-claim screens** (`BillReviewEditsScreen`, `BillClaimProgressScreen`,
+`BillShareLinkScreen`; wired in `ui/navigation/WebClaimRoutes.kt`) are reached from the chooser's QR option
+and expense details. The assign screen's ⋯ menu was removed (owner call, 2026-10-03: not intuitive). Three rules that look like taste
 and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
 
 - **"What changed" reports; it does not adjudicate.** Every change on that screen has already applied
@@ -126,11 +142,15 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   approval gate. **No "undo all"** either, and no rights hierarchy: anyone on the bill may undo, an undo
   is itself an attributed entry, and the log is the tiebreak. The banner clears by being **read** (a
   device-local marker in `SecureStorage`, `changesSeenKey` in `WebClaimRoutes.kt`), not by deciding.
-  **A notification that clears itself needs a durable door beside it** — the "What changed" row in
-  `WebClaimActions` is that door. Without it, reading the banner once puts the record of who changed
-  what, and the undo with it, permanently out of reach. Found by walking the screen, not by reading it.
-- **The bill QR and the group invite are different links and stay apart.** Per-expense, 72 hours,
-  no account vs. permanent and account-required. The QR leads; the invite is the tertiary text button.
+  **A notification that clears itself needs a durable door beside it.** The "What changed" row in
+  the assign screen's ⋯ menu was that door and went with the menu; until a replacement lands, reading the
+  banner once puts the record of who changed what, and the undo with it, out of reach.
+- **The bill QR and the group invite are different links and stay apart.** Per-expense, permanent until
+  revoked vs. the whole group (joinable on the web without the app, `web/src/marketing/Join.svelte`).
+  Build and parse invite links only through `domain/group/InviteLink`: the shared form must carry
+  `https://` (a bare `split-evenly.app/j/…` was searched, not opened, by QR scanners), and incoming links on
+  both platforms go through `PendingInvite`, never a `navDeepLink` (Android-only, and lost on `onNewIntent`). The QR leads; the invite is the tertiary text button. On the expense detail the bill QR is the full-width
+  "Let friends pick their items" button in `BillPickCard`, and the group sheet is titled "Invite to group".
   The scope reassurance under it ("this bill only") is not decoration: the payer is deciding whether to
   pass a URL into their finances round a table.
 - **"Hasn't opened the link" is only said about someone without the app.** An app member who simply
@@ -142,9 +162,11 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
 chips; larger groups collapse to a summary row that opens a searchable member-picker sheet. Same underlying
 selection state either way.
 
-**Group home surfaces unresolved bills.** The "claim your items" card and the **Unresolved bills** section
-are fed by `BillRepository.observeUnresolvedBills`; tapping one opens the live claim screen
-(`Route.ClaimBill`). A bill is unresolved when a line still needs someone *or* a participant hasn't marked
+**Group home surfaces unresolved bills.** The "Needs your pick" card is fed by
+`BillRepository.observeUnresolvedBills`, filtered to bills with an unclaimed line where you are a participant
+who has picked nothing yet (you may be one of the missing people). Bills you've picked on live on the bill
+itself, not here. Tapping one opens the `FinishBill` chooser. Item progress and your
+own done state are separate facts and the copy keeps them apart. A bill is unresolved when a line still needs someone *or* a participant hasn't marked
 done — **claiming is not paying.**
 
 **The bill editor takes either price.** Type the per-unit ("each") *or* the whole-line ("total of N") — the
@@ -158,19 +180,19 @@ settle screen lists those same lines as checkable targets, and highlights the me
 (the synced `users.preferred_payment_app` column, set in the Payment-apps editor) as the default way to pay
 them.
 
-**The free-scan meter is conditional, and the condition lives in `domain/pro/scanMeterFor`,** not in the
-Composable (`PRO_PASS_SPEC.md` §8.1). Hidden while Pro, hidden until the count is actually known, and
-hidden while more than 3 remain: a new group counting down from 5 reads as a trial with a clock on it.
-`ScanQuotaMeter` renders whatever it is handed and decides nothing. It **escalates exactly once**: a
-quiet count plus what happens after the last scan, then a full-width group-named button at zero. Empty
-warms to `credit` amber, never `danger` — spending an allowance is not a fault.
+**Receipt scans are unlimited and free.** Every scan entry point goes directly to source selection and
+the OCR request. There is no local allowance, meter, upgrade prompt, or paid fallback. A server 429 is
+still a short abuse-protection cooldown and must be explained as a retry-later state, never as a quota.
 
-**The scan tap is refused before the file picker, not after the upload** (`domain/pro/scansExhausted`).
-`OutOfScansSheet` is what a blocked tap opens; the server's 402 stays as the fallback for the race where
-another member spends the last scan mid-flight. **The scan card stays enabled at zero** so tapping it
-explains rather than doing nothing. Every path to the picker goes through the screen's own `startScan`,
-including the failed-scan sheet's "try a new photo" — a second route to the picker is a second way past
-the gate.
+**The camera goes through `CameraPermissionGate`, never straight to the picker.** `rememberCameraPermissionGate()`
+at the top of a route wrapper, every camera-capable source handler passed through `gate.wrap { ... }`, and
+`CameraPermissionGateHost(gate)` **last** in the function (an overlay emitted after the screen draws
+underneath it). Only `PickSource.Camera` is intercepted. The sheet is
+deliberately **undimmed**: the scan card stays legible behind it, so it reads as part of the screen rather
+than a trap door. Both halves of the drawn system dialog are live and do what they depict, because a drawing
+of a button that swallows taps is the dead end the gate exists to remove. Four entry points across
+`LedgerRoutes`/`BillRoutes` share it; a fifth that skips it is an iOS-only grey-viewfinder bug that Android
+testing cannot surface. See `../platform/AGENTS.md`.
 
 **The scan card carries its three sources** (`ItemizedExpenseBody`). Tapping it used to open
 `ScanSourceSheet` and only then the OS picker, which is two taps and a sheet between "scan this" and a
@@ -181,60 +203,14 @@ image" button wired to an empty lambda and an "Export" chip in its app bar that 
 `onClick` at all, so neither could ever do anything. Both are gone. If export returns to Overview it
 ships with a working callback, or it does not ship.
 
-**The subscription paywall is RevenueCat's, not ours** (`PRO_PASS_SPEC.md` §8.2). `ProPaywallScreen`
-renders the `Paywall()` composable against the dashboard's current offering, so layout, copy and price
-mix stay a dashboard change and Experiments can run without a release. Do not reimplement it in Compose,
-and do not hardcode a price anywhere: every price on screen is the store's own localized
-`StoreProduct` string, which App Review requires and a non-US buyer needs. The **group-pass sheet**
-(`ui/screen/pro/PassSheet.kt`) is ours only because RevenueCat cannot render consumables.
+**Export is always free.** Group settings invokes the CSV export directly after membership checks; it
+must never branch to a tier gate or upgrade prompt.
 
-**A door that names a group opens the group-scoped product.** Found by the cold `ux-firsttimer` walk,
-and it is the pay/renew direction being ambiguous at the moment of commitment: "Get Pro for Ski Trip"
-opening an all-groups recurring subscription is the worst mislabel this feature can produce. So the
-group-settings row and the out-of-scans sheet lead with the **pass sheet**, and each product's sheet
-names the other one exit ("Only need it for one trip?" on the paywall, "In more than one group? See
-Evenly Pro" on the pass sheet). That second link used to be **null inside an editor**, because reaching
-the paywall meant a push and a push disposes the editor underneath. It is real everywhere now:
-`ProPaywallHost` renders RevenueCat's paywall *over* the editor instead, so the draft is simply still
-there when it closes. Do not re-null it, and do not navigate to `Route.Pro` from an editor.
-
-**Never offer a pass for a group a subscription already covers** — anyone's, not just your own. A pass
-cannot be cancelled or refunded, so nothing later corrects the mistake, and extending from a
-subscription's expiry would sell dead time against someone else's private renewal date. A group on a
-*pass* is the opposite case and must stay buyable: a second pass extends it.
-
-**A money button carries the amount, not just the verb.** Three tiers four times apart with no
-confirmation step after them; a button reading only "Get Pro" makes someone look back up the screen in
-a noisy restaurant. Same rule for the half-success line: it must say the charge landed **and** that
-tapping again cannot charge twice, which idempotency makes true.
-
-**Both Pro doors emit ONE event spine, separated only by `surface`.** Because the scan gate opens our
-sheet instead of RevenueCat's paywall, RevenueCat's analytics and Experiments never see the
-highest-intent door, and PostHog carries that load instead. `pro_offer_shown` / `pro_offer_selected` /
-`pro_offer_dismissed` / `purchase_started` / `purchase_activated` are shared by both surfaces, built in
-`domain/pro/ProFunnel.kt` so four call sites cannot drift. **Do not add a surface-specific
-`paywall_shown` back** — two event names make "does the pass door convert better?" two reports that
-cannot be laid over each other, which is the one question the routing decision created. Every new event
-also goes in `.posthog-events.json`; a missing catalogue entry is an incomplete change.
-
-`purchase_activated` fires on **activation, not on the charge**: a purchase the server never turned into
-an entitlement is not a conversion, and counting it as one hides the failure the retry flow exists for.
-
-**The pass sheet is remotely tunable through the `pro_pass_sheet` PostHog flag** (order, preselected
-tier, best-value flag), which is the stand-in for the paywall editor RevenueCat cannot point at a
-consumable. Every field defaults to today's behaviour, so a missing flag or a malformed payload renders
-the sheet we would have rendered anyway — a pricing screen must never fail to draw because an experiment
-did not load.
-
-**Every Pro surface is absent, not disabled, when RevenueCat is unconfigured.** The Profile row, the
-scan sheet's Pro button and the paywall all key off `ProBilling.isAvailable`; a door that cannot open is
-worse than no door. `ProStatusRow` is the one exception and is always shown, because a *free group* used
-to render nothing at all there and so had no Pro surface whatsoever.
-
-**There is deliberately no Pro badge in the group top bar.** It was in the approved mock and was removed
-after building it: that bar already carries three actions, and a pill wraps the group's own name onto two
-lines. The Pro fact lives in the Group settings row, which names the buyer. Do not re-add it without
-solving the title width first.
+**Removing a receipt in an editor is instant and undoable, with no confirm.** `PickedReceiptStrip`'s
+`onRemoveReceipt` returns an `UndoRemoval`: the route drops the receipt from its list at once (so a save or
+auto-save inside the window never keeps it) and hands the real delete (staged-file discard, upload cancel,
+saved-receipt soft-delete) to `DeferredRemovals`, which waits out `RECEIPT_UNDO_MS` on its own scope so a
+Save-and-leave still completes it. Don't delete in the click handler; Undo has nothing to restore then.
 
 **Receipts are viewed *in-app*, never handed to an external browser.** Tapping a receipt opens the
 full-screen `ReceiptViewerScreen` — a `HorizontalPager` over the expense's receipts with a bottom thumbnail
@@ -281,7 +257,5 @@ backlog. (`data/repository/BillRepositoryImpl.kt` at 804 is the one offender out
 verified 2026-08-03; the earlier figures for `LedgerRoutes` (580) and `BillRepositoryImpl` (636) had
 gone stale, which is the usual way a ceiling stops being one.
 
-**`BillClaimScreen.kt` sits at 598** and is one addition away from the ceiling. Step 6's entry surface
-was extracted to `bill/BillWebClaimEntry.kt` on the way in for exactly that reason; the money side went
-to `data/repository/BillPendingEdits.kt`. The next thing this screen grows should take the servings
-sheet or the how-to guide out with it.
+The old 598-line `BillClaimScreen.kt` was replaced (2026-09-30) by `BillAssignScreen` + `BillAssignCard` +
+`BillClaimModels`, each well under the ceiling. Keep new bill-flow surface in its own file.

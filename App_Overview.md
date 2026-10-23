@@ -37,6 +37,7 @@ Evenly helps groups of people who keep owing each other small amounts of money (
 - **Share group link.** Persistent "Copy link" affordance alongside the system share sheet.
 - **Push notifications.** Deep-link into the relevant screen; per-channel controls so the user can quiet specific event types.
 - **Receipt attachments.** Attach one or more receipts to any expense as images (camera or library) or PDFs. Max 10 attachments per expense and max 30 MB per attachment. Attachments can be viewed, downloaded, or removed individually; saved to the device library on demand.
+- **Unlimited receipt scanning.** Scan receipt photos or PDFs to pre-fill an editable itemized bill. Scans are free and have no entitlement or lifetime allowance; only a short abuse-protection cooldown may ask someone to retry later.
 - **Dark mode.** Default-on dark theme.
 - **Accessibility.** Full VoiceOver and TalkBack support.
 - **In-app feedback.** Direct support channel from within the app.
@@ -126,7 +127,6 @@ Why it matters: the dominant lightweight competitor removed its web version and 
 
 - **Dropped: "No automated debt reminders" as a feature.** This is a philosophy decision (we do not build a reminder surface), not a feature. Stated as a brand principle, not listed in the feature set.
 - **Dropped: Reliable sync as a differentiation feature.** Sync reliability is a quality requirement for every feature in the app, not a separately specced feature; specifying it as a feature implies the alternative is also a feature.
-- **Dropped: Receipt OCR with quick-split capture.** Evidence is thin (one passing reference and one comparison mention). Photo attachment is already table stakes; OCR pre-fill is a nicety the plan itself describes as not the substance. Reconsider for v2.
 - **Dropped: Per-expense external URL field.** Single image-only citation; near-zero user volume requesting it. Pure bloat at v1.
 - **Dropped: Color-coded payer accent on the expense list.** Pure visual polish; can ship as a v1.1 enhancement without a spec line.
 - **Merged: Working "Copy group link" share sheet → into Group Management table stakes.** It is a single-button UI fix, not a differentiation feature.
@@ -153,7 +153,6 @@ None identified for v1. One gap (recurring expenses) is noted in Section 11 as a
 - International payment apps (M-Pesa, UPI, SEPA, IBAN). Launch is US-focused.
 - Multi-language support. English only at launch.
 - Itinerary attachment or any trip-planning functionality.
-- Receipt OCR (on-device or LLM fallback); revisit for v1.1.
 - Receipt-specialized OCR APIs (Veryfi, Mindee).
 - Per-expense external URL field.
 - Color-coded payer accent on the expense list.

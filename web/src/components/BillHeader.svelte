@@ -5,7 +5,7 @@
    * stranger's link demanding your name with nothing to show for itself is a phishing page.
    */
   import type { BillHeader } from '../lib/api.ts';
-  import { expiresIn, money } from '../lib/format.ts';
+  import { money } from '../lib/format.ts';
 
   interface Props {
     header: BillHeader;
@@ -56,7 +56,7 @@
     </div>
     <div class="prlbl">
       <span>{header.claimedCount} of {header.participantCount} finished</span>
-      <span>{expiresIn(header.expiresAt)}</span>
+      <span>Link stays available</span>
     </div>
   </div>
 {/if}

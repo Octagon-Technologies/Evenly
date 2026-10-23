@@ -126,6 +126,45 @@ class PlaceholderClaimCoordinatorTest {
         )
     }
 
+    private val ghost2 = UserId("ph2")
+
+    /** A second placeholder with its own expense, for the multi-name checklist claim. */
+    private suspend fun seedSecondGhost() {
+        db.userDao().upsert(
+            UserEntity(
+                id = ghost2.value,
+                isPlaceholder = true,
+                displayName = "ph2",
+                placeholderGroupId = group.value,
+                createdAt = 1,
+                updatedAt = 1,
+            ),
+        )
+        db.memberDao().upsert(
+            MemberEntity(id = "m_ph2", groupId = group.value, userId = ghost2.value, joinedAt = 1, createdAt = 1, updatedAt = 1),
+        )
+        db.expenseDao().upsert(
+            ExpenseEntity(
+                id = "e2",
+                groupId = group.value,
+                title = "Groceries",
+                amountSubunits = 2194,
+                currency = "USD",
+                expenseDate = "2026-07-02",
+                payerUserId = "maya",
+                splitMode = "EVEN",
+                createdBy = "maya",
+                createdAt = 1,
+                updatedAt = 1,
+            ),
+        )
+        db.shareDao().upsert(
+            ShareEntity(id = "s_ph2", expenseId = "e2", userId = ghost2.value, shareOwedSubunits = 2194, createdAt = 1, updatedAt = 1),
+        )
+    }
+
+    private suspend fun shareOwner(expenseId: String) = db.shareDao().getByExpense(expenseId).single().userId
+
     /** In-memory [PendingClaimStore]: a Native test process has no usable Keychain to hold the real one. */
     private class FakeClaimStore : PendingClaimStore {
         val claims = mutableListOf<ParkedClaim>()
@@ -452,4 +491,63 @@ class PlaceholderClaimCoordinatorTest {
 
             assertEquals(ClaimStatus.Idle, c.status.value)
         }
+
+    @Test
+    fun severalNamesConfirmedTogether_commitAsOneClaim() =
+        runTest {
+            seed()
+            seedSecondGhost()
+            val gateway = FakeGateway()
+            val c = coordinator(gateway, SHORT_WINDOW)
+
+            c.confirm(group, listOf(ClaimTarget(ghost, "ph"), ClaimTarget(ghost2, "ph2")), me)
+
+            val done = assertIs<ClaimStatus.Claimed>(c.settled())
+            assertEquals("ph and ph2", done.name)
+            assertEquals(me.value, shareOwner("e1"))
+            assertEquals(me.value, shareOwner("e2"))
+            assertEquals(2, gateway.calls, "each name is guarded on its own")
+        }
+
+    @Test
+    fun oneUndo_takesBackEveryNameInTheClaim() =
+        runTest {
+            seed()
+            seedSecondGhost()
+            val gateway = FakeGateway()
+            val c = coordinator(gateway, LONG_WINDOW)
+
+            c.confirm(group, listOf(ClaimTarget(ghost, "ph"), ClaimTarget(ghost2, "ph2")), me)
+            c.undo()
+            delay(100)
+
+            assertEquals(ClaimStatus.Idle, c.status.value)
+            assertEquals(ghost.value, shareOwner("e1"))
+            assertEquals(ghost2.value, shareOwner("e2"))
+            assertEquals(0, gateway.calls)
+        }
+
+    @Test
+    fun answer_writesNotMeAtOnce_andHoldsTheClaimBehindTheWindow() =
+        runTest {
+            // A checklist answer covers every shown name: the unticked ones are ruled out immediately (no
+            // money moves, so no undo), while the ticked one waits out the window like any claim.
+            seed()
+            seedSecondGhost()
+            val c = coordinator(FakeGateway(), LONG_WINDOW)
+
+            c.answer(group, claim = listOf(ClaimTarget(ghost, "ph")), notMe = listOf(ghost2), claimer = me)
+
+            assertIs<ClaimStatus.Undoable>(c.status.value)
+            assertEquals(ghost.value, shareOwner("e1"), "the claim must not have run yet")
+            val open = groups.observeUnclaimedNames(group, me).first().map { it.userId }
+            assertEquals(listOf(ghost), open, "ph2 was answered not-me; ph is still open until the claim lands")
+        }
+
+    @Test
+    fun joinNames_readsAsASentence() {
+        assertEquals("A", joinNames(listOf("A")))
+        assertEquals("A and B", joinNames(listOf("A", "B")))
+        assertEquals("A, B, and C", joinNames(listOf("A", "B", "C")))
+    }
 }

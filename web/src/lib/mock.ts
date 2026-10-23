@@ -10,9 +10,13 @@
  *   `?mock`               → an unknown visitor, group has placeholders → frame 1
  *   `?mock&as=new`        → no placeholders at all                     → frame 2
  *   `?mock&as=purity`     → a recognised returning guest               → frame 3
- *   `?mock&state=expired` → the link died                              → frame 9
+ *   `?mock&state=expired` → legacy expiry or temporary refusal          → frame 9
  *   `?mock&state=gone`    → revoked / deleted
  *   `?mock&race=payer`    → every "I paid" loses the causal race (spec E25)
+ *
+ * The group invite page takes the same fixture: `/j/01a16973-8c78-7001-9dd8-3bdbc21b7339?mock`
+ * (add `&as=new` for an empty list, `&as=purity` for a returning guest). Typing "Mary" hits the
+ * exact-duplicate block; "Purityy" gets the "did you mean her?" suggestion.
  */
 
 import { ApiError, setTransport, type ApiErrorCode } from './api.ts';
@@ -102,7 +106,6 @@ function header() {
     itemCount: ITEMS.length,
     claimedCount: new Set(state.claims.map((c) => c.item_id)).size,
     participantCount: state.participants.length,
-    expiresAt: Date.now() + 60 * 60 * 1000 * 40,
   };
 }
 
@@ -168,6 +171,42 @@ export function installMockTransport(): void {
     if (forced === 'gone') fail('GONE', 404);
 
     switch (action) {
+      case 'invite-preview':
+        return { groupName: 'Tulum trip' };
+
+      case 'invite-resolve': {
+        const header = { groupName: 'Tulum trip', emoji: '🏝️', memberCount: 5, memberNames: ['Andrew', 'Mary', 'Bob', 'Steve'] };
+        if (state.me) return { state: 'welcome_back', header, identity: { userId: state.me, name: NAMES[state.me] } };
+        if (as === 'new') return { state: 'name_entry', header };
+        return {
+          state: 'pick_name',
+          header,
+          candidates: [
+            { userId: 'u-purity', name: 'Purity', evidence: [{ title: 'Airport Uber', date: '2026-07-28', amountSubunits: 1240, currency: 'USD' }] },
+            { userId: 'u-mo', name: 'Mo', evidence: [] },
+          ],
+        };
+      }
+
+      case 'invite-name': {
+        const name = String(body.name ?? '').trim();
+        if (Object.values(NAMES).some((n) => n.toLowerCase() === name.toLowerCase())) {
+          return { blocked: true, suggestions: [`${name} 2`, `${name} 3`] };
+        }
+        if (!body.force && name.toLowerCase().startsWith('purit')) {
+          return { suggestion: { userId: 'u-purity', name: 'Purity', evidence: [{ title: 'Airport Uber', date: '2026-07-28', amountSubunits: 1240, currency: 'USD' }] } };
+        }
+        state.me = 'u-new';
+        NAMES['u-new'] = name;
+        return { created: true, userId: 'u-new', name, sessionToken: 'mock-session' };
+      }
+
+      case 'invite-claim': {
+        const id = String(body.placeholderUserId);
+        state.me = id;
+        return { won: true, sessionToken: 'mock-session', userId: id, name: NAMES[id] };
+      }
+
       case 'resolve': {
         if (state.me) {
           return { state: 'welcome_back', header: header(), identity: { userId: state.me, name: NAMES[state.me] } };

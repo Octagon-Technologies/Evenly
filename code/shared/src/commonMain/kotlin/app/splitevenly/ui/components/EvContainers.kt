@@ -186,7 +186,8 @@ private fun EvSheetCloseButton(onClose: () -> Unit) {
     }
 }
 
-/** `.sc-scrim` + bottom-aligned [EvSheetSurface]. A tap on the (lightly) dimmed backdrop dismisses,
+/** Bottom-aligned [EvSheetSurface] over a transparent, tappable backdrop by default.
+ *  Callers may opt into a dimmed backdrop when the page behind should recede. A tap outside dismisses,
  *  same as an explicit close button in the sheet's top-left — belt and suspenders, not either/or.
  *  Slides up + fades in on entry, and reverses on dismiss before actually leaving composition, so
  *  opening/closing reads as one continuous motion instead of a hard cut. */
@@ -196,6 +197,7 @@ fun EvSheetScaffold(
     modifier: Modifier = Modifier,
     title: String? = null,
     sub: String? = null,
+    dimBackground: Boolean = false,
     // Closes the sheet through the same slide-out the ✕ uses, instead of the caller yanking it out of
     // composition. Flip it once the caller's own work is done (e.g. the payment is recorded); [onDismiss]
     // then fires when the exit animation ends, which is the caller's cue to drop the sheet.
@@ -216,14 +218,13 @@ fun EvSheetScaffold(
         exit = fadeOut(EvMotion.standard()),
     ) {
         Box(
-            modifier.fillMaxSize().background(EvenlyTheme.colors.ink.copy(alpha = EvScrimAlpha)).clickable(
-                interactionSource =
-                    remember {
-                        MutableInteractionSource()
-                    },
-                indication = null,
-                onClick = dismiss,
-            ),
+            modifier.fillMaxSize()
+                .then(if (dimBackground) Modifier.background(EvenlyTheme.colors.ink.copy(alpha = EvScrimAlpha)) else Modifier)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = dismiss,
+                ),
         ) {
             AnimatedVisibility(
                 visibleState = visibleState,

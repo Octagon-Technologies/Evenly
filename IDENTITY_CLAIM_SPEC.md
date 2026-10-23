@@ -33,16 +33,13 @@ person, without anyone having to know the word "reconcile".
 Not a collapsed pill. A pill is opt-in, and the whole failure mode we're fixing is that people
 don't go looking. The card is open, readable at a glance, and answerable without navigating.
 
-It has two shapes driven by one input:
-
-| Condition | Shape | Heading |
-| --- | --- | --- |
-| Exactly one unclaimed name, and it plausibly matches my name | **Named** | "Are you Chelimo?" |
-| Anything else (no match, or several names) | **List** | "Were you here before you joined?" |
-
-Both shapes carry **evidence** — expense count and amount per name, and for the named shape a
-scrollable strip of the actual expenses. "Are you Chelimo?" is unanswerable from a name alone;
-"Chelimo bought the airport taxi" is answerable in a second.
+**Revised 2026-10-03 (owner call, after tester feedback):** per-name "That's me" / "No" buttons were
+too much to take in, and testers read "Later" as "I don't have to do this". The card is now a
+**checklist**: one gray card per name (checkbox, name, one evidence line such as "1 expense · $21.94"),
+a ticked card takes a soft blue wash, and one always-live button reads "None of these are me" until
+something is ticked, then "Confirm Mamba" / "Confirm 2 names". The heading is "Are any of these you?"
+("Is this you?" for a single name). The per-expense evidence moved to the confirm sheet (§3.3). The
+question is also asked as a **required step of joining** (§3.6), so the card is the catch-all.
 
 Name matching only ever changes *copy and ordering*. It **never gates whether the card appears.**
 The motivating case (added as "Chelimo", signed up as "Andrew") produces no match at all, and is
@@ -100,29 +97,6 @@ day header. Shown on every sub-tab and regardless of filter state.
 That strip already stacks the offline banner, filter chips, and the unresolved-bills section; a
 fifth interstitial buries the feed. One prompt at a time, identity first.
 
-**Named shape**
-
-```
-[avatar]  Are you Chelimo?
-          Someone added this name before you joined. It has 3 expenses and no account.
-          [ Dinner at La Negra $24.00 ] [ Airport taxi $14.50 ] [ Cenote trip $18.00 ]
-          [ That's me ]  [ Not me ]  [ Later ]
-```
-
-**List shape**
-
-```
-Were you here before you joined?
-These names have expenses but no account. If one is you, claim it so the history lands on
-your balance.
-
- [AC]  Chelimo      3 expenses · $56.50     [ That's me ] [ No ]
- [A]   Andrew (2)   2 expenses · $27.40     [ That's me ] [ No ]
- [TR]  Tyler R.     1 expense  · $31.00     [ That's me ] [ No ]
-
- None of these are me
-```
-
 **Copy constraints:** no em dashes (hook-enforced). The words *placeholder*, *reconcile*, *claim a
 past member*, and *merge* do not appear in user-facing strings. "Claim" survives only in the
 settings row label, where it has an object ("Claim a name as me").
@@ -130,32 +104,38 @@ settings row label, where it has an object ("Claim a name as me").
 **Cap:** at most **3** names inline. Beyond that, show the top 3 by expense count plus a
 `See all N` row that opens the full-screen list (§3.2).
 
-**Three answers, never two.** A two-button card forces the unsure to lie, and most of them will
-press dismiss, which is the permanent one.
+**One answer for the whole list.** Confirming covers every name the card showed: the ticked ones
+are claimed (behind the 5-second undo), the unticked ones are recorded as "not me" at once. "None
+of these are me" records all of them. Both go through the confirm sheet first, which says how many
+other names will stop being asked about. The button answers only the (at most 3) names shown, so
+names behind `See all N` surface next instead of being ruled out unseen. There is no "Later".
 
-| Button | Effect | Storage |
+| Answer | Effect | Storage |
 | --- | --- | --- |
-| **That's me** | Opens the confirm sheet (§3.3) | Nothing until confirmed |
-| **Not me** / **No** | That name leaves my list forever | Server, one row for that name |
-| **None of these are me** | Every currently-listed name leaves my list forever | Server, one row per listed name |
-| **Later** | Card returns next visit | Device only, nothing decided |
+| **Confirm (ticked names)** | Confirm sheet, then the ticked names are claimed as one undoable claim | Server, after the undo window |
+| **(unticked names)** | Leave my list forever | Server, one row per name |
+| **None of these are me** | Confirm sheet, then every shown name leaves my list forever | Server, one row per name |
 
-After a "No" the card re-renders in place with the remaining names, and switches from list shape to
-named shape if exactly one is left. When the last name is answered the card is replaced by a single
-confirmation note for the rest of that session, then never renders again in that group.
+When the last name is answered the card is replaced by a single confirmation note for the rest of
+that session, then never renders again in that group.
 
 ### 3.2 The full-screen list — the existing `ReconcileScreen`, revised
 
 Kept, retitled, and reachable from settings and from `See all N`.
 
-- Title "Claim a name" (was "Reconcile"), heading "Are any of these you?" retained.
-- Rows gain the **"No"** action and a **"None of these are me"** footer button, matching the card.
+- Title "Claim a name" (was "Reconcile"), heading "Are any of these you?".
+- The same checklist and button as the card (`IdentityChecklistPage`, shared with the join step), over
+  every open name. Confirm claims the ticked names and records the rest as not me.
 - The list is always *unclaimed names in this group* minus *names I've already answered*. The
   narrowing is not a separate feature; it's the same filter the card uses.
-- Its existing multi-select "These are me (n)" is retained for the genuine multi-name claim.
 - Empty state: "Nothing left to claim. You've been through every name in this group."
 
-### 3.3 The confirm sheet — `ReconcileConfirmModal`, revised
+### 3.3 The confirm sheet — `IdentityClaimConfirmSheet`
+
+**Revised 2026-10-03:** replaced `ReconcileConfirmModal` with a bottom sheet that shows **one card per
+ticked name**, each with what it adds to what you owe (or what it paid) and its expenses as chips,
+titled "You're Mamba?" / "You're these 2 people?". With nothing ticked it asks "None of these are
+you?". The block below is the original single-name layout, kept for the money rules it states.
 
 The card never merges directly. Every "That's me" lands here, and it must show the money:
 
@@ -178,7 +158,8 @@ empty box.
 
 ### 3.4 The undo toast
 
-Appears on confirm, **5 seconds**, `Chelimo is now you` + `Undo`. Standard app toast styling, above
+Appears on confirm, **5 seconds**, `Chelimo is now you` (or `Mamba and Mslow are now you`; several
+ticked names are one claim and one Undo) + `Undo`. Standard app toast styling, above
 the FAB. Dismissing the toast by swipe does **not** cancel the merge; only `Undo` does. The 5 seconds
 are a single constant shared by the toast and the deferred commit, so the two can never disagree.
 
@@ -188,6 +169,17 @@ are a single constant shared by the toast and the deferred commit, so the two ca
 - Add a first row inside the `Members · n` card: **"Claim a name as me"**, subtitle
   `n names here have no account`, opening the list screen. Hidden when `n == 0`.
 - Rename the roster chip `Placeholder` → **"No account"** (`ChipVariant.Amber` unchanged).
+
+### 3.6 The join step (added 2026-10-03)
+
+Joining a group that has unclaimed names is no longer one tap. "Join group" on the join sheet opens
+the full-screen checklist captioned "Joining <group>"; the only way forward is its button, so every
+joiner either claims names or says none of them are them. Back returns to the preview and writes
+nothing. On confirm the membership is written first, then the answer goes through the same
+coordinator as the card (server first-claim-wins guard, 5-second Undo shown on the group screen it
+opens). This replaced the old single-select "Are you one of these? / I'm new here" picker inside the
+join sheet. A group this device has never synced has no names to show, so it joins directly and the
+card asks afterwards.
 
 ---
 
@@ -214,8 +206,8 @@ create table if not exists public.placeholder_claim_answers (
 create index if not exists pca_group_idx on public.placeholder_claim_answers (group_id);
 ```
 
-Only "not me" is stored. "That's me" is already represented by the existing merge, and "Later" is
-device-local (a `SecureStorage` key, cleared on next launch).
+Only "not me" is stored. "That's me" is already represented by the existing merge. ("Later" was
+device-local and has since been removed; see §2.1.)
 
 **RLS:** readable by any active member of `group_id`; insertable only where
 `answered_by_user_id = auth.uid()`; no update, no delete. **Do not add this table to the

@@ -41,17 +41,30 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
-import coil3.compose.SubcomposeAsyncImage
+import app.splitevenly.ui.components.ButtonVariant
+import app.splitevenly.ui.components.EvButton
+import app.splitevenly.ui.components.EvSheetScaffold
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.theme.EvenlyTheme
+import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import kotlinx.coroutines.launch
 
 /** One openable receipt in the viewer. [url] null = not yet resolved; [isPdf] renders via [PdfRasterizer]. */
-data class ViewerReceipt(val id: String, val url: String?, val isPdf: Boolean)
+data class ViewerReceipt(
+    val id: String,
+    val url: String?,
+    val isPdf: Boolean,
+)
 
 private val ViewerBg = Color(0xFF0E1726)
 private val ViewerChrome = Color(0x33FFFFFF)
@@ -75,33 +88,60 @@ fun ReceiptViewerScreen(
     loadPdfPageCount: suspend (url: String) -> Int = { 0 },
     renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     onClose: () -> Unit = {},
+    // Null for staged/local-only viewers. A saved expense supplies this callback so only published
+    // receipts expose the destructive action.
+    onDeleteReceipt: ((receiptId: String) -> Unit)? = null,
 ) {
     if (receipts.isEmpty()) {
         onClose()
         return
     }
     val scope = rememberCoroutineScope()
-    val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, receipts.lastIndex),
-    ) { receipts.size }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val pagerState =
+        rememberPagerState(
+            initialPage = initialIndex.coerceIn(0, receipts.lastIndex),
+        ) { receipts.size }
 
     Column(Modifier.fillMaxSize().background(ViewerBg).systemBarsPadding()) {
-        // Top bar: close + position.
+        // Top bar: close + position + an explicit action for the currently visible saved receipt.
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Box(
-                Modifier.size(36.dp).clip(RoundedCornerShape(50)).background(ViewerChrome)
-                    .clickable(onClick = onClose),
+                Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(ViewerChrome)
+                    .semantics {
+                        contentDescription = "Close receipt viewer"
+                        role = Role.Button
+                    }.clickable(onClick = onClose),
                 contentAlignment = Alignment.Center,
             ) { EvIcon(EvIcons.Close, size = 18.dp, tint = Color.White) }
             Text(
                 "${pagerState.currentPage + 1} of ${receipts.size}",
-                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
             )
-            Box(Modifier.size(36.dp))
+            if (onDeleteReceipt != null) {
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(ViewerChrome)
+                        .semantics {
+                            contentDescription = "Delete receipt"
+                            role = Role.Button
+                        }.clickable { confirmDelete = true },
+                    contentAlignment = Alignment.Center,
+                ) { EvIcon(EvIcons.Trash, size = 19.dp, tint = Color.White) }
+            } else {
+                Box(Modifier.size(44.dp))
+            }
         }
 
         // Main pager.
@@ -133,6 +173,47 @@ fun ReceiptViewerScreen(
             }
         }
     }
+
+    if (confirmDelete && onDeleteReceipt != null) {
+        val current = receipts.getOrNull(pagerState.currentPage)
+        val c = EvenlyTheme.colors
+        EvSheetScaffold(onDismiss = { confirmDelete = false }) {
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(c.dangerTint),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EvIcon(EvIcons.Trash, size = 25.dp, tint = c.danger)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Delete this receipt?", color = c.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "This removes the receipt from the bill for everyone.",
+                        color = c.ink2,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EvButton(
+                        "Delete receipt",
+                        {
+                            current?.let { onDeleteReceipt(it.id) }
+                            confirmDelete = false
+                        },
+                        variant = ButtonVariant.Danger,
+                        leadingIcon = EvIcons.Trash,
+                    )
+                    EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Secondary)
+                }
+            }
+        }
+    }
 }
 
 /** Pinch-to-zoom / pan image page. Resets to fit when scaled back down. */
@@ -155,10 +236,13 @@ private fun ZoomableImage(url: String?) {
         SubcomposeAsyncImage(
             model = url,
             contentDescription = "Receipt",
-            modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = scale; scaleY = scale
-                translationX = offset.x; translationY = offset.y
-            },
+            modifier =
+                Modifier.fillMaxSize().graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
             contentScale = ContentScale.Fit,
             loading = {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -197,23 +281,31 @@ private fun PdfPage(
 
         val current = pages
         when {
-            current == null -> CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
-            current.isEmpty() -> Text("Couldn't open this PDF.", color = Color.White, fontSize = 14.sp)
-            else -> Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                current.forEach { bmp ->
-                    if (bmp != null) {
-                        androidx.compose.foundation.Image(
-                            bitmap = bmp,
-                            contentDescription = "Receipt page",
-                            modifier = Modifier.fillMaxWidth(),
-                            contentScale = ContentScale.FillWidth,
-                        )
-                    } else {
-                        Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+            current == null -> {
+                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+            }
+
+            current.isEmpty() -> {
+                Text("Couldn't open this PDF.", color = Color.White, fontSize = 14.sp)
+            }
+
+            else -> {
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    current.forEach { bmp ->
+                        if (bmp != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = bmp,
+                                contentDescription = "Receipt page",
+                                modifier = Modifier.fillMaxWidth(),
+                                contentScale = ContentScale.FillWidth,
+                            )
+                        } else {
+                            Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+                            }
                         }
                     }
                 }
@@ -224,19 +316,31 @@ private fun PdfPage(
 
 /** Rounded-square filmstrip tile. Images load via Coil; PDFs show a badge tile (no download). */
 @Composable
-private fun FilmstripThumb(receipt: ViewerReceipt, selected: Boolean, onClick: () -> Unit) {
+private fun FilmstripThumb(
+    receipt: ViewerReceipt,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val shape = RoundedCornerShape(10.dp)
     val border = if (selected) Modifier.border(2.dp, Accent, shape) else Modifier
     Box(
-        Modifier.size(48.dp).clip(shape).background(Color(0xFF2A2F3A)).then(border).clickable(onClick = onClick),
+        Modifier
+            .size(48.dp)
+            .clip(shape)
+            .background(Color(0xFF2A2F3A))
+            .then(border)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         if (receipt.isPdf || receipt.url == null) {
             EvIcon(EvIcons.Receipt, size = 20.dp, tint = Color(0xFFB4B2A9))
             if (receipt.isPdf) {
                 Box(
-                    Modifier.align(Alignment.BottomEnd).padding(3.dp)
-                        .clip(RoundedCornerShape(3.dp)).background(Color(0xFFA32D2D))
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(3.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFFA32D2D))
                         .padding(horizontal = 3.dp, vertical = 1.dp),
                 ) { Text("PDF", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Medium) }
             }

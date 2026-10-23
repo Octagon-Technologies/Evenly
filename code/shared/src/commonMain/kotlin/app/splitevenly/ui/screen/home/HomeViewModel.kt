@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.UserId
+import app.splitevenly.data.remote.supabase.HydrationTracker
+import app.splitevenly.data.remote.supabase.ListReadiness
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.NewGroup
@@ -32,6 +34,7 @@ class HomeViewModel(
     private val groups: GroupRepository,
     private val expenses: ExpenseRepository,
     private val auth: AuthSession,
+    private val hydration: HydrationTracker,
 ) : ViewModel() {
     val state: StateFlow<HomeUiState> =
         auth.currentUserId
@@ -43,18 +46,18 @@ class HomeViewModel(
                         cardsFlow(uid, archived = false),
                         cardsFlow(uid, archived = true),
                         groups.observeDeletedGroups(uid),
-                    ) { active, archived, deleted ->
-                        // A group in Recently deleted does NOT keep Home out of its Empty state. Someone
-                        // whose only group was deleted should get the welcome screen and a way forward,
-                        // not an otherwise blank page with a trash row on it.
-                        if (active.isEmpty() && archived.isEmpty()) {
-                            HomeUiState.Empty
-                        } else {
-                            HomeUiState.Content(active = active, archived = archived, deletedCount = deleted.size)
-                        }
+                        hydration.observeUserReadiness(uid.value),
+                    ) { active, archived, deleted, readiness ->
+                        homeState(active, archived, deleted.size, readiness)
                     }
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState.Loading)
+
+    /** Re-runs the full sync after a failed first pull. */
+    fun retry() {
+        val uid = auth.currentUserId.value ?: return
+        viewModelScope.launch { hydration.retry(uid.value) }
+    }
 
     /** Live cards for the user's active (or archived) groups, each rolled up from its members + balances. */
     private fun cardsFlow(
@@ -157,3 +160,28 @@ private fun Group.toCard(
                 else -> "All settled up"
             },
     )
+
+/**
+ * Home's state from what Room holds plus whether the first pull has landed. Local rows always win so
+ * offline-first content never waits on the network; only an empty Room consults [readiness].
+ *
+ * A group in Recently deleted does NOT keep Home out of its Empty state. Someone whose only group was
+ * deleted should get the welcome screen and a way forward, not a blank page with a trash row on it.
+ */
+internal fun homeState(
+    active: List<GroupCardUi>,
+    archived: List<GroupCardUi>,
+    deletedCount: Int,
+    readiness: ListReadiness,
+): HomeUiState =
+    when {
+        active.isNotEmpty() || archived.isNotEmpty() ->
+            HomeUiState.Content(active = active, archived = archived, deletedCount = deletedCount)
+
+        else ->
+            when (readiness) {
+                ListReadiness.Ready -> HomeUiState.Empty
+                ListReadiness.Waiting -> HomeUiState.Loading
+                is ListReadiness.Failed -> HomeUiState.Failed(readiness.offline)
+            }
+    }

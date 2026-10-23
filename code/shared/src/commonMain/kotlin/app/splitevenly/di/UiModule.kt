@@ -3,23 +3,18 @@ package app.splitevenly.di
 import app.splitevenly.data.auth.StubAuthSession
 import app.splitevenly.data.auth.SupabaseAuthSession
 import app.splitevenly.data.db.EvenlyDatabase
-import app.splitevenly.data.remote.revenuecat.HttpPassActivationGateway
-import app.splitevenly.data.remote.revenuecat.HttpSubscriberSyncGateway
-import app.splitevenly.data.remote.revenuecat.PassActivationGateway
-import app.splitevenly.data.remote.revenuecat.SubscriberSyncGateway
 import app.splitevenly.data.remote.supabase.FeedbackHttp
+import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.JoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.PlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.PushController
 import app.splitevenly.data.remote.supabase.ReceiptStorage
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
-import app.splitevenly.data.remote.supabase.ScanUsageGateway
 import app.splitevenly.data.remote.supabase.SupabaseConfig
 import app.splitevenly.data.remote.supabase.SupabaseJoinItemPortionGateway
 import app.splitevenly.data.remote.supabase.SupabasePlaceholderClaimGateway
 import app.splitevenly.data.remote.supabase.SupabaseReceiptStorage
 import app.splitevenly.data.remote.supabase.SupabaseRemoteGroupGateway
-import app.splitevenly.data.remote.supabase.SupabaseScanUsageGateway
 import app.splitevenly.data.remote.supabase.SupabaseWebBillLinkGateway
 import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.remote.supabase.SyncManager
@@ -30,7 +25,6 @@ import app.splitevenly.data.upload.AccessTokenProvider
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.feedback.FeedbackSubmitter
-import app.splitevenly.domain.pro.ProBilling
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.EvAnalytics
@@ -55,7 +49,8 @@ val authModule =
     module {
         if (SupabaseConfig.isConfigured) {
             single { createEvenlySupabaseClient() }
-            single { SyncEngine(get<SupabaseClient>(), get<EvenlyDatabase>()) }
+            single { HydrationTracker() }
+            single { SyncEngine(get<SupabaseClient>(), get<EvenlyDatabase>(), get<HydrationTracker>()) }
             // Live sync driver (F7): push-on-write + Realtime pull + periodic safety net.
             single { SyncManager(get<SupabaseClient>(), get<SyncEngine>(), get<EvenlyDatabase>()) }
             // Push registration + delivery glue (F7): needs the platform PushService (from platformModule).
@@ -70,7 +65,6 @@ val authModule =
                     get<AppForeground>(),
                     analytics = getOrNull<EvAnalytics>(),
                     httpClient = get<HttpClient>(),
-                    proBilling = get<ProBilling>(),
                     signOutWipeDao = get<EvenlyDatabase>().signOutWipeDao(),
                     secureStorage = get<SecureStorage>(),
                 )
@@ -117,16 +111,10 @@ val authModule =
             // The payer's bill-link lifecycle (WEB_CLAIM_SPEC.md §3.9.3). Reaches `web_bill_links` only via
             // security-definer RPCs, so `token_hash` never becomes readable through a table policy.
             single<WebBillLinkGateway> { SupabaseWebBillLinkGateway(get<SupabaseClient>()) }
-            // The free-scan meter's read path. Unbound offline, where the meter simply doesn't appear:
-            // a group's total can't be counted locally, and guessing it would put a wrong number on screen.
-            single<ScanUsageGateway> { SupabaseScanUsageGateway(get<SupabaseClient>()) }
-            // Evenly Pro's two server calls (PRO_PASS_SPEC.md §6.1/§6.2). Bound only with Supabase, because
-            // both are edge functions authenticated as the user; without them a purchase is never started
-            // rather than started and silently lost.
-            single<PassActivationGateway> { HttpPassActivationGateway(get<HttpClient>(), accessTokenProvider = getOrNull()) }
-            single<SubscriberSyncGateway> { HttpSubscriberSyncGateway(get<HttpClient>(), accessTokenProvider = getOrNull()) }
         } else {
             single<AuthSession> { StubAuthSession(get()) }
+            // No server, so nothing to wait for: lists may claim "empty" straight away.
+            single { HydrationTracker(assumeHydrated = true) }
         }
     }
 

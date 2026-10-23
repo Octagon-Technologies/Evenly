@@ -45,9 +45,9 @@ import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvDot
+import app.splitevenly.ui.components.EvEmptyState
 import app.splitevenly.ui.components.EvSectionLabel
 import app.splitevenly.ui.components.EvSheetScaffold
-import app.splitevenly.ui.components.EvSkeletonRow
 import app.splitevenly.ui.components.groupIconLabel
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
@@ -69,7 +69,13 @@ data class GroupCardUi(
 enum class GroupBalanceStatus { Owe, Owed, Settled, Empty }
 
 sealed interface HomeUiState {
+    /** First pull not landed yet: render a blank page, never "No groups". */
     data object Loading : HomeUiState
+
+    /** Nothing local and the first pull failed; [offline] picks the copy. */
+    data class Failed(
+        val offline: Boolean,
+    ) : HomeUiState
 
     data object Empty : HomeUiState
 
@@ -104,8 +110,10 @@ fun HomeScreen(
      */
     deletedAlert: String? = null,
     onOpenSettings: () -> Unit = {},
+    onRetry: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     var showActions by remember { mutableStateOf(false) }
     val isContent = state is HomeUiState.Content || state is HomeUiState.Loading
 
@@ -121,9 +129,7 @@ fun HomeScreen(
             Text(
                 text = if (isContent) "Your Groups" else "Evenly",
                 modifier = Modifier.weight(1f),
-                color = c.ink,
-                fontSize = 28.sp,
-                fontWeight = if (isContent) FontWeight.ExtraBold else FontWeight.Bold,
+                style = t.pageTitle.copy(fontWeight = if (isContent) FontWeight.ExtraBold else FontWeight.Bold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -131,8 +137,21 @@ fun HomeScreen(
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (state) {
-                HomeUiState.Loading -> {
-                    Column(Modifier.padding(top = 8.dp)) { repeat(3) { EvSkeletonRow() } }
+                // Deliberately blank: most accounts are empty, so a skeleton would flash and then vanish.
+                HomeUiState.Loading -> {}
+
+                is HomeUiState.Failed -> {
+                    EvEmptyState(
+                        title = "Couldn't load your groups",
+                        text =
+                            if (state.offline) {
+                                "You seem to be offline. Your groups are safe and will show up once you're connected."
+                            } else {
+                                "Something went wrong on our side. Your groups are safe."
+                            },
+                        ctaText = "Try again",
+                        onCta = onRetry,
+                    )
                 }
 
                 HomeUiState.Empty -> {
@@ -218,6 +237,7 @@ private fun HomeWelcome(
     onJoin: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -233,13 +253,11 @@ private fun HomeWelcome(
             EvIcon(EvIcons.Users, size = 44.dp, tint = c.onAccent)
         }
         Spacer(Modifier.height(24.dp))
-        Text("Start your first group", color = c.ink, fontSize = 21.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text("Start your first group", style = t.screenTitle, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
             "Split costs and settle up with friends, no spreadsheets.",
-            color = c.ink2,
-            fontSize = 14.sp,
-            lineHeight = 21.sp,
+            style = t.description,
             textAlign = TextAlign.Center,
             modifier = Modifier.widthIn(max = 260.dp),
         )
@@ -273,6 +291,7 @@ private fun ActionRow(
     onClick: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     Row(
         Modifier
             .fillMaxWidth()
@@ -286,8 +305,8 @@ private fun ActionRow(
             EvIcon(icon, size = 22.dp, tint = c.blueText)
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text(sub, color = c.ink2, fontSize = 13.sp)
+            Text(title, style = t.itemTitle)
+            Text(sub, style = t.description)
         }
         EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink3)
     }
@@ -304,6 +323,7 @@ private fun CreateOrJoinBar(
     modifier: Modifier = Modifier,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     val shape = RoundedCornerShape(26.dp)
     Row(
         modifier
@@ -319,7 +339,7 @@ private fun CreateOrJoinBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         EvIcon(EvIcons.Plus, size = 20.dp, tint = c.onAccent)
-        Text("Create or Join Group", color = c.onAccent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text("Create or Join Group", style = t.button.copy(color = c.onAccent, fontWeight = FontWeight.Bold))
     }
 }
 
@@ -334,11 +354,12 @@ private fun ShelfRow(
     onClick: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     EvCard(fill = true, bordered = true, padded = true, onClick = onClick) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 EvIcon(icon, size = 18.dp, tint = c.ink2)
-                Text(label, color = c.ink2, fontWeight = FontWeight.SemiBold)
+                Text(label, style = t.fieldLabel)
             }
             EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink3)
         }
@@ -354,6 +375,7 @@ fun GroupRow(
     archived: Boolean = false,
 ) {
     val c = EvenlyTheme.colors
+    val t = EvenlyTheme.text
     Row(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -366,9 +388,7 @@ fun GroupRow(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     g.name,
-                    color = c.ink,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    style = t.itemTitle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -376,8 +396,7 @@ fun GroupRow(
             }
             Text(
                 "${g.members} ${if (g.members == 1) "member" else "members"} · ${g.last}",
-                color = c.ink2,
-                fontSize = 13.sp,
+                style = t.description,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -398,14 +417,12 @@ fun GroupRow(
 
             else -> {
                 // Group-level balance, color-coded: you owe → blue (the action); you're owed / in credit →
-                // amber (money coming back to you — draws attention without red's "you did wrong").
+                // green (money coming back to you, matching settled balances).
                 val owed = g.status == GroupBalanceStatus.Owed
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         if (owed) "you're owed" else "you owe",
-                        color = if (owed) c.credit else c.owe,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        style = t.chip.copy(color = if (owed) c.settled else c.owe),
                     )
                     EvChip(money(g.amount ?: 0.0), variant = if (owed) ChipVariant.Owed else ChipVariant.Owe, mono = true)
                 }

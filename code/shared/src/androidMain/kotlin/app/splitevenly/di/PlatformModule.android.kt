@@ -4,6 +4,7 @@ import app.splitevenly.data.db.getRoomDatabase
 import app.splitevenly.data.db.evenlyDatabaseBuilder
 import app.splitevenly.data.remote.installEvenlyDefaults
 import app.splitevenly.platform.AppleSignIn
+import app.splitevenly.platform.CameraPermission
 import app.splitevenly.platform.ConnectivityObserver
 import app.splitevenly.platform.CurrentActivity
 import app.splitevenly.platform.FilePicker
@@ -15,7 +16,6 @@ import app.splitevenly.platform.PushService
 import app.splitevenly.platform.ReceiptFileStore
 import app.splitevenly.platform.ReceiptUploadScheduler
 import app.splitevenly.platform.EvAnalytics
-import app.splitevenly.platform.FeatureFlags
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.platform.UrlOpener
 import io.ktor.client.HttpClient
@@ -29,11 +29,8 @@ actual fun platformModule(): Module = module {
     single { HttpClient(OkHttp) { installEvenlyDefaults() } }
 
     // Platform abstractions (06 §5). Android actuals need a Context / the foreground Activity.
-    // One instance, two interfaces: PostHog is both what we measure with and what we vary with, and a
-    // second instance would hold a second copy of the flag cache.
     single { PostHogAnalytics() }
     single<EvAnalytics> { get<PostHogAnalytics>() }
-    single<FeatureFlags> { get<PostHogAnalytics>() }
     single { SecureStorage(androidContext()) }
     single { ConnectivityObserver(androidContext()) }
     single { UrlOpener(androidContext()) }
@@ -42,6 +39,7 @@ actual fun platformModule(): Module = module {
     single { FilePicker { CurrentActivity.get() } }
     single { AppleSignIn() }
     single { NotificationPermission { CurrentActivity.get() } }
+    single { CameraPermission() }
     single { ImageProcessor() }
     single { ReceiptFileStore(androidContext()) }
     single { ReceiptUploadScheduler(androidContext()) }

@@ -13,11 +13,12 @@ import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
+import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.localHour
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.core.time.todayUtc
-import app.splitevenly.data.remote.supabase.SyncEngine
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.activity.HistoryEvent
@@ -33,19 +34,17 @@ import app.splitevenly.domain.expense.NewExpense
 import app.splitevenly.domain.expense.NewShare
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.expense.TipSplitMode
-import app.splitevenly.domain.pro.ProBilling
-import app.splitevenly.domain.pro.scanMeterFor
-import app.splitevenly.domain.pro.scansExhausted
 import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
+import app.splitevenly.domain.receipt.printedHourOf
+import app.splitevenly.domain.receipt.suggestBillTitle
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
-import app.splitevenly.domain.repository.ProRepository
 import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.platform.AnalyticsEvents
@@ -55,7 +54,6 @@ import app.splitevenly.platform.PdfRasterizer
 import app.splitevenly.platform.PickKind
 import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
-import app.splitevenly.platform.ProTriggers
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.ScanErrorKind
@@ -115,8 +113,8 @@ fun AddExpenseRoute(
     val categoriesRepo = koinInject<CategoryRepository>()
     val auth = koinInject<AuthSession>()
     val filePicker = koinInject<FilePicker>()
+    val cameraGate = rememberCameraPermissionGate()
     val ocr = koinInject<ReceiptOcr>()
-    val pro = koinInject<ProRepository>()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build —
     // and when it's null we hide the receipt strip entirely rather than offer an attach that goes nowhere.
     val koin = getKoin()
@@ -130,6 +128,7 @@ fun AddExpenseRoute(
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
     // Picked before the expense exists: compressed and written to the sandbox straight away so the editor
     // can show the real image, then attached to the new expense id on save.
     var pickedReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
@@ -139,20 +138,6 @@ fun AddExpenseRoute(
     var scanFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
     var billReceipts by remember { mutableStateOf<List<StagedReceipt>>(emptyList()) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
-    // Evenly Pro: the free-scan meter under the scan hero (PRO_PASS_SPEC.md §8.1). Refreshed when the
-    // editor opens and again after every scan attempt, since a successful scan is what moves the count.
-    val proState by remember(gid) { pro.observe(gid.value) }.collectAsStateWithLifecycle(null)
-    LaunchedEffect(gid) { pro.refresh(gid.value) }
-    val scanMeter = proState?.let { scanMeterFor(it.status, it.freeUsed, it.freeLimit) }
-    // Refuse the scan tap before the file picker rather than after the upload (PRO_PASS_SPEC.md §8.1).
-    val scanBlocked = proState?.let { scansExhausted(it.status, it.freeUsed, it.freeLimit) } == true
-    // Only reads the SERVER's pass row, so this fires once `activate-pass` has been pulled down: the
-    // buyer's refusal sheet clears itself instead of standing there over a group that is now Pro.
-    LaunchedEffect(scanBlocked) {
-        if (!scanBlocked && (scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
-            scanState = ScanUiState.Idle
-        }
-    }
     // Scan-funnel analytics bookkeeping: the source of the in-flight scan (for scan_started/scan_cancelled)
     // and its start time (for duration_ms). Neither is user-facing state, just event properties.
     var scanSource by remember { mutableStateOf<PickSource?>(null) }
@@ -163,6 +148,7 @@ fun AddExpenseRoute(
     // system back and swipe-back leave without ever reaching onBack — clean up on dispose instead, or an
     // abandoned pick sits in the sandbox forever.
     var attached by remember { mutableStateOf(false) }
+    val deferred = remember { DeferredRemovals() }
     DisposableEffect(Unit) {
         onDispose { if (!attached) uploadManager?.discardStagedDetached(pickedReceipts + billReceipts) }
     }
@@ -226,15 +212,7 @@ fun AddExpenseRoute(
                                 AnalyticsEvents.SCAN_BLOCKED,
                                 mapOf("reason" to outcome.reason, "group_id" to gid.value),
                             )
-                            // The group is out of free scans and holds no pass, which no amount of waiting
-                            // fixes. Every other Blocked reason (the hourly rate limit today) does.
-                            val blockedKind =
-                                if (outcome.reason == "quota_exhausted") {
-                                    ScanErrorKind.OutOfScans
-                                } else {
-                                    ScanErrorKind.Blocked
-                                }
-                            ScanUiState.Failed(blockedKind)
+                            ScanUiState.Failed(ScanErrorKind.Blocked)
                         }
 
                         else -> {
@@ -258,37 +236,10 @@ fun AddExpenseRoute(
                             ScanUiState.Failed(kind)
                         }
                     }
-                // A successful scan is what moves the count, so re-read it rather than decrementing
-                // locally: the server is the only place that knows what actually counted. That refreshed
-                // number is also the only honest source for `free_scan_used` (PRO_PASS_SPEC.md §12) —
-                // computing it from the pre-scan value would report a scan the server may not have counted.
-                pro.refresh(gid.value)?.let { count ->
-                    analytics?.capture(
-                        AnalyticsEvents.FREE_SCAN_USED,
-                        mapOf(
-                            "group_id" to gid.value,
-                            "scans_used" to count.used,
-                            "scans_remaining" to count.remaining,
-                        ),
-                    )
-                }
             }
     }
 
-    // Both Pro doors open IN PLACE (PRO_PASS_SPEC.md §8.1). The person is mid-expense, and a push
-    // disposes this editor underneath, which would lose the draft — so the pass sheet and the
-    // subscription paywall are hosted over it rather than navigated to.
-    val proBilling = koinInject<ProBilling>()
-    var showPassSheet by remember { mutableStateOf(false) }
-    var showPaywall by remember { mutableStateOf(false) }
-    // Absent in the offline/unconfigured build, same optional-dep pattern as uploadManager above.
-    val syncEngine = remember(koin) { koin.getOrNull<SyncEngine>() }
-
     AddExpenseScreen(
-        groupName = group?.name,
-        onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
-        scanBlocked = scanBlocked,
-        onSeeSubscription = if (proBilling.isAvailable) ({ showPaywall = true }) else null,
         participants = participants,
         categories = categories,
         currencyCode = currency,
@@ -296,29 +247,29 @@ fun AddExpenseRoute(
         lastExpenseParticipantIds = lastExpenseParticipantIds,
         receipts = pickedReceipts.map { it.toUi() },
         receiptsEnabled = uploadManager != null,
-        scanMeter = scanMeter,
         scanState = scanState,
         scanned = scanned,
+        notice = notice,
+        onDismissNotice = { notice = null },
         attachedReceipts = billReceipts.map { it.toUi() },
         onRemoveAttachedReceipt = { i ->
-            val dropped = billReceipts.getOrNull(i)
-            billReceipts = billReceipts.filterIndexed { idx, _ -> idx != i }
-            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+            removeStaged({ billReceipts }, i, deferred, uploadManager) { billReceipts = it }
         },
         loadPdfPageCount = stagedPdf.pageCount,
         renderPdfPage = stagedPdf.renderPage,
         onBack = onBack,
-        onScanReceipt = { source ->
-            // Fires before any cost is incurred — even if the user backs out of the file picker next.
-            analytics?.capture(
-                AnalyticsEvents.SCAN_SOURCE_CHOSEN,
-                mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
-            )
-            scope.launch {
-                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
-            }
-        },
+        onScanReceipt =
+            cameraGate.wrap { source ->
+                // Fires before any cost is incurred — even if the user backs out of the file picker next.
+                analytics?.capture(
+                    AnalyticsEvents.SCAN_SOURCE_CHOSEN,
+                    mapOf("source" to source.name.lowercase(), "group_id" to gid.value),
+                )
+                scope.launch {
+                    val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                    runScan((picked as? AppResult.Ok)?.value.orEmpty(), source)
+                }
+            },
         onCancelScan = {
             if (scanState is ScanUiState.Working) {
                 analytics?.capture(
@@ -334,14 +285,7 @@ fun AddExpenseRoute(
             scanState = ScanUiState.Idle
         },
         onRetryScan = { scanSource?.let { runScan(scanFiles, it) } },
-        onDismissScan = {
-            // The honest counterpart to conversion rate: how many people the gate pushed onto the slow
-            // path. Only fired for the quota refusal, never for an offline or unreadable-photo dismissal.
-            if ((scanState as? ScanUiState.Failed)?.kind == ScanErrorKind.OutOfScans) {
-                analytics?.capture(AnalyticsEvents.MANUAL_ENTRY_AFTER_PAYWALL, mapOf("group_id" to gid.value))
-            }
-            scanState = ScanUiState.Idle
-        },
+        onDismissScan = { scanState = ScanUiState.Idle },
         onSplitApproachChosen = { approach ->
             analytics?.capture(
                 AnalyticsEvents.SPLIT_APPROACH_CHOSEN,
@@ -349,17 +293,16 @@ fun AddExpenseRoute(
             )
         },
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
-        onPickReceipt = { source ->
-            scope.launch {
-                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
-                if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + uploadManager?.stage(picked.value).orEmpty()
-            }
-        },
+        onPickReceipt =
+            cameraGate.wrap { source ->
+                scope.launch {
+                    val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                    // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
+                    if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + uploadManager?.stage(picked.value).orEmpty()
+                }
+            },
         onRemoveReceipt = { i ->
-            val dropped = pickedReceipts.getOrNull(i)
-            pickedReceipts = pickedReceipts.filterIndexed { idx, _ -> idx != i }
-            dropped?.let { scope.launch { uploadManager?.discardStaged(listOf(it)) } }
+            removeStaged({ pickedReceipts }, i, deferred, uploadManager) { pickedReceipts = it }
         },
         onSave = { submit ->
             val me = userId
@@ -415,6 +358,7 @@ fun AddExpenseRoute(
         onSaveItemized = { submit ->
             val me = userId ?: return@AddExpenseScreen
             saving = true
+            notice = null
             scope.launch {
                 val extras =
                     BillExtrasInput(
@@ -458,52 +402,23 @@ fun AddExpenseRoute(
 
                     is AppResult.Err -> {
                         saving = false
+                        notice = "Couldn't save the bill. Nothing was lost, so tap Save & continue to try again."
                     }
                 }
             }
         },
     )
 
-    if (showPassSheet) {
-        PassSheetHost(
-            groupId = gid.value,
-            groupName = group?.name ?: "this group",
-            trigger = ProTriggers.SCAN,
-            // The subscription link used to be null here, because reaching the paywall meant a push and
-            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
-            // real and the half-typed expense is still there when it closes.
-            onSeeSubscription = {
-                showPassSheet = false
-                showPaywall = true
-            },
-            onDismiss = { showPassSheet = false },
-        )
-    }
-
-    if (showPaywall) {
-        ProPaywallHost(
-            trigger = ProTriggers.SCAN,
-            onWantsPass = {
-                showPaywall = false
-                showPassSheet = true
-            },
-            onDismiss = {
-                showPaywall = false
-                // A subscription lands server-side too (`sync-subscriber`), and `user_subscriptions` is
-                // pull-only, so the gate only reopens once that row is here.
-                scope.launch {
-                    userId?.let { uid -> syncEngine?.syncNow(uid.value) }
-                    pro.refresh(gid.value)
-                }
-            },
-        )
-    }
+    // Last, so the gate lands over the screen rather than under it.
+    CameraPermissionGateHost(cameraGate)
 }
 
 /** OCR draft → the itemized editor's initial items + extras (never a name — the shared header owns that). */
+@OptIn(ExperimentalTime::class)
 private fun ReceiptDraft.toAddEditState(): EditBillState =
     EditBillState(
-        title = "",
+        // A suggestion only: the screen applies it when the user has not typed a name yet.
+        title = suggestBillTitle(merchantName, venueKind, printedHourOf(printedTime), Clock.System.localHour()).orEmpty(),
         items =
             items
                 .map { editBillItemUi(null, it.label, it.quantity, it.lineTotalSubunits) }
@@ -539,6 +454,8 @@ fun EditExpenseRoute(
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
+    val cameraGate = rememberCameraPermissionGate()
+    val receipts = rememberEditExpenseReceipts(eid, gid)
 
     val ews = detail
     if (ews == null) {
@@ -569,16 +486,7 @@ fun EditExpenseRoute(
             )
         }
 
-    // Both Pro doors open IN PLACE (PRO_PASS_SPEC.md §8.1): a push disposes this editor underneath and
-    // would take the in-progress edit with it.
-    val proBilling = koinInject<ProBilling>()
-    var showPassSheet by remember { mutableStateOf(false) }
-    var showPaywall by remember { mutableStateOf(false) }
-
     AddExpenseScreen(
-        groupName = group?.name,
-        onGetPro = if (proBilling.isAvailable) ({ showPassSheet = true }) else null,
-        onSeeSubscription = if (proBilling.isAvailable) ({ showPaywall = true }) else null,
         editing = true,
         participants = participants,
         categories = categories,
@@ -587,6 +495,12 @@ fun EditExpenseRoute(
         notice = notice,
         onDismissNotice = { notice = null },
         prefill = prefill,
+        receipts = receipts.ui,
+        receiptsEnabled = receipts.enabled,
+        onPickReceipt = cameraGate.wrap(receipts.pick),
+        onRemoveReceipt = receipts.remove,
+        loadPdfPageCount = receipts.loadPdfPageCount,
+        renderPdfPage = receipts.renderPdfPage,
         onBack = onBack,
         onAddPlaceholder = { name -> scope.launch { groups.addPlaceholder(gid, name, createdBy = userId) } },
         onSave = { submit ->
@@ -620,6 +534,7 @@ fun EditExpenseRoute(
                         )
                     when (val saved = expenses.editExpense(eid, input)) {
                         is AppResult.Ok -> {
+                            receipts.attachOnSave()
                             onSaved()
                         }
 
@@ -642,38 +557,12 @@ fun EditExpenseRoute(
             }
         },
     )
-
-    if (showPassSheet) {
-        PassSheetHost(
-            groupId = gid.value,
-            groupName = group?.name ?: "this group",
-            trigger = ProTriggers.SCAN,
-            // The subscription link used to be null here, because reaching the paywall meant a push and
-            // a push loses the draft. ProPaywallHost renders it over this editor instead, so the link is
-            // real and the half-typed expense is still there when it closes.
-            onSeeSubscription = {
-                showPassSheet = false
-                showPaywall = true
-            },
-            onDismiss = { showPassSheet = false },
-        )
-    }
-
-    if (showPaywall) {
-        ProPaywallHost(
-            trigger = ProTriggers.SCAN,
-            onWantsPass = {
-                showPaywall = false
-                showPassSheet = true
-            },
-            onDismiss = { showPaywall = false },
-        )
-    }
+    CameraPermissionGateHost(cameraGate)
 }
 
 /**
  * Expense detail, wired: streams the expense + its shares into the read-only detail screen, plus the
- * F5 activity layer — comment thread, receipt strip (pick → compress → upload), and the history feed.
+ * F5 activity layer — comment thread, saved receipts, and the history feed.
  */
 @OptIn(ExperimentalTime::class)
 @Composable
@@ -682,10 +571,11 @@ fun ExpenseDetailRoute(
     expenseId: String,
     onBack: () -> Unit,
     onEdit: () -> Unit = {},
-    // Where "Edit" goes for an ITEMIZED bill — the live claim screen, not the percent/exact/even editor
-    // (which is meaningless when the split is derived from items). Wired to Route.ClaimBill.
+    // Where "Pick your items" / "Change picks" goes for an ITEMIZED bill: the assign screen (Route.ClaimBill).
     onOpenClaim: () -> Unit = {},
-    // The itemized bill's menu/items/extras editor (Route.SplitBill) — surfaced as the ⋯ "Edit bill" row.
+    // The bill's QR / share-link sheet (Route.ShareBillLink).
+    onShareItems: () -> Unit = {},
+    // The itemized bill's menu/items/extras editor (Route.SplitBill), surfaced as the top-bar "Edit".
     onEditBill: () -> Unit = {},
     onDeleted: () -> Unit = {},
 ) {
@@ -694,7 +584,6 @@ fun ExpenseDetailRoute(
     val settlements = koinInject<SettlementRepository>()
     val auth = koinInject<AuthSession>()
     val activity = koinInject<ActivityRepository>()
-    val filePicker = koinInject<FilePicker>()
     // Resilient upload pipeline (D-22). Bound only when Supabase is configured; null on the offline build.
     val koin = getKoin()
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
@@ -746,6 +635,7 @@ fun ExpenseDetailRoute(
     // yet anyone's. Surface that gap as an explicit "Unclaimed" row so the split still sums to the total —
     // e.g. of 5 diners, if only Andrew + Bob have claimed, the detail shows Andrew, Bob, then Unclaimed.
     val isItemized = e.splitMode == SPLIT_MODE_ITEMIZED
+    val billPick = rememberBillPick(eid, isItemized, userId)
     val unclaimedSubunits = if (isItemized) (e.amountSubunits - ews.shares.sumOf { it.owedSubunits }).coerceAtLeast(0L) else 0L
     val rows =
         ews.shares.map { s ->
@@ -814,7 +704,7 @@ fun ExpenseDetailRoute(
         amountSubunits = e.amountSubunits,
         remainingSubunits = ews.shares.sumOf { it.remainingSubunits } + unclaimedSubunits,
         currencyCode = e.currency,
-        splitLabel = if (isItemized) "Split by items · ${ews.shares.size} claimed" else "Split between ${ews.shares.size} · ${e.splitMode.lowercase()}",
+        splitLabel = if (isItemized) "What each person owes" else "Split between ${ews.shares.size} · ${e.splitMode.lowercase()}",
         splitRows = rows,
         payments = paymentUi,
         receipts = receiptUi,
@@ -830,18 +720,9 @@ fun ExpenseDetailRoute(
                 scope.launch { activity.postComment(eid, gid, body) }
             }
         },
-        onPickReceipts = { source ->
-            // Pick (possibly many) → hand to the durable outbox. The manager compresses, persists to disk,
-            // and the background uploader carries them up; the UI reacts to the outbox, not to this call.
-            scope.launch {
-                val picked = filePicker.pick(source, PickKind.ImageOrPdf)
-                if (picked is AppResult.Ok && picked.value.isNotEmpty()) {
-                    uploadManager?.enqueue(eid, gid, picked.value)
-                }
-            }
-        },
         onRetryUpload = { id -> scope.launch { uploadManager?.retry(id) } },
         onCancelUpload = { id -> scope.launch { uploadManager?.cancel(id) } },
+        onDeleteReceipt = { id -> scope.launch { activity.deleteReceipt(ReceiptId(id)) } },
         loadPdfPageCount = { url -> getPdfBytes(url)?.let { rasterizer.pageCount(it) } ?: 0 },
         renderPdfPage = { url, page, w -> getPdfBytes(url)?.let { rasterizer.renderPage(it, page, w) } },
         onBack = onBack,
@@ -849,9 +730,12 @@ fun ExpenseDetailRoute(
         onEditPayment = { id, amount -> scope.launch { settlements.editSettlement(SettlementId(id), amount, userId) } },
         onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
         // A plain expense edits via the percent/exact/even editor. An itemized bill splits two ways: the
-        // ⋯ "Edit bill" opens the menu/items editor, and the prominent button below opens the claim screen.
+        // summary-card "Edit bill" action opens the menu/items editor, and the prominent button below opens
+        // the claim screen.
         onEdit = onEdit,
         onClaimItems = if (isItemized) onOpenClaim else null,
+        billPick = billPick,
+        onShareItems = onShareItems,
         onEditBill = if (isItemized) onEditBill else null,
         supersededNotice = supersededNotice,
         onDismissSupersededNotice = { scope.launch { expenses.dismissSupersededNotice(eid) } },
