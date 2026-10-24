@@ -365,13 +365,20 @@ fun EvSegmented(
                         .weight(1f)
                         .height(38.dp)
                         .clip(RoundedCornerShape(9.dp))
-                        .then(if (on) Modifier.shadow(2.dp, RoundedCornerShape(9.dp)).background(c.page) else Modifier)
-                        .clickableClearingFocus { onSelect(opt) },
+                        .then(
+                            when {
+                                // Dark: the page-colored pill vanishes into the near-black page, so the
+                                // selected segment is a white chip with black text instead.
+                                on && c.isDark -> Modifier.background(Color.White)
+                                on -> Modifier.shadow(2.dp, RoundedCornerShape(9.dp)).background(c.page)
+                                else -> Modifier
+                            },
+                        ).clickableClearingFocus { onSelect(opt) },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     opt,
-                    color = if (on) c.ink else c.ink2,
+                    color = if (on && c.isDark) Color.Black else if (on) c.ink else c.ink2,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,

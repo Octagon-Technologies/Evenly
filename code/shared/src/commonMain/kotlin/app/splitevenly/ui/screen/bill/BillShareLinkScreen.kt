@@ -131,14 +131,6 @@ fun BillShareLinkScreen(
             when {
                 state.url != null && state.live -> {
                     QrPlate(state.url)
-                    Text(
-                        "QR ready",
-                        color = c.credit,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center,
-                    )
                 }
                 state.busy -> QrLoadingPlate()
                 state.revoked -> DeadLinkNote("This link is off. Create a new QR to share this bill again.")
@@ -161,27 +153,27 @@ fun BillShareLinkScreen(
                 }
             }
 
-            EvButton(
-                "Invite them to the group on Evenly",
-                onInviteToGroup,
-                variant = ButtonVariant.Text,
-                small = true,
-                enabled = !state.busy,
-            )
+//            EvButton(
+//                "Invite them to the group on Evenly",
+//                onInviteToGroup,
+//                variant = ButtonVariant.Text,
+//                small = true,
+//                enabled = !state.busy,
+//            )
 
             ScopeNote()
 
-            if (state.live) {
-                Spacer(Modifier.height(4.dp))
-                EvButton(
-                    if (confirmRevoke) "Tap again to turn it off" else "Turn the link off",
-                    onClick = { if (confirmRevoke) onRevoke() else confirmRevoke = true },
-                    variant = ButtonVariant.Danger,
-                    small = true,
-                    enabled = !state.busy,
-                )
-            }
-            Spacer(Modifier.height(24.dp))
+//            if (state.live) {
+//                Spacer(Modifier.height(4.dp))
+//                EvButton(
+//                    if (confirmRevoke) "Tap again to turn it off" else "Turn the link off",
+//                    onClick = { if (confirmRevoke) onRevoke() else confirmRevoke = true },
+//                    variant = ButtonVariant.Danger,
+//                    small = true,
+//                    enabled = !state.busy,
+//                )
+//            }
+//            Spacer(Modifier.height(24.dp))
         }
         Box(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp)) {
             EvButton("See claim progress", onSeeProgress, variant = ButtonVariant.Tonal)

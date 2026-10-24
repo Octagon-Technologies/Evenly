@@ -149,11 +149,18 @@ internal fun MembersSheet(
     val c = EvenlyTheme.colors
     EvSheetScaffold(
         onDismiss = onDismiss,
-        title = "Members · ${members.size}",
-        sub = "Anyone you add can be picked in Add expense right away.",
+        title = "Members",
+        sub = "",
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EvButton("Invite with link", onInviteWithLink, modifier = Modifier.weight(1f), leadingIcon = EvIcons.Share)
+        EvButton("Invite with link", onInviteWithLink, leadingIcon = EvIcons.Share)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+            EvButton(
+                "Show QR code",
+                onShowQr,
+                modifier = Modifier.weight(1f),
+                variant = ButtonVariant.Tonal,
+                leadingIcon = EvIcons.Qr,
+            )
             EvButton(
                 "Add by name",
                 onAddByName,
@@ -162,19 +169,6 @@ internal fun MembersSheet(
                 leadingIcon = EvIcons.Plus,
             )
         }
-        Text(
-            "Show QR code",
-            color = c.blueText,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier =
-                Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onShowQr)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-        )
         EvCard(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             members.forEachIndexed { i, m -> MemberRow(m, showDivider = i > 0) }
         }

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -176,13 +177,13 @@ private fun EvSheetCloseButton(onClose: () -> Unit) {
     val c = EvenlyTheme.colors
     Box(
         Modifier
-            .size(30.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .size(36.dp)
+            .clip(CircleShape)
             .background(c.surface)
             .clickable(onClick = onClose),
         contentAlignment = Alignment.Center,
     ) {
-        EvIcon(EvIcons.Close, size = 14.dp, tint = c.ink2)
+        EvIcon(EvIcons.Close, size = 14.dp, tint = c.ink)
     }
 }
 
