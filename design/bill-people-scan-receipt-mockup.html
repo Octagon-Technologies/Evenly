@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>People, scan, receipt</title>
+<style>
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-regular.ttf");font-weight:400}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-semibold.ttf");font-weight:600}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-bold.ttf");font-weight:700}
+  @font-face{font-family:PlexMono;src:url("system/dist/assets/ibm-plex-mono-semibold.ttf");font-weight:600}
+  :root{--blue:#3a52d6;--blueText:#7aa6ff;--page:#000;--surface:#0d1118;--surface2:#151b26;--border:#232c3b;--ink:#e7ecf3;--ink2:#9ba6b8;--ink3:#67738a}
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9edf3;color:#0b1220;font-family:Plex,system-ui,sans-serif}
+  .board{max-width:1720px;margin:auto;padding:36px 40px 60px}
+  h1{font-size:28px;letter-spacing:-.6px;margin:0 0 6px}
+  h2{font-size:18px;margin:44px 0 4px}
+  .lede{color:#536074;font-size:14px;margin:0 0 24px;max-width:900px;line-height:1.5}
+  .grid{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+  .col{width:360px}
+  .caption{min-height:112px;padding:0 4px 12px}
+  .caption b{display:block;font-size:15px}
+  .caption small b{display:inline;font-size:inherit}
+  .caption small{display:block;color:#536074;font-size:12.5px;line-height:1.45;margin-top:4px}
+  .tag{display:inline-block;font:600 10px PlexMono;padding:3px 6px;border-radius:5px;margin-right:6px;vertical-align:1px}
+  .tag.now{background:#fde8e8;color:#9b1c1c}.tag.rec{background:#e9f8f0;color:#147a48}.tag.alt{background:#eef1f8;color:#536074}
+  .phone{width:360px;height:740px;background:var(--page);color:var(--ink);border:9px solid #17191d;border-radius:46px;box-shadow:0 18px 42px rgba(13,22,39,.18);position:relative;overflow:hidden}
+  .island{position:absolute;z-index:20;top:10px;left:50%;transform:translateX(-50%);width:104px;height:28px;border-radius:20px;background:#1a1b1f}
+  .status{height:46px;padding:16px 24px 0;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
+  .top{display:flex;gap:12px;padding:6px 16px 8px}
+  .top .back{font-size:22px;color:var(--ink);line-height:1.2}
+  .top b{display:block;font-size:19px}
+  .top small{display:block;color:var(--ink2);font-size:11.5px;margin-top:2px}
+  .body{padding:0 14px}
+  .prog{font-size:13px;font-weight:700;margin:6px 2px 8px}
+  .bar{height:5px;border-radius:9px;background:var(--blue);margin-bottom:12px}
+  .sec{display:flex;justify-content:space-between;color:var(--ink2);font-size:11px;font-weight:700;letter-spacing:.08em;margin:12px 4px 7px}
+  .card{border:1px solid var(--border);background:var(--surface);border-radius:14px;padding:12px 12px;margin-bottom:8px}
+  .card.open{border:1.5px solid var(--blue)}
+  .head{display:flex;align-items:center;gap:10px}
+  .num{width:24px;height:24px;border-radius:50%;background:var(--blue);display:grid;place-items:center;font-size:12px;color:#fff;flex:none}
+  .grow{flex:1;min-width:0}
+  .grow b{display:block;font-size:14px}
+  .grow small{display:block;color:var(--ink2);font-size:12px;margin-top:2px}
+  .money{font:600 14px PlexMono,ui-monospace,Menlo,monospace}
+  .chev{color:var(--ink3);font-size:12px;margin-left:6px}
+  .q{color:var(--ink2);font-size:12px;font-weight:600;margin:12px 0 8px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{height:36px;border-radius:99px;padding:0 12px 0 5px;display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;background:var(--blue);color:#fff}
+  .chip .av{width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:10px}
+  .chip.off{background:var(--surface2);color:var(--ink);border:1px solid var(--border)}
+  .chip.add{background:transparent;border:1px solid var(--border);color:var(--ink2);padding:0 13px;font-weight:500}
+  .chip.add.hl{border-color:var(--blueText);color:var(--blueText);box-shadow:0 0 0 3px rgba(122,166,255,.18)}
+  .result{display:flex;justify-content:space-between;color:var(--ink3);font-size:12px;margin-top:11px}
+  .footer{position:absolute;left:0;right:0;bottom:0;border-top:1px solid #151a22;padding:12px 14px 26px;background:#000}
+  .btn{height:46px;border-radius:12px;background:var(--blue);color:#fff;font-weight:700;font-size:15px;display:grid;place-items:center}
+  .home{position:absolute;z-index:30;width:116px;height:5px;border-radius:9px;background:#e7ecf3;bottom:8px;left:50%;transform:translateX(-50%)}
+  /* sheet */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);z-index:10}
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:11;background:#10151e;border-top:1px solid var(--border);border-radius:22px 22px 0 0;padding:8px 16px 30px}
+  .grab{width:38px;height:4px;border-radius:9px;background:#333d4e;margin:0 auto 12px}
+  .sh-title{font-size:17px;font-weight:700}
+  .sh-sub{color:var(--ink2);font-size:12px;margin:2px 0 14px}
+  .field{display:flex;align-items:center;gap:8px;height:48px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);padding:0 6px 0 12px}
+  .field.focus{border-color:var(--blueText)}
+  .field .ph{flex:1;color:var(--ink3);font-size:14.5px}
+  .field .val{flex:1;color:var(--ink);font-size:14.5px}
+  .caret{display:inline-block;width:1.5px;height:17px;background:var(--blueText);vertical-align:-3px;margin-left:1px}
+  .create{height:36px;padding:0 14px;border-radius:9px;background:var(--blue);color:#fff;font-size:13.5px;font-weight:700;display:grid;place-items:center}
+  .create.ghost{background:transparent;color:var(--ink3);border:1px solid var(--border)}
+  .plusic{width:34px;height:34px;border-radius:50%;border:1.5px dashed var(--blueText);color:var(--blueText);display:grid;place-items:center;font-size:17px;flex:none}
+  .lab{color:var(--ink2);font-size:11px;font-weight:700;letter-spacing:.08em;margin:16px 2px 6px}
+  .mrow{display:flex;align-items:center;gap:11px;padding:10px 4px;border-bottom:1px solid #1a2130;font-size:14.5px}
+  .mrow:last-child{border-bottom:0}
+  .mav{width:34px;height:34px;border-radius:50%;background:#1b2436;color:var(--blueText);display:grid;place-items:center;font-size:12px;font-weight:700;flex:none}
+  .mrow .grow small{font-size:11.5px}
+  .tick{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border);flex:none}
+  .addtxt{color:var(--blueText);font-size:13px;font-weight:700}
+  .mrow.dim{opacity:.45}
+  .hl-text{color:var(--blueText);font-weight:700}
+  .kbd{position:absolute;left:0;right:0;bottom:0;height:236px;background:#1c1f26;z-index:12;border-top:1px solid #2a2f3a;padding:10px 4px}
+  .krow{display:flex;justify-content:center;gap:5px;margin-bottom:9px}
+  .krow i{width:29px;height:38px;border-radius:6px;background:#3a3f4a;display:block}
+  .krow i.w{width:150px}.krow i.r{width:70px;background:var(--blue)}
+  .note{background:#fff;border:1px solid #dbe1ea;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.5;color:#36404f;margin-top:14px}
+  .note b{color:#0b1220}
+  .inline{display:inline-flex;align-items:center;gap:6px;height:36px;border-radius:99px;border:1.5px solid var(--blueText);padding:0 4px 0 12px;font-size:14px;width:100%}
+  .inline .val{flex:1}
+  .inline .create{height:28px;border-radius:99px;padding:0 12px;font-size:12.5px}
+  .sugg{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
+  .sugg span.l{color:var(--ink3);font-size:11.5px;margin-right:2px}
+  .sg{height:30px;border-radius:99px;border:1px dashed #3a4659;padding:0 11px;display:inline-flex;align-items:center;font-size:13px;color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #dbe1ea;border-radius:12px;overflow:hidden;margin-top:6px}
+  td,th{padding:9px 14px;border-bottom:1px solid #e6eaf0;text-align:left;vertical-align:top}
+  th{background:#f5f7fa;font-size:12px;color:#536074}
+</style>
+</head><body>
+<style>
+  .chk{width:24px;height:24px;border-radius:50%;border:1.5px solid #3a4659;flex:none;display:grid;place-items:center;font-size:13px;color:#fff}
+  .chk.on{background:var(--blue);border-color:var(--blue)}
+  .mrow.on{background:rgba(58,82,214,.12);border-radius:10px;border-bottom-color:transparent;margin-bottom:2px;padding-left:8px;padding-right:8px}
+  .pill{font-size:10.5px;font-weight:700;color:var(--blueText);background:rgba(122,166,255,.12);padding:2px 7px;border-radius:99px;margin-left:6px;vertical-align:1px}
+  .sh-foot{display:flex;align-items:center;gap:10px;margin-top:14px}
+  .sh-foot .sum{flex:1;color:var(--ink2);font-size:12.5px}
+  .sh-foot .btn{flex:none;width:120px;height:44px}
+  .fl{display:block;color:var(--ink2);font-size:12.5px;font-weight:600;margin:14px 2px 7px}
+  .box{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:11px 12px;display:flex;align-items:center;gap:10px;font-size:14px}
+  .stack{display:flex}
+  .stack span{width:28px;height:28px;border-radius:50%;background:#1b2436;color:var(--blueText);border:2px solid var(--surface);display:grid;place-items:center;font-size:10px;font-weight:700;margin-left:-8px}
+  .stack span:first-child{margin-left:0;background:var(--blue);color:#fff}
+  .edit{color:var(--blueText);font-size:13.5px;font-weight:700}
+  .inp{border:1px solid var(--border);border-radius:12px;height:44px;padding:0 12px;display:flex;align-items:center;font-size:14px}
+  .itemrow{display:flex;justify-content:space-between;padding:10px 2px;border-bottom:1px solid #1a2130;font-size:14px}
+  .itemrow .money{font-size:13.5px}
+  .rcpt{display:flex;align-items:center;gap:12px;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:9px 8px 9px 9px}
+  .thumb{width:44px;height:56px;border-radius:7px;background:linear-gradient(160deg,#e9e3d6,#cfc6b4);flex:none;position:relative;overflow:hidden}
+  .thumb::after{content:"";position:absolute;left:7px;right:7px;top:9px;height:36px;background:repeating-linear-gradient(#8b8170 0 2px,transparent 2px 7px);opacity:.55}
+  .trash{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:var(--ink2);border:1px solid var(--border);font-size:16px;flex:none}
+  .rcpt.gone{border-style:dashed;background:transparent}
+  .rcpt.gone .thumb{opacity:.3}
+  .undo{color:var(--blueText);font-size:13.5px;font-weight:700;padding:0 8px}
+  .toast{position:absolute;left:14px;right:14px;bottom:96px;background:#1c2230;border:1px solid var(--border);border-radius:12px;padding:11px 14px;display:flex;justify-content:space-between;font-size:13.5px;z-index:5}
+  .seg{display:flex;gap:8px;margin-top:8px}
+  .tile{width:56px;height:72px;border-radius:8px;position:relative}
+  .tile .thumb{width:56px;height:72px}
+  .xbadge{position:absolute;top:-8px;right:-8px;width:26px;height:26px;border-radius:50%;background:#2a3344;border:2px solid #000;display:grid;place-items:center;font-size:12px;color:#fff}
+  .banner{background:rgba(122,166,255,.08);border:1px solid rgba(122,166,255,.25);border-radius:12px;padding:10px 12px;font-size:12.5px;color:var(--ink2);line-height:1.4}
+</style>
+<div class="board">
+  <h1>People sheet, scan checkpoint, removing a receipt</h1>
+  <p class="lede">Three changes. (1) Option A as you refined it: the sheet lists the whole group, and people already on this dish are shown selected. (2) Scanning stays one tap and still moves you forward, but the screen you land on now shows who's splitting and who paid, with an Edit that opens the same people sheet. (3) An attached receipt becomes a full-width row with a real delete button, with Undo instead of a confirm dialog, in both create and edit.</p>
+
+  <h2>1. Add person sheet (option A, final)</h2>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag rec">1a</span><b>Whole group, current dish highlighted</b><small>You and Purity are already on Butter Chicken, so they're ticked, tinted and tagged "On this dish". Tapping anyone toggles them, so the sheet can remove people too. Jesse and Manu are in the group but not on this dish. Nothing changes until Done.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh-title">Who shared Butter Chicken?</div>
+          <div class="sh-sub">$24.00</div>
+          <div class="lab" style="margin-top:4px">CREATE A NEW PERSON</div>
+          <div class="field"><span class="ph">Name</span><span class="create">Create</span></div>
+          <div class="lab">ROOMMATES</div>
+          <div class="mrow on"><span class="mav">AC</span><div class="grow"><b>You<span class="pill">On this dish</span></b></div><span class="chk on">✓</span></div>
+          <div class="mrow on"><span class="mav">P</span><div class="grow"><b>Purity<span class="pill">On this dish</span></b></div><span class="chk on">✓</span></div>
+          <div class="mrow"><span class="mav">J</span><div class="grow"><b>Jesse</b></div><span class="chk"></span></div>
+          <div class="mrow"><span class="mav">M</span><div class="grow"><b>Manu</b></div><span class="chk"></span></div>
+          <div class="sh-foot"><span class="sum">Split 2 ways · $12.00 each</span><span class="btn">Done</span></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">1b</span><b>Pick a member and create a new one in the same visit</b><small>Ticking Jesse updates the footer live. Typing "John" and tapping Create adds him to the list already ticked. The footer always shows the result, so you can see the split before you commit.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh-title">Who shared Butter Chicken?</div>
+          <div class="sh-sub">$24.00</div>
+          <div class="lab" style="margin-top:4px">CREATE A NEW PERSON</div>
+          <div class="field"><span class="ph">Name</span><span class="create">Create</span></div>
+          <div class="lab">ROOMMATES</div>
+          <div class="mrow on"><span class="mav">AC</span><div class="grow"><b>You<span class="pill">On this dish</span></b></div><span class="chk on">✓</span></div>
+          <div class="mrow on"><span class="mav">P</span><div class="grow"><b>Purity<span class="pill">On this dish</span></b></div><span class="chk on">✓</span></div>
+          <div class="mrow on"><span class="mav">J</span><div class="grow"><b>Jesse</b></div><span class="chk on">✓</span></div>
+          <div class="mrow"><span class="mav">M</span><div class="grow"><b>Manu</b></div><span class="chk"></span></div>
+          <div class="lab">NEW ON THIS BILL</div>
+          <div class="mrow on"><span class="mav">J</span><div class="grow"><b>John</b><small>Not in Roommates</small></div><span class="chk on">✓</span></div>
+          <div class="sh-foot"><span class="sum">Split 4 ways · $6.00 each</span><span class="btn">Done</span></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag alt">NOTE</span><b>One sheet, three places</b><small>This sheet is built once and reused: (a) a dish on the assign screen, (b) "Who's splitting this?" on the bill, and (c) the scan checkpoint in section 2. Only the title and the footer line change between them.</small></div>
+      <div class="note" style="margin-top:0"><b>Rules</b><br>• Ticked rows sort to the top only when the sheet opens, not while you tap, so rows don't jump under your finger.<br>• Create with an exact group name ("Jesse") ticks the existing Jesse instead of making a duplicate.<br>• Deselecting everyone and tapping Done does nothing silently: the footer reads "Pick at least one person" and Done shakes.<br>• One-time split (no group): no group section, only the create row and the people already on the bill.<br>• The chip on the card reads <b>"Add person"</b>.</div>
+    </div>
+  </div>
+
+  <h2>2. Scan before picking people: keep the jump, add a checkpoint</h2>
+  <p class="lede" style="margin-bottom:18px">I wouldn't block the scan until people are picked. Scanning first is the fast path, and the bill already defaults to the whole group. The real problem is that "Review the receipt" hides who's in, and its only help is "Go back to add people". So the review screen gets a people row and a paid-by row at the top, both editable in place. You never have to go back.</p>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag now">NOW</span><b>Review the receipt</b><small>Title, items, tax, total. No people, no payer. If nobody is selected, Save shows "Pick who is splitting this. Go back to add people."</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:56</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Review the receipt</b><small>Check items and prices</small></div></div>
+        <div class="body">
+          <div class="rcpt"><span class="thumb"></span><div class="grow"><b>Receipt attached</b><small>Tap to compare with the items</small></div></div>
+          <span class="fl">Title</span><div class="inp">Lunch at Jala Indian Fine Dining</div>
+          <span class="fl">Items</span>
+          <div class="itemrow"><span>Chicken Tikka Masala</span><span class="money">$24.00</span></div>
+          <div class="itemrow"><span>24k Gold Garlic Naan</span><span class="money">$12.00</span></div>
+          <div class="itemrow"><span>Butter Chicken</span><span class="money">$24.00</span></div>
+          <div class="itemrow"><span style="color:var(--ink2)">Tax and tip</span><span class="money">$5.82</span></div>
+        </div>
+        <div class="footer"><div class="btn">Save &amp; continue</div></div><div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">2a</span><b>People and payer at the top of the review</b><small>An avatar stack plus names, with "Edit" on the right, then the payer. This is the moment the user is checking the bill anyway, so it's where they notice "wait, Manu wasn't there".</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:56</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Review the receipt</b><small>Check items, people and prices</small></div></div>
+        <div class="body">
+          <span class="fl" style="margin-top:4px">Who's splitting this?</span>
+          <div class="box"><div class="stack"><span>AC</span><span>P</span><span>J</span><span>M</span></div><div class="grow"><b style="font-size:14px">4 people</b><small>You, Purity, Jesse, Manu</small></div><span class="edit">Edit</span></div>
+          <span class="fl">Paid by</span>
+          <div class="box"><span class="mav" style="width:28px;height:28px;font-size:10px;background:var(--blue);color:#fff">AC</span><div class="grow"><b style="font-size:14px">You</b></div><span class="edit">Change</span></div>
+          <span class="fl">Title</span><div class="inp">Lunch at Jala Indian Fine Dining</div>
+          <span class="fl">Items</span>
+          <div class="itemrow"><span>Chicken Tikka Masala</span><span class="money">$24.00</span></div>
+          <div class="itemrow"><span>24k Gold Garlic Naan</span><span class="money">$12.00</span></div>
+          <div class="itemrow"><span>Butter Chicken</span><span class="money">$24.00</span></div>
+        </div>
+        <div class="footer"><div class="btn">Save &amp; continue</div></div><div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">2b</span><b>Edit opens the same people sheet</b><small>Same component as section 1, with a bill-level title. Untick Manu, Done, back on review. If nobody is picked at Save, the people row turns red and opens this sheet, instead of saying "go back".</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:56</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Review the receipt</b><small>Check items, people and prices</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh-title">Who's splitting this?</div>
+          <div class="sh-sub">Lunch at Jala Indian Fine Dining · $65.82</div>
+          <div class="lab" style="margin-top:4px">CREATE A NEW PERSON</div>
+          <div class="field"><span class="ph">Name</span><span class="create">Create</span></div>
+          <div class="lab">ROOMMATES</div>
+          <div class="mrow on"><span class="mav">AC</span><div class="grow"><b>You</b></div><span class="chk on">✓</span></div>
+          <div class="mrow on"><span class="mav">P</span><div class="grow"><b>Purity</b></div><span class="chk on">✓</span></div>
+          <div class="mrow on"><span class="mav">J</span><div class="grow"><b>Jesse</b></div><span class="chk on">✓</span></div>
+          <div class="mrow"><span class="mav">M</span><div class="grow"><b>Manu</b></div><span class="chk"></span></div>
+          <div class="sh-foot"><span class="sum">3 people</span><span class="btn">Done</span></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="max-width:1150px"><b>Also, on the editor before scanning:</b> one quiet line under the scan card, "Splitting with 4 people. You can change this after scanning.", tells the user the default is the whole group and that scanning won't lock it in. People added later on the assign screen (section 1) also join the bill, so the list stays editable at every step.</div>
+
+  <h2>3. Removing an attached receipt</h2>
+  <p class="lede" style="margin-bottom:18px">The 18dp × in the corner of the thumbnail is too small to find or hit. An attached receipt becomes a full-width row with a 40dp delete button. Removing it is instant, with Undo, and no confirm dialog. On an existing expense the removal only happens when you tap Save, so Cancel or Back undoes it too.</p>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag rec">3a</span><b>Creating: Split one amount</b><small>Thumbnail (tap to view full screen), what it is, when it uploads, and the delete button.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:56</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Split one amount</b></div></div>
+        <div class="body">
+          <span class="fl">Paid by</span>
+          <div class="box"><span class="mav" style="width:28px;height:28px;font-size:10px;background:var(--blue);color:#fff">AC</span><div class="grow"><b style="font-size:14px">You</b></div><span class="chev">﹀</span></div>
+          <span class="fl">Receipt</span>
+          <div class="rcpt"><span class="thumb"></span><div class="grow"><b>Photo</b><small>Uploads when you save</small></div><span class="trash">🗑</span></div>
+          <span class="fl">Amount</span><div class="inp" style="font-family:PlexMono,ui-monospace,monospace">$ 42.00</div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">3b</span><b>After tapping delete</b><small>The row is replaced by the "Add a receipt" button, and a toast offers Undo for ~5 s. The staged file is only thrown away once the toast is gone.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:56</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Split one amount</b></div></div>
+        <div class="body">
+          <span class="fl">Paid by</span>
+          <div class="box"><span class="mav" style="width:28px;height:28px;font-size:10px;background:var(--blue);color:#fff">AC</span><div class="grow"><b style="font-size:14px">You</b></div><span class="chev">﹀</span></div>
+          <span class="fl">Receipt <span style="color:var(--ink3);font-weight:400">optional</span></span>
+          <div class="rcpt gone" style="justify-content:center;height:56px"><span class="edit">＋ Add a receipt</span></div>
+          <span class="fl">Amount</span><div class="inp" style="font-family:PlexMono,ui-monospace,monospace">$ 42.00</div>
+        </div>
+        <div class="toast" style="bottom:30px"><span>Receipt removed</span><span class="undo">Undo</span></div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">3c</span><b>Editing a saved bill</b><small>Saved receipts are no longer locked. Delete marks one "Removed when you save" with Undo right on the row. Multi-page scans show one row per page. Removing the image never touches the items read from it.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:56</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">✕</span><div style="flex:1"><b>Edit bill</b></div><span class="btn" style="width:68px;height:36px;font-size:14px">Save</span></div>
+        <div class="body">
+          <span class="fl">Title</span><div class="inp">Lunch at Jala Indian Fine Dining</div>
+          <span class="fl">Receipt pages</span>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="rcpt"><span class="thumb"></span><div class="grow"><b>Page 1</b><small>Saved</small></div><span class="trash">🗑</span></div>
+            <div class="rcpt gone"><span class="thumb"></span><div class="grow"><b style="text-decoration:line-through;color:var(--ink3)">Page 2</b><small>Removed when you save</small></div><span class="undo">Undo</span></div>
+          </div>
+          <span class="fl">Who's splitting this?</span>
+          <div class="box"><div class="stack"><span>AC</span><span>P</span><span>J</span></div><div class="grow"><b style="font-size:14px">3 people</b><small>You, Purity, Jesse</small></div><span class="edit">Edit</span></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="max-width:1150px"><b>Where else delete appears.</b> The full-screen viewer opened from either editor gets the same delete button the expense-detail viewer already has, with the same Undo instead of its "Delete this receipt?" sheet. On "Review the receipt", the "Receipt attached" card gets the same delete button, which removes only the image. The scanned items stay.</div>
+</div>
+</body></html>

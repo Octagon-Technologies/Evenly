@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="530" viewBox="0 0 1400 530" role="img" aria-labelledby="title desc">
+  <title id="title">Rounded Pulse arrow</title>
+  <desc id="desc">An Evenly-blue motion arrow built from four growing rounded dashes and a rounded arrowhead.</desc>
+  <defs>
+    <linearGradient id="pulse" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#B9CAF7"/>
+      <stop offset="0.44" stop-color="#7697EF"/>
+      <stop offset="1" stop-color="#3762E3"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-70%" width="120%" height="240%">
+      <feDropShadow dx="0" dy="10" stdDeviation="13" flood-color="#3762E3" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .title { font: 700 39px 'IBM Plex Sans', Arial, sans-serif; fill: #0B1220; }
+      .sub { font: 400 23px 'IBM Plex Sans', Arial, sans-serif; fill: #5B6577; }
+    </style>
+  </defs>
+  <rect width="1400" height="530" fill="#F5F7FB"/>
+  <rect x="45" y="45" width="1310" height="440" rx="32" fill="#FFFFFF" stroke="#E5EAF3" stroke-width="2"/>
+  <text class="title" x="100" y="125">Pulse, with a rounded arrow</text>
+  <text class="sub" x="101" y="166">The dashes build momentum; the soft tip keeps the movement friendly.</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="112" y="297" width="64" height="23" rx="11.5" fill="#B9CAF7"/>
+    <rect x="213" y="297" width="94" height="23" rx="11.5" fill="#9FB7F5"/>
+    <rect x="345" y="297" width="132" height="23" rx="11.5" fill="#7799EF"/>
+    <rect x="515" y="297" width="168" height="23" rx="11.5" fill="#557DE8"/>
+
+    <!-- One continuous rounded stroke replaces the old block and pointed triangle. -->
+    <path d="M731 308.5 H1183" fill="none" stroke="#3762E3" stroke-width="25" stroke-linecap="round"/>
+    <path d="M1133 257 L1191 308.5 L1133 360" fill="none" stroke="#3762E3" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

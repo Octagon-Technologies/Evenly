@@ -117,8 +117,8 @@ fun GroupBalancesTab(
         if (debts.isEmpty() && alerts.isEmpty()) {
             EvEmptyState(
                 icon = EvIcons.CheckCircle,
-                title = "All settled here. 🎉",
-                text = "No one owes anyone right now. Nice work keeping the books clean.",
+                title = "All settled here 🎉",
+                text = "No one owes anyone right now.",
             )
         } else {
             Column(

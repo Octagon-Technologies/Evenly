@@ -83,6 +83,17 @@ private fun Expense.personalStake(me: UserId?, shares: List<ExpenseShare>): Pers
     }
 }
 
+/**
+ * Derived, not stored: settled once everyone other than the payer has paid me back the whole bill.
+ * The shares must cover the full amount first, so a split-by-items bill with unclaimed lines stays
+ * active even when every claimed share is paid (the payer's own claim alone used to read as settled).
+ */
+internal fun Expense.isSettled(shares: List<ExpenseShare>): Boolean {
+    if (shares.isEmpty()) return false
+    if (shares.sumOf { it.owedSubunits } < amountSubunits) return false
+    return shares.filter { payerUserId == null || it.userId != payerUserId }.all { it.remainingSubunits == 0L }
+}
+
 private fun Expense.toItemUi(
     currentUserId: UserId?,
     nameByUser: Map<String, String>,
@@ -103,8 +114,7 @@ private fun Expense.toItemUi(
         icon = categoryIcon(category),
         remaining = amount,
         original = amount,
-        // Derived (not stored): fully paid iff every participant share's derived remaining is 0.
-        settled = shares.isNotEmpty() && shares.all { it.remainingSubunits == 0L },
+        settled = isSettled(shares),
         currencySymbol = currencySymbol(currency),
         payerName = payer,
         payerIsMe = payerUserId != null && payerUserId == currentUserId,

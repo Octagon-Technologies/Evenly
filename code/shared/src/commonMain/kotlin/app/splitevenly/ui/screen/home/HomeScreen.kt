@@ -412,7 +412,7 @@ fun GroupRow(
 
             // no expenses yet → no status chip, just the "No expenses yet" subtitle
             g.status == GroupBalanceStatus.Settled -> {
-                EvChip("Settled", variant = ChipVariant.Green, leadingIcon = EvIcons.Check)
+                Text("Settled", style = t.chip.copy(color = c.settled))
             }
 
             else -> {

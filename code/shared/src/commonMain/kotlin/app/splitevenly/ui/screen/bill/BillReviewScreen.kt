@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -196,12 +197,12 @@ fun BillReviewScreen(
                 EvButton(if (busy) "Saving…" else "Finish splitting", onFinish, enabled = !busy)
             } else {
                 Column {
-                    Text("Done here? Your picks are saved.", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Others in this group can pick the rest later.", color = c.ink2, fontSize = 12.5.sp)
+                    Text("Are you done picking your own dishes", color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("You and other group members can pick the rest later.", color = c.ink2, fontSize = 12.5.sp)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     EvButton(
-                        "I'll pick more later",
+                        "I'll finish later",
                         onPickMoreLater,
                         modifier = Modifier.weight(1f),
                         variant = ButtonVariant.Tonal,
@@ -209,7 +210,7 @@ fun BillReviewScreen(
                         fillMaxWidth = false,
                     )
                     EvButton(
-                        if (busy) "Saving…" else "I've picked all mine",
+                        if (busy) "Saving…" else "Yes",
                         onPickedAllMine,
                         modifier = Modifier.weight(1f),
                         enabled = !busy,
@@ -435,17 +436,16 @@ private fun AssignmentsList(
                         color = c.ink,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
                         item.assigneeLine(),
                         color = if (item.status == ItemStatus.RESOLVED) c.ink2 else c.warning,
                         fontSize = 13.sp,
+                        textAlign = TextAlign.End,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.widthIn(max = 150.dp),
                     )
                     EvIcon(EvIcons.ChevR, size = 14.dp, tint = c.ink3)
                 }
