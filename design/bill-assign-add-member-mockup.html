@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add member redesign</title>
+<style>
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-regular.ttf");font-weight:400}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-semibold.ttf");font-weight:600}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-bold.ttf");font-weight:700}
+  @font-face{font-family:PlexMono;src:url("system/dist/assets/ibm-plex-mono-semibold.ttf");font-weight:600}
+  :root{--blue:#3a52d6;--blueText:#7aa6ff;--page:#000;--surface:#0d1118;--surface2:#151b26;--border:#232c3b;--ink:#e7ecf3;--ink2:#9ba6b8;--ink3:#67738a}
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9edf3;color:#0b1220;font-family:Plex,system-ui,sans-serif}
+  .board{max-width:1720px;margin:auto;padding:36px 40px 60px}
+  h1{font-size:28px;letter-spacing:-.6px;margin:0 0 6px}
+  h2{font-size:18px;margin:44px 0 4px}
+  .lede{color:#536074;font-size:14px;margin:0 0 24px;max-width:900px;line-height:1.5}
+  .grid{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+  .col{width:360px}
+  .caption{min-height:112px;padding:0 4px 12px}
+  .caption b{display:block;font-size:15px}
+  .caption small b{display:inline;font-size:inherit}
+  .caption small{display:block;color:#536074;font-size:12.5px;line-height:1.45;margin-top:4px}
+  .tag{display:inline-block;font:600 10px PlexMono;padding:3px 6px;border-radius:5px;margin-right:6px;vertical-align:1px}
+  .tag.now{background:#fde8e8;color:#9b1c1c}.tag.rec{background:#e9f8f0;color:#147a48}.tag.alt{background:#eef1f8;color:#536074}
+  .phone{width:360px;height:740px;background:var(--page);color:var(--ink);border:9px solid #17191d;border-radius:46px;box-shadow:0 18px 42px rgba(13,22,39,.18);position:relative;overflow:hidden}
+  .island{position:absolute;z-index:20;top:10px;left:50%;transform:translateX(-50%);width:104px;height:28px;border-radius:20px;background:#1a1b1f}
+  .status{height:46px;padding:16px 24px 0;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
+  .top{display:flex;gap:12px;padding:6px 16px 8px}
+  .top .back{font-size:22px;color:var(--ink);line-height:1.2}
+  .top b{display:block;font-size:19px}
+  .top small{display:block;color:var(--ink2);font-size:11.5px;margin-top:2px}
+  .body{padding:0 14px}
+  .prog{font-size:13px;font-weight:700;margin:6px 2px 8px}
+  .bar{height:5px;border-radius:9px;background:var(--blue);margin-bottom:12px}
+  .sec{display:flex;justify-content:space-between;color:var(--ink2);font-size:11px;font-weight:700;letter-spacing:.08em;margin:12px 4px 7px}
+  .card{border:1px solid var(--border);background:var(--surface);border-radius:14px;padding:12px 12px;margin-bottom:8px}
+  .card.open{border:1.5px solid var(--blue)}
+  .head{display:flex;align-items:center;gap:10px}
+  .num{width:24px;height:24px;border-radius:50%;background:var(--blue);display:grid;place-items:center;font-size:12px;color:#fff;flex:none}
+  .grow{flex:1;min-width:0}
+  .grow b{display:block;font-size:14px}
+  .grow small{display:block;color:var(--ink2);font-size:12px;margin-top:2px}
+  .money{font:600 14px PlexMono,ui-monospace,Menlo,monospace}
+  .chev{color:var(--ink3);font-size:12px;margin-left:6px}
+  .q{color:var(--ink2);font-size:12px;font-weight:600;margin:12px 0 8px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{height:36px;border-radius:99px;padding:0 12px 0 5px;display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;background:var(--blue);color:#fff}
+  .chip .av{width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:10px}
+  .chip.off{background:var(--surface2);color:var(--ink);border:1px solid var(--border)}
+  .chip.add{background:transparent;border:1px solid var(--border);color:var(--ink2);padding:0 13px;font-weight:500}
+  .chip.add.hl{border-color:var(--blueText);color:var(--blueText);box-shadow:0 0 0 3px rgba(122,166,255,.18)}
+  .result{display:flex;justify-content:space-between;color:var(--ink3);font-size:12px;margin-top:11px}
+  .footer{position:absolute;left:0;right:0;bottom:0;border-top:1px solid #151a22;padding:12px 14px 26px;background:#000}
+  .btn{height:46px;border-radius:12px;background:var(--blue);color:#fff;font-weight:700;font-size:15px;display:grid;place-items:center}
+  .home{position:absolute;z-index:30;width:116px;height:5px;border-radius:9px;background:#e7ecf3;bottom:8px;left:50%;transform:translateX(-50%)}
+  /* sheet */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);z-index:10}
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:11;background:#10151e;border-top:1px solid var(--border);border-radius:22px 22px 0 0;padding:8px 16px 30px}
+  .grab{width:38px;height:4px;border-radius:9px;background:#333d4e;margin:0 auto 12px}
+  .sh-title{font-size:17px;font-weight:700}
+  .sh-sub{color:var(--ink2);font-size:12px;margin:2px 0 14px}
+  .field{display:flex;align-items:center;gap:8px;height:48px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);padding:0 6px 0 12px}
+  .field.focus{border-color:var(--blueText)}
+  .field .ph{flex:1;color:var(--ink3);font-size:14.5px}
+  .field .val{flex:1;color:var(--ink);font-size:14.5px}
+  .caret{display:inline-block;width:1.5px;height:17px;background:var(--blueText);vertical-align:-3px;margin-left:1px}
+  .create{height:36px;padding:0 14px;border-radius:9px;background:var(--blue);color:#fff;font-size:13.5px;font-weight:700;display:grid;place-items:center}
+  .create.ghost{background:transparent;color:var(--ink3);border:1px solid var(--border)}
+  .plusic{width:34px;height:34px;border-radius:50%;border:1.5px dashed var(--blueText);color:var(--blueText);display:grid;place-items:center;font-size:17px;flex:none}
+  .lab{color:var(--ink2);font-size:11px;font-weight:700;letter-spacing:.08em;margin:16px 2px 6px}
+  .mrow{display:flex;align-items:center;gap:11px;padding:10px 4px;border-bottom:1px solid #1a2130;font-size:14.5px}
+  .mrow:last-child{border-bottom:0}
+  .mav{width:34px;height:34px;border-radius:50%;background:#1b2436;color:var(--blueText);display:grid;place-items:center;font-size:12px;font-weight:700;flex:none}
+  .mrow .grow small{font-size:11.5px}
+  .tick{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border);flex:none}
+  .addtxt{color:var(--blueText);font-size:13px;font-weight:700}
+  .mrow.dim{opacity:.45}
+  .hl-text{color:var(--blueText);font-weight:700}
+  .kbd{position:absolute;left:0;right:0;bottom:0;height:236px;background:#1c1f26;z-index:12;border-top:1px solid #2a2f3a;padding:10px 4px}
+  .krow{display:flex;justify-content:center;gap:5px;margin-bottom:9px}
+  .krow i{width:29px;height:38px;border-radius:6px;background:#3a3f4a;display:block}
+  .krow i.w{width:150px}.krow i.r{width:70px;background:var(--blue)}
+  .note{background:#fff;border:1px solid #dbe1ea;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.5;color:#36404f;margin-top:14px}
+  .note b{color:#0b1220}
+  .inline{display:inline-flex;align-items:center;gap:6px;height:36px;border-radius:99px;border:1.5px solid var(--blueText);padding:0 4px 0 12px;font-size:14px;width:100%}
+  .inline .val{flex:1}
+  .inline .create{height:28px;border-radius:99px;padding:0 12px;font-size:12.5px}
+  .sugg{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
+  .sugg span.l{color:var(--ink3);font-size:11.5px;margin-right:2px}
+  .sg{height:30px;border-radius:99px;border:1px dashed #3a4659;padding:0 11px;display:inline-flex;align-items:center;font-size:13px;color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #dbe1ea;border-radius:12px;overflow:hidden;margin-top:6px}
+  td,th{padding:9px 14px;border-bottom:1px solid #e6eaf0;text-align:left;vertical-align:top}
+  th{background:#f5f7fa;font-size:12px;color:#536074}
+</style>
+</head>
+<body>
+<div class="board">
+  <h1>Assign the items: adding a person</h1>
+  <p class="lede">Two problems: (1) the chip only creates <i>new</i> people, so a group member you forgot to put on the bill can't be pulled in from here; (2) the "Add a person" dialog is a modal with a title, a sentence of explanation, a labelled field and a full-width button, for what is really "type a name". The rows below show your proposal, my recommended refinement of it, and an inline alternative for comparison.</p>
+
+  <h2>A. Your proposal: "Add more" opens a member sheet</h2>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag now">NOW</span><b>Chip says "Add someone new"</b><small>Only route is the create dialog. Members already in the group but not on this bill (Kev, James) are unreachable from the card.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="body">
+          <div class="prog">3 of 3 assigned</div><div class="bar"></div>
+          <div class="sec"><span>STILL TO ASSIGN</span><span>1</span></div>
+          <div class="card open">
+            <div class="head"><span class="num">✓</span><div class="grow"><b>3. Butter Chicken</b><small>You + Purity</small></div><span class="money">$24.00</span><span class="chev">︿</span></div>
+            <div class="q">Who shared this?</div>
+            <div class="chips">
+              <span class="chip"><span class="av">AC</span>You ✓</span>
+              <span class="chip"><span class="av">P</span>Purity ✓</span>
+              <span class="chip add">＋ Add someone new</span>
+            </div>
+            <div class="result"><span>Split 2 ways · $12.00 each</span></div>
+          </div>
+        </div>
+        <div class="footer"><div class="btn">Review assignments</div></div><div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">NEW</span><b>Chip becomes "Add person"</b><small>Shorter, and no longer promises "new". I'd use <b>"Add person"</b> over "Add more" (more what?) or "Add member" (one-time splits have no group, so "member" is wrong there).</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="body">
+          <div class="prog">3 of 3 assigned</div><div class="bar"></div>
+          <div class="sec"><span>STILL TO ASSIGN</span><span>1</span></div>
+          <div class="card open">
+            <div class="head"><span class="num">✓</span><div class="grow"><b>3. Butter Chicken</b><small>You + Purity</small></div><span class="money">$24.00</span><span class="chev">︿</span></div>
+            <div class="q">Who shared this?</div>
+            <div class="chips">
+              <span class="chip"><span class="av">AC</span>You ✓</span>
+              <span class="chip"><span class="av">P</span>Purity ✓</span>
+              <span class="chip add hl">＋ Add person</span>
+            </div>
+            <div class="result"><span>Split 2 ways · $12.00 each</span></div>
+          </div>
+        </div>
+        <div class="footer"><div class="btn">Review assignments</div></div><div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag alt">AS DESCRIBED</span><b>Sheet: "Create a new member" on top, group list below</b><small>Matches your spec: create row with a blue "Create" button on the right, then the group roster. Works, but there are two input zones (a field and a list), and the field is idle until you need it.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh-title">Add to Butter Chicken</div>
+          <div class="sh-sub">They join the bill, and this item is split with them.</div>
+          <div class="lab">CREATE A NEW MEMBER</div>
+          <div class="field"><span class="ph">Name</span><span class="create">Create</span></div>
+          <div class="lab">FROM ROOMMATES</div>
+          <div class="mrow"><span class="mav">K</span><div class="grow"><b>Kev</b></div><span class="addtxt">Add</span></div>
+          <div class="mrow"><span class="mav">J</span><div class="grow"><b>James</b></div><span class="addtxt">Add</span></div>
+          <div class="mrow"><span class="mav">MW</span><div class="grow"><b>Mary W.</b></div><span class="addtxt">Add</span></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>B. Recommended: one field that searches <i>and</i> creates</h2>
+  <p class="lede" style="margin-bottom:18px">Same sheet, but the top field does double duty. Empty, it shows the group members not yet on the bill (one tap adds). Type, and it filters that list; if nothing matches exactly, the top row becomes <b>Create "Mar"</b> with the blue button. No explanation copy, no separate "new member" mode, and it naturally prevents a duplicate "Kev" when the real Kev is already in the group.</p>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag rec">B1</span><b>Opens with the field focused</b><small>Keyboard up immediately so "new person" costs the same as today minus a tap. Members already on the bill are not listed (they're already chips). Tapping a row adds them, ticks them on this item, and closes.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet" style="bottom:236px;padding-bottom:12px;border-radius:22px 22px 0 0">
+          <div class="grab"></div>
+          <div class="sh-title" style="margin-bottom:12px">Who else shared this?</div>
+          <div class="field focus"><span class="val"><span class="caret"></span><span style="color:var(--ink3)">Search or type a new name</span></span></div>
+          <div class="lab">IN ROOMMATES · NOT ON THIS BILL</div>
+          <div class="mrow"><span class="mav">K</span><div class="grow"><b>Kev</b></div><span class="addtxt">Add</span></div>
+          <div class="mrow"><span class="mav">J</span><div class="grow"><b>James</b></div><span class="addtxt">Add</span></div>
+          <div class="mrow"><span class="mav">MW</span><div class="grow"><b>Mary W.</b></div><span class="addtxt">Add</span></div>
+        </div>
+        <div class="kbd"><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i class="w"></i><i class="r"></i></div></div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">B2</span><b>Typing "Mar": match + create in one place</b><small>Mary W. still matches, so it's offered first, right where your eye is. Below it, the create row with the white-on-blue <b>Create</b> button on the right. Return key = Create when there's no match, = pick the top match when there is exactly one.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet" style="bottom:236px;padding-bottom:12px">
+          <div class="grab"></div>
+          <div class="sh-title" style="margin-bottom:12px">Who else shared this?</div>
+          <div class="field focus"><span class="val">Mar<span class="caret"></span></span><span style="color:var(--ink3);font-size:16px;padding-right:8px">✕</span></div>
+          <div class="lab">IN ROOMMATES</div>
+          <div class="mrow"><span class="mav">MW</span><div class="grow"><b><span class="hl-text">Mar</span>y W.</b></div><span class="addtxt">Add</span></div>
+          <div class="lab">SOMEONE ELSE</div>
+          <div class="mrow"><span class="plusic">＋</span><div class="grow"><b>"Mar"</b><small>New person, just for this bill</small></div><span class="create">Create</span></div>
+        </div>
+        <div class="kbd"><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i class="w"></i><i class="r"></i></div></div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag rec">B3</span><b>Back on the card</b><small>The sheet closes and Mary lands as a selected chip on this item, and on the bill for every other item. The result line updates. A short toast, "Mary added to the bill", with Undo covers a mis-tap.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="body">
+          <div class="prog">3 of 3 assigned</div><div class="bar"></div>
+          <div class="sec"><span>STILL TO ASSIGN</span><span>1</span></div>
+          <div class="card open">
+            <div class="head"><span class="num">✓</span><div class="grow"><b>3. Butter Chicken</b><small>You + Purity + Mary W.</small></div><span class="money">$24.00</span><span class="chev">︿</span></div>
+            <div class="q">Who shared this?</div>
+            <div class="chips">
+              <span class="chip"><span class="av">AC</span>You ✓</span>
+              <span class="chip"><span class="av">P</span>Purity ✓</span>
+              <span class="chip"><span class="av">MW</span>Mary W. ✓</span>
+              <span class="chip add">＋ Add person</span>
+            </div>
+            <div class="result"><span>Split 3 ways · $8.00 each</span></div>
+          </div>
+        </div>
+        <div style="position:absolute;left:14px;right:14px;bottom:96px;background:#1c2230;border:1px solid var(--border);border-radius:12px;padding:11px 14px;display:flex;justify-content:space-between;font-size:13.5px"><span>Mary W. added to the bill</span><span class="addtxt">Undo</span></div>
+        <div class="footer"><div class="btn">Review assignments</div></div><div class="home"></div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="max-width:1150px"><b>Edge cases.</b> No group (one-time split) or everyone in the group is already on the bill: the sheet is just the field, and anything typed shows only the Create row. Exact name match (typing "Kev" when Kev is in the group): no Create row, so you can't make a duplicate by accident; if two different people really share a name, the user types "Kev 2". Multi-serving items ("Assign each serving") get the same sheet from the servings screen.</div>
+
+  <h2>C. Alternative for problem 2: no sheet at all, chip turns into a field</h2>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag alt">C1</span><b>Tap "Add person": it becomes an inline input</b><small>The chip expands to the full row width with its own Create button; group members not on the bill sit underneath as dashed suggestion chips. Zero modal chrome. Fastest for a single add.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:59</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Assign the items</b><small>Lunch at Jala Indian Fine Dining · $65.82</small></div></div>
+        <div class="body">
+          <div class="sec" style="margin-top:4px"><span>STILL TO ASSIGN</span><span>1</span></div>
+          <div class="card open">
+            <div class="head"><span class="num">✓</span><div class="grow"><b>3. Butter Chicken</b><small>You + Purity</small></div><span class="money">$24.00</span><span class="chev">︿</span></div>
+            <div class="q">Who shared this?</div>
+            <div class="chips">
+              <span class="chip"><span class="av">AC</span>You ✓</span>
+              <span class="chip"><span class="av">P</span>Purity ✓</span>
+              <span class="inline"><span class="val">Mar<span class="caret"></span></span><span class="create">Create</span></span>
+            </div>
+            <div class="sugg"><span class="l">From Roommates:</span><span class="sg">＋ Mary W.</span></div>
+            <div class="result"><span>Split 2 ways · $12.00 each</span></div>
+          </div>
+        </div>
+        <div class="kbd"><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="krow"><i class="w"></i><i class="r"></i></div></div>
+        <div class="home"></div>
+      </div>
+    </div>
+    <div class="col" style="width:560px">
+      <div class="caption"><b>Trade-offs</b><small>&nbsp;</small></div>
+      <table>
+        <tr><th></th><th>B: search sheet</th><th>C: inline chip</th></tr>
+        <tr><td>Taps, forgotten group member</td><td>2 (Add person, Kev)</td><td>2 (Add person, Kev)</td></tr>
+        <tr><td>Taps, brand-new person</td><td>2 + typing</td><td>2 + typing</td></tr>
+        <tr><td>Big group (10+ members)</td><td>Scrolls, searchable</td><td>Suggestion chips wrap and crowd the card</td></tr>
+        <tr><td>Keyboard covers the card</td><td>No, sheet owns the screen</td><td>Yes, needs scroll-into-view work in the LazyColumn</td></tr>
+        <tr><td>Reusable elsewhere</td><td>Same sheet for servings screen, Bill edit, payer picker</td><td>Card-specific</td></tr>
+      </table>
+      <div class="note"><b>Recommendation: B.</b> It's your sheet idea with the create row folded into the search field, which is what actually removes the "too much description" problem: the only copy left is the title. C is slicker for tiny groups but gets cramped and fights the keyboard inside a scrolling list.</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

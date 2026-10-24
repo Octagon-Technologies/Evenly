@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1210" viewBox="0 0 1600 1210" role="img" aria-labelledby="title desc">
+  <title id="title">Five arrow directions for the Evenly commercial</title>
+  <desc id="desc">Five distinct left-to-right motion arrows shown on identical white cards for comparison.</desc>
+  <defs>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3762E3" stop-opacity="0"/>
+      <stop offset="0.27" stop-color="#3762E3" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#3762E3"/>
+    </linearGradient>
+    <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#95B6FF"/>
+      <stop offset="0.5" stop-color="#3762E3"/>
+      <stop offset="1" stop-color="#2049CA"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9CB9FF"/>
+      <stop offset="1" stop-color="#3762E3"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-80%" width="140%" height="260%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3762E3" flood-opacity="0.16"/>
+    </filter>
+    <filter id="glow" x="-20%" y="-200%" width="140%" height="500%">
+      <feGaussianBlur stdDeviation="13"/>
+    </filter>
+    <style>
+      .name { font: 700 31px 'IBM Plex Sans', Arial, sans-serif; fill: #0B1220; }
+      .note { font: 400 22px 'IBM Plex Sans', Arial, sans-serif; fill: #5B6577; }
+      .number { font: 700 22px 'IBM Plex Mono', monospace; fill: #3762E3; letter-spacing: 0.06em; }
+      .card { fill: #fff; stroke: #E4E9F2; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1210" fill="#F5F7FB"/>
+  <text x="82" y="80" font-family="'IBM Plex Sans', Arial, sans-serif" font-size="48" font-weight="700" fill="#0B1220">One motion language, five directions</text>
+  <text x="84" y="121" font-family="'IBM Plex Sans', Arial, sans-serif" font-size="24" fill="#5B6577">Each arrow is isolated so you can choose the shape before it goes into a scene.</text>
+
+  <!-- 01: single open path -->
+  <rect class="card" x="80" y="170" width="1440" height="180" rx="27"/>
+  <text class="number" x="126" y="222">01</text>
+  <text class="name" x="126" y="267">Fine line</text>
+  <text class="note" x="126" y="303">Quiet and precise</text>
+  <path d="M615 260 H1325" fill="none" stroke="#3762E3" stroke-width="8" stroke-linecap="round"/>
+  <path d="M1288 221 L1327 260 L1288 299" fill="none" stroke="#3762E3" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 02: rhythmic segments -->
+  <rect class="card" x="80" y="370" width="1440" height="180" rx="27"/>
+  <text class="number" x="126" y="422">02</text>
+  <text class="name" x="126" y="467">Pulse</text>
+  <text class="note" x="126" y="503">Quick, readable rhythm</text>
+  <rect x="616" y="451" width="52" height="17" rx="8.5" fill="#B7C9F7"/>
+  <rect x="696" y="451" width="78" height="17" rx="8.5" fill="#92ADF3"/>
+  <rect x="803" y="451" width="109" height="17" rx="8.5" fill="#6F92EC"/>
+  <rect x="942" y="451" width="143" height="17" rx="8.5" fill="#4C74E6"/>
+  <path d="M1119 443 H1268 V424 L1330 459.5 L1268 495 V476 H1119 Z" fill="#3762E3"/>
+
+  <!-- 03: luminous taper -->
+  <rect class="card" x="80" y="570" width="1440" height="180" rx="27"/>
+  <text class="number" x="126" y="622">03</text>
+  <text class="name" x="126" y="667">Glide</text>
+  <text class="note" x="126" y="703">Soft and cinematic</text>
+  <path d="M598 659 C825 646 1061 642 1263 637 L1263 615 L1335 660 L1263 705 L1263 683 C1061 678 825 674 598 661 Z" fill="#3762E3" opacity="0.23" filter="url(#glow)"/>
+  <path d="M603 660 C846 646 1083 650 1261 650 L1261 627 L1334 660 L1261 693 L1261 670 C1083 670 846 674 603 660 Z" fill="url(#beam)"/>
+  <path d="M884 660 H1286" fill="none" stroke="#DCE7FF" stroke-width="3" stroke-linecap="round" opacity="0.72"/>
+
+  <!-- 04: fragments forming a direction -->
+  <rect class="card" x="80" y="770" width="1440" height="180" rx="27"/>
+  <text class="number" x="126" y="822">04</text>
+  <text class="name" x="126" y="867">Tile drift</text>
+  <text class="note" x="126" y="903">Feels like data moving</text>
+  <rect x="620" y="853" width="26" height="26" rx="6" fill="#C4D2F8" transform="rotate(-8 633 866)"/>
+  <rect x="686" y="848" width="37" height="37" rx="8" fill="#ADC2F8" transform="rotate(7 704.5 866.5)"/>
+  <rect x="772" y="842" width="49" height="49" rx="10" fill="#89A6F4" transform="rotate(-5 796.5 866.5)"/>
+  <rect x="873" y="837" width="58" height="58" rx="12" fill="url(#glass)" transform="rotate(5 902 866)" filter="url(#shadow)"/>
+  <path d="M994 851 H1245 V827 L1332 866 L1245 905 V881 H994 Z" fill="#3762E3" filter="url(#shadow)"/>
+
+  <!-- 05: folded ribbon -->
+  <rect class="card" x="80" y="970" width="1440" height="180" rx="27"/>
+  <text class="number" x="126" y="1022">05</text>
+  <text class="name" x="126" y="1067">Folded ribbon</text>
+  <text class="note" x="126" y="1103">Bold and graphic</text>
+  <path d="M615 1050 H1014 L1060 1027 L1116 1050 H1253 V1021 L1335 1060 L1253 1099 V1070 H1116 L1060 1093 L1014 1070 H615 Z" fill="url(#ribbon)" filter="url(#shadow)"/>
+  <path d="M1014 1050 L1060 1027 L1116 1050 L1060 1072 Z" fill="#153BB3" opacity="0.72"/>
+  <path d="M1014 1070 L1060 1093 L1116 1070 L1060 1072 Z" fill="#A7C1FF" opacity="0.8"/>
+</svg>
