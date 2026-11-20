@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Quick splits</title>
+<style>
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-regular.ttf");font-weight:400}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-semibold.ttf");font-weight:600}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-bold.ttf");font-weight:700}
+  @font-face{font-family:PlexMono;src:url("system/dist/assets/ibm-plex-mono-semibold.ttf");font-weight:600}
+  :root{--blue:#3762E3;--blueText:#7aa6ff;--page:#000;--surface:#0d1118;--surface2:#151b26;--border:#232c3b;--ink:#e7ecf3;--ink2:#9ba6b8;--ink3:#67738a;--owed:#4fc08d;--owe:#e2a64b}
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9edf3;color:#0b1220;font-family:Plex,system-ui,sans-serif}
+  .board{max-width:1720px;margin:auto;padding:36px 40px 60px}
+  h1{font-size:28px;letter-spacing:-.6px;margin:0 0 6px}
+  h2{font-size:18px;margin:48px 0 4px}
+  .lede{color:#536074;font-size:14px;margin:0 0 24px;max-width:940px;line-height:1.5}
+  .grid{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+  .col{width:360px}
+  .caption{min-height:176px;padding:0 4px 12px}
+  .caption b{display:block;font-size:15px}
+  .caption small{display:block;color:#536074;font-size:12.5px;line-height:1.45;margin-top:4px}
+  .caption small b{display:inline;font-size:inherit}
+  .tag{display:inline-block;font:600 10px PlexMono;padding:3px 6px;border-radius:5px;margin-right:6px;vertical-align:1px}
+  .tag.rec{background:#e9f8f0;color:#147a48}.tag.alt{background:#eef1f8;color:#536074}.tag.new{background:#e8eefc;color:#2747a8}.tag.v2{background:#fff4e0;color:#8a5a00}
+  .phone{width:360px;height:740px;background:var(--page);color:var(--ink);border:9px solid #17191d;border-radius:46px;box-shadow:0 18px 42px rgba(13,22,39,.18);position:relative;overflow:hidden}
+  .island{position:absolute;z-index:20;top:10px;left:50%;transform:translateX(-50%);width:104px;height:28px;border-radius:20px;background:#1a1b1f}
+  .status{height:46px;padding:16px 24px 0;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
+  .top{display:flex;gap:12px;padding:6px 16px 8px;align-items:flex-start}
+  .top .back{font-size:22px;line-height:1.2}
+  .top b{display:block;font-size:19px}
+  .top small{display:block;color:var(--ink2);font-size:11.5px;margin-top:2px}
+  .body{padding:0 14px}
+  .sec{display:flex;justify-content:space-between;color:var(--ink2);font-size:11px;font-weight:700;letter-spacing:.08em;margin:14px 4px 7px}
+  .card{border:1px solid var(--border);background:var(--surface);border-radius:14px;padding:12px;margin-bottom:8px}
+  .row{display:flex;align-items:center;gap:11px}
+  .grow{flex:1;min-width:0}
+  .grow b{display:block;font-size:14.5px}
+  .grow small{display:block;color:var(--ink2);font-size:12px;margin-top:2px}
+  .money{font:600 14px PlexMono,ui-monospace,Menlo,monospace}
+  .money.big{font-size:30px;letter-spacing:-.5px}
+  .owed{color:var(--owed)}.owe{color:var(--owe)}.muted{color:var(--ink3)}
+  .ico{width:40px;height:40px;border-radius:12px;background:#1b2436;display:grid;place-items:center;font-size:19px;flex:none}
+  .stack{display:flex}
+  .stack span{width:24px;height:24px;border-radius:50%;background:#1b2436;color:var(--blueText);border:2px solid var(--surface);display:grid;place-items:center;font-size:9.5px;font-weight:700;margin-left:-7px}
+  .stack span:first-child{margin-left:0}
+  .stack span.me{background:var(--blue);color:#fff}
+  .pill{font-size:10.5px;font-weight:700;color:var(--blueText);background:rgba(122,166,255,.12);padding:2px 7px;border-radius:99px;white-space:nowrap}
+  .pill.ok{color:var(--owed);background:rgba(79,192,141,.12)}
+  .pill.wait{color:var(--ink2);background:#1a2130}
+  .meter{height:4px;border-radius:9px;background:#1a2130;margin-top:9px;overflow:hidden}.meter i{display:block;height:100%;background:var(--blue);border-radius:9px}
+  .fab{position:absolute;right:18px;bottom:36px;height:52px;padding:0 20px;border-radius:99px;background:var(--blue);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px;box-shadow:0 8px 20px rgba(55,98,227,.35);z-index:4}
+  .footer{position:absolute;left:0;right:0;bottom:0;border-top:1px solid #151a22;padding:12px 14px 26px;background:#000;z-index:4}
+  .btn{height:48px;border-radius:12px;background:var(--blue);color:#fff;font-weight:700;font-size:15px;display:grid;place-items:center}
+  .btn.tonal{background:#1a2234;color:var(--blueText)}
+  .btn.ghost{background:transparent;color:var(--ink2);border:1px solid var(--border)}
+  .btn.danger{background:transparent;color:#ef8b8e;border:1px solid #3a2326}
+  .btns{display:flex;flex-direction:column;gap:8px}
+  .home{position:absolute;z-index:30;width:116px;height:5px;border-radius:9px;background:#e7ecf3;bottom:8px;left:50%;transform:translateX(-50%)}
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:10}
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:11;background:#10151e;border-top:1px solid var(--border);border-radius:22px 22px 0 0;padding:8px 16px 30px}
+  .grab{width:38px;height:4px;border-radius:9px;background:#333d4e;margin:0 auto 12px}
+  .sh-title{font-size:18px;font-weight:700}
+  .sh-sub{color:var(--ink2);font-size:12.5px;margin:3px 0 14px;line-height:1.4}
+  .opt{display:flex;gap:12px;align-items:center;border:1px solid var(--border);background:var(--surface);border-radius:14px;padding:13px 12px;margin-bottom:8px}
+  .opt.primary{border:1.5px solid var(--blue);background:rgba(55,98,227,.08)}
+  .opt .grow b{font-size:15px}
+  .chev{color:var(--ink3);font-size:15px}
+  .field{display:flex;align-items:center;gap:8px;min-height:48px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);padding:0 12px;font-size:15px}
+  .field.focus{border-color:var(--blueText)}
+  .field .ph{color:var(--ink3)}
+  .caret{display:inline-block;width:1.5px;height:18px;background:var(--blueText);vertical-align:-3px;margin-left:1px}
+  .fl{display:block;color:var(--ink2);font-size:12.5px;font-weight:600;margin:16px 2px 7px}
+  .bigcard{border:1.5px dashed #34405a;border-radius:16px;padding:22px 14px;text-align:center;background:var(--surface)}
+  .bigcard .ico{margin:0 auto 10px;width:52px;height:52px;border-radius:16px;font-size:24px;background:rgba(55,98,227,.16)}
+  .bigcard b{font-size:16px;display:block}.bigcard small{color:var(--ink2);font-size:12.5px;display:block;margin-top:3px}
+  .or{display:flex;align-items:center;gap:10px;color:var(--ink3);font-size:12px;margin:14px 0}
+  .or::before,.or::after{content:"";flex:1;height:1px;background:var(--border)}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .chip{height:36px;border-radius:99px;padding:0 12px 0 5px;display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;background:var(--blue);color:#fff}
+  .chip .av{width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:10px}
+  .chip .x{opacity:.7;font-size:12px;margin-left:2px}
+  .chip.me{background:#1a2234;color:var(--ink)}
+  .chip.off{background:var(--surface2);color:var(--ink);border:1px solid var(--border)}
+  .inline{display:flex;align-items:center;gap:6px;height:40px;border-radius:99px;border:1.5px solid var(--blueText);padding:0 4px 0 14px;font-size:14.5px;margin-top:10px}
+  .inline .val{flex:1}
+  .inline .add{height:30px;border-radius:99px;padding:0 13px;font-size:13px;background:var(--blue);color:#fff;font-weight:700;display:grid;place-items:center}
+  .link{color:var(--blueText);font-size:13.5px;font-weight:700}
+  .contact{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-top:12px;font-size:14px}
+  .contact .ico{width:30px;height:30px;font-size:15px;border-radius:9px}
+  .seg{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:3px;margin-top:4px}
+  .seg span{flex:1;text-align:center;font-size:13px;font-weight:600;padding:8px 0;border-radius:8px;color:var(--ink2)}
+  .seg span.on{background:#222c40;color:var(--ink)}
+  .prow{display:flex;align-items:center;gap:11px;padding:11px 2px;border-bottom:1px solid #1a2130}
+  .prow:last-child{border-bottom:0}
+  .av{width:34px;height:34px;border-radius:50%;background:#1b2436;color:var(--blueText);display:grid;place-items:center;font-size:12px;font-weight:700;flex:none}
+  .av.me{background:var(--blue);color:#fff}
+  .qr{width:120px;height:120px;border-radius:12px;background:#fff;margin:0 auto;padding:10px;display:grid;grid-template-columns:repeat(9,1fr);gap:2px}
+  .qr i{background:#0b1220;border-radius:1px}.qr i.o{background:transparent}
+  .sharerow{display:flex;gap:8px;margin-top:12px}
+  .sharerow .btn{flex:1;height:44px;font-size:14px}
+  .toast{position:absolute;left:14px;right:14px;bottom:100px;background:#1c2230;border:1px solid var(--border);border-radius:12px;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;font-size:13.5px;z-index:5}
+  .banner{background:rgba(122,166,255,.08);border:1px solid rgba(122,166,255,.25);border-radius:12px;padding:10px 12px;font-size:12.5px;color:var(--ink2);line-height:1.45}
+  .hist{position:relative;padding-left:22px;margin-top:4px}
+  .hist::before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:1.5px;background:#232c3b}
+  .ev{position:relative;padding:8px 0 10px;font-size:13.5px;line-height:1.4}
+  .ev::before{content:"";position:absolute;left:-20px;top:13px;width:9px;height:9px;border-radius:50%;background:#2a3550;border:2px solid #000}
+  .ev.hot::before{background:var(--blue)}
+  .ev small{display:block;color:var(--ink3);font-size:11.5px;margin-top:2px}
+  .strike{text-decoration:line-through;color:var(--ink3)}
+  .notif{position:absolute;top:52px;left:10px;right:10px;background:rgba(40,46,58,.96);border-radius:20px;padding:12px 14px;z-index:15;font-size:13px;line-height:1.4;box-shadow:0 10px 28px rgba(0,0,0,.5)}
+  .notif .h{display:flex;justify-content:space-between;color:var(--ink2);font-size:11.5px;margin-bottom:4px}
+  .notif b{display:block;font-size:13.5px}
+  .payhead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .payhead .sh-title{white-space:nowrap;font-size:17px}
+  .payhead .sh-title .money{font-size:17px}
+  .mchip{height:26px;padding:0 11px;border-radius:99px;border:1px solid var(--border);background:var(--surface2);color:var(--ink);font-size:12px;font-weight:600;display:inline-flex;align-items:center;flex:none}
+  .paymeta{color:var(--ink2);font-size:12.5px;margin:5px 0 16px}
+  .paymeta .by{color:var(--ink3);margin-left:8px}
+  /* light-mode phone (screen 8b) */
+  .phone.light{--page:#fff;--surface:#F6F8FB;--surface2:#fff;--border:#E6EAF0;--ink:#0B1220;--ink2:#5B6577;--ink3:#9AA3B2;--blueText:#3762E3}
+  .phone.light .sheet{background:#fff;border-top-color:#E6EAF0}
+  .phone.light .grab{background:#D6DCE6}
+  .phone.light .scrim{background:rgba(11,18,32,.35)}
+  .phone.light .prow{border-bottom-color:#E6EAF0}
+  .phone.light .av{background:#EFF4FF;color:#2747a8}.phone.light .av.me{background:var(--blue);color:#fff}
+  .phone.light .btn.tonal{background:#EFF4FF;color:#2747a8}
+  .phone.light .btn.danger{color:#C2484B;border-color:#F3D3D3}
+  .phone.light .home{background:#0b1220}
+  /* web (light) */
+  .phone.web{background:#fff;color:#0b1220}
+  .phone.web .status{color:#0b1220}
+  .urlbar{margin:0 12px 10px;height:34px;border-radius:10px;background:#eef1f6;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#536074}
+  .w-body{padding:4px 18px}
+  .w-head{font-size:12px;color:#536074;font-weight:600}
+  .w-title{font-size:22px;font-weight:700;letter-spacing:-.3px;margin:4px 0 2px}
+  .w-sub{font-size:13px;color:#536074}
+  .w-q{font-size:15px;font-weight:700;margin:22px 0 10px}
+  .w-name{display:flex;align-items:center;gap:10px;border:1px solid #dbe1ea;border-radius:12px;padding:11px 12px;margin-bottom:8px;font-size:15px;font-weight:600}
+  .w-name .av{background:#eef3ff;color:#2747a8}
+  .w-name.on{border:1.5px solid #3762E3;background:#f3f6ff}
+  .w-name .r{margin-left:auto;font:600 14px PlexMono;color:#0b1220}
+  .w-name.done{opacity:.5}
+  .w-btn{height:50px;border-radius:12px;background:#3762E3;color:#fff;font-weight:700;font-size:15px;display:grid;place-items:center;margin-top:8px}
+  .w-btn.sec{background:#eef3ff;color:#2747a8}
+  .w-foot{position:absolute;left:0;right:0;bottom:0;padding:14px 18px 28px;border-top:1px solid #e6eaf0;background:#fff}
+  .w-sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:10px 18px 30px;z-index:11;box-shadow:0 -10px 30px rgba(0,0,0,.12)}
+  .w-scrim{position:absolute;inset:0;background:rgba(11,18,32,.35);z-index:10}
+  .w-field{border:1.5px solid #3762E3;border-radius:12px;height:52px;display:flex;align-items:center;padding:0 14px;font:600 22px PlexMono;margin-top:6px}
+  .w-hint{font-size:12.5px;color:#536074;margin-top:6px}
+  .phone.web .home{background:#0b1220}
+  .note{background:#fff;border:1px solid #dbe1ea;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.5;color:#36404f;margin-top:14px}
+  .note b{color:#0b1220}
+  table{width:100%;max-width:1100px;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #dbe1ea;border-radius:12px;overflow:hidden;margin-top:10px}
+  td,th{padding:9px 14px;border-bottom:1px solid #e6eaf0;text-align:left;vertical-align:top;line-height:1.45}
+  th{background:#f5f7fa;font-size:12px;color:#536074}
+</style>
+</head><body>
+<div class="board">
+  <h1>Quick splits, and payments either side can fix</h1>
+  <p class="lede">Two related changes. <b>Part 1</b> splits a one-off bill with no group: tap +, Split a bill, add the bill, type names, share the link. Under the hood it is a hidden group (<code>groups.kind = 'quick'</code>), so split-by-items, split-evenly, the web link and settle-up are all reused. <b>Part 2</b> applies everywhere, groups included: the two people in a payment (the one paying back and the one owed) can both change it at any time. The change takes effect immediately, notifies the other person, and is kept in history. Nobody else can touch it.</p>
+
+  <h2>Part 1 · Quick split, from + to shared link</h2>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag new">1</span><b>Home: one list, + opens a choice</b><small>"Split a bill" is the default; "Start a group" moves to second place. No new tab, no new home section. Quick splits sit in the same list as groups (step 6).</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="top"><div class="grow"><b style="font-size:24px">Evenly</b></div></div>
+        <div class="body">
+          <div class="sec"><span>ACTIVE</span></div>
+          <div class="card"><div class="row"><div class="ico">🏠</div><div class="grow"><b>Apartment 4B</b><small>3 people</small></div><div style="text-align:right"><div class="money owed">$42.10</div><small class="muted" style="font-size:11px">owed to you</small></div></div></div>
+          <div class="card"><div class="row"><div class="ico">⛷️</div><div class="grow"><b>Tahoe trip</b><small>6 people</small></div><div style="text-align:right"><div class="money owe">$18.00</div><small class="muted" style="font-size:11px">you owe</small></div></div></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh-title">What are you splitting?</div>
+          <div class="sh-sub">&nbsp;</div>
+          <div class="opt primary"><div class="ico" style="background:rgba(55,98,227,.2)">🧾</div><div class="grow"><b>Split a bill</b><small>Dinner, a ride, tickets. No group needed.</small></div><span class="chev">›</span></div>
+          <div class="opt"><div class="ico">👥</div><div class="grow"><b>Start a group</b><small>For trips and housemates you split with often.</small></div><span class="chev">›</span></div>
+          <div class="opt"><div class="ico">🔗</div><div class="grow"><b>Join with a link</b><small>Someone sent you an Evenly link.</small></div><span class="chev">›</span></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">2</span><b>Add the bill</b><small>Scan is the big target, because a receipt fills in the title, total and items. "Type the total" is for an Uber or tickets. You choose split-by-items vs even later, on the people step, so this screen asks for nothing else. Currency comes from your profile.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Split a bill</b><small>Step 1 of 2</small></div></div>
+        <div class="body">
+          <div class="bigcard" style="margin-top:10px"><div class="ico">📷</div><b>Scan the receipt</b><small>We'll fill in the items and the total.</small></div>
+          <div class="or">or type it</div>
+          <span class="fl" style="margin-top:0">What was it?</span>
+          <div class="field"><span class="ph">e.g. Uber home</span></div>
+          <span class="fl">Total</span>
+          <div class="field focus"><span class="money" style="font-size:20px">$84.20</span><span class="caret"></span></div>
+          <span class="fl">Who paid?</span>
+          <div class="field" style="justify-content:space-between"><span>You</span><span class="link">Change</span></div>
+        </div>
+        <div class="footer"><div class="btn">Next: who's splitting</div></div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">3</span><b>Who's splitting: just names</b><small>Type a name and press return; the keyboard stays up for the next one. You're always included. Names are all we need, because on the link each person taps their own name. <span class="tag v2">v2</span>"From contacts" opens the system picker (no contacts permission), fills in the name and keeps the number so you can text the link.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Who's splitting?</b><small>Dinner at Nobu · $84.20</small></div></div>
+        <div class="body">
+          <div class="chips" style="margin-top:8px">
+            <span class="chip me"><span class="av" style="background:var(--blue)">AC</span>You</span>
+            <span class="chip"><span class="av">AN</span>Ann<span class="x">✕</span></span>
+            <span class="chip"><span class="av">JO</span>Joe<span class="x">✕</span></span>
+          </div>
+          <div class="inline"><span class="val">Mo<span class="caret"></span></span><span class="add">Add</span></div>
+          <div class="contact"><div class="ico">📇</div><div class="grow">From contacts</div><span class="tag v2" style="margin:0">v2</span></div>
+          <span class="fl">How to split</span>
+          <div class="seg"><span class="on">By items</span><span>Evenly</span><span>Amounts</span></div>
+          <div class="banner" style="margin-top:10px">Everyone picks what they had from the link. Anything left over can be split evenly later.</div>
+        </div>
+        <div class="footer"><div class="btn">Create & share · 4 people</div></div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">4</span><b>Share: the link is the invite</b><small>The share sheet opens straight away. Messages is first in the list, so it lands in the group chat. The QR is for when everyone is still at the table. You're on the split screen from then on, and leaving it is fine: the link keeps working.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>9:42</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Dinner at Nobu</b><small>You paid $84.20 · 4 people</small></div></div>
+        <div class="body">
+          <div class="card" style="text-align:center;padding:18px 12px">
+            <div class="qr">
+              <i></i><i></i><i></i><i class="o"></i><i></i><i class="o"></i><i></i><i></i><i></i>
+              <i></i><i class="o"></i><i></i><i></i><i class="o"></i><i></i><i></i><i class="o"></i><i></i>
+              <i></i><i></i><i></i><i class="o"></i><i></i><i></i><i></i><i></i><i></i>
+              <i class="o"></i><i></i><i class="o"></i><i></i><i class="o"></i><i></i><i class="o"></i><i></i><i class="o"></i>
+              <i></i><i class="o"></i><i></i><i></i><i></i><i class="o"></i><i></i><i></i><i></i>
+              <i class="o"></i><i></i><i></i><i class="o"></i><i></i><i></i><i class="o"></i><i></i><i class="o"></i>
+              <i></i><i></i><i></i><i class="o"></i><i></i><i class="o"></i><i></i><i class="o"></i><i></i>
+              <i></i><i class="o"></i><i></i><i></i><i class="o"></i><i></i><i></i><i></i><i class="o"></i>
+              <i></i><i></i><i></i><i class="o"></i><i></i><i></i><i class="o"></i><i></i><i></i>
+            </div>
+            <div style="font-size:13px;color:var(--ink2);margin-top:10px">Scan to pick what you had</div>
+            <div class="sharerow"><div class="btn">Share link</div><div class="btn tonal">Copy</div></div>
+          </div>
+          <div class="sec"><span>WHO'S IN</span><span>0 of 3 picked</span></div>
+          <div class="card" style="padding:2px 12px">
+            <div class="prow"><div class="av">AN</div><div class="grow"><b>Ann</b></div><span class="pill wait">Not picked yet</span></div>
+            <div class="prow"><div class="av">JO</div><div class="grow"><b>Joe</b></div><span class="pill wait">Not picked yet</span></div>
+            <div class="prow"><div class="av">MO</div><div class="grow"><b>Mo</b></div><span class="pill wait">Not picked yet</span></div>
+          </div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">5</span><b>Friend on the web: tap your name, pick, pay</b><small>This is the existing web claim page, now starting from the names the payer typed. Tapping a name claims that typed-in name, so no duplicate "Ann" gets created. "I'm not on this list" still lets a stranger add themselves. After claiming items, the Venmo/Zelle buttons appear with their share.</small></div>
+      <div class="phone web"><div class="island"></div>
+        <div class="status"><span>9:50</span><span>●●● ▮</span></div>
+        <div class="urlbar">🔒 split-evenly.app</div>
+        <div class="w-body">
+          <div class="w-head">ANDREW PAID</div>
+          <div class="w-title">Dinner at Nobu</div>
+          <div class="w-sub"><span style="font-family:PlexMono;font-weight:600;color:#0b1220">$84.20</span> · 4 people · 9 items</div>
+          <div class="w-q">Which one are you?</div>
+          <div class="w-name on"><span class="av">AN</span>Ann<span class="r" style="color:#3762E3">✓</span></div>
+          <div class="w-name"><span class="av">JO</span>Joe</div>
+          <div class="w-name"><span class="av">MO</span>Mo</div>
+          <div style="font-size:13.5px;color:#2747a8;font-weight:700;margin-top:10px">I'm not on this list</div>
+        </div>
+        <div class="w-foot"><div class="w-btn">Continue as Ann</div></div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">6</span><b>Back home: a quick split is just a card</b><small>Same list as groups, sorted by recent activity. The receipt icon and "2 of 3 paid" set it apart. Once everyone has paid it shows "All settled" for a day, then moves to History (a toast offers Undo).</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>21:15</span><span>●●● ▮</span></div>
+        <div class="top"><div class="grow"><b style="font-size:24px">Evenly</b></div></div>
+        <div class="body">
+          <div class="sec"><span>ACTIVE</span></div>
+          <div class="card"><div class="row"><div class="ico">🧾</div><div class="grow"><b>Dinner at Nobu</b><small style="display:flex;align-items:center;gap:7px;margin-top:5px"><span class="stack"><span class="me">AC</span><span>AN</span><span>JO</span><span>MO</span></span>2 of 3 paid</small></div><div style="text-align:right"><div class="money owed">$21.05</div><small class="muted" style="font-size:11px">owed to you</small></div></div><div class="meter"><i style="width:66%"></i></div></div>
+          <div class="card"><div class="row"><div class="ico">🏠</div><div class="grow"><b>Apartment 4B</b><small>3 people</small></div><div style="text-align:right"><div class="money owed">$42.10</div><small class="muted" style="font-size:11px">owed to you</small></div></div></div>
+          <div class="card"><div class="row"><div class="ico">🚕</div><div class="grow"><b>Uber from JFK</b><small>Mo paid you · just now</small></div><span class="pill ok">All settled</span></div></div>
+          <div class="card"><div class="row"><div class="ico">⛷️</div><div class="grow"><b>Tahoe trip</b><small>6 people</small></div><div style="text-align:right"><div class="money owe">$18.00</div><small class="muted" style="font-size:11px">you owe</small></div></div></div>
+        </div>
+        <div class="fab">＋ New</div>
+        <div class="home"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Part 2 · Recording and fixing a payment (groups and quick splits)</h2>
+  <p class="lede">The example: Bob paid the bill. Alice and Steve owe Bob. In the app, "Alice paid Bob" can be changed by Alice or Bob, and only them. Steve sees it but can't open it to edit. Every change applies immediately, sends the other person a notification, and adds a line to history.</p>
+  <div class="grid">
+    <div class="col">
+      <div class="caption"><span class="tag new">7</span><b>Confirm step, with the amount editable</b><small>This is the existing "We opened Venmo. Did the payment go through?" sheet, with one change: the amount is pre-filled and editable, so a partial payment ($15 of $21.05) is recorded honestly in one step. Once saved, it counts. It's not pending on anyone.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>9:58</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Dinner at Nobu</b><small>You owe Bob $21.05</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="sh-title">Did the payment go through?</div>
+          <div class="sh-sub">We opened Venmo for @bob-k.</div>
+          <span class="fl" style="margin-top:0">You paid Bob</span>
+          <div class="field focus"><span class="money" style="font-size:22px">$21.05</span><span class="caret"></span><span style="margin-left:auto;color:var(--ink3);font-size:12px">of $21.05</span></div>
+          <div style="height:14px"></div>
+          <div class="btns"><div class="btn">Yes, I paid</div><div class="btn ghost">Not yet</div></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">8</span><b>Tap a payment you're part of</b><small>Alice's view. Only Alice and Bob get the chevron and this sheet; Steve's row has no chevron, which is all the explanation it needs. "Change amount" works whether it was recorded by her, by Bob, or by the payment app's confirm step.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:20</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Dinner at Nobu</b><small>Bob paid $84.20</small></div></div>
+        <div class="body">
+          <div class="sec"><span>PAYMENTS</span></div>
+          <div class="card" style="padding:2px 12px">
+            <div class="prow"><div class="av me">AL</div><div class="grow"><b>You paid Bob</b><small>Venmo · Nov 19</small></div><span class="money">$15.00</span><span class="chev">›</span></div>
+            <div class="prow"><div class="av">ST</div><div class="grow"><b>Steve paid Bob</b><small>Zelle · Nov 19</small></div><span class="money">$21.05</span></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="payhead"><div class="sh-title">You paid Bob <span class="money">$15.00</span></div><span class="mchip">Venmo</span></div>
+          <div class="paymeta">Nov 19, 9:58 PM <span class="by">recorded by you</span></div>
+          <div class="btns"><div class="btn tonal">Change amount</div><div class="btn danger">I didn't pay this</div></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">8b</span><b>Same sheet, light mode</b><small>Title and amount on one line, with the payment method as a chip aligned right. Below it, the date is in secondary grey and "recorded by you" is one step lighter, so the eye lands on the amount first.</small></div>
+      <div class="phone light"><div class="island"></div>
+        <div class="status"><span>10:20</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Dinner at Nobu</b><small>Bob paid $84.20</small></div></div>
+        <div class="body">
+          <div class="sec"><span>PAYMENTS</span></div>
+          <div class="card" style="padding:2px 12px">
+            <div class="prow"><div class="av me">AL</div><div class="grow"><b>You paid Bob</b><small>Venmo · Nov 19</small></div><span class="money">$15.00</span><span class="chev">›</span></div>
+            <div class="prow"><div class="av">ST</div><div class="grow"><b>Steve paid Bob</b><small>Zelle · Nov 19</small></div><span class="money">$21.05</span></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="payhead"><div class="sh-title">You paid Bob <span class="money">$15.00</span></div><span class="mchip">Venmo</span></div>
+          <div class="paymeta">Nov 19, 9:58 PM <span class="by">recorded by you</span></div>
+          <div class="btns"><div class="btn tonal">Change amount</div><div class="btn danger">I didn't pay this</div></div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">9</span><b>Bob fixes a settle-up that covered two bills</b><small>The payment came from "Settle up", so Bob edits the <b>total</b>. A cut comes off the newest bill first and never moves money onto a bill the payment didn't cover; an increase fills the oldest unpaid bill first, like a new payment. "Now covers" is a read-only preview. Edited from a single bill's screen, the change only affects that bill.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:31</span><span>●●● ▮</span></div>
+        <div class="top"><span class="back">←</span><div><b>Alice</b><small>Apartment 4B</small></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="payhead"><div class="sh-title">Change Alice's payment</div><span class="mchip money" style="font-size:12px">Was $15.00</span></div>
+          <div class="paymeta">Venmo<span class="by">Nov 19, 9:58 PM</span></div>
+          <div class="field focus"><span class="money" style="font-size:22px">$5.00</span><span class="caret"></span></div>
+          <span class="fl">Now covers</span>
+          <div class="card" style="padding:2px 12px;margin-bottom:0">
+            <div class="prow"><div class="grow"><b style="font-size:13.5px">Groceries · Nov 12</b></div><span class="money"><span class="strike" style="font-size:12px;margin-right:6px">$9.00</span>$5.00</span></div>
+            <div class="prow"><div class="grow"><b style="font-size:13.5px">Internet · Nov 15</b></div><span class="money"><span class="strike" style="font-size:12px;margin-right:6px">$6.00</span>$0.00</span></div>
+          </div>
+          <div style="height:14px"></div>
+          <div class="btn">Save</div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">10</span><b>The other side is told, and it's on record</b><small>Alice gets a short push: who, which bill, which payment, old and new amount. It doesn't mention her balance. The bill's history shows the before and after and who made the change. No accept step: if Bob is wrong, Alice changes it back and that's recorded too. The history makes repeated back-and-forth visible, so nobody can quietly change it.</small></div>
+      <div class="phone"><div class="island"></div>
+        <div class="status"><span>10:32</span><span>●●● ▮</span></div>
+        <div class="notif"><div class="h"><span>EVENLY</span><span>now</span></div><b>Bob edited your $15.00 payment</b>Groceries: your Nov 19 payment changed from $15.00 to $5.00.</div>
+        <div class="top" style="margin-top:96px"><span class="back">←</span><div><b>Groceries</b><small>Bob paid $54.00</small></div></div>
+        <div class="body">
+          <div class="sec"><span>HISTORY</span></div>
+          <div class="hist">
+            <div class="ev hot"><b>Bob</b> changed Alice's payment <span class="strike">$15.00</span> → <b class="money" style="font-size:13px">$5.00</b><small>Today, 10:31 PM · now covers $5.00 of this bill</small></div>
+            <div class="ev"><b>Alice</b> paid Bob <b class="money" style="font-size:13px">$15.00</b> with Venmo<small>Nov 19, 9:58 PM · settle-up across 2 bills</small></div>
+            <div class="ev"><b>Steve</b> paid Bob <b class="money" style="font-size:13px">$18.00</b> with Zelle<small>Nov 14, 8:12 PM</small></div>
+            <div class="ev"><b>Bob</b> added this bill<small>Nov 12, 6:40 PM</small></div>
+          </div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="caption"><span class="tag new">11</span><b>Web guest fixes their own payment</b><small>Ann paid from the link without an account and typed $210.50 by mistake. The same browser remembers her, so she can reopen the link and change it. On another device she would have to tap her name again; that's fine for v1. Bob (the one owed) can always change it from the app.</small></div>
+      <div class="phone web"><div class="island"></div>
+        <div class="status"><span>11:05</span><span>●●● ▮</span></div>
+        <div class="urlbar">🔒 split-evenly.app</div>
+        <div class="w-body">
+          <div class="w-head">ANDREW PAID</div>
+          <div class="w-title">Dinner at Nobu</div>
+          <div class="w-sub">You're Ann · your share <span style="font-family:PlexMono;font-weight:600;color:#0b1220">$21.05</span></div>
+        </div>
+        <div class="w-scrim"></div>
+        <div class="w-sheet">
+          <div class="grab" style="background:#d6dce6"></div>
+          <div style="font-size:18px;font-weight:700">Change what you paid</div>
+          <div class="w-hint">You recorded $210.50 with Venmo at 9:58 PM.</div>
+          <div class="w-field">$21.05</div>
+          <div style="height:8px"></div>
+          <div class="w-btn">Save</div>
+          <div class="w-btn sec">I didn't pay this</div>
+        </div>
+        <div class="home"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Decisions captured here</h2>
+  <table>
+    <tr><th style="width:240px">Decision</th><th>Choice</th></tr>
+    <tr><td>Data model</td><td>Hidden group: <code>groups.kind in ('group','quick')</code>. Reuses members, typed-in names, web claim, settlements and merge unchanged. "Make it a group" just flips <code>kind</code>.</td></tr>
+    <tr><td>Home</td><td>One list, no tabs. A quick split moves to History a day after it's fully settled.</td></tr>
+    <tr><td>People</td><td>Names only in v1. v2: system contact picker (no permission) fills in the name and keeps the number to text the link. v3 (later): verified phone numbers so app users get a push instead.</td></tr>
+    <tr><td>Billing / Pro</td><td>Out of scope for launch. Quick splits ignore <code>group_passes</code> entirely; revisit as a separate issue.</td></tr>
+    <tr><td>Who edits a payment</td><td>Only the two people in it (the one paying back and the one owed). Not the admin, not other members. Enforced on the server, not just hidden in the UI.</td></tr>
+    <tr><td>When it applies</td><td>Immediately. No pending state. The other person gets a push, and history keeps before/after/who.</td></tr>
+    <tr><td>Settle-up payment edit</td><td>Edit the total only; the per-bill list is a read-only preview. Reducing cuts from the newest bill first, capped at what each bill had (nothing moves to other bills). Increasing fills the oldest unpaid bill first. Edited from one bill's screen, it changes only that bill.</td></tr>
+    <tr><td>Confirm step</td><td>Existing "Did the payment go through?" sheet gains an editable amount. Saved = counts.</td></tr>
+    <tr><td>Web guests</td><td>Can correct their own payment from the same link and browser.</td></tr>
+  </table>
+</div>
+</body></html>
