@@ -42,6 +42,26 @@ class ReceiptTitleTest {
     }
 
     @Test
+    fun quickReadKindsPutTheNameFirst() {
+        assertEquals("Uber ride", suggestBillTitle("Uber", VenueKind.RIDE, 8, 0))
+        assertEquals("Lyft Ride", suggestBillTitle("Lyft Ride", VenueKind.RIDE, 8, 0))
+        assertEquals("Ride", suggestBillTitle(null, VenueKind.RIDE, 8, 0))
+        assertEquals("Netflix subscription", suggestBillTitle("Netflix", VenueKind.SUBSCRIPTION, null, 0))
+        assertEquals("PECO bill", suggestBillTitle("PECO", VenueKind.UTILITY, null, 0))
+        assertEquals("Airbnb stay", suggestBillTitle("Airbnb", VenueKind.LODGING, null, 0))
+        assertEquals("Gas at Shell", suggestBillTitle("Shell", VenueKind.FUEL, null, 0))
+    }
+
+    @Test
+    fun modelTitleOnlyFillsAGapInTheTable() {
+        assertEquals("Concert tickets", suggestBillTitle("Ticketmaster", VenueKind.ENTERTAINMENT, null, 0, "Concert tickets"))
+        assertEquals("Ticketmaster", suggestBillTitle("Ticketmaster", VenueKind.ENTERTAINMENT, null, 0))
+        // The table's own wording wins over the model's.
+        assertEquals("Uber ride", suggestBillTitle("Uber", VenueKind.RIDE, null, 0, "Trip to airport"))
+        assertEquals("Lunch at Tavolo", suggestBillTitle("Tavolo", VenueKind.RESTAURANT, 12, 0, "Pasta lunch"))
+    }
+
+    @Test
     fun wireParsing() {
         assertEquals(VenueKind.GROCERY, venueKindOf("grocery"))
         assertNull(venueKindOf("casino"))

@@ -133,6 +133,8 @@ data class EditBillState(
     // cascade without a draft that reconciled against the receipt's printed total — see
     // ReceiptDraft.verified. Irrelevant (defaults true) for a manually-entered or already-saved bill.
     val verified: Boolean = true,
+    // The category a scan implies ("groceries" for a supermarket receipt). Null when not from a scan.
+    val categoryKey: String? = null,
 )
 
 /** A group member shown as a selectable participant chip on the bill. */

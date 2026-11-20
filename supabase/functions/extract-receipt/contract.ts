@@ -249,14 +249,14 @@ export function normalizeReceipt(raw: RawReceipt): Receipt {
 const VENUE_KINDS: ReadonlySet<string> = new Set(["restaurant", "cafe", "bar", "grocery", "shop", "other"]);
 
 /** Trimmed, length-capped merchant name, or null. It becomes user-visible text, so keep it a short label. */
-function normalizeMerchant(name: unknown): string | null {
+export function normalizeMerchant(name: unknown): string | null {
   if (typeof name !== "string") return null;
   const trimmed = name.replace(/\s+/g, " ").trim();
   return trimmed ? trimmed.slice(0, 40) : null;
 }
 
 /** A valid 24-hour "HH:MM", zero-padded, or null. Anything else is dropped rather than half-trusted. */
-function normalizeTime(time: unknown): string | null {
+export function normalizeTime(time: unknown): string | null {
   if (typeof time !== "string") return null;
   const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
   if (!m) return null;

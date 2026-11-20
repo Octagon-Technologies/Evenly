@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Receipt autofill and native sheets</title>
+<style>
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-regular.ttf");font-weight:400}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-semibold.ttf");font-weight:600}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-bold.ttf");font-weight:700}
+  @font-face{font-family:PlexMono;src:url("system/dist/assets/ibm-plex-mono-semibold.ttf");font-weight:600}
+  :root{--blue:#3a52d6;--blueText:#7aa6ff;--page:#000;--surface:#0d1118;--surface2:#151b26;--border:#232c3b;--ink:#e7ecf3;--ink2:#9ba6b8;--ink3:#67738a;--food:#38BDF8;--transport:#818CF8;--amber:#f5b544}
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9edf3;color:#0b1220;font-family:Plex,system-ui,sans-serif}
+  .board{max-width:1600px;margin:auto;padding:36px 28px 60px}
+  h1{font-size:28px;letter-spacing:-.6px;margin:0 0 6px}
+  h2{font-size:19px;margin:48px 0 4px}
+  .lede{color:#536074;font-size:14px;margin:0 0 22px;max-width:960px;line-height:1.5}
+  .grid{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}
+  .col{width:360px}
+  .caption{min-height:148px;padding:0 4px 12px}
+  .caption b{display:block;font-size:15px}
+  .caption small{display:block;color:#536074;font-size:12.5px;line-height:1.45;margin-top:4px}
+  .tag{display:inline-block;font:600 10px PlexMono,monospace;padding:3px 6px;border-radius:5px;margin-right:6px;vertical-align:1px}
+  .tag.now{background:#fde8e8;color:#9b1c1c}.tag.rec{background:#e9f8f0;color:#147a48}.tag.alt{background:#eef1f8;color:#536074}
+  .phone{width:360px;height:740px;background:var(--page);color:var(--ink);border:9px solid #17191d;border-radius:46px;box-shadow:0 18px 42px rgba(13,22,39,.18);position:relative;overflow:hidden}
+  .phone.android{border-radius:34px}
+  .island{position:absolute;z-index:40;top:10px;left:50%;transform:translateX(-50%);width:104px;height:28px;border-radius:20px;background:#1a1b1f}
+  .punch{position:absolute;z-index:40;top:12px;left:50%;transform:translateX(-50%);width:12px;height:12px;border-radius:50%;background:#1a1b1f}
+  .status{height:46px;padding:16px 24px 0;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
+  .android .status{height:34px;padding:9px 20px 0;font-size:12px;font-weight:600}
+  .home{position:absolute;z-index:60;width:116px;height:5px;border-radius:9px;background:#e7ecf3;bottom:8px;left:50%;transform:translateX(-50%)}
+  .android .home{width:96px;height:4px;bottom:9px;opacity:.85}
+  /* top bar */
+  .top{display:flex;align-items:center;gap:12px;padding:4px 14px 10px;border-bottom:1px solid #151a22}
+  .top .back{font-size:20px}
+  .top b{flex:1;font-size:17px}
+  .save{height:34px;padding:0 14px;border-radius:10px;background:var(--blue);color:#fff;font-weight:700;font-size:14px;display:grid;place-items:center}
+  .body{padding:0 14px}
+  .lab{color:var(--ink2);font-size:12px;font-weight:600;margin:13px 2px 6px}
+  .lab i{font-style:normal;color:var(--ink3);font-weight:400;margin-left:6px}
+  .field{display:flex;align-items:center;gap:8px;height:44px;border-radius:12px;background:var(--surface);border:1px solid var(--border);padding:0 12px;font-size:14.5px}
+  .field .ph{color:var(--ink3)}
+  .field.filled{border-color:rgba(122,166,255,.55);background:linear-gradient(0deg,rgba(122,166,255,.06),rgba(122,166,255,.06)),var(--surface)}
+  .field.focus{border-color:var(--blueText)}
+  .caret{display:inline-block;width:1.5px;height:16px;background:var(--blueText);vertical-align:-3px;margin-left:1px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{height:34px;border-radius:99px;padding:0 12px 0 5px;display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:600;background:var(--blue);color:#fff}
+  .chip .av{width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font-size:9.5px}
+  .chip.add{background:transparent;border:1px solid var(--border);color:var(--ink);padding:0 12px}
+  .two{display:flex;gap:10px}.two>div{flex:1;min-width:0}
+  .sel{display:flex;align-items:center;gap:8px;height:44px;border-radius:12px;border:1px solid var(--border);background:var(--surface);padding:0 10px;font-size:13.5px;white-space:nowrap;overflow:hidden}
+  .sel .ic{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;flex:none;position:relative}
+  .spark{position:absolute;right:-4px;top:-4px;width:14px;height:14px;border-radius:50%;background:var(--blue);color:#fff;font-size:8px;display:grid;place-items:center;border:1.5px solid #000}
+  .sel .t{flex:1;overflow:hidden;text-overflow:ellipsis}
+  .sel .dn{color:var(--ink3);font-size:11px}
+  .sel.filled{border-color:rgba(122,166,255,.55)}
+  .auto{font:600 9.5px PlexMono,monospace;letter-spacing:.04em;color:var(--blueText);background:rgba(122,166,255,.13);padding:2px 5px;border-radius:5px;flex:none}
+  .rc{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:12px;padding:8px;background:var(--surface)}
+  .thumb{width:46px;height:56px;border-radius:7px;flex:none;position:relative;overflow:hidden;background:#f4f1ea}
+  .thumb.paper::before{content:"";position:absolute;left:7px;right:7px;top:8px;height:40px;background:repeating-linear-gradient(#bdb6a8 0 2px,transparent 2px 6px)}
+  .thumb.bank{background:#0f1a2e}
+  .thumb.bank::before{content:"";position:absolute;left:6px;right:6px;top:7px;height:6px;border-radius:2px;background:#1f6bd6}
+  .thumb.bank::after{content:"";position:absolute;left:6px;right:6px;top:18px;height:30px;background:repeating-linear-gradient(#45536b 0 2px,transparent 2px 7px)}
+  .spin{position:absolute;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center}
+  .spin i{width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,.3);border-top-color:#fff}
+  .rc .grow{flex:1;min-width:0}
+  .rc .grow b{display:block;font-size:13.5px}
+  .rc .grow small{display:block;color:var(--ink2);font-size:12px;margin-top:2px;line-height:1.35}
+  .rc .more{color:var(--blueText);font-size:12.5px;font-weight:700;white-space:nowrap}
+  .note{display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(122,166,255,.09);font-size:12px;color:var(--ink2)}
+  .note b{color:var(--ink);font-weight:600}
+  .note .u{margin-left:auto;color:var(--blueText);font-weight:700}
+  .note.warn{background:rgba(245,181,68,.10)}
+  .amt{margin-top:10px;border:1px solid var(--border);border-radius:16px;padding:14px 18px 12px;text-align:center}
+  .amt .v{font:600 44px PlexMono,monospace;letter-spacing:-1px}
+  .amt .v sup{font-size:20px;color:var(--ink3);vertical-align:12px;margin-right:4px}
+  .amt .v.zero{color:#4a5568}
+  .amt .v.shim{color:transparent;background:linear-gradient(90deg,#141a25,#222b3a,#141a25);border-radius:10px;display:inline-block;width:170px;height:46px}
+  .amt.filled{border-color:rgba(122,166,255,.55)}
+  .cur{display:inline-flex;margin-top:6px;border:1px solid var(--border);border-radius:9px;padding:4px 10px;font-size:12.5px;font-weight:600;color:var(--ink2)}
+  .fade{position:absolute;left:0;right:0;bottom:0;height:60px;background:linear-gradient(transparent,#000);z-index:5}
+  /* screen behind sheets */
+  .grp{padding:0 14px}
+  .grp .ttl{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;padding:4px 0 12px}
+  .grp .card{border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--surface);font-size:14px;font-weight:600}
+  .grp .seg{display:flex;border:1px solid var(--border);border-radius:12px;padding:4px;font-size:13px;color:var(--ink2);font-weight:600}
+  .grp .seg span{flex:1;text-align:center;padding:8px 0;border-radius:9px}
+  .grp .seg .on{background:#fff;color:#000}
+  .empty{text-align:center;color:var(--ink2);font-size:13px;margin-top:70px}
+  .empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:6px}
+  /* sheets */
+  .scrim{position:absolute;inset:0;z-index:20;background:rgba(0,0,0,.5)}
+  .sheet{position:absolute;z-index:21;left:0;right:0;bottom:0;background:#10151e;padding:0 16px 30px}
+  .sheet.ios{left:7px;right:7px;bottom:7px;border-radius:34px;background:#141a24;border:1px solid #232c3b;padding-bottom:26px}
+  .sheet.ios.full{left:0;right:0;bottom:0;top:56px;border-radius:30px 30px 0 0;border-bottom:0}
+  .sheet.md{border-radius:28px 28px 0 0;background:#131924;padding-bottom:40px}
+  .sheet.now{border-radius:24px 24px 0 0;background:#000;border-top:1px solid #1a2130;padding-top:14px}
+  .grabber{width:36px;height:5px;border-radius:3px;background:#3d4757;margin:6px auto 4px}
+  .mdhandle{width:32px;height:4px;border-radius:2px;background:#5a6375;margin:22px auto 18px}
+  .ihead{display:flex;align-items:center;height:48px;margin-bottom:8px;position:relative}
+  .ihead b{position:absolute;left:0;right:0;text-align:center;font-size:16.5px;font-weight:700;pointer-events:none}
+  .glassx{width:44px;height:44px;flex:none;border-radius:999px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:grid;place-items:center;background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.07));border:1px solid rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 4px 14px rgba(0,0,0,.35);font-size:17px;color:var(--ink);position:relative;z-index:2}
+  .glassx.check{margin-left:auto;background:linear-gradient(180deg,#5b72f0,#3a52d6);border-color:rgba(255,255,255,.2)}
+  .nowhead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .nowx{width:36px;height:36px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-size:13px}
+  .nowhead b{font-size:19px}
+  .mdtitle{font-size:20px;font-weight:600;margin:0 4px 16px}
+  .pbtn{height:46px;border-radius:12px;background:var(--blue);color:#fff;font-weight:700;font-size:15px;display:grid;place-items:center;margin-bottom:10px}
+  .md .pbtn{border-radius:23px}
+  .row2{display:flex;gap:10px;margin-bottom:12px}
+  .sbtn{flex:1;height:44px;border-radius:12px;background:var(--surface2);display:grid;place-items:center;font-weight:700;font-size:13.5px}
+  .md .sbtn{border-radius:22px}
+  .list{border:1px solid var(--border);border-radius:14px}
+  .li{display:flex;align-items:center;gap:11px;padding:11px 12px;border-bottom:1px solid #1a2130;font-size:14px}
+  .li:last-child{border-bottom:0}
+  .mav{width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:11.5px;font-weight:700;flex:none}
+  .mav.o{background:#1b2436;color:var(--ink2)}
+  .li .grow{flex:1}
+  .li small{color:var(--ink3)}
+  .badge{font-size:11.5px;font-weight:700;color:var(--blueText);border:1px solid var(--border);border-radius:8px;padding:3px 8px}
+  .cat{display:flex;align-items:center;gap:11px;padding:10px 8px;border-radius:12px;font-size:14px}
+  .cat .ic{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:13px;flex:none}
+  .cat.on{background:rgba(122,166,255,.10);outline:1px solid rgba(122,166,255,.45)}
+  .cat .tick{margin-left:auto;color:var(--blueText);font-weight:700}
+  .cat small{color:var(--blueText);font-size:11px;font-weight:600;margin-left:6px}
+  .gesture{position:absolute;z-index:50;display:flex;align-items:center;gap:6px;font:600 10.5px PlexMono,monospace;color:#0b1220;background:#fff8d6;border:1px solid #e8d98a;border-radius:8px;padding:4px 7px}
+  .arrow-down{font-size:13px}
+  .predict{position:absolute;z-index:50;left:6px;top:46%;width:30px;height:62px;border-radius:0 31px 31px 0;background:rgba(255,255,255,.18);display:grid;place-items:center;color:#fff;font-size:16px}
+  .ann{font-size:12.5px;color:#536074;line-height:1.5;max-width:960px;margin:14px 0 0}
+  .ann li{margin-bottom:4px}
+</style></head>
+<body><div class="board">
+<h1>Receipt autofill, auto-category, native sheets</h1>
+<p class="lede">Three changes, mocked before any Compose. Decisions already made: read automatically on attach; no date field; iOS close ✕ top-left; Android follows Material 3's default (drag handle, no ✕). Filled fields carry no marker; they look exactly as if you had typed them.</p>
+
+<h2>1 · "Split one amount": attach a receipt, the form fills itself</h2>
+<p class="lede">The quick read runs on Haiku in one pass: total, cleaned merchant name, kind of expense, category. It only fills fields that are still empty and never overwrites what you typed. Filled fields look like any other field: no badge, outline or banner, since you can change any of them anytime. Once a receipt is attached, "Add" becomes "Replace" (one receipt per expense on this path). Whatever happens, the receipt stays attached.</p>
+<div class="grid" id="row1"></div>
+
+<h2>2 · Category picks itself from the title</h2>
+<p class="lede">No AI call while typing. In order: this group's earlier expenses with a similar title, then the receipt read, then a fixed keyword list. The category is simply selected, with no badge or "suggested" label; you can change it like any pick. Once you choose one yourself, the guess never touches it again.</p>
+<div class="grid" id="row2"></div>
+
+<h2>3 · Sheets that look native on each platform</h2>
+<p class="lede">One shared sheet component switches its top bar per platform, so all 26 places that use a sheet change together. Both platforms gain swipe-down to close (only the draggable sheet had it) and Android gains the back gesture, which currently doesn't close sheets at all.</p>
+<div class="grid" id="row3"></div>
+<ul class="ann">
+  <li><b>iOS:</b> a grabber; a floating rounded card at half height, joining the screen edges when full height (as iOS 26 sheets do); a round glass close button top-left (44pt circle, xmark with rounded stroke ends) with the title centered on the same line. Sheets with a confirm action put a ✓ top-right in the same style.</li>
+  <li><b>Android:</b> Material 3 bottom sheet, a 32×4 drag handle, left-aligned title, dimmed backdrop, no ✕. It closes with a swipe down, a tap outside, or the back gesture with the predictive-back shrink. TalkBack reads the handle as "Drag handle, double-tap to close", so screen-reader users still have a close.</li>
+  <li><b>Centered dialogs</b> (the modal card) keep a ✕ on iOS; on Android they become a standard Material dialog with a text "Cancel" button.</li>
+</ul>
+</div>
+
+<script>
+const statusIos = `<div class="island"></div><div class="status"><span>9:41</span><span>●●● ᯤ ▮</span></div>`;
+const statusAnd = `<div class="punch"></div><div class="status"><span>9:41</span><span>▾ ◢ ▮</span></div>`;
+
+function form(o){
+  const titleField = o.title
+    ? `<div class="field ${o.titleFilled?'filled':''} ${o.titleFocus?'focus':''}">${o.title}${o.titleFocus?'<span class="caret"></span>':''}</div>`
+    : `<div class="field"><span class="ph">What was it for?</span></div>`;
+  const cat = o.cat
+    ? `<div class="sel ${o.catFilled?'filled':''}"><span class="ic" style="background:${o.cat.c}22;color:${o.cat.c}">${o.cat.i}${o.catAuto?'<span class="spark">✦</span>':''}</span><span class="t">${o.cat.l}</span><span class="dn">⌄</span></div>`
+    : `<div class="sel"><span class="ic" style="background:#1b2436;color:var(--blueText)">◇</span><span class="t" style="color:var(--ink3)">Add category</span><span class="dn">⌄</span></div>`;
+  const rec = o.receipt
+    ? `<div class="rc"><div class="thumb ${o.receipt.kind}">${o.receipt.loading?'<div class="spin"><i></i></div>':''}</div><div class="grow"><b>${o.receipt.head}</b>${o.receipt.sub?`<small>${o.receipt.sub}</small>`:''}</div><span class="more">Replace</span></div>`
+    : `<div class="rc" style="justify-content:center;height:46px;color:var(--blueText);font-weight:700;font-size:14px">+ Add a receipt</div>`;
+  const amt = o.amount==='shim'
+    ? `<div class="amt"><div class="v shim">.</div><div><span class="cur">⊕ USD</span></div></div>`
+    : `<div class="amt ${o.amountFilled?'filled':''}"><div class="v ${o.amount?'':'zero'}"><sup>$</sup>${o.amount||'0.00'}</div><div><span class="cur">⊕ USD</span></div></div>`;
+  return `<div class="top"><span class="back">←</span><b>Split one amount</b><span class="save">Save</span></div>
+  <div class="body">
+    <div class="lab">Title</div>${titleField}
+    <div class="lab">Who's splitting this?</div>
+    <div class="chips"><span class="chip"><span class="av">AC</span>Andrew Chelimo ✓</span><span class="chip"><span class="av">SA</span>Steve Ander ✓</span><span class="chip add">+ Add</span></div>
+    <div class="two"><div><div class="lab">Category</div>${cat}</div><div><div class="lab">Paid by</div><div class="sel"><span class="ic" style="background:var(--blue);color:#fff;font-size:10px">AC</span><span class="t">Andrew Cheli…</span><span class="dn">⌄</span></div></div></div>
+    <div class="lab">Receipt<i>optional</i></div>${rec}
+    ${amt}
+  </div><div class="fade"></div><div class="home"></div>`;
+}
+const FOOD={c:'#38BDF8',i:'🍴',l:'Food &amp; Drink'}, TRANSPORT={c:'#818CF8',i:'🚗',l:'Transport'}, LODGING={c:'#2563EB',i:'🛏',l:'Lodging'};
+
+function col(tag, tagText, title, body, phone){
+  return `<div class="col"><div class="caption"><span class="tag ${tag}">${tagText}</span><b>${title}</b><small>${body}</small></div><div class="phone">${statusIos}${phone}</div></div>`;
+}
+
+document.getElementById('row1').innerHTML = [
+  col('rec','1A','Reading, right after attaching',
+    'The thumbnail shows a spinner and the amount area shimmers. Everything stays editable: a title typed now just means the read leaves the title alone. "Replace" swaps the photo and starts a new read.',
+    form({receipt:{kind:'paper',loading:true,head:'Reading receipt…'},amount:'shim'})),
+  col('rec','1B','Restaurant receipt',
+    'Printed at 12:48, so the fixed name table says "Lunch". Title, amount and category are filled in. The receipt row names the merchant and the kind of receipt; the amount isn\'t repeated there because it\'s already in the box below.',
+    form({title:'Lunch at Sweetgreen',cat:FOOD,amount:'38.42',
+      receipt:{kind:'paper',head:'Sweetgreen',sub:'Restaurant receipt'}})),
+  col('rec','1C','Chase screenshot, title already typed',
+    'The model reads "UBER *TRIP HELP.UBER.COM" as Uber, a ride. You had already typed "Airport ride", so it stays; only the amount and category are filled.',
+    form({title:'Airport ride',cat:TRANSPORT,amount:'24.17',
+      receipt:{kind:'bank',head:'Uber',sub:'Card transaction'}})),
+  col('rec','1D','Couldn\'t read it',
+    'Blurry, or not a receipt. No banner: the receipt row itself says it couldn\'t be read. Nothing is filled, the receipt stays attached, and "Replace" starts a new read with a better photo.',
+    form({receipt:{kind:'paper',head:'Receipt attached',sub:'Unable to read receipt. You can fill in the details manually.'}})),
+].join('');
+
+function catSheet(on){
+  const cats=[['🍴','Food &amp; Drink','#38BDF8'],['🛒','Groceries','#2DD4BF'],['🚗','Transport','#818CF8'],['🛏','Lodging','#2563EB'],['🎟','Entertainment','#A78BFA'],['🛍','Shopping','#F59E0B'],['💡','Utilities','#60A5FA']];
+  return `<div class="scrim"></div><div class="sheet ios full"><div class="grabber"></div>
+    <div class="ihead"><span class="glassx"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></span><b>Category</b></div>
+    ${cats.map(([i,l,c])=>`<div class="cat ${l===on?'on':''}"><span class="ic" style="background:${c}22;color:${c}">${i}</span>${l}${l===on?'<span class="tick">✓</span>':''}</div>`).join('')}
+  </div>`;
+}
+document.getElementById('row2').innerHTML = [
+  col('rec','2A','Typing a title',
+    '"dinner" matches the keyword list, so Food &amp; Drink is selected while you type. Nothing was picked before, so nothing is overwritten.',
+    form({title:"Dinner at Nando's",titleFocus:true,cat:FOOD})),
+  col('rec','2B','Group history wins',
+    'This group logged "Airbnb Austin" under Lodging last month, so a new "Airbnb deposit" gets Lodging from history even though the keyword list would agree anyway. History matters most for a group\'s own categories, like "Rent".',
+    form({title:'Airbnb deposit',cat:LODGING})),
+  col('rec','2C','Opening the picker',
+    'The guessed category is just the selected row, like any other pick. Choosing another one sticks. This is also the new iOS sheet top bar (section 3).',
+    form({title:"Dinner at Nando's",cat:FOOD}) + catSheet('Food &amp; Drink')),
+].join('');
+
+const behind = `<div class="grp"><div class="ttl">← 🏠 Off Campus Trip</div><div class="card">AC SA &nbsp;2 members</div><div class="seg"><span>Active</span><span class="on">All</span><span>Settled</span></div><div class="empty"><b>No expenses yet</b>Add the first expense and Evenly<br>tracks who owes whom.</div></div>`;
+const membersBody = (md)=>`<div class="pbtn">⤴ Invite with link</div>
+  <div class="row2"><div class="sbtn">▦ Show QR code</div><div class="sbtn">+ Add by name</div></div>
+  <div class="list"><div class="li"><span class="mav">AC</span><span class="grow">Andrew Chelimo <small>· you</small></span><span class="badge">Admin</span></div><div class="li"><span class="mav o">SA</span><span class="grow">Steve Ander</span></div></div>`;
+
+document.getElementById('row3').innerHTML = [
+  `<div class="col"><div class="caption"><span class="tag now">NOW</span><b>Today, both platforms</b><small>A custom round ✕ top-left and a left title. No grabber, no swipe to close, and Android's back gesture leaves the sheet open.</small></div>
+   <div class="phone">${statusIos}${behind}<div class="sheet now"><div class="nowhead"><span class="nowx">✕</span><b>Members</b></div>${membersBody()}</div><div class="home"></div></div></div>`,
+  `<div class="col"><div class="caption"><span class="tag rec">iOS</span><b>iOS: grabber, glass ✕ top-left</b><small>A floating card at half height with a dimmed screen behind. The title is centered on the ✕ line. Swiping down, tapping outside or the ✕ closes it.</small></div>
+   <div class="phone">${statusIos}${behind}<div class="scrim"></div><div class="sheet ios"><div class="grabber"></div><div class="ihead"><span class="glassx"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></span><b>Members</b></div>${membersBody()}</div>
+   <span class="gesture" style="right:14px;top:330px"><span class="arrow-down">↓</span> swipe to close</span><div class="home"></div></div></div>`,
+  `<div class="col"><div class="caption"><span class="tag rec">ANDROID</span><b>Android: Material 3 default</b><small>A drag handle, the title on the left and no ✕. Pill-shaped buttons follow Material. It closes with a swipe down, a tap outside or the back gesture (shown mid-swipe, with the predictive-back arrow).</small></div>
+   <div class="phone android">${statusAnd}${behind}<div class="scrim"></div><div class="sheet md"><div class="mdhandle"></div><div class="mdtitle">Members</div>${membersBody(true)}</div>
+   <div class="predict">‹</div><span class="gesture" style="left:44px;top:350px">← back closes the sheet</span><div class="home"></div></div></div>`,
+].join('');
+</script>
+</body></html>

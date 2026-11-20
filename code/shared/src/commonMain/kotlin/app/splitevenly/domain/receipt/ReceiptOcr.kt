@@ -78,4 +78,51 @@ interface ReceiptOcr {
     /** [groupId] rides along in the request so server-side analytics can attribute the scan to a group
      *  (Plan A); harmless if the server ignores it, and omitted from the body when null. */
     suspend fun extract(files: List<ReceiptOcrFile>, groupId: String? = null): ScanOutcome
+
+    /**
+     * The quick read for "Split one amount": who was paid, what kind of spend, and the total, from a receipt
+     * or a bank / card screenshot. Null for every failure (offline, unreadable, not an expense, server
+     * error), because the editor's answer is the same in each case: the receipt stays attached and the user
+     * types the details. Never throws.
+     */
+    suspend fun summarize(files: List<ReceiptOcrFile>, groupId: String?): ReceiptSummary? = null
 }
+
+/** Where a quick read's image came from. Only used to label the receipt row ("Card transaction"). */
+enum class ReceiptSource { RECEIPT, CARD_TRANSACTION, INVOICE, PAYMENT_APP, OTHER }
+
+/**
+ * What one receipt or transaction screenshot says the expense was: the quick read behind "Split one
+ * amount". Every field is optional; the editor fills only the fields the user has left empty.
+ */
+data class ReceiptSummary(
+    val source: ReceiptSource,
+    val merchantName: String?,
+    val kind: VenueKind?,
+    /** A built-in category key ("food"), as the model classified it. */
+    val categoryKey: String?,
+    /** 24-hour "HH:MM" as printed. */
+    val printedTime: String?,
+    /** 0 when no total could be read. */
+    val totalSubunits: Long,
+    val currency: String?,
+    /** The model's own short name, used only where the title table has no wording for [kind]. */
+    val shortTitle: String?,
+)
+
+/** The receipt row's caption for a read: "Restaurant receipt", "Card transaction", "Invoice". */
+fun ReceiptSummary.sourceLabel(): String =
+    when (source) {
+        ReceiptSource.CARD_TRANSACTION -> "Card transaction"
+        ReceiptSource.INVOICE -> "Invoice"
+        ReceiptSource.PAYMENT_APP -> "Payment"
+        ReceiptSource.RECEIPT, ReceiptSource.OTHER ->
+            when (kind) {
+                VenueKind.RESTAURANT -> "Restaurant receipt"
+                VenueKind.CAFE -> "Cafe receipt"
+                VenueKind.BAR -> "Bar receipt"
+                VenueKind.GROCERY -> "Grocery receipt"
+                VenueKind.SHOP -> "Store receipt"
+                else -> "Receipt"
+            }
+    }

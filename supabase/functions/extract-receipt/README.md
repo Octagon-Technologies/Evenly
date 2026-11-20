@@ -75,6 +75,34 @@ the app can suggest a bill name ("Dinner at Tom's Watch Bar"); the wording is a 
 (`domain/receipt/ReceiptTitle.kt`), not model output. All three are optional on the wire, so an app older than
 them ignores them and an app newer than the deployed function just gets no suggestion.
 
+## Quick read (`mode: "summary"`)
+
+"Split one amount" sends the same request with `"mode": "summary"` and gets back what the expense *was*,
+not its items: one Haiku 5.5 pass (thinking off, effort low), no verify turn, no escalation. It reads a
+printed receipt **or a screenshot of a bank, card or payment-app transaction**, and cleans card descriptors
+("UBER *TRIP" is "Uber"). Same auth, membership check, rate limit and `receipt_scan_log` row as a full scan
+(`tiers_used: ["summary"]`). Contract and normalizer: `summary.ts`, tests: `summary.test.ts`.
+
+```jsonc
+{
+  "configured": true,
+  "scanId": "…",
+  "summary": {
+    "source": "card_transaction",     // receipt | card_transaction | invoice | payment_app | other
+    "merchant_name": "Uber",
+    "expense_kind": "ride",           // restaurant … utility, health, other (see EXPENSE_KINDS)
+    "category": "transport",          // a built-in category key, or null
+    "printed_time": "07:42",
+    "total_subunits": 2417,           // the printed total, converted by parseAmountSubunits; 0 if unread
+    "currency": "USD",
+    "short_title": null               // used by the app only where its own title table has no wording
+  }
+}
+```
+
+A non-expense image, or a reading with no payee, kind, total or title, comes back as `{ noReceipt: true }`.
+The app treats every non-success the same way: the receipt stays attached and the user types the details.
+
 ## The model transcribes. Code computes. No exceptions.
 
 **No field in the `record_receipt` schema holds a value the model has to work out, and the prompt contains

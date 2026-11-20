@@ -39,6 +39,7 @@ import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
 import app.splitevenly.domain.receipt.printedHourOf
+import app.splitevenly.domain.receipt.VenueKind
 import app.splitevenly.domain.receipt.suggestBillTitle
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
@@ -121,6 +122,7 @@ fun AddExpenseRoute(
     val uploadManager = remember { koin.getOrNull<ReceiptUploadManager>() }
     val stagedPdf = rememberStagedPdfRenderers(uploadManager)
     val analytics = remember { koin.getOrNull<EvAnalytics>() }
+    val quickRead = rememberReceiptQuickRead(ocr, groupId)
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
@@ -247,6 +249,8 @@ fun AddExpenseRoute(
         lastExpenseParticipantIds = lastExpenseParticipantIds,
         receipts = pickedReceipts.map { it.toUi() },
         receiptsEnabled = uploadManager != null,
+        receiptRead = quickRead.state,
+        categoryHistory = remember(recentExpenses) { categoryHistoryOf(recentExpenses) },
         scanState = scanState,
         scanned = scanned,
         notice = notice,
@@ -297,11 +301,18 @@ fun AddExpenseRoute(
             cameraGate.wrap { source ->
                 scope.launch {
                     val picked = filePicker.pick(source, PickKind.ImageOrPdf)
+                    // One receipt per expense here, so a pick replaces the last one and starts a fresh quick read.
                     // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
-                    if (picked is AppResult.Ok) pickedReceipts = pickedReceipts + uploadManager?.stage(picked.value).orEmpty()
+                    if (picked is AppResult.Ok && picked.value.isNotEmpty()) {
+                        val superseded = pickedReceipts
+                        quickRead.start(picked.value)
+                        pickedReceipts = uploadManager?.stage(picked.value).orEmpty()
+                        uploadManager?.discardStaged(superseded)
+                    }
                 }
             },
         onRemoveReceipt = { i ->
+            quickRead.clear()
             removeStaged({ pickedReceipts }, i, deferred, uploadManager) { pickedReceipts = it }
         },
         onSave = { submit ->
@@ -429,6 +440,7 @@ private fun ReceiptDraft.toAddEditState(): EditBillState =
         discountText = if (discountSubunits == 0L) "" else format2dp(discountSubunits / 100.0),
         otherChargesText = if (otherChargesSubunits == 0L) "" else format2dp(otherChargesSubunits / 100.0),
         verified = verified,
+        categoryKey = if (venueKind == VenueKind.GROCERY) "groceries" else "food",
     )
 
 /** Edit expense, wired: prefills the split editor from the saved expense; Save replaces its shares. */

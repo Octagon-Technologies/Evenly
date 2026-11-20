@@ -72,6 +72,13 @@ import {
   describeDiscrepancy,
   fmt,
 } from "./billMath.ts";
+import {
+  isUsableSummary,
+  normalizeSummary,
+  type RawExpenseSummary,
+  SUMMARY_PROMPT,
+  SUMMARY_TOOL,
+} from "./summary.ts";
 import { captureServerEvent } from "../_shared/posthogServer.ts";
 
 interface ReceiptPart {
@@ -85,6 +92,8 @@ interface ExtractRequest {
   mediaType?: string;
   storagePath?: string;
   groupId?: string | null;
+  /** "summary" = the quick read for "Split one amount" (payee, kind, total). Absent = the itemized scan. */
+  mode?: "summary";
 }
 
 /** One model pass. `truncated` means the response stopped on max_tokens, so `receipt` may be a partial object. */
@@ -163,6 +172,16 @@ const TIERS = [
   },
 ] as const;
 
+// The quick read is a short classification plus one transcribed total, so the cheapest model with thinking
+// off at low effort is enough, and a 2048 ceiling is several times the record_expense payload.
+const SUMMARY_TIER = {
+  name: "summary",
+  model: "claude-haiku-5-5",
+  maxTokens: 2048,
+  thinking: { type: "disabled" },
+  effort: "low",
+} as const;
+
 // Per-model pricing for the cost ledger, in MICROS OF A DOLLAR per token (1,000,000 micros = $1) so
 // `cost_micros` stays an exact integer instead of an accumulating float. Rates checked 2026-08-02
 // against the Anthropic pricing page -- they change; if a cost figure looks wrong, check this table
@@ -170,6 +189,8 @@ const TIERS = [
 const MODEL_RATES_MICROS_PER_TOKEN: Record<string, { input: number; output: number }> = {
   "claude-sonnet-5": { input: 3, output: 15 },
   "claude-opus-5": { input: 5, output: 25 },
+  // $0.10 / $0.50 per MTok, checked 2026-11-19. Fractional micros per token, so cost rounds at the end.
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
 };
 
 function tokenCostMicros(model: string, inputTokens: number, outputTokens: number): number {
@@ -414,6 +435,40 @@ Deno.serve(async (req) => {
       duration_ms: Date.now() - scanStartedAt,
     });
     return json({ ...(body as Record<string, unknown>), scanId }, status);
+  }
+
+  // "Split one amount" quick read: one Haiku pass, no verify turn, no escalation. Same auth, membership,
+  // rate limit and ledger row as a full scan above; only the model work differs.
+  if (payload.mode === "summary") {
+    tiersUsed.push(SUMMARY_TIER.name);
+    try {
+      const pass = await summarizeWithModel(apiKey, pages);
+      totalInputTokens += pass.usage.inputTokens;
+      totalOutputTokens += pass.usage.outputTokens;
+      totalCostMicros += tokenCostMicros(SUMMARY_TIER.model, pass.usage.inputTokens, pass.usage.outputTokens);
+      if (pass.truncated || pass.raw === null) {
+        return finish("summary_unreadable", { configured: true, noReceipt: true }, 200, { rawDraft: pass.raw });
+      }
+      if (pass.raw.is_expense === false) {
+        return finish("not_receipt", { configured: true, noReceipt: true }, 200, { rawDraft: pass.raw });
+      }
+      const summary = normalizeSummary(pass.raw);
+      if (!isUsableSummary(summary)) {
+        return finish("summary_unreadable", { configured: true, noReceipt: true }, 200, { rawDraft: pass.raw });
+      }
+      return finish("ok", { configured: true, summary }, 200, { rawDraft: pass.raw });
+    } catch (e) {
+      const message = (e as Error).message ?? "summary failed";
+      console.error(`extract-receipt: summary (${SUMMARY_TIER.model}) failed: ${message}`);
+      if (e instanceof AnthropicCallError && !e.retryable) {
+        await alertOpsOnce(
+          "extract_receipt_unavailable",
+          `Evenly: receipt scanning is down (extract-receipt summary, ${e.status}: ${message}). Check ANTHROPIC_API_KEY / credit balance.`,
+        );
+        return finish("unavailable", { configured: false, reason: message }, 200);
+      }
+      return finish("failed", { error: "Couldn't read that one. Try again." }, 502);
+    }
   }
 
   // Primary first, escalation only if it's needed. A tier that reports is_receipt:false ends everything
@@ -752,6 +807,41 @@ async function extractWithModel(
     },
     toolUseId: toolUse?.id ?? null,
     rawInput: toolUse?.input ?? null,
+  };
+}
+
+/** The quick read: one cheap pass. `raw` is the tool input verbatim (stored in the ledger), null if absent. */
+async function summarizeWithModel(
+  apiKey: string,
+  pages: ReceiptPart[],
+): Promise<{ raw: RawExpenseSummary | null; truncated: boolean; usage: { inputTokens: number; outputTokens: number } }> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: SUMMARY_TIER.model,
+      max_tokens: SUMMARY_TIER.maxTokens,
+      thinking: SUMMARY_TIER.thinking,
+      output_config: { effort: SUMMARY_TIER.effort },
+      tools: [SUMMARY_TOOL],
+      tool_choice: { type: "tool", name: SUMMARY_TOOL.name },
+      messages: [{ role: "user", content: [...pages.map(pageBlock), { type: "text", text: SUMMARY_PROMPT }] }],
+    }),
+  });
+  if (!res.ok) {
+    const bodyText = await res.text();
+    throw new AnthropicCallError(`anthropic ${res.status}: ${bodyText}`, res.status, classifyAnthropicFailure(res.status, bodyText));
+  }
+  const body = await res.json();
+  const toolUse = (body.content ?? []).find((b: { type: string }) => b.type === "tool_use");
+  return {
+    raw: toolUse ? (toolUse.input as RawExpenseSummary) : null,
+    truncated: body.stop_reason === "max_tokens",
+    usage: { inputTokens: body.usage?.input_tokens ?? 0, outputTokens: body.usage?.output_tokens ?? 0 },
   };
 }
 

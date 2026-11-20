@@ -27,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -36,6 +35,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.CategoryDefaults
+import app.splitevenly.domain.expense.CategoryHistoryEntry
+import app.splitevenly.domain.expense.guessCategory
 import app.splitevenly.domain.expense.GroupCategory
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.AvatarSize
@@ -64,7 +65,6 @@ import app.splitevenly.ui.screen.bill.ScanUiState
 import app.splitevenly.ui.screen.bill.isUntouched
 import app.splitevenly.ui.screen.bill.priceToSubunits
 import app.splitevenly.ui.screen.bill.rememberItemizedBillState
-import app.splitevenly.ui.screen.group.CategoryCatalog
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
 
@@ -108,6 +108,8 @@ fun AddExpenseScreen(
     lastExpenseParticipantIds: Set<String> = emptySet(),
     receipts: List<PickedReceiptUi> = emptyList(),
     receiptsEnabled: Boolean = false,
+    receiptRead: ReceiptReadUi = ReceiptReadUi.None, // fills only empty fields; see [receiptFill]
+    categoryHistory: List<CategoryHistoryEntry> = emptyList(),
     // ── itemized ("By what each had") body — only used when creating (editing keeps its single mode) ──
     // The scan pipeline is driven by the route: [scanState] shows progress/errors, [scanned] delivers a
     // completed draft that pre-fills the item list, and the on* callbacks pick/cancel/retry the scan.
@@ -147,6 +149,8 @@ fun AddExpenseScreen(
     val symbol = currencySymbol(currency)
     var showCurrencyDialog by remember { mutableStateOf(false) }
     var categoryId by remember { mutableStateOf(prefill?.categoryId) }
+    // Once someone picks a category (or an edit already has one), the guess never touches it again.
+    var categoryPicked by remember { mutableStateOf(prefill?.categoryId != null) }
     var showCategoryDialog by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf(prefill?.title ?: "") }
     // Default selection: editing keeps its saved shares; a new expense defaults to whoever was on the
@@ -215,7 +219,21 @@ fun AddExpenseScreen(
     val isItemized = splitApproach == SplitApproach.ByItem
     // A restaurant bill is always "Food & Drink" — no point asking, so the Category field is hidden
     // for this path and the category is set for the user.
-    LaunchedEffect(isItemized) { if (isItemized) categoryId = "food" }
+    LaunchedEffect(isItemized, scanned) { if (isItemized && !categoryPicked) categoryId = scanned?.categoryKey ?: "food" }
+
+    // A finished quick read fills what is still empty. Keyed on the read itself, so it fills once.
+    LaunchedEffect(receiptRead) {
+        val read = receiptRead as? ReceiptReadUi.Read ?: return@LaunchedEffect
+        val fill = receiptFill(read.summary, read.suggestedTitle, title, divide.amountSubunits)
+        fill.title?.let { title = it }
+        fill.amountText?.let { divide.amountText = it }
+        fill.currency?.let { currency = it }
+    }
+    // The category picks itself from the title (and the receipt read) until someone chooses one.
+    val receiptCategory = (receiptRead as? ReceiptReadUi.Read)?.summary?.categoryKey
+    LaunchedEffect(title, receiptCategory, categories, isItemized) {
+        if (!categoryPicked && !isItemized) categoryId = guessCategory(title, categoryHistory, receiptCategory, categories)
+    }
 
     val divideValid = divide.amountSubunits > 0 && title.isNotBlank() && selected.isNotEmpty() && divide.splitValid(ids)
     val itemizedValid = title.isNotBlank() && selected.isNotEmpty() && itemized.hasItem
@@ -421,42 +439,22 @@ fun AddExpenseScreen(
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (!isItemized) {
-                            EvField("Category", modifier = Modifier.weight(1f)) {
-                                EvSelectField(
-                                    selectedCategory?.label ?: "Add category",
-                                    { showCategoryDialog = true },
-                                    valueColor = if (selectedCategory != null) c.ink else c.ink3,
-                                    leading = {
-                                        if (selectedCategory != null) {
-                                            val catColor = Color(selectedCategory.colorHex)
-                                            Box(
-                                                Modifier
-                                                    .size(
-                                                        28.dp,
-                                                    ).clip(RoundedCornerShape(99.dp))
-                                                    .background(catColor.copy(alpha = 0.16f)),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                EvIcon(CategoryCatalog.icon(selectedCategory.iconToken), size = 15.dp, tint = catColor)
-                                            }
-                                        } else {
-                                            Box(
-                                                Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                EvIcon(EvIcons.Tag, size = 15.dp, tint = c.blueText)
-                                            }
-                                        }
-                                    },
-                                )
-                            }
+                            CategorySelectField(selectedCategory, { showCategoryDialog = true }, Modifier.weight(1f))
                         }
                         paidByField()
                     }
 
                     // receipt — compressed and on disk the moment it is picked, so it previews here and uploads
                     // once the expense exists. Only in the divide flow; the itemized body shows the scanned pages.
-                    if (receiptsEnabled && !isItemized) {
+                    if (receiptsEnabled && !isItemized && !editing && receipts.size <= 1) {
+                        QuickReadReceiptSection(
+                            receipt = receipts.firstOrNull(),
+                            read = receiptRead,
+                            onAdd = { showReceiptSource = true },
+                            onRemove = { onRemoveReceipt(0) },
+                            onOpen = { viewerIndex = 0 },
+                        )
+                    } else if (receiptsEnabled && !isItemized) {
                         PickedReceiptStrip(
                             receipts = receipts,
                             label = "Receipt",
@@ -520,7 +518,10 @@ fun AddExpenseScreen(
         CategorySheet(
             categories = categories,
             categoryId = categoryId,
-            onPick = { categoryId = it },
+            onPick = {
+                categoryId = it
+                categoryPicked = true
+            },
             onDismiss = { showCategoryDialog = false },
         )
     }
