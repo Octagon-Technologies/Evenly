@@ -12,7 +12,11 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,19 +44,24 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvMotion
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** How much a focused card (sheet/modal) dims the screen behind it — just enough to read as
  *  "this has focus," not so much it reads as "the app is blocked." Paired with an explicit close
@@ -110,70 +119,57 @@ fun <T> EvListCard(
     }
 }
 
-/** Visual of `.sc-sheet` (close button + title/sub) without the scrim. */
+/**
+ * Visual of `.sc-sheet` without the scrim: the platform's own sheet top ([EvSheetHeader]), then [sub] and
+ * [content]. On iOS the sheet is a card inset from the screen edges; on Android it meets them.
+ */
 @Composable
 fun EvSheetSurface(
     modifier: Modifier = Modifier,
     title: String? = null,
     sub: String? = null,
     onClose: (() -> Unit)? = null,
+    // Swipe-to-close, applied to the header only (see EvSheetScaffold).
+    dragModifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val shape = evSheetShape()
+    val ios = isIOS()
     Column(
         modifier =
             modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .then(if (ios) Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp) else Modifier)
+                .clip(shape)
                 .background(c.page)
-                .padding(start = 16.dp, end = 16.dp, top = 14.dp)
+                .then(if (ios) Modifier.border(1.dp, c.border, shape) else Modifier)
+                .padding(horizontal = 16.dp)
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
     ) {
-        if (onClose != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            ) {
-                EvSheetCloseButton(onClose)
-                title?.let { Text(it, color = c.ink, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) }
-            }
-        } else {
-            title?.let {
-                Text(
-                    it,
-                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                    color = c.ink,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
+        EvSheetHeader(title = title, onClose = onClose, dragModifier = dragModifier)
         sub?.let {
             Text(
                 it,
-                Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                Modifier.fillMaxWidth().padding(bottom = 16.dp, start = if (ios) 0.dp else 4.dp),
                 color = c.ink2,
                 style = MaterialTheme.typography.bodyMedium,
-                textAlign =
-                    if (onClose !=
-                        null
-                    ) {
-                        TextAlign.Start
-                    } else {
-                        TextAlign.Center
-                    },
+                textAlign = if (ios) TextAlign.Center else TextAlign.Start,
             )
         }
         content()
     }
 }
 
-/** The small circular ✕ used on every sheet/modal — an explicit, discoverable way to close, since
- *  a tap on the dimmed backdrop alone isn't something a first-time user reliably finds. */
+/** The centered modal's explicit close: the glass button on iOS, a plain round ✕ on Android. A tap on the
+ *  dimmed backdrop alone isn't something a first-time user reliably finds. */
 @Composable
 private fun EvSheetCloseButton(onClose: () -> Unit) {
+    if (isIOS()) {
+        EvGlassCloseButton(onClose)
+        return
+    }
     val c = EvenlyTheme.colors
     Box(
         Modifier
@@ -183,7 +179,7 @@ private fun EvSheetCloseButton(onClose: () -> Unit) {
             .clickable(onClick = onClose),
         contentAlignment = Alignment.Center,
     ) {
-        EvIcon(EvIcons.Close, size = 14.dp, tint = c.ink)
+        EvIcon(EvIcons.Close, size = 14.dp, tint = c.ink, contentDescription = "Close")
     }
 }
 
@@ -192,6 +188,7 @@ private fun EvSheetCloseButton(onClose: () -> Unit) {
  *  same as an explicit close button in the sheet's top-left — belt and suspenders, not either/or.
  *  Slides up + fades in on entry, and reverses on dismiss before actually leaving composition, so
  *  opening/closing reads as one continuous motion instead of a hard cut. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun EvSheetScaffold(
     onDismiss: () -> Unit,
@@ -212,6 +209,20 @@ fun EvSheetScaffold(
         if (visibleState.isIdle && !visibleState.targetState) onDismiss()
     }
     val dismiss = { visibleState.targetState = false }
+    // Both platforms close a sheet on Back (Android's gesture, and the iOS edge swipe where Compose sees it).
+    BackHandler(enabled = visibleState.targetState) { dismiss() }
+    // Swipe down on the header to close: past a fifth of the screen it closes, short of that it springs back.
+    val dragY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val closeAfterPx = with(LocalDensity.current) { 120.dp.toPx() }
+    val dragModifier =
+        Modifier.draggable(
+            orientation = Orientation.Vertical,
+            state = rememberDraggableState { delta -> scope.launch { dragY.snapTo((dragY.value + delta).coerceAtLeast(0f)) } },
+            onDragStopped = { velocity ->
+                if (dragY.value > closeAfterPx || velocity > 1500f) dismiss() else dragY.animateTo(0f, EvMotion.quick())
+            },
+        )
 
     AnimatedVisibility(
         visibleState = visibleState,
@@ -235,7 +246,7 @@ fun EvSheetScaffold(
             ) {
                 EvSheetSurface(
                     modifier =
-                        Modifier.clickable(
+                        Modifier.offset { IntOffset(0, dragY.value.roundToInt()) }.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = {},
@@ -243,6 +254,7 @@ fun EvSheetScaffold(
                     title = title,
                     sub = sub,
                     onClose = dismiss,
+                    dragModifier = dragModifier,
                     content = content,
                 )
             }
@@ -253,6 +265,7 @@ fun EvSheetScaffold(
 /** `.sc-scrim--center` + `.sc-modal` (centered dialog card, max 320dp) — with an explicit close
  *  button pinned top-left of the card, for the same reason [EvSheetScaffold] has one. Fades + scales
  *  in/out in step with the scrim, mirroring [EvSheetScaffold]'s coordinated-dismiss pattern. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun EvModalScaffold(
     onDismiss: () -> Unit,
@@ -266,6 +279,7 @@ fun EvModalScaffold(
         if (visibleState.isIdle && !visibleState.targetState) onDismiss()
     }
     val dismiss = { visibleState.targetState = false }
+    BackHandler(enabled = visibleState.targetState) { dismiss() }
 
     AnimatedVisibility(
         visibleState = visibleState,
@@ -326,6 +340,7 @@ fun EvModalScaffold(
  * invisible tap-catcher above the sheet closes it on an outside tap. The handle is the sole draggable
  * region, so a scrolling [content] never fights the resize gesture.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun EvDragSheet(
     onDismiss: () -> Unit,
@@ -351,6 +366,8 @@ fun EvDragSheet(
                 onDismiss()
             }
         }
+
+        BackHandler { dismiss() }
 
         // Invisible tap-to-dismiss above the sheet — the page shows through unchanged (no scrim).
         Box(
