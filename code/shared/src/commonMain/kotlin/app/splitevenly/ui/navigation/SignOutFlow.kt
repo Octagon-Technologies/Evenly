@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -12,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,6 +23,7 @@ import app.splitevenly.domain.auth.SignOutOutcome
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvModalScaffold
+import app.splitevenly.ui.components.EvSpinner
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
 
@@ -62,9 +65,24 @@ class SignOutFlow internal constructor(
      *  the count can legitimately be unknown — see [SignOutOutcome.UnsyncedChanges.pendingWrites]. */
     private var unsynced by mutableStateOf<SignOutOutcome.UnsyncedChanges?>(null)
 
-    fun start() = attempt(discardUnsynced = false)
+    /** True once "Save and sign out" came back still unsaved, so the dialog can say so instead of
+     *  silently showing the same question again. */
+    private var saveFailed by mutableStateOf(false)
 
-    private fun attempt(discardUnsynced: Boolean) {
+    fun start() {
+        saveFailed = false
+        attempt(discardUnsynced = false)
+    }
+
+    /** Retries the save-first sign-out from the dialog. [AuthSession.signOut] already pushes before it
+     *  counts, so a retry is the whole "save, then sign out" path: it signs out only once nothing is
+     *  left pending, and otherwise leaves the session and the cache untouched. */
+    private fun saveAndSignOut() = attempt(discardUnsynced = false, fromDialog = true)
+
+    private fun attempt(
+        discardUnsynced: Boolean,
+        fromDialog: Boolean = false,
+    ) {
         if (inProgress) return
         inProgress = true
         scope.launch {
@@ -72,80 +90,80 @@ class SignOutFlow internal constructor(
                 is SignOutOutcome.SignedOut -> {
                     inProgress = false
                     unsynced = null
+                    saveFailed = false
                     onSignedOut()
                 }
 
                 is SignOutOutcome.UnsyncedChanges -> {
                     inProgress = false
                     unsynced = outcome
+                    saveFailed = fromDialog
                 }
             }
         }
     }
 
-    /** Renders the "your changes haven't saved yet" confirmation, or nothing when there is none to ask. */
+    /** Renders the "changes aren't saved yet" question, or nothing when there is none to ask. */
     @Composable
     fun Dialog() {
         val question = unsynced ?: return
         val pending = question.pendingWrites
-        // Plural only when we actually counted more than one. An unknown count reads as singular
-        // ("some of what you did … deletes it"), because inventing a number we could not take would be
-        // worse than being vague about it.
-        val many = pending != null && pending > 1
         val c = EvenlyTheme.colors
+        val busy = inProgress
+        // Always clear on dismiss: the scaffold has already animated out, so keeping the question would
+        // leave it invisible, and an equal question from the next tap would never bring it back. A save
+        // still in flight then either signs out or re-asks with the failure line.
         EvModalScaffold(onDismiss = { unsynced = null }) {
             Text(
-                "Not everything is saved yet",
+                // The count is the whole message: it says whether this is one stray edit or a whole
+                // evening. An unknown count stays vague rather than inventing a number.
+                when {
+                    pending == null -> "Some changes aren't saved yet"
+                    pending == 1 -> "1 change isn't saved yet"
+                    else -> "$pending changes aren't saved yet"
+                },
                 color = c.ink,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                // The COUNT is the whole message: it is the only thing that tells the person holding
-                // the phone whether this is one stray edit or their whole evening. No "sync", no
-                // "server", no "pending writes" (jargon blocklist) — those are our words, not theirs.
-                when {
-                    pending == null -> {
-                        "Some of what you did on this phone may not be saved yet. Signing out now deletes it."
-                    }
-
-                    many -> {
-                        "$pending things you did on this phone aren't saved yet. Signing out now deletes them."
-                    }
-
-                    else -> {
-                        "1 thing you did on this phone isn't saved yet. Signing out now deletes it."
-                    }
-                },
-                color = c.ink2,
-                fontSize = 15.sp,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                // Names the exact retry, because "try again later" leaves the user guessing which
-                // control to press and whether staying signed in has already fixed anything.
-                if (many) {
-                    "Get back online, then tap Sign out again to save them first."
-                } else {
-                    "Get back online, then tap Sign out again to save it first."
-                },
-                color = c.ink2,
-                fontSize = 15.sp,
-            )
+            if (saveFailed && !busy) {
+                Spacer(Modifier.height(8.dp))
+                Text("Couldn't save. Check your connection.", color = c.danger, fontSize = 15.sp)
+            }
             Spacer(Modifier.height(20.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Primary is the safe one: the destructive path must be the deliberate tap, and its
-                // label says what it destroys rather than a bare "Sign out".
-                EvButton("Stay signed in", { unsynced = null }, variant = ButtonVariant.Primary)
+                // Saving is the primary path: the user asked to sign out, and this gets them there
+                // without losing anything. The destructive path is a small text link, never a peer.
+                EvButton(onClick = { if (!busy) saveAndSignOut() }, variant = ButtonVariant.Primary) {
+                    if (busy) {
+                        EvSpinner(color = LocalContentColor.current)
+                        Text("Saving…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text(
+                            if (saveFailed) "Try again" else "Save and sign out",
+                            color = LocalContentColor.current,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
                 EvButton(
-                    if (many) "Sign out and delete them" else "Sign out and delete it",
-                    {
-                        unsynced = null
-                        attempt(discardUnsynced = true)
-                    },
-                    variant = ButtonVariant.Danger,
+                    "Stay signed in",
+                    { if (!busy) unsynced = null },
+                    variant = ButtonVariant.Tonal,
                 )
+                EvButton(
+                    onClick = {
+                        if (!busy) {
+                            unsynced = null
+                            attempt(discardUnsynced = true)
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    variant = ButtonVariant.Text,
+                ) {
+                    Text("Sign out without saving", color = c.danger, fontSize = 15.sp)
+                }
             }
         }
     }

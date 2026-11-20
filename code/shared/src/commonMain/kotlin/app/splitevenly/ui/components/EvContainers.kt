@@ -65,8 +65,10 @@ import kotlin.math.roundToInt
 
 /** How much a focused card (sheet/modal) dims the screen behind it — just enough to read as
  *  "this has focus," not so much it reads as "the app is blocked." Paired with an explicit close
- *  control on the card itself, since tap-outside-to-dismiss alone isn't discoverable. */
-private const val EvScrimAlpha = 0.22f
+ *  control on the card itself, since tap-outside-to-dismiss alone isn't discoverable. Shared by every
+ *  centered modal and dimmed sheet so they all read alike; 0.22 read as a heavy grey wash, worst in
+ *  dark mode where `ink` is light (owner call, 2026-11-19). */
+private const val EvScrimAlpha = 0.10f
 
 /** Ceiling on a centered modal card's height, as a fraction of the space the scrim gets. Keeps a
  *  long card off the status bar and the home indicator, and keeps the scrim visible top and bottom
