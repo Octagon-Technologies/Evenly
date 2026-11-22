@@ -7,11 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,31 +34,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.CategoryDefaults
 import app.splitevenly.domain.expense.CategoryHistoryEntry
-import app.splitevenly.domain.expense.guessCategory
 import app.splitevenly.domain.expense.GroupCategory
+import app.splitevenly.domain.expense.guessCategory
 import app.splitevenly.platform.PickSource
-import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.BannerVariant
-import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvKeyboardDoneBar
-import app.splitevenly.ui.components.EvSelectField
 import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.clickableClearingFocus
 import app.splitevenly.ui.components.currencySymbol
-import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.imeAndDoneBarPadding
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ItemizedExpenseBody
-import app.splitevenly.ui.screen.bill.ReceiptReviewScreen
 import app.splitevenly.ui.screen.bill.PickerPersonUi
-import app.splitevenly.ui.screen.bill.ScanStateSheets
+import app.splitevenly.ui.screen.bill.ReceiptReviewScreen
 import app.splitevenly.ui.screen.bill.ScanReceiptHero
+import app.splitevenly.ui.screen.bill.ScanStateSheets
 import app.splitevenly.ui.screen.bill.ScanUiState
 import app.splitevenly.ui.screen.bill.isUntouched
 import app.splitevenly.ui.screen.bill.priceToSubunits
@@ -132,6 +126,8 @@ fun AddExpenseScreen(
     onAddPlaceholder: (String) -> Unit = {},
     onPickReceipt: (PickSource) -> Unit = {},
     onRemoveReceipt: (Int) -> UndoRemoval = { {} },
+    // Runs the full itemized scan on the receipt already attached here (the restaurant prompt's "By item").
+    onItemizeReceipt: () -> Unit = {},
     // Analytics-only hook (split_approach_chosen) — fired the moment the up-front chooser is answered.
     onSplitApproachChosen: (SplitApproach) -> Unit = {},
 ) {
@@ -372,10 +368,22 @@ fun AddExpenseScreen(
                 ) {
                     // A restaurant bill starts with the scan, above Title: one scan fills the title and the items.
                     // After the first scan (or a typed item) the hero drops back into the items section below.
+                    val quickReadReceipt = receiptsEnabled && !isItemized && !editing && receipts.size <= 1
                     val notScannedYet = isItemized && itemized.items.all { it.isUntouched() } && attachedReceipts.isEmpty()
                     if (notScannedYet) {
                         ScanReceiptHero(onScanSource = { source -> startScan(source) })
                         ScanPeopleHint(selected.size)
+                    }
+                    // "Split one amount" leads with the receipt too: one read fills the title, amount and category,
+                    // so it comes before the fields it fills. Compressed and staged on pick, uploaded on save.
+                    if (quickReadReceipt) {
+                        QuickReadReceiptSection(
+                            receipt = receipts.firstOrNull(),
+                            read = receiptRead,
+                            onAdd = { showReceiptSource = true },
+                            onRemove = { onRemoveReceipt(0) },
+                            onOpen = { viewerIndex = 0 },
+                        )
                     }
 
                     // ── shared header: title, category, paid by, participants — entered once, both modes ──
@@ -417,44 +425,21 @@ fun AddExpenseScreen(
                     // its own tappable picker row (like before), just half-width now. A restaurant bill skips
                     // Category entirely (auto-set to Food & Drink above), so Paid by gets the full row to itself.
                     val selectedCategory = categories.firstOrNull { it.key == categoryId }
-                    val paidByField: @Composable RowScope.() -> Unit = {
-                        EvField("Paid by", modifier = Modifier.weight(1f)) {
-                            EvSelectField(
-                                payerDisplayName,
-                                { showPayerDialog = true },
-                                leading = {
-                                    if (isOutsidePayer) {
-                                        Box(
-                                            Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
-                                        }
-                                    } else {
-                                        EvAvatar(payerDisplayName, me = payer?.isMe == true, size = AvatarSize.Sm)
-                                    }
-                                },
-                            )
-                        }
-                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (!isItemized) {
                             CategorySelectField(selectedCategory, { showCategoryDialog = true }, Modifier.weight(1f))
                         }
-                        paidByField()
+                        PaidByField(
+                            payerDisplayName,
+                            isOutsidePayer,
+                            isMe = payer?.isMe == true,
+                            onClick = { showPayerDialog = true },
+                            modifier = Modifier.weight(1f),
+                        )
                     }
 
-                    // receipt — compressed and on disk the moment it is picked, so it previews here and uploads
-                    // once the expense exists. Only in the divide flow; the itemized body shows the scanned pages.
-                    if (receiptsEnabled && !isItemized && !editing && receipts.size <= 1) {
-                        QuickReadReceiptSection(
-                            receipt = receipts.firstOrNull(),
-                            read = receiptRead,
-                            onAdd = { showReceiptSource = true },
-                            onRemove = { onRemoveReceipt(0) },
-                            onOpen = { viewerIndex = 0 },
-                        )
-                    } else if (receiptsEnabled && !isItemized) {
+                    // An edit (or a legacy multi-receipt expense) keeps its receipts down here as a plain strip.
+                    if (receiptsEnabled && !isItemized && !quickReadReceipt) {
                         PickedReceiptStrip(
                             receipts = receipts,
                             label = "Receipt",
@@ -499,7 +484,14 @@ fun AddExpenseScreen(
                 }
             }
         }
-        EvKeyboardDoneBar(onDone = { focusManager.clearFocus() }, modifier = Modifier.align(Alignment.BottomCenter))
+        val overlayOpen =
+            showAddDialog || showReceiptSource || showCurrencyDialog || showCategoryDialog ||
+                showPayerDialog || showScanSource || showPeoplePicker || viewerIndex != null
+        EvKeyboardDoneBar(
+            onDone = { focusManager.clearFocus() },
+            modifier = Modifier.align(Alignment.BottomCenter),
+            visible = !overlayOpen,
+        )
     }
 
     if (showAddDialog) {
@@ -509,6 +501,19 @@ fun AddExpenseScreen(
     if (showReceiptSource) {
         ReceiptSourceSheet(onPick = onPickReceipt, onDismiss = { showReceiptSource = false })
     }
+
+    RestaurantSplitPrompt(
+        read = receiptRead,
+        active = !isItemized && !editing,
+        amountSubunits = divide.amountSubunits,
+        people = selected.size,
+        currency = currency,
+        onByItem = {
+            splitApproach = SplitApproach.ByItem
+            onSplitApproachChosen(SplitApproach.ByItem)
+            onItemizeReceipt()
+        },
+    )
 
     if (showCurrencyDialog) {
         CurrencySheet(currency = currency, onPick = { currency = it }, onDismiss = { showCurrencyDialog = false })

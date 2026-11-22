@@ -131,8 +131,6 @@ fun EvSheetSurface(
     title: String? = null,
     sub: String? = null,
     onClose: (() -> Unit)? = null,
-    // Swipe-to-close, applied to the header only (see EvSheetScaffold).
-    dragModifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = EvenlyTheme.colors
@@ -150,7 +148,7 @@ fun EvSheetSurface(
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
     ) {
-        EvSheetHeader(title = title, onClose = onClose, dragModifier = dragModifier)
+        EvSheetHeader(title = title, onClose = onClose)
         sub?.let {
             Text(
                 it,
@@ -213,18 +211,8 @@ fun EvSheetScaffold(
     val dismiss = { visibleState.targetState = false }
     // Both platforms close a sheet on Back (Android's gesture, and the iOS edge swipe where Compose sees it).
     BackHandler(enabled = visibleState.targetState) { dismiss() }
-    // Swipe down on the header to close: past a fifth of the screen it closes, short of that it springs back.
-    val dragY = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    val closeAfterPx = with(LocalDensity.current) { 120.dp.toPx() }
-    val dragModifier =
-        Modifier.draggable(
-            orientation = Orientation.Vertical,
-            state = rememberDraggableState { delta -> scope.launch { dragY.snapTo((dragY.value + delta).coerceAtLeast(0f)) } },
-            onDragStopped = { velocity ->
-                if (dragY.value > closeAfterPx || velocity > 1500f) dismiss() else dragY.animateTo(0f, EvMotion.quick())
-            },
-        )
+    // Swipe down anywhere on the sheet to close; a scrolling body hands over its pull once it is at the top.
+    val swipe = rememberSheetSwipe(onDismiss = dismiss)
 
     AnimatedVisibility(
         visibleState = visibleState,
@@ -248,7 +236,7 @@ fun EvSheetScaffold(
             ) {
                 EvSheetSurface(
                     modifier =
-                        Modifier.offset { IntOffset(0, dragY.value.roundToInt()) }.clickable(
+                        swipe.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = {},
@@ -256,7 +244,6 @@ fun EvSheetScaffold(
                     title = title,
                     sub = sub,
                     onClose = dismiss,
-                    dragModifier = dragModifier,
                     content = content,
                 )
             }

@@ -33,7 +33,9 @@ import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvCheck
+import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvParticipantChip
+import app.splitevenly.ui.components.EvSelectField
 import app.splitevenly.ui.components.clickableClearingFocus
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
@@ -165,5 +167,32 @@ internal fun ParticipantsField(
                 }
             }
         }
+    }
+}
+
+/** "Paid by": the payer as a picker row. An outside payer (no group member) gets a generic person icon. */
+@Composable
+internal fun PaidByField(
+    name: String,
+    isOutsidePayer: Boolean,
+    isMe: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = EvenlyTheme.colors
+    EvField("Paid by", modifier = modifier) {
+        EvSelectField(
+            name,
+            onClick,
+            leading = {
+                if (isOutsidePayer) {
+                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
+                        EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
+                    }
+                } else {
+                    EvAvatar(name, me = isMe, size = AvatarSize.Sm)
+                }
+            },
+        )
     }
 }

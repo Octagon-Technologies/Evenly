@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Receipt prominence</title>
+<style>
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-regular.ttf");font-weight:400}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-semibold.ttf");font-weight:600}
+  @font-face{font-family:Plex;src:url("system/dist/assets/ibm-plex-sans-bold.ttf");font-weight:700}
+  @font-face{font-family:PlexMono;src:url("system/dist/assets/ibm-plex-mono-semibold.ttf");font-weight:600}
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9edf3;color:#0b1220;font-family:Plex,system-ui,sans-serif}
+  .board{max-width:1500px;margin:auto;padding:36px 40px 70px}
+  h1{font-size:28px;letter-spacing:-.6px;margin:0 0 6px}
+  h2{font-size:19px;margin:54px 0 4px}
+  .lede{color:#536074;font-size:14px;margin:0 0 20px;max-width:980px;line-height:1.5}
+  .grid{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+  .col{width:360px}
+  .caption{padding:0 4px 12px;min-height:120px}
+  .caption b{display:block;font-size:15px}
+  .caption small{display:block;color:#536074;font-size:12.5px;line-height:1.45;margin-top:4px}
+  .tag{display:inline-block;font:600 10px PlexMono,ui-monospace,monospace;padding:3px 6px;border-radius:5px;margin-right:6px;vertical-align:1px;background:#e8eefc;color:#2747a8}
+  .tag.cur{background:#eef1f8;color:#536074}.tag.rec{background:#e9f8f0;color:#147a48}
+  .note{background:#fff;border:1px solid #d6dce6;border-radius:14px;padding:16px 18px;font-size:13px;line-height:1.55;color:#33404f;max-width:980px}
+  .note b{color:#0b1220}
+
+  /* ── phone + Evenly tokens (ui/theme/Color.kt) ── */
+  .phone{--blue:#2563EB;--blueText:#2563EB;--blueTint:#EFF4FF;--blueTint2:#DBE6FF;--page:#fff;--surface:#F6F8FB;--border:#E6EAF0;--borderStrong:#D6DCE6;--ink:#0B1220;--ink2:#5B6577;--ink3:#9AA3B2;--selTint:#EFF4FF;--selStroke:#2563EB;--onAccent:#fff;--frame:#17191d;
+    --band:#EFF4FF;--bandStroke:#DBE6FF;--grayBand:#F2F4F7;
+    width:360px;height:760px;background:var(--page);color:var(--ink);border:9px solid var(--frame);border-radius:46px;box-shadow:0 18px 42px rgba(13,22,39,.18);position:relative;overflow:hidden}
+  .phone.dark{--blue:#3A52D6;--blueText:#7AA6FF;--blueTint:rgba(110,155,255,.10);--blueTint2:rgba(110,155,255,.16);--page:#000;--surface:rgba(110,155,255,.06);--border:rgba(110,155,255,.16);--borderStrong:rgba(110,155,255,.26);--ink:#E7ECF3;--ink2:#9BA6B8;--ink3:#67738A;--selTint:#1C1C1E;--selStroke:rgba(110,155,255,.26);
+    --band:rgba(255,255,255,.07);--bandStroke:rgba(255,255,255,.10);--grayBand:rgba(255,255,255,.07)}
+  .island{position:absolute;z-index:20;top:10px;left:50%;transform:translateX(-50%);width:104px;height:28px;border-radius:20px;background:#1a1b1f}
+  .status{height:44px;padding:15px 26px 0;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
+  .topbar{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 12px;border-bottom:1px solid var(--border)}
+  .topbar .t{flex:1;font-size:18px;font-weight:600;letter-spacing:-.2px}
+  .iconbtn{width:40px;height:40px;display:grid;place-items:center}
+  .save{background:var(--blue);color:#fff;font-weight:600;font-size:14px;padding:8px 16px;border-radius:11px}
+  .scroll{padding:16px;display:flex;flex-direction:column;gap:16px;height:calc(100% - 100px);overflow:hidden}
+  .lbl{color:var(--ink2);font-size:13px;font-weight:600;letter-spacing:.1px}
+  .lbl .opt{color:var(--ink3);font-weight:400;font-size:12px;margin-left:6px}
+  .fieldwrap{display:flex;flex-direction:column;gap:7px}
+  .input{min-height:52px;border-radius:12px;background:var(--page);border:1px solid var(--borderStrong);display:flex;align-items:center;gap:8px;padding:0 14px;font-size:16px}
+  .input .ph{color:var(--ink3)}
+  .input .grow{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row2{display:flex;gap:10px}.row2>*{flex:1;min-width:0}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{height:38px;border-radius:99px;display:flex;align-items:center;gap:7px;padding:0 12px 0 5px;font-size:14px;font-weight:600;background:var(--selTint);border:1.5px solid var(--selStroke)}
+  .chip.add{background:transparent;border:1px dashed var(--borderStrong);color:var(--blueText);padding:0 12px}
+  .av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;background:var(--blueTint2);color:var(--blueText);flex:none}
+  .av.me{background:var(--blue);color:#fff}
+  .cat{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--blueTint);flex:none}
+  .card{border:1px solid var(--border);background:var(--surface);border-radius:16px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px}
+  .amt{display:flex;align-items:flex-end;gap:8px;font-family:PlexMono,monospace;font-weight:600}
+  .amt .s{font-size:22px;color:var(--ink3)}
+  .amt .v{font-size:40px;letter-spacing:-1px;line-height:1}
+  .amt .v.ph{color:var(--ink3)}
+  .ghostchip{display:flex;gap:5px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:4px 9px;font-size:12.5px;font-weight:600;color:var(--ink2)}
+  .seg{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:3px}
+  .seg span{flex:1;height:38px;display:grid;place-items:center;font-size:14px;font-weight:600;color:var(--ink2);border-radius:9px}
+  .seg span.on{background:var(--page);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .dark .seg span.on{background:#fff;color:#000}
+
+  /* receipt pieces */
+  .addrcpt{border:1px solid var(--borderStrong);border-radius:12px;padding:14px 0;display:flex;justify-content:center;align-items:center;gap:4px;color:var(--blueText);font-size:14px;font-weight:600}
+  .rrow{display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;background:var(--surface);border:1px solid var(--border)}
+  .thumb{width:44px;height:56px;border-radius:7px;flex:none;border:1px solid var(--border);background:linear-gradient(180deg,#fdfdfb,#ecebe6);position:relative;overflow:hidden}
+  .thumb i{position:absolute;left:7px;right:7px;height:2px;background:#c9c7bf;border-radius:2px}
+  .rrow .grow{flex:1;min-width:0}
+  .rrow .grow b{display:block;font-size:14px;font-weight:600}
+  .rrow .grow small{display:block;font-size:12px;color:var(--ink3);line-height:16px}
+  .txtact{color:var(--blueText);font-weight:700;font-size:14px;padding:10px 8px}
+  .trash{width:40px;height:40px;border-radius:10px;border:1px solid var(--borderStrong);display:grid;place-items:center;flex:none}
+
+  .hero{border:1px solid var(--blue);border-radius:16px;padding:15px 14px 14px;background:var(--page);box-shadow:0 1px 2px rgba(0,0,0,.06);display:flex;flex-direction:column;gap:13px}
+  .hero .head{display:flex;gap:13px;align-items:center}
+  .hero .ic{width:46px;height:46px;border-radius:13px;background:var(--blue);display:grid;place-items:center;flex:none;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  .hero .head b{display:block;font-size:16px;font-weight:700}
+  .hero .head small{display:block;font-size:12px;color:var(--ink2);line-height:16px;margin-top:3px}
+  .tiles{display:flex;gap:8px}
+  .tile{flex:1;border-radius:11px;background:var(--selTint);border:1px solid var(--border);padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;font-weight:600}
+  .compactcard{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;border:1.5px dashed var(--blueText);background:var(--blueTint)}
+  .compactcard .ic{width:40px;height:40px;border-radius:11px;background:var(--blue);display:grid;place-items:center;flex:none}
+  .compactcard b{display:block;font-size:15px;font-weight:700}
+  .compactcard small{display:block;font-size:12px;color:var(--ink2);line-height:16px;margin-top:2px}
+  .orline{display:flex;align-items:center;gap:10px;color:var(--ink3);font-size:12px;font-weight:600;margin:-4px 0}
+  .orline:before,.orline:after{content:"";flex:1;height:1px;background:var(--border)}
+
+  .band{margin:8px -16px;padding:16px;background:var(--band);border-top:1px solid var(--bandStroke);border-bottom:1px solid var(--bandStroke);display:flex;flex-direction:column;gap:10px}
+  .band .addrcpt{background:var(--page)}
+  .tintcard{margin:8px 0;padding:14px;border-radius:16px;background:var(--grayBand);display:flex;flex-direction:column;gap:12px}
+  .tintcard .head{display:flex;gap:12px;align-items:center}
+  .tintcard .ph{width:44px;height:56px;border-radius:8px;border:1.5px dashed var(--borderStrong);display:grid;place-items:center;flex:none}
+  .tintcard b{display:block;font-size:15px;font-weight:700}
+  .tintcard small{display:block;font-size:12px;color:var(--ink2);line-height:16px;margin-top:2px}
+  .srcs{display:flex;gap:8px}
+  .src{flex:1;height:40px;border-radius:10px;background:var(--page);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:600}
+  .dark .src{background:rgba(255,255,255,.06)}
+
+  /* sheet */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:10}
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:11;background:var(--page);border-radius:22px 22px 0 0;padding:8px 16px 30px;box-shadow:0 -8px 30px rgba(0,0,0,.15)}
+  .dark .sheet{background:#111318;border-top:1px solid var(--border)}
+  .grab{width:38px;height:5px;border-radius:9px;background:var(--borderStrong);margin:0 auto 14px}
+  .sh-title{font-size:18px;font-weight:700;text-align:center}
+  .sh-sub{color:var(--ink2);font-size:13px;margin:4px 0 16px;line-height:1.4;text-align:center}
+  .choice{display:flex;gap:12px;align-items:center;border:1px solid var(--border);background:var(--surface);border-radius:14px;padding:14px 12px;margin-bottom:10px}
+  .choice.primary{border:1.5px solid var(--blue);background:var(--blueTint)}
+  .choice .ic{width:40px;height:40px;border-radius:11px;background:var(--blueTint2);display:grid;place-items:center;flex:none}
+  .choice.primary .ic{background:var(--blue)}
+  .choice .grow{flex:1}
+  .choice b{display:block;font-size:15px}
+  .choice small{display:block;color:var(--ink2);font-size:12.5px;margin-top:2px;line-height:1.35}
+  .choice .m{font:600 13px PlexMono,ui-monospace,monospace;color:var(--ink2)}
+  .home{position:absolute;z-index:30;width:116px;height:5px;border-radius:9px;background:var(--ink);bottom:8px;left:50%;transform:translateX(-50%)}
+  .flash{outline:2px solid #f5b400;outline-offset:3px;border-radius:12px}
+  svg{display:block}
+</style></head>
+<body><div class="board">
+<h1>Expense editor: bringing the receipt forward</h1>
+<p class="lede">"Split one amount" editor (<code>AddExpenseScreen</code> + <code>QuickReadReceiptSection</code>) drawn at its real spacing and tokens. Each option is shown empty in light and dark, so you can judge it in the state a new user actually sees. Section 3 shows the filled state and the restaurant-receipt popup.</p>
+
+<h2>0 · Today, for reference</h2>
+<p class="lede">The receipt row sits fifth, below Category and Paid by, and looks the same weight as every field around it. On a short phone it lands near the fold.</p>
+<div class="grid" id="g0"></div>
+
+<h2>A · Move the receipt to the top</h2>
+<p class="lede">Receipt first, 24dp before Title. Reads top-down: the receipt fills Title, Category and Amount, so everything below it is a check rather than a chore. Still optional.</p>
+<div class="grid" id="gA"></div>
+
+<h2>B · Keep it in place, make it stand out</h2>
+<p class="lede">Same position, but it gets room (extra 24dp above and below) and its own surface. Dark mode uses a translucent white-gray wash rather than the blue tint, which sinks into black.</p>
+<div class="grid" id="gB"></div>
+
+<h2>3 · After the read: restaurant receipt detected</h2>
+<p class="lede">A1 after attaching a restaurant receipt: title, category and amount filled. Because the read found several line items at a restaurant, a sheet asks how to split before the user continues.</p>
+<div class="grid" id="gC"></div>
+
+<h2 style="margin-top:44px">Notes</h2>
+<div class="note">
+<b>Recommendation: A1.</b> It changes the least code (move one composable, add a Spacer) and fixes the order problem you described: the receipt is the thing that fills the fields, so it belongs before them. A2 is louder but duplicates the restaurant-bill hero almost exactly, so the two paths would look the same at first glance. B1/B2 add emphasis but still ask people to type Title and pick Category before they reach the thing that would have done it for them.<br><br>
+<b>The popup.</b> The quick read today returns a summary (merchant, kind, total), not line items. "Split by item" needs the full itemized scan, so either the quick read starts returning a line count (to decide when to ask), and picking "By item" runs the full scan on the same image without re-picking it, or we ask on <code>VenueKind.RESTAURANT/CAFE/BAR</code> alone. I'd show it only for those kinds, never for grocery or store receipts, and only once per expense.<br><br>
+<b>One thing to confirm.</b> You mentioned the read counting toward a tier limit, even on the paid plan. <code>ui/AGENTS.md</code> currently says receipt scans are unlimited and free with no meter, so these mocks show no limit copy. If that changed, tell me and I'll add it.
+</div>
+</div>
+
+<script>
+const I = {
+  back:c=>`<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>`,
+  plus:c=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
+  chev:c=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`,
+  check:c=>`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>`,
+  camera:(c,s=22)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`,
+  image:(c,s=19)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>`,
+  file:(c,s=19)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>`,
+  receipt:(c,s=20)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>`,
+  globe:c=>`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>`,
+  trash:c=>`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>`,
+  fork:c=>`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round"><path d="M7 3v8a2 2 0 0 0 4 0V3M9 11v10M17 3c-2 2-2 7 0 8v10"/></svg>`,
+  tag:c=>`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/></svg>`,
+  equal:c=>`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"><path d="M6 9h12M6 15h12"/></svg>`,
+  list:c=>`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>`,
+};
+const V = d => d ? {blueText:'#7AA6FF',ink:'#E7ECF3',ink2:'#9BA6B8',ink3:'#67738A'} : {blueText:'#2563EB',ink:'#0B1220',ink2:'#5B6577',ink3:'#9AA3B2'};
+
+const title = (v, filled) => `<div class="fieldwrap"><div class="lbl">Title</div><div class="input">${filled?`<span class="grow">${filled}</span>`:'<span class="ph">What was it for?</span>'}</div></div>`;
+const people = d => { const k=V(d); return `<div class="fieldwrap" style="gap:8px"><div class="lbl">Who's splitting this?</div><div class="chips">
+  <span class="chip"><span class="av me">AC</span>You ${I.check(k.ink)}</span><span class="chip"><span class="av">MA</span>Maya ${I.check(k.ink)}</span>
+  <span class="chip"><span class="av">JO</span>Jon ${I.check(k.ink)}</span><span class="chip add">${I.plus(k.blueText)} Add</span></div></div>`};
+const catPaid = (d, cat) => { const k=V(d); return `<div class="row2">
+  <div class="fieldwrap"><div class="lbl">Category</div><div class="input"><span class="cat">${cat?I.fork(k.blueText):I.tag(k.blueText)}</span><span class="grow ${cat?'':'ph'}" style="${cat?'':'color:var(--ink3)'}">${cat||'General'}</span>${I.chev(k.ink3)}</div></div>
+  <div class="fieldwrap"><div class="lbl">Paid by</div><div class="input"><span class="av me">AC</span><span class="grow">You</span>${I.chev(k.ink3)}</div></div></div>`};
+const amount = (d, val) => { const k=V(d); return `<div class="card"><div class="amt"><span class="s">$</span><span class="v ${val?'':'ph'}">${val||'0.00'}</span></div><span class="ghostchip">${I.globe(k.ink2)} USD</span></div>
+  <div class="lbl">How to split</div><div class="seg"><span class="on">Even</span><span>Share</span><span>%</span><span>Exact</span></div>`};
+const recLabel = (opt=true) => `<div class="lbl">Receipt${opt?'<span class="opt">optional</span>':''}</div>`;
+const addRow = d => `<div class="addrcpt">${I.plus(V(d).blueText)} Add a receipt</div>`;
+const receiptToday = d => `<div class="fieldwrap" style="gap:8px">${recLabel()}${addRow(d)}</div>`;
+const filledRow = d => { const k=V(d); return `<div class="fieldwrap" style="gap:8px">${recLabel(false)}<div class="rrow"><div class="thumb">${[8,14,20,26,32,38,46].map(t=>`<i style="top:${t}px;${t>40?'right:16px':''}"></i>`).join('')}</div><div class="grow"><b>Tavolo</b><small>Restaurant receipt</small></div><span class="txtact">Replace</span><span class="trash">${I.trash(k.ink2)}</span></div></div>`};
+
+const heroFull = d => { const k=V(d); return `<div class="hero"><div class="head"><div class="ic">${I.camera('#fff')}</div><div><b>Start with the receipt</b><small>We'll fill in the title, amount and category.</small></div></div>
+  <div class="tiles"><div class="tile">${I.camera(k.blueText,19)}Camera</div><div class="tile">${I.image(k.blueText)}Photos</div><div class="tile">${I.file(k.blueText)}File or PDF</div></div></div>`};
+const compact = d => `<div class="compactcard"><div class="ic">${I.receipt('#fff')}</div><div style="flex:1"><b>Add a receipt</b><small>Automatically fills in expense details.</small></div>${I.plus(V(d).blueText)}</div>`;
+
+const band = d => `<div class="band">${recLabel()}${addRow(d)}</div>`;
+const tintcard = d => { const k=V(d); return `<div class="tintcard"><div class="head"><div class="ph">${I.receipt(k.ink3)}</div><div style="flex:1"><b>Add a receipt <span style="font-weight:400;font-size:12px;color:var(--ink3)">optional</span></b><small>We'll fill in the title, amount and category.</small></div></div>
+  <div class="srcs"><span class="src">${I.camera(k.blueText,16)}Camera</span><span class="src">${I.image(k.blueText,16)}Photos</span><span class="src">${I.file(k.blueText,16)}File</span></div></div>`};
+
+const sp = h => `<div style="height:${h}px;margin:-8px 0"></div>`; // gap of 16 already; sp(16) -> total ≈24-ish
+
+const screens = {
+  today: d => [title(d), people(d), catPaid(d), receiptToday(d), amount(d)],
+  A1: d => [`<div class="fieldwrap" style="gap:8px">${recLabel()}${compact(d)}</div>`, `<div class="orline">or fill it in</div>`, title(d), people(d), catPaid(d), amount(d)],
+  A2: d => [heroFull(d), `<div class="orline">or fill it in</div>`, title(d), people(d), catPaid(d), amount(d)],
+  B1: d => [title(d), people(d), catPaid(d), band(d), amount(d)],
+  B2: d => [title(d), people(d), catPaid(d), tintcard(d), amount(d)],
+  filled: d => [filledRow(d), sp(16), title(d,'Dinner at Tavolo'), people(d), catPaid(d,'Food & Drink'), amount(d,'84.60')],
+};
+
+function sheet(d){ const k=V(d); return `<div class="scrim"></div><div class="sheet"><div class="grab"></div>
+  <div class="sh-title">How do you want to split it?</div><div class="sh-sub">This looks like a restaurant bill with 7 items.</div>
+  <div class="choice"><div class="ic">${I.equal(k.blueText)}</div><div class="grow"><b>Split evenly</b><small>Everyone pays the same.</small></div><span class="m">$28.20 each</span></div>
+  <div class="choice primary"><div class="ic">${I.list('#fff')}</div><div class="grow"><b>Split by item</b><small>Each person pays for what they had.</small></div></div>
+  </div>`}
+
+function phone(key, dark, opts={}){
+  const k=V(dark);
+  const hdr = `<div class="island"></div><div class="status"><span>9:41</span><span>●●● ▮</span></div>
+    <div class="topbar"><span class="iconbtn">${I.back(k.ink)}</span><span class="t">Split one amount</span><span class="save">Save</span></div>`;
+  return `<div class="phone ${dark?'dark':''}">${hdr}<div class="scroll">${screens[key](dark).join('')}</div>${opts.sheet?sheet(dark):''}<div class="home"></div></div>`;
+}
+function col(html, cap){ return `<div class="col"><div class="caption">${cap}</div>${html}</div>`; }
+
+g0.innerHTML = col(phone('today',false), `<b><span class="tag cur">TODAY</span>Light</b><small>Receipt row is the fifth field. Same border, same weight as Category.</small>`)
+             + col(phone('today',true), `<b><span class="tag cur">TODAY</span>Dark</b><small>The outlined row is the faintest thing on screen in dark mode.</small>`);
+
+gA.innerHTML =
+  col(phone('A1',false), `<b><span class="tag rec">A1 · RECOMMENDED</span>Compact card on top</b><small>Same footprint as today's row, moved first, then 24dp to Title. Dashed blue tint says "drop something here". Tapping opens the existing source sheet. One line tells you why to bother.</small>`) +
+  col(phone('A1',true), `<b><span class="tag rec">A1</span>Dark</b><small>Blue wash at 10% plus the sky-blue dashed stroke keeps it visible on black.</small>`) +
+  col(phone('A2',false), `<b><span class="tag">A2</span>Full hero with three sources</b><small>Mirrors the restaurant-bill scan card: one tap to Camera, Photos or File, no sheet. "or fill it in" divider makes the manual path explicit. Louder, and pushes Amount further down.</small>`) +
+  col(phone('A2',true), `<b><span class="tag">A2</span>Dark</b><small>Uses the same tokens as the itemized hero, so the two paths look like one family.</small>`);
+
+gB.innerHTML =
+  col(phone('B1',false), `<b><span class="tag">B1</span>Full-bleed tinted band</b><small>Today's row, unchanged, sitting in an edge-to-edge band with 24dp of air above and below. The band breaks the form into "who" and "how much" with the receipt between.</small>`) +
+  col(phone('B1',true), `<b><span class="tag">B1</span>Dark</b><small>Translucent white-gray (7%) instead of blue, as you suggested. Reads as a separate shelf.</small>`) +
+  col(phone('B2',false), `<b><span class="tag">B2</span>Gray card with sources inline</b><small>Rounded gray card, receipt placeholder, the promise line, and the three sources as buttons. More inviting than B1, but it is still below the fields it would have filled.</small>`) +
+  col(phone('B2',true), `<b><span class="tag">B2</span>Dark</b><small>Same 7% gray wash; source buttons get a slightly lighter fill so they read as tappable.</small>`);
+
+gC.innerHTML =
+  col(phone('filled',false), `<b><span class="tag rec">A1 · FILLED</span>After the read</b><small>The card becomes today's receipt row (thumbnail, merchant, kind, Replace, remove). Title, Category and Amount were empty, so the read filled them.</small>`) +
+  col(phone('filled',false,{sheet:true}), `<b><span class="tag new">NEW</span>Restaurant popup, light</b><small>Shown once, right after a restaurant/cafe/bar read. "Split by item" is primary since that is the reason to scan a bill. Dismissing keeps Even.</small>`) +
+  col(phone('filled',true,{sheet:true}), `<b><span class="tag new">NEW</span>Restaurant popup, dark</b><small>Even shows the per-person figure so the cost of the easy path is concrete before choosing.</small>`);
+</script>
+</body></html>

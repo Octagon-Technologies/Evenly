@@ -14,6 +14,7 @@ import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.printedHourOf
 import app.splitevenly.domain.receipt.suggestBillTitle
+import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
 import app.splitevenly.ui.screen.expense.ReceiptReadUi
 import kotlinx.coroutines.CoroutineScope
@@ -36,9 +37,21 @@ class ReceiptQuickRead internal constructor(
         private set
     private var job: Job? = null
 
-    fun start(files: List<PickedFile>) {
+    /** The pages being read and where they came from, kept so "Split by item" can run the full scan on the
+     *  same receipt without asking the user to pick it again. */
+    var files: List<PickedFile> = emptyList()
+        private set
+    var source: PickSource? = null
+        private set
+
+    fun start(
+        files: List<PickedFile>,
+        source: PickSource,
+    ) {
         job?.cancel()
         if (files.isEmpty()) return
+        this.files = files
+        this.source = source
         state = ReceiptReadUi.Reading
         job =
             scope.launch {
@@ -64,6 +77,8 @@ class ReceiptQuickRead internal constructor(
     fun clear() {
         job?.cancel()
         state = ReceiptReadUi.None
+        files = emptyList()
+        source = null
     }
 }
 

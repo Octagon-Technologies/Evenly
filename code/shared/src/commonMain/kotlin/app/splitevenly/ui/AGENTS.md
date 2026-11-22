@@ -89,7 +89,9 @@ ShareCost-era and is fully retired; do not reintroduce it.
   unchanged by default. Use `dimBackground = true` on `EvSheetScaffold` only when a dimmed backdrop is intended.
   The sheet top is native per OS (`EvSheetChrome.kt`): iOS gets a grabber and a round glass ✕ top-left with
   a centered title; Android gets the Material 3 drag handle, a left title and **no ✕** (owner call,
-  2026-11-19). Every sheet closes on Back and on a swipe down of its header. Don't add a per-screen ✕.
+  2026-11-19). Every bottom sheet closes on Back, a tap outside, and a swipe down **anywhere on it**
+  (`rememberSheetSwipe`: a scrolling body hands over its pull once at the top). A hand-rolled sheet
+  (`CameraPermissionSheet`) must use the same helper. Don't add a per-screen ✕.
 
 ## Copy rules
 
@@ -202,6 +204,10 @@ receipt per expense there, so a pick *replaces* and the row says "Replace". The 
 fields** (`receiptFill`): a typed title or amount is never overwritten, and nothing marks a filled field as
 guessed (no badge, outline, banner or undo: owner call, 2026-11-19). The category picks itself from
 `guessCategory` (group history, then the receipt, then keywords) until someone picks one by hand.
+The receipt card sits **first**, above Title, with an "or fill it in" divider (owner call, 2026-11-22):
+it fills the fields below it, so it comes before them. A restaurant or bar *printed* receipt with two or
+more people asks once (`RestaurantSplitPrompt`) whether to split evenly or by item; "By item" runs the
+full scan on the same pages (`onItemizeReceipt`), never a re-pick.
 
 **The scan card carries its three sources** (`ItemizedExpenseBody`). Tapping it used to open
 `ScanSourceSheet` and only then the OS picker, which is two taps and a sheet between "scan this" and a

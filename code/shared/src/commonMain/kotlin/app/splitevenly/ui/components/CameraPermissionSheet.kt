@@ -21,7 +21,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +47,7 @@ enum class CameraPromptKind { Primer, Blocked }
  *
  * [photosLabel] differs per platform because the two OSes name the app the picker opens differently.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun CameraPermissionSheet(
     kind: CameraPromptKind,
@@ -61,6 +64,10 @@ fun CameraPermissionSheet(
     val c = EvenlyTheme.colors
     val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
 
+    // Closes like every other sheet: Back, a swipe down anywhere on it, or a tap outside.
+    BackHandler(onBack = onDismiss)
+    val swipe = rememberSheetSwipe(onDismiss = onDismiss)
+
     Box(modifier.fillMaxSize()) {
         Box(
             Modifier.fillMaxSize().clickable(
@@ -72,6 +79,7 @@ fun CameraPermissionSheet(
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
+                .then(swipe)
                 .fillMaxWidth()
                 .clip(sheetShape)
                 .background(c.page)

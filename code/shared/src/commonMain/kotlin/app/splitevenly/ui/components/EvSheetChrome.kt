@@ -37,19 +37,17 @@ import app.splitevenly.ui.theme.EvenlyTheme
  * - **Android**: Material 3's drag handle and a left-aligned title, with no close button. The sheet closes
  *   by swiping down, tapping outside, or Back, which is what Android users expect of a bottom sheet.
  *
- * [dragModifier] carries the swipe-to-close gesture, so only the chrome drags and a scrolling body never
- * fights it. [onClose] null means the sheet has no close affordance of its own (none is drawn on either OS).
+ * Swipe-to-close lives on the whole sheet ([rememberSheetSwipe]), not here. [onClose] null means the sheet has no close affordance of its own (none is drawn on either OS).
  */
 @Composable
 internal fun EvSheetHeader(
     title: String?,
     onClose: (() -> Unit)?,
-    dragModifier: Modifier,
 ) {
     val c = EvenlyTheme.colors
     val titleStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
     if (isIOS()) {
-        Column(dragModifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
             Box(
                 Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp, bottom = 4.dp)
                     .size(width = 36.dp, height = 5.dp).clip(RoundedCornerShape(3.dp)).background(c.borderStrong),
@@ -74,7 +72,7 @@ internal fun EvSheetHeader(
         }
     } else {
         // The handle announces itself and closes the sheet for TalkBack, since Android draws no close button.
-        Column(dragModifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
             Box(
                 Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp, bottom = 14.dp)
                     .semantics {

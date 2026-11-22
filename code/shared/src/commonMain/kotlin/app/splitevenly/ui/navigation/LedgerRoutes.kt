@@ -302,12 +302,24 @@ fun AddExpenseRoute(
                     // Compress + persist off the main thread, then the thumbnail appears. No wait for save.
                     if (picked is AppResult.Ok && picked.value.isNotEmpty()) {
                         val superseded = pickedReceipts
-                        quickRead.start(picked.value)
+                        quickRead.start(picked.value, source)
                         pickedReceipts = uploadManager?.stage(picked.value).orEmpty()
                         uploadManager?.discardStaged(superseded)
                     }
                 }
             },
+        // The restaurant prompt's "Split by item": the attached receipt becomes the bill's scan, so it moves
+        // from the divide flow's slot to the scanned pages instead of being staged twice.
+        onItemizeReceipt = {
+            val files = quickRead.files
+            quickRead.source?.let { source ->
+                val superseded = pickedReceipts
+                pickedReceipts = emptyList()
+                scope.launch { uploadManager?.discardStaged(superseded) }
+                quickRead.clear()
+                runScan(files, source)
+            }
+        },
         onRemoveReceipt = { i ->
             quickRead.clear()
             removeStaged({ pickedReceipts }, i, deferred, uploadManager) { pickedReceipts = it }

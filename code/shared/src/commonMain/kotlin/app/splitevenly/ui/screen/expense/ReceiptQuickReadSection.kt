@@ -21,6 +21,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,16 +100,10 @@ internal fun QuickReadReceiptSection(
                     }
                 }
 
-            receipt == null ->
-                Row(
-                    Modifier.fillMaxWidth().clip(shape).border(1.dp, c.borderStrong, shape).clickable(onClick = onAdd)
-                        .padding(vertical = 14.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    EvIcon(EvIcons.Plus, size = 16.dp, tint = c.blueText)
-                    Text(" Add a receipt", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
+            receipt == null -> {
+                AddReceiptCard(onAdd)
+                OrFillItIn()
+            }
 
             else -> {
                 val (title, caption) = rowText(read)
@@ -125,6 +127,53 @@ internal fun QuickReadReceiptSection(
                 }
             }
         }
+    }
+}
+
+/** The empty receipt slot at the top of the editor: a dashed drop-target card, so it reads as the place to start. */
+@Composable
+private fun AddReceiptCard(onAdd: () -> Unit) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.blueTint)
+            .drawBehind {
+                val stroke = 1.5.dp.toPx()
+                drawRoundRect(
+                    color = c.blueText,
+                    topLeft = Offset(stroke / 2, stroke / 2),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = CornerRadius(14.dp.toPx() - stroke / 2),
+                    style = Stroke(width = stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))),
+                )
+            }
+            .clickable(role = Role.Button, onClick = onAdd)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(c.blue), contentAlignment = Alignment.Center) {
+            EvIcon(EvIcons.Receipt, size = 20.dp, tint = c.onAccent)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Add a receipt", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text("Automatically fills in expense details.", color = c.ink2, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+        EvIcon(EvIcons.Plus, size = 16.dp, tint = c.blueText)
+    }
+}
+
+/** Says the receipt is a shortcut, not a step: the fields below work just as well typed by hand. */
+@Composable
+private fun OrFillItIn() {
+    val c = EvenlyTheme.colors
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(1.dp).background(c.border))
+        Text("or fill it in", color = c.ink3, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 10.dp))
+        Box(Modifier.weight(1f).height(1.dp).background(c.border))
     }
 }
 
