@@ -34,12 +34,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.splitevenly.ui.components.ButtonVariant
-import app.splitevenly.ui.components.EvButton
 import app.splitevenly.domain.fx.CurrencyInfo
 import app.splitevenly.domain.fx.FxCurrencyDefaults
+import app.splitevenly.ui.components.ButtonVariant
+import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvCurrencyPickerModal
+import app.splitevenly.ui.components.EvEmojiDefaults
 import app.splitevenly.ui.components.EvEmojiPicker
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
@@ -70,6 +71,7 @@ data class MemberRowUi(
 fun GroupSettingsScreen(
     groupName: String = "Tulum Trip",
     groupEmoji: String = "🏝️",
+    recentEmojis: List<String> = EvEmojiDefaults,
     baseCurrency: String = "USD",
     currencies: List<CurrencyInfo> = FxCurrencyDefaults.fallback,
     onChangeCurrency: (String) -> Unit = {},
@@ -129,7 +131,10 @@ fun GroupSettingsScreen(
                     showRename =
                         true
                 })
-                SettingsRow(icon = EvIcons.Globe, label = "Base currency", value = baseCurrency, last = true, onClick = { showCurrencyPicker = true })
+                SettingsRow(icon = EvIcons.Globe, label = "Base currency", value = baseCurrency, last = true, onClick = {
+                    showCurrencyPicker =
+                        true
+                })
             }
             Text(
                 "Changing base currency re-converts past expenses at today's rate.",
@@ -308,7 +313,7 @@ fun GroupSettingsScreen(
         var draftEmoji by remember { mutableStateOf(groupEmoji) }
         EvModalScaffold(onDismiss = { showRename = false }) {
             Text("Emoji & name", style = t.sheetTitle, modifier = Modifier.padding(bottom = 12.dp))
-            EvField("Emoji") { EvEmojiPicker(selected = draftEmoji, onSelect = { draftEmoji = it }) }
+            EvField("Emoji") { EvEmojiPicker(selected = draftEmoji, onSelect = { draftEmoji = it }, recents = recentEmojis) }
             Spacer(Modifier.height(16.dp))
             EvField("Name") { EvTextField(draft, { draft = it }, placeholder = "Group name") }
             Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {

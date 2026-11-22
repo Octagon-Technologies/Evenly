@@ -564,24 +564,33 @@ fun NewGroupRoute(
     val currencies = rememberFxCurrencies()
     // New groups start in the creator's own currency; they can still change it on this screen.
     val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
+    val storage = koinInject<SecureStorage>()
+    val recentEmojis by rememberRecentEmojis(storage)
     NewGroupSheet(
         onDismiss = onDismiss,
         currencies = currencies,
         initialCurrency = profile?.baseCurrency ?: "USD",
+        recentEmojis = recentEmojis,
         onCreate = { name, emoji, baseCurrency ->
             val uid = auth.currentUserId.value ?: return@NewGroupSheet
             scope.launch {
                 val input = NewGroup(name = name.ifBlank { "New group" }, baseCurrency = baseCurrency, creatorUserId = uid, emoji = emoji)
                 when (val result = groups.createGroup(input)) {
-                    is AppResult.Ok -> onCreated(result.value.id.value)
-                    is AppResult.Err -> Unit
+                    is AppResult.Ok -> {
+                        storage.recordRecentEmoji(emoji)
+                        onCreated(result.value.id.value)
+                    }
+
+                    is AppResult.Err -> {
+                        Unit
+                    }
                 }
             }
         },
     )
 }
 
-/** Manual "Join with a link" sheet: parse the pasted invite, then hand off to the resolving [Route.Join]. */
+/** Manual "Join a friend's group" sheet: parse the pasted invite, then hand off to the resolving [Route.Join]. */
 @Composable
 fun JoinByLinkRoute(
     onDismiss: () -> Unit,

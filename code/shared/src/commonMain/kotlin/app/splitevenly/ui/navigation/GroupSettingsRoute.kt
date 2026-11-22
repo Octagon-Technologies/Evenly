@@ -19,6 +19,7 @@ import app.splitevenly.domain.export.GroupExporter
 import app.splitevenly.domain.group.InviteLink
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.PlatformShare
+import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.group.addMemberByName
 import app.splitevenly.ui.screen.group.toMemberRows
 import app.splitevenly.ui.screen.settings.GroupDeleteImpactUi
@@ -76,10 +77,13 @@ fun GroupSettingsRoute(
     var exportNote by remember { mutableStateOf<String?>(null) }
 
     val rows = members.toMemberRows(userId)
+    val storage = koinInject<SecureStorage>()
+    val recentEmojis by rememberRecentEmojis(storage)
 
     GroupSettingsScreen(
         groupName = group?.name ?: "",
         groupEmoji = group?.emoji ?: "💸",
+        recentEmojis = recentEmojis,
         baseCurrency = group?.baseCurrency ?: "USD",
         currencies = rememberFxCurrencies(),
         onChangeCurrency = { code -> scope.launch { groups.setBaseCurrency(gid, code) } },
@@ -123,7 +127,14 @@ fun GroupSettingsRoute(
         },
         onBack = onBack,
         onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
-        onRename = { name, emoji -> scope.launch { groups.renameGroup(gid, name, emoji) } },
+        onRename = { name, emoji ->
+            // Only a changed emoji counts as a use; re-saving a name shouldn't evict a recent.
+            val emojiChanged = emoji != group?.emoji
+            scope.launch {
+                groups.renameGroup(gid, name, emoji)
+                if (emojiChanged) storage.recordRecentEmoji(emoji)
+            }
+        },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString(InviteLink.url(it))) } },
         onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: ${InviteLink.url(it)}", "Join my Evenly group") } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },

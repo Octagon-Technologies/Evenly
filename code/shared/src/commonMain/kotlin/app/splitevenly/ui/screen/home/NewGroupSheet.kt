@@ -29,8 +29,8 @@ import app.splitevenly.domain.fx.CurrencyInfo
 import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCurrencyPickerModal
+import app.splitevenly.ui.components.EvEmojiDefaults
 import app.splitevenly.ui.components.EvEmojiPicker
-import app.splitevenly.ui.components.EvEmojiPresets
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSelectField
@@ -52,9 +52,12 @@ fun NewGroupSheet(
     currencies: List<CurrencyInfo> = FxCurrencyDefaults.fallback,
     initialCurrency: String = "USD",
     onCreate: (name: String, emoji: String, baseCurrency: String) -> Unit = { _, _, _ -> },
+    recentEmojis: List<String> = EvEmojiDefaults,
 ) {
     val c = EvenlyTheme.colors
-    var sel by remember { mutableStateOf(EvEmojiPresets.first()) }
+    // The deck loads asynchronously, so an untouched choice follows its newest emoji and a picked one sticks.
+    var pickedEmoji by remember { mutableStateOf<String?>(null) }
+    val sel = pickedEmoji ?: recentEmojis.lastOrNull().orEmpty()
     var name by remember { mutableStateOf("") }
     // The profile's currency arrives asynchronously, so an untouched field follows it and a picked one sticks.
     var picked by remember { mutableStateOf<String?>(null) }
@@ -89,7 +92,7 @@ fun NewGroupSheet(
                 ) {
                     Text(groupIconLabel(sel, name), fontSize = 38.sp, color = c.ink)
                 }
-                EvEmojiPicker(selected = sel, onSelect = { sel = it })
+                EvEmojiPicker(selected = sel, onSelect = { pickedEmoji = it }, recents = recentEmojis)
             }
             EvField("Group name") { EvTextField(name, { name = it }, placeholder = "e.g. Trip to Puerto Rico") }
             EvField("Base currency") {
