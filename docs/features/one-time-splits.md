@@ -1,6 +1,6 @@
 # One-time splits (quick splits) + two-party payment edits
 
-**Status:** Part B (B1-B4) built and its migration applied 2026-11-21; `web-claim` not redeployed (see §7). Part A not started.
+**Status:** Part B (B1-B4) built, migrated and deployed 2026-11-21. Part A not started.
 **Owner agent/session:** unassigned
 **Mockup:** `design/one-time-splits-mockup.html` (screens 1–6 quick split, 7–11 payment edits)
 
@@ -254,7 +254,9 @@ Part B first: it is smaller, fixes a live complaint, and Part A's payment screen
 - Migration applied to the live project 2026-11-21 (`payment_edits_party_guard`).
   `supabase/tests/payment_edits.sql` passed in full against it, and `get_advisors` flags none of the new
   functions (none is executable by `anon` or `authenticated`).
-- `web-claim` is not redeployed. No Deno on this machine, so the function was not type-checked.
+- `web-claim` deployed 2026-11-21 from `e546752`; the new `payments` / `pay` / `payment` routes answer live.
+  Not type-checked locally (no Deno here), and the guest flow was walked against `?mock` only, not a
+  real bill link.
 - **Push is not live** (`FCM_SERVICE_ACCOUNT` unset, iOS host SDK deferred). "The other person is
   notified" is the history row only. No in-app activity badge was added.
 - A refused settlements push still wedges that table's batch on the device (pre-existing behaviour for
