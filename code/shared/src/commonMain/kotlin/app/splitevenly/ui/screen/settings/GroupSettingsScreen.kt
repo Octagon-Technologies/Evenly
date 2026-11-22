@@ -105,6 +105,7 @@ fun GroupSettingsScreen(
     var showAdd by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
+    var showLeave by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<MemberRowUi?>(null) }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
@@ -262,7 +263,7 @@ fun GroupSettingsScreen(
                     subtitle = "You leave. The group stays for everyone else.",
                     danger = true,
                     showChevron = false,
-                    onClick = onLeave,
+                    onClick = { showLeave = true },
                 )
                 SettingsRow(
                     icon = EvIcons.Trash,
@@ -314,6 +315,17 @@ fun GroupSettingsScreen(
             onConfirm = {
                 showDelete = false
                 onDelete()
+            },
+        )
+    }
+
+    if (showLeave) {
+        LeaveGroupSheet(
+            groupName = groupName,
+            onDismiss = { showLeave = false },
+            onConfirm = {
+                showLeave = false
+                onLeave()
             },
         )
     }
@@ -492,6 +504,35 @@ private fun DeleteGroupSheet(
                 { if (matches) onConfirm() else showMismatch = true },
                 variant = ButtonVariant.Danger,
             )
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Secondary)
+        }
+    }
+}
+
+/**
+ * "Leave group", confirmed with a second tap.
+ *
+ * Lighter than [DeleteGroupSheet] on purpose: leaving only affects the viewer and the group carries on,
+ * so a plain confirm is enough to stop a stray tap on the row without the type-the-name gate.
+ */
+@Composable
+private fun LeaveGroupSheet(
+    groupName: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val t = EvenlyTheme.text
+    EvModalScaffold(onDismiss = onDismiss) {
+        Text("Leave $groupName?", style = t.sheetTitle)
+        Text(
+            "It will disappear from your list. The group, its expenses and balances stay for everyone else.",
+            style = t.description,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            EvButton("Leave", onConfirm, variant = ButtonVariant.Danger)
         }
         Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
             EvButton("Cancel", onDismiss, variant = ButtonVariant.Secondary)
