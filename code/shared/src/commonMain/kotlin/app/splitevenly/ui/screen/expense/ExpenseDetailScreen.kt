@@ -164,13 +164,12 @@ fun ExpenseDetailScreen(
     // Non-null only for an itemized ("Split the bill") expense — renders a prominent "claim or edit your
     // items" button under the split, the durable way into the claim screen once the home card is gone.
     onClaimItems: (() -> Unit)? = null,
-    // Non-null only for an itemized bill. The summary-card "Edit bill" button opens the menu/items/extras
-    // editor (Route.SplitBill); a plain expense instead gets "Edit expense" → onEdit.
+    // Itemized only: the top-bar "Edit bill" opens Route.SplitBill; a plain expense gets "Edit expense" → onEdit.
     onEditBill: (() -> Unit)? = null,
-    // Item progress for an itemized bill; drives the "Who ordered what" card beside onClaimItems.
-    billPick: BillPickUi? = null,
+    billPick: BillPickUi? = null, // item progress for the "Who ordered what" card beside onClaimItems
     // Opens the bill's QR / share-link sheet from the "Who ordered what" card.
     onShareItems: () -> Unit = {},
+    onShareSplit: (() -> Unit)? = null, // a quick split's even bill: the link is how friends see their share
     // Track F one-sided nudge: this device's split edit was superseded by a newer one while it was behind.
     // Shows a dismissible banner inviting the author to review the current split (never a two-sided card).
     supersededNotice: Boolean = false,
@@ -322,6 +321,7 @@ fun ExpenseDetailScreen(
                                 EvButton("Pick your items", open, variant = ButtonVariant.Tonal, leadingIcon = EvIcons.Receipt)
                             }
                         }
+                        onShareSplit?.let { EvButton("Share the link", it, variant = ButtonVariant.Tonal, leadingIcon = EvIcons.Share) }
 
                         // receipts
                         if (receipts.isNotEmpty() || pendingUploads.isNotEmpty()) {

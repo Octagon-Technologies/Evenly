@@ -76,6 +76,8 @@ fun EvTextField(
     // Set for a field holding an identifier rather than prose (a payment handle, a code). The keyboard
     // capitalizes the first letter and autocorrects by default, silently rewriting what was typed.
     identifier: Boolean = false,
+    // Return runs this instead of dismissing the keyboard: an "add another" field keeps focus for the next entry.
+    onDone: (() -> Unit)? = null,
 ) {
     val c = EvenlyTheme.colors
     val focusManager = LocalFocusManager.current
@@ -124,7 +126,7 @@ fun EvTextField(
             ),
         keyboardActions =
             KeyboardActions(
-                onDone = { focusManager.clearFocus() },
+                onDone = { onDone?.invoke() ?: focusManager.clearFocus() },
                 onGo = { focusManager.clearFocus() },
                 onSend = { focusManager.clearFocus() },
                 onSearch = { focusManager.clearFocus() },

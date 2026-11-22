@@ -16,6 +16,7 @@ import app.splitevenly.domain.expense.ExpenseShare
 import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
+import app.splitevenly.domain.group.GroupKind
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.domain.settlement.SettlementRecord
@@ -37,6 +38,7 @@ internal fun GroupEntity.toDomain(): Group =
         createdAt = createdAt,
         deletedAt = deletedAt,
         deletedBy = deletedBy?.let(::UserId),
+        kind = if (kind == GroupEntity.KIND_QUICK) GroupKind.Quick else GroupKind.Group,
     )
 
 internal fun DeletedGroupRow.toDomain(): DeletedGroup =

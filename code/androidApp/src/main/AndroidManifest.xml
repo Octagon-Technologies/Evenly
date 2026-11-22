@@ -50,6 +50,8 @@
                 <data android:scheme="https" />
                 <data android:host="split-evenly.app" />
                 <data android:pathPrefix="/j/" />
+                <!-- Quick-split links (one-time-splits A3): a normal bill's /b/ link stays on the web. -->
+                <data android:pathPrefix="/s/" />
             </intent-filter>
 
             <!-- Legacy join deep link (splitevenly://j/<token>), still used by the web page's "Open in Evenly". -->

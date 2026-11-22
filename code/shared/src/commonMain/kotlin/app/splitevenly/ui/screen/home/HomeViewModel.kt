@@ -11,6 +11,9 @@ import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.NewGroup
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.domain.repository.SettlementRepository
+import app.splitevenly.core.time.nowEpochMillis
+import kotlin.time.Clock
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +36,7 @@ import kotlin.math.abs
 class HomeViewModel(
     private val groups: GroupRepository,
     private val expenses: ExpenseRepository,
+    private val settlements: SettlementRepository,
     private val auth: AuthSession,
     private val hydration: HydrationTracker,
 ) : ViewModel() {
@@ -48,7 +52,7 @@ class HomeViewModel(
                         groups.observeDeletedGroups(uid),
                         hydration.observeUserReadiness(uid.value),
                     ) { active, archived, deleted, readiness ->
-                        homeState(active, archived, deleted.size, readiness)
+                        homeState(active, archived, deleted.size, readiness, now = Clock.System.nowEpochMillis())
                     }
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState.Loading)
@@ -76,6 +80,34 @@ class HomeViewModel(
 
     /** A live card for one group: real member count + the viewer's net (in the group base currency). */
     private fun cardFlow(
+        group: Group,
+        uid: UserId,
+        archived: Boolean,
+    ): Flow<GroupCardUi> =
+        if (group.isQuick) quickCardFlow(group, uid) else groupCardFlow(group, uid, archived)
+
+    /** A quick split's card: its one bill, who has paid, and the viewer's net on it. */
+    private fun quickCardFlow(
+        group: Group,
+        uid: UserId,
+    ): Flow<GroupCardUi> =
+        combine(
+            groups.observeMembers(group.id),
+            expenses.observeBalances(group.id),
+            expenses.observeExpensesWithShares(group.id),
+            settlements.observeSettlements(group.id),
+        ) { members, debts, bills, payments ->
+            quickSplitCard(
+                group = group,
+                viewer = uid,
+                memberNames = members.map { it.displayName },
+                debts = debts,
+                bill = bills.minByOrNull { it.expense.createdAt },
+                lastPaymentAt = payments.maxOfOrNull { it.settledAt },
+            )
+        }
+
+    private fun groupCardFlow(
         group: Group,
         uid: UserId,
         archived: Boolean,
@@ -173,10 +205,13 @@ internal fun homeState(
     archived: List<GroupCardUi>,
     deletedCount: Int,
     readiness: ListReadiness,
+    now: Long = 0L,
 ): HomeUiState =
     when {
-        active.isNotEmpty() || archived.isNotEmpty() ->
-            HomeUiState.Content(active = active, archived = archived, deletedCount = deletedCount)
+        active.isNotEmpty() || archived.isNotEmpty() -> {
+            val (history, live) = active.partition { it.quick?.inHistory(now) == true }
+            HomeUiState.Content(active = live, archived = archived, deletedCount = deletedCount, history = history)
+        }
 
         else ->
             when (readiness) {

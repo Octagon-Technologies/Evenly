@@ -2,6 +2,8 @@ package app.splitevenly.data.remote.supabase
 
 import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.db.entity.GroupEntity
+import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.UserEntity
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
@@ -25,6 +27,12 @@ private data class ResolveByTokenParams(
 interface RemoteGroupGateway {
     /** Look up a group by its invite token on the server, caching the row locally; null if not found. */
     suspend fun resolveByToken(token: String): GroupEntity?
+
+    /**
+     * The quick split a `/s/<bill token>` link belongs to, caching the row; null for an unknown, dead or
+     * non-quick link. Joining then goes through the ordinary invite path with the row's invite token.
+     */
+    suspend fun resolveQuickSplitByBillToken(token: String): GroupEntity? = null
 }
 
 class SupabaseRemoteGroupGateway(
@@ -57,4 +65,48 @@ class SupabaseRemoteGroupGateway(
         } catch (e: Exception) {
             null
         }
+
+    override suspend fun resolveQuickSplitByBillToken(token: String): GroupEntity? =
+        try {
+            val group =
+                client.postgrest
+                    .rpc("resolve_quick_split_by_bill_token", ResolveByTokenParams(token.trim()))
+                    .decodeList<GroupEntity>()
+                    .firstOrNull()
+            if (group != null) {
+                db.groupDao().upsert(group)
+                cacheQuickSplitNames(token.trim())
+            }
+            group
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
+    /**
+     * Caches the quick split's unclaimed typed-in names (users + members rows), because the join screen
+     * reads them from Room and a joiner's device has never synced the group. Best-effort: without them
+     * the join still works, it just cannot offer the names.
+     */
+    private suspend fun cacheQuickSplitNames(token: String) {
+        try {
+            val names =
+                client.postgrest
+                    .rpc("quick_split_names_by_bill_token", ResolveByTokenParams(token))
+                    .decodeAs<QuickSplitNames>()
+            db.userDao().upsertAll(names.users)
+            db.memberDao().upsertAll(names.members)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Unit
+        }
+    }
 }
+
+@Serializable
+private data class QuickSplitNames(
+    val users: List<UserEntity> = emptyList(),
+    val members: List<MemberEntity> = emptyList(),
+)

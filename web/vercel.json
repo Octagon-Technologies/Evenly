@@ -3,6 +3,7 @@
   "trailingSlash": false,
   "rewrites": [
     { "source": "/b/(.*)", "destination": "/app" },
+    { "source": "/s/(.*)", "destination": "/app" },
     { "source": "/j/(.*)", "destination": "/app" },
     { "source": "/admin", "destination": "/app" },
     { "source": "/(.*)", "destination": "/" }

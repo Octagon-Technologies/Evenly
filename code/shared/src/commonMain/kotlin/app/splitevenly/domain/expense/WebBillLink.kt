@@ -70,6 +70,19 @@ fun billClaimUrl(token: String): String {
     return "$host/b/$token"
 }
 
+/**
+ * A quick split's link: the same token on `/s/` instead of `/b/`. The web treats both paths alike; the
+ * app claims only `/s/` as an app link, because joining from a bill link is right for a quick split
+ * (the link IS the invite) and wrong for a normal group's claim-only link (§2.9).
+ */
+fun quickSplitUrl(billUrl: String): String = billUrl.replaceFirst("/b/", "/s/")
+
+/** The bill token in a quick-split link, or null when [raw] is not one. */
+fun quickSplitTokenFrom(raw: String): String? = QUICK_SPLIT_LINK.find(raw.trim())?.groupValues?.get(1)
+
+private val QUICK_SPLIT_LINK =
+    Regex("""(?:https?://)?(?:www\.)?split-evenly\.app/s/([0-9A-Za-z]{16,64})""", RegexOption.IGNORE_CASE)
+
 /** How far along a person is on a shared bill, for the payer's "who's still to claim" screen (§3.9.2). */
 enum class ClaimProgressState {
     /** Has claimed at least one line (whether or not they tapped "I'm done"). */

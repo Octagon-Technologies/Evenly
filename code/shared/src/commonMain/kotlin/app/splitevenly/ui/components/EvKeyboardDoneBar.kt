@@ -45,9 +45,11 @@ private val FocusedFieldGap = 16.dp
 fun EvKeyboardDoneBar(
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    // False while a dialog or sheet is open over the screen: it closes on its own, so the bar is noise.
+    visible: Boolean = true,
 ) {
     val density = LocalDensity.current
-    if (WindowInsets.ime.getBottom(density) <= 0) return
+    if (!visible || WindowInsets.ime.getBottom(density) <= 0) return
     val c = EvenlyTheme.colors
     Box(
         modifier

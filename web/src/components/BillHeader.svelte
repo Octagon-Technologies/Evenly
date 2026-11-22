@@ -31,11 +31,11 @@
 </script>
 
 <div class="hdr">
-  <div class="eyebrow">{header.groupName}</div>
+  <div class="eyebrow">{header.kind === 'quick' ? `${header.payerName ?? 'Someone'} paid` : header.groupName}</div>
   <div class="h1">{title}</div>
   <div class="sub">
-    {header.title} · {header.itemCount}
-    {header.itemCount === 1 ? 'item' : 'items'}{#if showProof}{' · '}<b class="mono"
+    {header.title}{#if header.itemCount > 0}{' · '}{header.itemCount}
+      {header.itemCount === 1 ? 'item' : 'items'}{/if}{#if showProof}{' · '}<b class="mono"
         >{money(header.totalSubunits, header.currency)}</b
       >{/if}
   </div>

@@ -50,7 +50,9 @@
 <div class="page">
   <div class="scroll">
     <div class="hdr" style="padding-bottom:10px">
-      <div class="h2">You're done, {store.identity?.name ?? 'you'}</div>
+      <div class="h2">
+        {store.sharesOnly ? `Hi, ${store.identity?.name ?? 'there'}` : `You're done, ${store.identity?.name ?? 'you'}`}
+      </div>
     </div>
 
     <div class="hero">
@@ -59,7 +61,7 @@
            when you did (spec §3.8). -->
       <div class="k">{store.iAmPayer ? 'Your share of what you paid' : `You owe ${payerName}`}</div>
       <div class="v mono">{money(store.myTotalSubunits, store.currency)}</div>
-      <div class="w">{store.header?.groupName} · {store.header?.title}</div>
+      <div class="w">{store.isQuickSplit ? store.header?.title : `${store.header?.groupName} · ${store.header?.title}`}</div>
     </div>
 
     {#if store.payerNotice}
@@ -101,6 +103,12 @@
         </div>
       {/if}
 
+      {#if store.sharesOnly}
+        <div class="tot">
+          <span>Your share of {money(store.header?.totalSubunits ?? 0, store.currency)}</span>
+          <b class="mono">{money(store.myTotalSubunits, store.currency)}</b>
+        </div>
+      {/if}
       <div class="tot tot--big">
         <span>Your total</span>
         <span class="mono">{money(store.myTotalSubunits, store.currency)}</span>
@@ -137,9 +145,11 @@
       <button type="button" class="link" onclick={() => (pickingPayer = true)}>Change who paid</button>
     </p>
 
-    <button type="button" class="btn btn--ghost btn--sm" onclick={() => store.setDone(false)}>
-      Change what I claimed
-    </button>
+    {#if !store.sharesOnly}
+      <button type="button" class="btn btn--ghost btn--sm" onclick={() => store.setDone(false)}>
+        Change what I claimed
+      </button>
+    {/if}
 
     <InstallLine benefit="Keep every bill you've split, in one place." />
   </div>

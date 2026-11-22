@@ -594,7 +594,7 @@ fun ExpenseDetailRoute(
     onEdit: () -> Unit = {},
     // Where "Pick your items" / "Change picks" goes for an ITEMIZED bill: the assign screen (Route.ClaimBill).
     onOpenClaim: () -> Unit = {},
-    // The bill's QR / share-link sheet (Route.ShareBillLink).
+    // The bill's QR / share-link sheet (Route.ShareBillLink); a quick split's even bill offers it too.
     onShareItems: () -> Unit = {},
     // The itemized bill's menu/items/extras editor (Route.SplitBill), surfaced as the top-bar "Edit".
     onEditBill: () -> Unit = {},
@@ -656,6 +656,7 @@ fun ExpenseDetailRoute(
     // yet anyone's. Surface that gap as an explicit "Unclaimed" row so the split still sums to the total —
     // e.g. of 5 diners, if only Andrew + Bob have claimed, the detail shows Andrew, Bob, then Unclaimed.
     val isItemized = e.splitMode == SPLIT_MODE_ITEMIZED
+    val quickSplit = remember(groupId) { groups.observeGroup(GroupId(groupId)) }.collectAsStateWithLifecycle(null).value?.isQuick == true
     val billPick = rememberBillPick(eid, isItemized, userId)
     val unclaimedSubunits = if (isItemized) (e.amountSubunits - ews.shares.sumOf { it.owedSubunits }).coerceAtLeast(0L) else 0L
     val rows =
@@ -749,6 +750,7 @@ fun ExpenseDetailRoute(
         onClaimItems = if (isItemized) onOpenClaim else null,
         billPick = billPick,
         onShareItems = onShareItems,
+        onShareSplit = if (quickSplit && !isItemized) onShareItems else null,
         onEditBill = if (isItemized) onEditBill else null,
         supersededNotice = supersededNotice,
         onDismissSupersededNotice = { scope.launch { expenses.dismissSupersededNotice(eid) } },

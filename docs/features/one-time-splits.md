@@ -1,6 +1,6 @@
 # One-time splits (quick splits) + two-party payment edits
 
-**Status:** Part B (B1-B4) built, migrated and deployed 2026-11-21. Part A not started.
+**Status:** Part B (B1-B4) built, migrated and deployed 2026-11-21. Part A (A1-A4) built 2026-11-22; migrations live, `web-claim` and the web site not yet deployed (§7).
 **Owner agent/session:** unassigned
 **Mockup:** `design/one-time-splits-mockup.html` (screens 1–6 quick split, 7–11 payment edits)
 
@@ -213,10 +213,10 @@ Part B first: it is smaller, fixes a live complaint, and Part A's payment screen
 - [x] B2 — App: party gating on the payment sheet; edit a settle-up total with re-spread preview.
 - [x] B3 — Confirm sheet with editable amount.
 - [x] B4 — `web-claim` action + web UI for a guest correcting their own payment.
-- [ ] A1 — `groups.kind` server + Room; hidden from group lists; Home card + combined total.
-- [ ] A2 — + New chooser, Split a bill screen, names step, create & share.
-- [ ] A3 — Web/app link opens on the name picker; claiming a typed-in name.
-- [ ] A4 — Auto-move to History once fully settled.
+- [x] A1 — `groups.kind` server + Room; hidden from group lists; Home card + combined total.
+- [x] A2 — + New chooser, Split a bill screen, names step, create & share.
+- [x] A3 — Web/app link opens on the name picker; claiming a typed-in name.
+- [x] A4 — Auto-move to History once fully settled.
 - [ ] A5 (v2) — System contact picker + text the link.
 
 ---
@@ -261,3 +261,48 @@ Part B first: it is smaller, fixes a live complaint, and Part A's payment screen
   notified" is the history row only. No in-app activity badge was added.
 - A refused settlements push still wedges that table's batch on the device (pre-existing behaviour for
   any RLS refusal). The app checks party-ness first, so a legitimate client should not hit it.
+
+### Part A (A1-A4), 2026-11-22
+
+**Built.**
+- **A1 server** (`supabase/schema.sql`, end of file): `groups.kind` (`'group' | 'quick'`, default `'group'`,
+  checked); `resolve_quick_split_by_bill_token` and `quick_split_names_by_bill_token` (definer, quick splits
+  only, `authenticated` only). Both migrations applied to the live project 2026-11-22.
+- **A1 app**: `GroupEntity.kind` (Room v34), `Group.kind`/`isQuick`, `NewGroup.kind`. Home shows a quick split
+  as a bill card in the same list (`ui/screen/home/QuickSplitCard.kt`: receipt tile, initials, "2 of 3 paid",
+  your net). The Home title is "Evenly" and the section "Active", since the list is no longer only groups.
+  `QuickSplitGuard` wraps `Route.GroupHome` so no group screen is reachable for a quick split.
+- **A2**: "+ New" opens "What are you splitting?" (Split a bill, Start a group, Join with a link). The
+  welcome screen leads with "Split a bill". `QuickSplitNamesScreen` (names, return adds the next one) creates
+  the hidden group and a typed-in name per person, then hands over to the ordinary expense editor. Saving
+  lands on the bill with the share screen on top and the share sheet open. Even and by-amount bills get a
+  "Share the link" button on the bill and shares-only copy on the share screen.
+- **A3**: quick-split links are `split-evenly.app/s/<token>` (same token as `/b/`). Web: `/s/` routes to the
+  claim page; the name picker reads "Which one are you?" / "I'm not on this list" and names the payer; a bill
+  with no items shows the guest's share and the pay card straight away (`fixedShares` from `web-claim`).
+  App: `/s/` is an app link on both OSes (AASA, manifest). Opening one resolves the group, caches its
+  unclaimed names, and goes through the ordinary join screen, where the friend picks their name. A dead or
+  non-quick link falls back to the web page.
+- **A4**: a quick split settled for 24 hours leaves the Home list for a "History" shelf
+  (`QuickSplitHistoryRoute`).
+
+**Deviations from the brief, on purpose.**
+- **People come before the bill.** Step 2 is the existing expense editor (scan, title, total, payer, and the
+  split method), which needs the people to show the split. Building a second bill screen would duplicate
+  the editor; the method is still picked before "Save", just on step 2 rather than the people step.
+- "Who paid" is the editor's normal payer picker, not a step-1 field.
+- No Undo toast when a split moves to History (mockup 6). It stays reachable from the History shelf.
+
+**Not done / not verified.**
+- **`web-claim` is not deployed** (the deploy was blocked by a permission check in this session). Until it
+  is, the web page does not get `kind`, `payerName` or `fixedShares`: quick-split pages show the group copy,
+  and an even bill shows an empty claim list. Deploy with
+  `supabase functions deploy web-claim --project-ref wfpfgbipjmkysalfmyub --no-verify-jwt`.
+- **The web site is not deployed**, so `/s/` links and the AASA `/s/*` entry are not live yet. Until then a
+  shared `/s/` link 404s on the web; the app still opens it on a device with the app installed only after
+  the AASA ships.
+- **Deploy order:** web site and `web-claim` first, then an app release. An app build that shares `/s/`
+  links before the site serves `/s/` hands friends a link to the waitlist page.
+- iOS sim walk covered + New → Split a bill → names. The web page, the in-app `/s/` open and History were
+  checked by type-check, build and unit tests only, not on a device.
+

@@ -47,6 +47,11 @@ arg does. This is the single most repeated iOS-only crash in this repo.
 group is a full-screen push *over* the shell. There is **no standalone `Route.Profile`** — reach the profile
 via the Settings tab, not a Home avatar.
 
+**A quick split never shows a group screen** (docs/features/one-time-splits.md). It is a hidden one-bill
+group (`Group.isQuick`); `Route.GroupHome` is wrapped in `QuickSplitGuard`, which sends every door that names
+a group (Home, a notification, finishing a join) to `Route.QuickSplit`, which lands on the bill or resumes the
+editor. Don't add a group-only route without the same guard, and don't word quick-split copy as "group".
+
 **A push disposes the destination underneath, so `remember` in a Route wrapper does not survive Back.**
 Anything a wrapper must keep across a push (a one-shot gate's answer, a completed check) belongs in a
 ViewModel scoped to that back-stack entry, which lives until the entry is popped. `HomeGateRoute`'s

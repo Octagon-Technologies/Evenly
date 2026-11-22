@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
@@ -39,6 +40,9 @@ fun EvenlyNavHost(
     modifier: Modifier = Modifier,
 ) {
     OpenPendingInvite(navController)
+    val uriHandler = LocalUriHandler.current
+    // The root path with `?b=` is not an app-link path, so the browser keeps it instead of bouncing back here.
+    OpenPendingQuickSplit(navController, onFallbackToWeb = { uriHandler.openUri("https://split-evenly.app/?b=$it") })
     NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
         // ── Auth ────────────────────────────────────────────────────────
         composable<Route.Welcome> {
@@ -72,6 +76,8 @@ fun EvenlyNavHost(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
                 onNewGroup = { navController.navigate(Route.NewGroup) },
                 onJoin = { navController.navigate(Route.JoinByLink) },
+                onSplitBill = { navController.navigate(Route.QuickSplitNew) },
+                onOpenHistory = { navController.navigate(Route.QuickSplitHistory) },
                 onOpenArchived = { navController.navigate(Route.Archived) },
                 onOpenRecentlyDeleted = { navController.navigate(Route.RecentlyDeleted) },
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
@@ -84,6 +90,22 @@ fun EvenlyNavHost(
             NewGroupRoute(
                 onDismiss = { navController.popBackStack() },
                 onCreated = { id -> navController.navigate(Route.GroupHome(id)) { popUpTo(Route.Home) } },
+            )
+        }
+        composable<Route.QuickSplitNew> {
+            QuickSplitNewRoute(
+                onBack = { navController.popBackStack() },
+                onCreated = { id -> navController.navigate(Route.AddExpense(id)) { popUpTo(Route.Home) } },
+            )
+        }
+        composable<Route.QuickSplit> { entry ->
+            val r = entry.toRoute<Route.QuickSplit>()
+            QuickSplitRoute(groupId = r.groupId, justCreated = r.justCreated, navController = navController)
+        }
+        composable<Route.QuickSplitHistory> {
+            QuickSplitHistoryRoute(
+                onBack = { navController.popBackStack() },
+                onOpen = { navController.navigate(Route.QuickSplit(it)) },
             )
         }
         composable<Route.Archived> { ArchivedRoute(onBack = { navController.popBackStack() }) }
@@ -106,6 +128,12 @@ fun EvenlyNavHost(
         // ── Group ───────────────────────────────────────────────────────
         composable<Route.GroupHome> { entry ->
             val r = entry.toRoute<Route.GroupHome>()
+            QuickSplitGuard(
+                groupId = r.groupId,
+                onQuickSplit = {
+                    navController.navigate(Route.QuickSplit(r.groupId)) { popUpTo<Route.GroupHome> { inclusive = true } }
+                },
+            ) {
             GroupHomeScreen(
                 groupId = r.groupId,
                 initialTab = GroupTab.entries.firstOrNull { it.name == r.tab } ?: GroupTab.Expenses,
@@ -123,6 +151,7 @@ fun EvenlyNavHost(
                     navController.navigate(Route.Reconcile(r.groupId, source = PlaceholderClaimSources.GROUP_HOME))
                 },
             )
+            }
         }
         composable<Route.Search> { entry ->
             val r = entry.toRoute<Route.Search>()
@@ -161,10 +190,20 @@ fun EvenlyNavHost(
         }
         composable<Route.AddExpense> { entry ->
             val r = entry.toRoute<Route.AddExpense>()
+            val quickSplit = rememberIsQuickSplit(r.groupId)
             AddExpenseRoute(
                 groupId = r.groupId,
                 onBack = { navController.popBackStack() },
-                onSaved = { navController.popBackStack() },
+                // A quick split's bill goes straight to sharing: the link is the whole point of it (mockup 4).
+                onSaved = {
+                    if (quickSplit) {
+                        navController.navigate(Route.QuickSplit(r.groupId, justCreated = true)) {
+                            popUpTo(Route.AddExpense(r.groupId, r.draftId)) { inclusive = true }
+                        }
+                    } else {
+                        navController.popBackStack()
+                    }
+                },
                 // An itemized ("By what each had") save creates the bill in-place, then asks how people will
                 // pick its items, replacing this editor on the back stack so Back lands on the group, not here.
                 onCreatedBill = { newId ->

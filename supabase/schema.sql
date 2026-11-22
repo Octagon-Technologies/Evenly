@@ -3701,3 +3701,68 @@ begin
 end;
 $$;
 revoke all on function public.edit_web_payment(text, text, text, bigint, bigint) from public, anon, authenticated;
+
+-- ── Quick splits (docs/features/one-time-splits.md, Part A) ────────────────────────────────────────
+-- A quick split is a hidden group holding one bill: members, typed-in names, web claim, settlements and
+-- merge are reused unchanged. `kind` only changes how the app lists and opens it. Additive with a
+-- default, so the full-row upsert from an older client (which omits it) still lands as 'group'.
+alter table public.groups add column if not exists kind text not null default 'group';
+alter table public.groups drop constraint if exists groups_kind_check;
+alter table public.groups add constraint groups_kind_check check (kind in ('group', 'quick'));
+
+-- The app half of "the link opens in the app": `split-evenly.app/s/<bill token>` resolves to its quick
+-- split's group row, and the app then joins it through the ordinary invite path. Same reasoning as
+-- `resolve_group_by_invite_token` (a joiner is not a member, so no RLS policy can express this read).
+-- Quick splits only: a normal group's bill link is claim-only and must never grant membership
+-- (WEB_CLAIM_SPEC.md §2.9). A revoked, expired or deleted link resolves to nothing.
+create or replace function public.resolve_quick_split_by_bill_token(p_token text)
+returns setof public.groups
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select g.*
+  from public.web_bill_links l
+  join public.groups g on g.id = l.group_id
+  join public.expenses e on e.id = l.expense_id
+  where l.token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex')
+    and l.revoked_at is null
+    and (l.expires_at is null or l.expires_at > (extract(epoch from now()) * 1000)::bigint)
+    and e.deleted_at is null
+    and g.deleted_at is null
+    and g.kind = 'quick'
+  limit 1;
+$$;
+
+revoke all on function public.resolve_quick_split_by_bill_token(text) from public, anon;
+grant execute on function public.resolve_quick_split_by_bill_token(text) to authenticated;
+
+-- The typed-in names a quick split's link can claim, so the app's join screen can ask "is one of these
+-- you?" on a device that has never synced the group (it reads names from local `users` + `members`).
+-- Only unclaimed placeholder rows of that one quick split: no account rows, nothing the web page does
+-- not already show to anyone holding the link.
+create or replace function public.quick_split_names_by_bill_token(p_token text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with g as (select * from public.resolve_quick_split_by_bill_token(p_token))
+  select jsonb_build_object(
+    'users', coalesce((
+      select jsonb_agg(to_jsonb(u)) from public.users u
+      join public.members m on m.user_id = u.id and m.group_id = u.placeholder_group_id
+      where u.is_placeholder and u.placeholder_group_id = (select id from g)
+        and m.status = 'ACTIVE' and m.placeholder_claim_completed_at is null), '[]'::jsonb),
+    'members', coalesce((
+      select jsonb_agg(to_jsonb(m)) from public.members m
+      join public.users u on u.id = m.user_id and u.is_placeholder
+      where m.group_id = (select id from g)
+        and m.status = 'ACTIVE' and m.placeholder_claim_completed_at is null), '[]'::jsonb)
+  )
+$$;
+
+revoke all on function public.quick_split_names_by_bill_token(text) from public, anon;
+grant execute on function public.quick_split_names_by_bill_token(text) to authenticated;

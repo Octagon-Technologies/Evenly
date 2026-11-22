@@ -41,6 +41,18 @@ sealed interface Route {
 
     @Serializable data object JoinByLink : Route // sheet — paste an invite manually
 
+    // ── Quick splits (docs/features/one-time-splits.md) ─────────────────
+    // A quick split is a hidden one-bill group. [QuickSplit] is the only way into one: it resolves the
+    // group's bill and lands on it (or resumes the editor), so no group screen is ever shown for it.
+    @Serializable data object QuickSplitNew : Route
+
+    @Serializable data class QuickSplit(
+        val groupId: String,
+        val justCreated: Boolean = false,
+    ) : Route
+
+    @Serializable data object QuickSplitHistory : Route
+
     @Serializable data class Join(
         val token: String,
     ) : Route // sheet + deep link

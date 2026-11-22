@@ -29,6 +29,9 @@ interface GroupRepository {
     /** Resolve an invite token to its group for a join preview (local cache; null if not synced). */
     suspend fun findGroupByToken(token: String): Group?
 
+    /** The quick split a `split-evenly.app/s/<token>` link opens; null when the link is dead or not a quick split. */
+    suspend fun findQuickSplitByBillToken(token: String): Group?
+
     /** A single group, or null once it is deleted. */
     fun observeGroup(groupId: GroupId): Flow<Group?>
 

@@ -9,7 +9,9 @@
 /** `/j/:token` is the group invite link (a UUID-shaped token), not a bill. Matched by shape like the bill one. */
 const JOIN_PATH = /^\/j\/([0-9A-Za-z-]{16,64})\/?$/;
 
-const BILL_PATH = /^\/b\/([0-9A-Za-z]{16,64})\/?$/;
+// `/s/` is a quick split's link: the same bill token, on the one path the app claims as an app link
+// (docs/features/one-time-splits.md, A3). On the web the two are identical.
+const BILL_PATH = /^\/[bs]\/([0-9A-Za-z]{16,64})\/?$/;
 
 export function billTokenFromLocation(loc: { pathname: string; search: string } = window.location): string | null {
   const match = BILL_PATH.exec(loc.pathname);

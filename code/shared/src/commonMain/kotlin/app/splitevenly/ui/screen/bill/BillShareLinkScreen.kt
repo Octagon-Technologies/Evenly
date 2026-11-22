@@ -68,6 +68,9 @@ data class ShareBillLinkState(
     val itemCount: Int = 0,
 ) {
     val live: Boolean get() = exists && !revoked
+
+    /** An even or by-amount bill (a quick split's usual case): friends see their share, there is nothing to pick. */
+    val sharesOnly: Boolean get() = itemCount == 0
 }
 
 /**
@@ -100,7 +103,7 @@ fun BillShareLinkScreen(
     Column(Modifier.fillMaxSize().background(c.page)) {
         StatusBarScrim()
         EvTopBar(
-            "Let friends pick their items",
+            if (state.sharesOnly) "Share the split" else "Let friends pick their items",
             subtitle = if (state.itemCount > 0) "${state.billTitle} · ${plural(state.itemCount, "item")}" else state.billTitle,
             navIcon = { EvIconButton(EvIcons.Back, onBack) },
             showDivider = false,
@@ -120,9 +123,14 @@ fun BillShareLinkScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Scan to pick your items", color = c.ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    "Friends open the bill in their browser. No app or account needed.",
+                    if (state.sharesOnly) "Scan to see your share" else "Scan to pick your items",
+                    color = c.ink,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Friends open the bill in their browser and tap their name. No app or account needed.",
                     color = c.ink2,
                     fontSize = 13.5.sp,
                 )
@@ -175,8 +183,11 @@ fun BillShareLinkScreen(
 //            }
 //            Spacer(Modifier.height(24.dp))
         }
-        Box(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp)) {
-            EvButton("See claim progress", onSeeProgress, variant = ButtonVariant.Tonal)
+        // Claim progress is per item; a shares-only bill's "who has paid" lives on the bill itself.
+        if (!state.sharesOnly) {
+            Box(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp)) {
+                EvButton("See claim progress", onSeeProgress, variant = ButtonVariant.Tonal)
+            }
         }
     }
 }

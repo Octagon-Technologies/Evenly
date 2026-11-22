@@ -289,7 +289,17 @@ async function buildHeader(sb: SupabaseClient, ctx: LinkContext) {
   const { count: participantCount } = await sb
     .from("bill_participants").select("id", { count: "exact", head: true })
     .eq("expense_id", ctx.link.expense_id).is("deleted_at", null);
+  // A quick split is a hidden one-bill group (docs/features/one-time-splits.md): the page names who
+  // paid instead of a group the guest never heard of.
+  const kind = ctx.group.kind === "quick" ? "quick" : "group";
+  let payerName: string | null = null;
+  if (kind === "quick" && ctx.expense.payer_user_id) {
+    const { data: payer } = await sb.from("users").select("display_name").eq("id", ctx.expense.payer_user_id).maybeSingle();
+    payerName = (payer?.display_name as string | undefined)?.trim() || null;
+  }
   return {
+    kind,
+    payerName,
     groupName: ctx.group.name,
     title: ctx.expense.title,
     currency: ctx.expense.currency,
@@ -520,7 +530,18 @@ async function actionBill(sb: SupabaseClient, body: { token?: string }): Promise
     }
   }
 
+  // An even or by-amount bill has no lines to claim: each person's share is already decided, so the
+  // guest is shown her own share straight away (one-time-splits A3). Itemized bills keep this empty.
+  let fixedShares: Array<{ userId: string; owedSubunits: number }> = [];
+  if ((items ?? []).length === 0) {
+    const { data: rows } = await sb
+      .from("shares").select("user_id, share_owed_subunits")
+      .eq("expense_id", expenseId).is("deleted_at", null);
+    fixedShares = (rows ?? []).map((r) => ({ userId: r.user_id as string, owedSubunits: Number(r.share_owed_subunits) }));
+  }
+
   return json({
+    fixedShares,
     expense: {
       id: ctx.expense.id, title: ctx.expense.title, currency: ctx.expense.currency,
       taxSubunits: ctx.expense.tax_subunits, gratuitySubunits: ctx.expense.gratuity_subunits,

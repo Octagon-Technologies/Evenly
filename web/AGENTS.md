@@ -107,6 +107,13 @@ down every `/b/`, `/j/` and unknown path in production while the marketing pages
 `/.well-known/*` must stay reachable on the **apex** without a redirect (Apple and Google do not follow
 them), which is why `split-evenly.app` is the primary domain and `www` redirects to it.
 
+## Quick-split links are `/s/`, the same page as `/b/`
+
+A quick split's link is `/s/<bill token>`: identical on the web, but the one path the app claims as an app
+link (AASA, Android manifest), because joining from it is right for a quick split and wrong for a normal
+group's claim-only `/b/` link. A bill with no items (`fixedShares` non-empty) skips the claim list and shows
+the guest's decided share; `header.kind === 'quick'` names the payer instead of the group.
+
 ## The security boundary is the whole feature
 
 **No Supabase client and no anon key ship in this bundle** (spec §4.1). Every guest read and write

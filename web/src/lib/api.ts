@@ -66,6 +66,10 @@ export interface PaymentWriteResult extends MyPayments {
 }
 
 export interface BillHeader {
+  /** 'quick' for a quick split (a hidden one-bill group): name the payer, never the group. */
+  kind?: 'group' | 'quick';
+  /** Set for a quick split only. */
+  payerName?: string | null;
   groupName: string;
   title: string;
   currency: string;
@@ -106,6 +110,8 @@ export type ClaimPlaceholderResponse =
   | { won: true; sessionToken: string; userId: string; name: string; header: BillHeader };
 
 export interface BillResponse extends BillPayload {
+  /** Each person's decided share on an even or by-amount bill; empty on an itemized one. */
+  fixedShares?: Array<{ userId: string; owedSubunits: number }>;
   /** `splitVersion` is the causal base a payer write is decided against (spec §5.5, E25). */
   expense: BillPayload['expense'] & { title: string; currency: string; splitVersion: number };
   items: Array<{

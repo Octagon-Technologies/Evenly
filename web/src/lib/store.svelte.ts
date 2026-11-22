@@ -105,9 +105,23 @@ export class ClaimStore {
     this.identity && this.split ? (this.split.breakdownByUser[this.identity.userId] ?? null) : null,
   );
 
+  /** An even or by-amount bill: nothing to claim, each share is already decided (one-time-splits A3). */
+  sharesOnly = $derived(Boolean(this.bill && this.bill.items.length === 0 && (this.bill.fixedShares ?? []).length > 0));
+
   myTotalSubunits = $derived(
-    this.identity && this.split ? (this.split.owedByUser[this.identity.userId] ?? 0) : 0,
+    !this.identity
+      ? 0
+      : this.sharesOnly
+        ? (this.bill?.fixedShares?.find((s) => s.userId === this.identity?.userId)?.owedSubunits ?? 0)
+        : this.split
+          ? (this.split.owedByUser[this.identity.userId] ?? 0)
+          : 0,
   );
+
+  /** A quick split names the payer on its pages instead of a group the guest has never heard of. */
+  get isQuickSplit(): boolean {
+    return this.header?.kind === 'quick';
+  }
 
   currency = $derived(this.bill?.expense.currency ?? this.header?.currency ?? 'USD');
 

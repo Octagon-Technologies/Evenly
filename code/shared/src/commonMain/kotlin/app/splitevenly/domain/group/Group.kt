@@ -22,7 +22,13 @@ data class Group(
      */
     val deletedAt: Long? = null,
     val deletedBy: UserId? = null,
-)
+    val kind: GroupKind = GroupKind.Group,
+) {
+    val isQuick: Boolean get() = kind == GroupKind.Quick
+}
+
+/** A normal group, or a quick split: a hidden group holding one bill (docs/features/one-time-splits.md). */
+enum class GroupKind { Group, Quick }
 
 /**
  * Input to [app.splitevenly.domain.repository.GroupRepository.createGroup]. The creator becomes
@@ -34,4 +40,5 @@ data class NewGroup(
     val baseCurrency: String,
     val creatorUserId: UserId,
     val emoji: String = "💸",
+    val kind: GroupKind = GroupKind.Group,
 )

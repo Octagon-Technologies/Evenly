@@ -34,6 +34,7 @@ import app.splitevenly.domain.group.ClaimPreview
 import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
+import app.splitevenly.domain.group.GroupKind
 import app.splitevenly.domain.group.GroupDeleteImpact
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.group.MemberSnapshot
@@ -134,6 +135,9 @@ class GroupRepositoryImpl(
     override fun observeArchivedGroupsForUser(userId: UserId): Flow<List<Group>> =
         groupDao.observeArchivedGroupsForUser(userId.value).map { groups -> groups.map { it.toDomain() } }
 
+    override suspend fun findQuickSplitByBillToken(token: String): Group? =
+        remoteGroups?.resolveQuickSplitByBillToken(token.trim())?.toDomain()
+
     override suspend fun findGroupByToken(token: String): Group? =
         (groupDao.findByInviteToken(token.trim()) ?: remoteGroups?.resolveByToken(token.trim()))?.toDomain()
 
@@ -189,6 +193,7 @@ class GroupRepositoryImpl(
                 createdAt = now,
                 createdBy = creator,
                 updatedAt = now,
+                kind = if (input.kind == GroupKind.Quick) GroupEntity.KIND_QUICK else GroupEntity.KIND_GROUP,
             )
         val admin =
             MemberEntity(

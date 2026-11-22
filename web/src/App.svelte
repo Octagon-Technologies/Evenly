@@ -64,6 +64,8 @@
       <NameEntry {store} />
     {:else if store.phase === 'welcome_back'}
       <WelcomeBack {store} />
+    {:else if store.phase === 'claiming' && store.sharesOnly}
+      <Summary {store} />
     {:else if store.phase === 'claiming'}
       <ClaimList {store} />
     {:else if store.phase === 'summary'}

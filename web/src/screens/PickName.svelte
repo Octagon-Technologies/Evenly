@@ -29,12 +29,14 @@
 <div class="page">
   <div class="scroll">
     {#if store.header}
-      <BillHeader header={store.header} title="Who are you?" />
+      <BillHeader header={store.header} title={store.isQuickSplit ? 'Which one are you?' : 'Who are you?'} />
     {/if}
 
-    <div class="note note--blue">
-      <b>Been in this group before?</b> Tap your name so your old expenses stay with you.
-    </div>
+    {#if !store.isQuickSplit}
+      <div class="note note--blue">
+        <b>Been in this group before?</b> Tap your name so your old expenses stay with you.
+      </div>
+    {/if}
 
     {#if store.error}
       <ErrorBanner message={store.error} />
@@ -57,7 +59,9 @@
                 {/each}
               </div>
             {:else}
-              <div class="meta">Added to the group, nothing claimed yet</div>
+              <div class="meta">
+                {store.isQuickSplit ? `Added by ${store.header?.payerName ?? 'the payer'}` : 'Added to the group, nothing claimed yet'}
+              </div>
             {/if}
           </div>
           <button
@@ -73,7 +77,7 @@
     </div>
 
     <button type="button" class="btn btn--ghost btn--sm" onclick={() => (store.phase = 'name_entry')}>
-      I'm none of these, I'm new
+      {store.isQuickSplit ? "I'm not on this list" : "I'm none of these, I'm new"}
     </button>
 
     <!-- §4.4: if you have the app, use the app. A web guest may never act as an account holder. -->

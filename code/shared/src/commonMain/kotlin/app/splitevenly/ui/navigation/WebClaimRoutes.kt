@@ -19,6 +19,7 @@ import app.splitevenly.domain.expense.ClaimProgressState
 import app.splitevenly.domain.expense.ItemStatus
 import app.splitevenly.domain.expense.PendingEditDecision
 import app.splitevenly.domain.expense.WebBillLinkState
+import app.splitevenly.domain.expense.quickSplitUrl
 import app.splitevenly.domain.expense.unresolvedLines
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.GroupRepository
@@ -329,8 +330,13 @@ fun ShareBillLinkRoute(
     onBack: () -> Unit,
     onInviteToGroup: () -> Unit,
     onSeeProgress: () -> Unit,
+    /** A quick split just created: open the share sheet as soon as the link exists (mockup 4). */
+    autoShare: Boolean = false,
 ) {
     val bills = koinInject<BillRepository>()
+    val groupRepo = koinInject<GroupRepository>()
+    val group by remember(groupId) { groupRepo.observeGroup(GroupId(groupId)) }.collectAsStateWithLifecycle(null)
+    val quick = group?.isQuick == true
     val links = koinInject<WebBillLinkRepository>()
     val auth = koinInject<AuthSession>()
     val share = koinInject<PlatformShare>()
@@ -371,10 +377,20 @@ fun ShareBillLinkRoute(
     }
 
     val view = bill ?: return
+    val url = linkState.url?.let { if (quick) quickSplitUrl(it) else it }
+    val shareMessage =
+        url?.let { if (view.items.isEmpty()) "Your share of ${view.expense.title}: $it" else "Pick what you had on ${view.expense.title}: $it" }
+    var autoShared by remember { mutableStateOf(false) }
+    LaunchedEffect(autoShare, shareMessage, linkState.revokedAt) {
+        if (autoShare && !autoShared && shareMessage != null && linkState.revokedAt == null) {
+            autoShared = true
+            share.shareText(shareMessage, view.expense.title)
+        }
+    }
     val state =
         ShareBillLinkState(
             billTitle = view.expense.title,
-            url = linkState.url,
+            url = url,
             exists = linkState.exists,
             revoked = linkState.revokedAt != null,
             busy = busy,
@@ -408,11 +424,7 @@ fun ShareBillLinkRoute(
         onBack = onBack,
         onCreate = { act("Couldn't make the link. Check your connection and try again.") { links.create(eid, it) } },
         onRevoke = { act("Couldn't turn the link off. Check your connection and try again.") { links.revoke(eid, it) } },
-        onShare = {
-            linkState.url?.let {
-                share.shareText("Pick what you had on ${view.expense.title}: $it", view.expense.title)
-            }
-        },
+        onShare = { shareMessage?.let { share.shareText(it, view.expense.title) } },
         onInviteToGroup = onInviteToGroup,
         onSeeProgress = onSeeProgress,
         notice = notice,

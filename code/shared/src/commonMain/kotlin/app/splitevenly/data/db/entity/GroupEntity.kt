@@ -54,4 +54,15 @@ data class GroupEntity(
      */
     @ColumnInfo(name = "deleted_by")
     val deletedBy: String? = null,
-)
+    /**
+     * [KIND_GROUP] or [KIND_QUICK]. A quick split is a hidden group holding one bill
+     * (docs/features/one-time-splits.md): Home lists it as a bill card and never opens a group screen for it.
+     */
+    @ColumnInfo(name = "kind", defaultValue = KIND_GROUP)
+    val kind: String = KIND_GROUP,
+) {
+    companion object {
+        const val KIND_GROUP = "group"
+        const val KIND_QUICK = "quick"
+    }
+}

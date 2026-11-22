@@ -64,6 +64,8 @@ data class GroupCardUi(
     val amount: Double?,
     val last: String,
     val unread: Boolean = false,
+    /** Set for a quick split (a hidden one-bill group); Home draws it as a bill card. */
+    val quick: QuickCardUi? = null,
 )
 
 enum class GroupBalanceStatus { Owe, Owed, Settled, Empty }
@@ -87,6 +89,8 @@ sealed interface HomeUiState {
         val active: List<GroupCardUi>,
         val archived: List<GroupCardUi>,
         val deletedCount: Int = 0,
+        /** Quick splits settled more than a day ago. Off the main list, still reachable. */
+        val history: List<GroupCardUi> = emptyList(),
     ) : HomeUiState
 }
 
@@ -98,6 +102,8 @@ fun HomeScreen(
     onOpenGroup: (String) -> Unit = {},
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
+    onSplitBill: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onOpenRecentlyDeleted: () -> Unit = {},
     /**
@@ -127,7 +133,7 @@ fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = if (isContent) "Your Groups" else "Evenly",
+                text = "Evenly",
                 modifier = Modifier.weight(1f),
                 style = t.pageTitle.copy(fontWeight = if (isContent) FontWeight.ExtraBold else FontWeight.Bold),
                 maxLines = 1,
@@ -155,7 +161,7 @@ fun HomeScreen(
                 }
 
                 HomeUiState.Empty -> {
-                    HomeWelcome(onNewGroup, onJoin)
+                    HomeWelcome(onSplitBill, onNewGroup, onJoin)
                 }
 
                 is HomeUiState.Content -> {
@@ -171,14 +177,31 @@ fun HomeScreen(
                                 modifier = Modifier.clickable(onClick = onOpenRecentlyDeleted),
                             )
                         }
-                        Column {
-                            EvSectionLabel("Active groups")
-                            Spacer(Modifier.height(4.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                state.active.forEach { g ->
-                                    EvCard(fill = true, bordered = true) { GroupRow(g, onClick = { onOpenGroup(g.id) }) }
+                        // One list: quick splits sit with groups (docs/features/one-time-splits.md), told
+                        // apart by the receipt tile and "2 of 3 paid", never by a separate section.
+                        if (state.active.isNotEmpty()) {
+                            Column {
+                                EvSectionLabel("Active")
+                                Spacer(Modifier.height(4.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    state.active.forEach { g ->
+                                        EvCard(fill = true, bordered = true) {
+                                            if (g.quick != null) {
+                                                QuickSplitRow(g, onClick = { onOpenGroup(g.id) })
+                                            } else {
+                                                GroupRow(g, onClick = { onOpenGroup(g.id) })
+                                            }
+                                        }
+                                    }
                                 }
                             }
+                        }
+                        if (state.history.isNotEmpty()) {
+                            ShelfRow(
+                                icon = EvIcons.History,
+                                label = "History (${state.history.size})",
+                                onClick = onOpenHistory,
+                            )
                         }
                         if (state.archived.isNotEmpty()) {
                             ShelfRow(
@@ -211,13 +234,17 @@ fun HomeScreen(
     }
 
     if (showActions) {
-        EvSheetScaffold(onDismiss = { showActions = false }, title = "Create or join a group") {
+        EvSheetScaffold(onDismiss = { showActions = false }, title = "What are you splitting?") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ActionRow(EvIcons.Users, "New group", "Start splitting with a new crew") {
+                ActionRow(EvIcons.Receipt, "Split a bill", "Dinner, a ride, tickets. No group needed.") {
+                    showActions = false
+                    onSplitBill()
+                }
+                ActionRow(EvIcons.Users, "Start a group", "For trips and housemates you split with often.") {
                     showActions = false
                     onNewGroup()
                 }
-                ActionRow(EvIcons.Link, "Join with a link", "Paste an invite to hop into a group") {
+                ActionRow(EvIcons.Link, "Join with a link", "Someone sent you an Evenly link.") {
                     showActions = false
                     onJoin()
                 }
@@ -228,11 +255,12 @@ fun HomeScreen(
 
 /**
  * First-run welcome — no template chips, no numbered primer. One hero, one headline, one job: get
- * the first group started. "Join with a link" sits right under the primary action as a full
- * secondary button — same spot as before, just no longer a barely-there link.
+ * the first bill split, with "Start a group" and "Join with a link" under it. The quick split leads
+ * because it needs no decision about who counts as a group (docs/features/one-time-splits.md).
  */
 @Composable
 private fun HomeWelcome(
+    onSplitBill: () -> Unit,
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
 ) {
@@ -253,7 +281,7 @@ private fun HomeWelcome(
             EvIcon(EvIcons.Users, size = 44.dp, tint = c.onAccent)
         }
         Spacer(Modifier.height(24.dp))
-        Text("Start your first group", style = t.screenTitle, textAlign = TextAlign.Center)
+        Text("Split your first bill", style = t.screenTitle, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
             "Split costs and settle up with friends, no spreadsheets.",
@@ -267,15 +295,21 @@ private fun HomeWelcome(
             // this hero action swaps to the solid-blue variant there; Secondary now handles its own
             // light/dark treatment internally.
             EvButton(
+                "Split a bill",
+                onSplitBill,
+                variant = if (c.isDark) ButtonVariant.PrimarySolid else ButtonVariant.Primary,
+                leadingIcon = EvIcons.Receipt,
+            )
+            EvButton(
                 "Start a group",
                 onNewGroup,
-                variant = if (c.isDark) ButtonVariant.PrimarySolid else ButtonVariant.Primary,
-                leadingIcon = EvIcons.Plus,
+                variant = ButtonVariant.Secondary,
+                leadingIcon = EvIcons.Users,
             )
             EvButton(
                 "Join with a link",
                 onJoin,
-                variant = ButtonVariant.Secondary,
+                variant = ButtonVariant.Text,
                 leadingIcon = EvIcons.Link,
             )
         }
@@ -339,7 +373,7 @@ private fun CreateOrJoinBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         EvIcon(EvIcons.Plus, size = 20.dp, tint = c.onAccent)
-        Text("Create or Join Group", style = t.button.copy(color = c.onAccent, fontWeight = FontWeight.Bold))
+        Text("New", style = t.button.copy(color = c.onAccent, fontWeight = FontWeight.Bold))
     }
 }
 
