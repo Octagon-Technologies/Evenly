@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.ui.components.bringIntoViewOnFocus
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.ui.components.EvAvatar
@@ -425,6 +426,7 @@ private fun InlineNumberField(
         textStyle = TextStyle(color = c.ink, fontSize = 15.sp, fontFamily = EvenlyTheme.monoFamily, textAlign = TextAlign.End),
         cursorBrush = SolidColor(c.blue),
         interactionSource = interaction,
+        modifier = Modifier.bringIntoViewOnFocus(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         decorationBox = { inner ->
             Row(

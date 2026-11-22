@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -40,11 +41,13 @@ import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvCheck
 import app.splitevenly.ui.components.EvDivider
 import app.splitevenly.ui.components.EvIconButton
+import app.splitevenly.ui.components.EvKeyboardDoneBar
 import app.splitevenly.ui.components.EvParticipantChip
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.amountTextToSubunits
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.components.imeAndDoneBarPadding
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.expense.format2dp
@@ -103,6 +106,7 @@ fun SettlePersonScreen(
 ) {
     val c = EvenlyTheme.colors
     val clipboard = LocalClipboardManager.current
+    val focusManager = LocalFocusManager.current
     var checked by remember(shares) { mutableStateOf(shares.map { it.expenseId }.toSet()) }
     // Preferred handle first; that's the default selection and the highlighted way to pay.
     val ordered =
@@ -149,6 +153,7 @@ fun SettlePersonScreen(
                     Modifier
                         .weight(1f)
                         .background(c.surface)
+                        .imeAndDoneBarPadding()
                         .verticalScroll(rememberScrollState())
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -264,6 +269,13 @@ fun SettlePersonScreen(
                 }
             }
         }
+
+        // The amount uses a decimal pad, which has no return key on iOS.
+        EvKeyboardDoneBar(
+            onDone = { focusManager.clearFocus() },
+            modifier = Modifier.align(Alignment.BottomCenter),
+            visible = actionPayment == null && editingPayment == null && confirmFor == null,
+        )
 
         actionPayment?.let { p ->
             PaymentActionSheet(

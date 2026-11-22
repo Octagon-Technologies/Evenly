@@ -52,7 +52,7 @@ fun EvAmountInput(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(12.dp)
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier.bringIntoViewOnFocus(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         BasicTextField(
             value = text,
             onValueChange = { onTextChange(sanitizeAmount(it)) },

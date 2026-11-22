@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -61,6 +62,8 @@ import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
+import app.splitevenly.ui.components.EvKeyboardDoneBar
+import app.splitevenly.ui.components.bringIntoViewOnFocus
 import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvSheetScaffold
 import app.splitevenly.ui.components.EvTextField
@@ -69,12 +72,13 @@ import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.currencySymbol
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.components.imeAndDoneBarPadding
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.expense.PickedReceiptStrip
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
-import app.splitevenly.ui.screen.expense.UndoRemoval
 import app.splitevenly.ui.screen.expense.StagedReceiptViewer
+import app.splitevenly.ui.screen.expense.UndoRemoval
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.delay
@@ -212,6 +216,7 @@ fun BillEditScreen(
     val scrollState = rememberScrollState()
     val scanning = scanState is ScanUiState.Working
     var scanSource by remember { mutableStateOf(false) }
+
     fun startScan(source: PickSource) = onScanReceipt(source)
     // Which scanned page the full-screen viewer is open on; null = closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
@@ -269,8 +274,9 @@ fun BillEditScreen(
     // takes the scan. Applied as an update, and re-run for every scan because [scanned] is a fresh instance.
     var pendingScan by remember { mutableStateOf<EditBillState?>(null) }
     var extraSuggestions by remember { mutableStateOf<List<ExtraSuggestion>>(emptyList()) }
-    fun currentState() =
-        EditBillState(title, items, taxText, gratuityText, otherChargesText, tipText, discountText, !showUnverifiedNotice)
+
+    fun currentState() = EditBillState(title, items, taxText, gratuityText, otherChargesText, tipText, discountText, !showUnverifiedNotice)
+
     fun applyState(next: EditBillState) {
         items = next.items
         taxText = next.taxText
@@ -280,6 +286,7 @@ fun BillEditScreen(
         discountText = next.discountText
         showUnverifiedNotice = !next.verified
     }
+
     fun applyScan(
         s: EditBillState,
         mode: ScanMergeMode,
@@ -310,7 +317,16 @@ fun BillEditScreen(
     // ── Auto-save ───────────────────────────────────────────────────────────────────────────────────
     // Last saved version of every line by id, so a half-retyped saved line is written as it was rather than
     // dropped (dropping it would tombstone the item and its claims).
-    var lastSavedById by remember { mutableStateOf<Map<String, EditBillItemUi>>(initial?.items?.mapNotNull { r -> r.id?.let { it to r } }.orEmpty().toMap()) }
+    var lastSavedById by remember {
+        mutableStateOf<Map<String, EditBillItemUi>>(
+            initial
+                ?.items
+                ?.mapNotNull { r ->
+                    r.id?.let { it to r }
+                }.orEmpty()
+                .toMap(),
+        )
+    }
     val rows = submitRows(items, lastSavedById)
     val submit =
         EditBillSubmit(
@@ -336,18 +352,22 @@ fun BillEditScreen(
     var leaveNoticeText by remember { mutableStateOf<String?>(null) }
 
     /** Writes [snap] if it is savable and different from what is stored. Serialized so ids never race. */
-    suspend fun persist(snap: EditBillSubmit, ids: List<Int>) {
+    suspend fun persist(
+        snap: EditBillSubmit,
+        ids: List<Int>,
+    ) {
         saveLock.withLock {
             if (snap == lastSubmitted || snap.title.isEmpty() || snap.items.isEmpty()) return
             val saved = onSave(snap) ?: return
             val byIndex = ids.zip(saved).toMap()
             // Hand the new ids to the rows they belong to, but only if the row is still the same line.
-            items = items.mapIndexed { i, row ->
-                val id = byIndex[i]
-                val sent = snap.items.getOrNull(ids.indexOf(i))
-                if (id != null && row.id == null && sent != null && row.label == sent.label) row.copy(id = id) else row
-            }
-            lastSavedById = lastSavedById + snap.items.mapIndexedNotNull { k, r -> saved.getOrNull(k)?.let { it to r.copy(id = it)  } }
+            items =
+                items.mapIndexed { i, row ->
+                    val id = byIndex[i]
+                    val sent = snap.items.getOrNull(ids.indexOf(i))
+                    if (id != null && row.id == null && sent != null && row.label == sent.label) row.copy(id = id) else row
+                }
+            lastSavedById = lastSavedById + snap.items.mapIndexedNotNull { k, r -> saved.getOrNull(k)?.let { it to r.copy(id = it) } }
             lastSubmitted = snap.copy(items = snap.items.mapIndexed { k, r -> r.copy(id = saved.getOrNull(k) ?: r.id) })
             savedPinned = scrollState.value > 0
             savedSignal++
@@ -398,6 +418,7 @@ fun BillEditScreen(
         }
     }
     BackHandler(enabled = true) { leave(force = false) }
+    val focusManager = LocalFocusManager.current
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(c.page)) {
@@ -413,7 +434,11 @@ fun BillEditScreen(
                 exit = shrinkVertically() + fadeOut(),
             ) { SavedCard(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) }
             Column(
-                Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
+                Modifier
+                    .fillMaxSize()
+                    .imeAndDoneBarPadding()
+                    .verticalScroll(scrollState)
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // The scan exhausted its passes and still couldn't reconcile the draft against the receipt's
@@ -443,7 +468,13 @@ fun BillEditScreen(
 
                 EvField("Name") {
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        EvTextField(title, { title = it }, placeholder = "Dinner at Tavolo", isError = leaveNoticeText != null && title.isBlank())
+                        EvTextField(
+                            title,
+                            { title = it },
+                            placeholder = "Dinner at Tavolo",
+                            isError =
+                                leaveNoticeText != null && title.isBlank(),
+                        )
                     }
                 }
 
@@ -453,13 +484,21 @@ fun BillEditScreen(
                     PickedReceiptStrip(
                         receipts = allReceipts,
                         label = if (allReceipts.size == 1) "Receipt" else "Receipt pages",
-                        caption = if (itemCount == 0) null else if (itemCount == 1) "1 item on this bill." else "$itemCount items on this bill.",
+                        caption =
+                            if (itemCount ==
+                                0
+                            ) {
+                                null
+                            } else if (itemCount == 1) {
+                                "1 item on this bill."
+                            } else {
+                                "$itemCount items on this bill."
+                            },
                         onAddClick = null,
                         onRemoveReceipt = { onRemoveBillReceipt(allReceipts[it]) },
                         onOpenReceipt = { viewerIndex = it },
                     )
                 }
-
 
                 // Who's on this bill — defaults to everyone; take off anyone who wasn't there. Taking off
                 // someone who has claimed goes through the confirm sheet, since it discards their claims.
@@ -530,7 +569,16 @@ fun BillEditScreen(
                                 item = item,
                                 symbol = symbol,
                                 showDivider = index > 0,
-                                hint = if (item.isComplete() || item.isUntouched()) null else if (item.label.isBlank()) "This item needs a name" else "Add a price",
+                                hint =
+                                    if (item.isComplete() ||
+                                        item.isUntouched()
+                                    ) {
+                                        null
+                                    } else if (item.label.isBlank()) {
+                                        "This item needs a name"
+                                    } else {
+                                        "Add a price"
+                                    },
                                 hintIsError = leaveNoticeText != null,
                                 onChange = { updated -> items = items.toMutableList().also { it[index] = updated } },
                                 onRemove = { items = items.filterIndexed { i, _ -> i != index } },
@@ -560,7 +608,11 @@ fun BillEditScreen(
                 // Back saves, so there is no Save button. A row Back would otherwise lose is called out here.
                 leaveNoticeText?.let { text ->
                     Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.warningTint).padding(12.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(c.warningTint)
+                            .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(text, color = c.ink, fontSize = 13.sp)
@@ -592,6 +644,16 @@ fun BillEditScreen(
             exit = shrinkVertically() + fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 112.dp),
         ) { SavedCard(Modifier.padding(horizontal = 16.dp)) }
+
+        // Prices and quantity use a decimal/number pad, which has no return key on iOS.
+        val overlayOpen =
+            showAddDialog || showPicker || showPayerSheet || scanSource ||
+                pendingScan != null || pendingRemoval != null || viewerIndex != null
+        EvKeyboardDoneBar(
+            onDone = { focusManager.clearFocus() },
+            modifier = Modifier.align(Alignment.BottomCenter),
+            visible = !overlayOpen,
+        )
 
         pendingScan?.let { s ->
             val have = items.count { it.isComplete() }
@@ -892,7 +954,7 @@ private fun LabeledPriceField(
 ) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(10.dp)
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(modifier.bringIntoViewOnFocus(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         // Active (source-of-truth) is signalled by the blue ring + subtle fill + a bolder white label —
         // NOT by colouring the value blue. Blue digits on the dark field read poorly; white stays legible
         // and the border carries the "this is the one I'm editing" cue.
@@ -1005,7 +1067,7 @@ private fun ExtraRow(
     trailing: @Composable () -> Unit,
 ) {
     val c = EvenlyTheme.colors
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().bringIntoViewOnFocus(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(label, color = c.ink, fontSize = 14.sp)
             hint?.let { Text(it, color = c.ink3, fontSize = 11.sp) }
@@ -1135,7 +1197,11 @@ private const val SAVED_CARD_HOLD_MS = 2500L
 private fun SavedCard(modifier: Modifier = Modifier) {
     val c = EvenlyTheme.colors
     Box(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(vertical = 10.dp, horizontal = 12.dp),
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.surface)
+            .padding(vertical = 10.dp, horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text("Changes saved...", color = c.ink2, fontSize = 13.sp, textAlign = TextAlign.Center)
@@ -1185,11 +1251,21 @@ private fun ExtraSuggestionsCard(
 ) {
     val c = EvenlyTheme.colors
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(12.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.surface)
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("This page also printed", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(
+                "This page also printed",
+                color = c.ink2,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
             EvIconButton(EvIcons.Close, onDismiss, tint = c.ink3, size = 16.dp)
         }
         suggestions.forEach { sug ->

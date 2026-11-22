@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -48,6 +47,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -69,12 +69,14 @@ import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
+import app.splitevenly.ui.components.EvKeyboardDoneBar
 import app.splitevenly.ui.components.EvSegmented
 import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.components.imeAndDoneBarPadding
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -102,6 +104,7 @@ fun FeedbackScreen(
     onDone: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
+    val focusManager = LocalFocusManager.current
 
     var type by remember { mutableStateOf<FeedbackType?>(null) }
     var category by remember { mutableStateOf<FeedbackCategory?>(null) }
@@ -114,134 +117,138 @@ fun FeedbackScreen(
     val draft = FeedbackDraft(type, category, message)
     val gaps = draft.gaps()
 
-    Column(Modifier.fillMaxSize().background(c.page)) {
-        StatusBarScrim()
-        EvTopBar(title = "Feedback", navIcon = { EvIconButton(EvIcons.Back, onBack) })
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().background(c.page)) {
+            StatusBarScrim()
+            EvTopBar(title = "Feedback", navIcon = { EvIconButton(EvIcons.Back, onBack) })
 
-        if (outcome == FeedbackOutcome.Sent || outcome == FeedbackOutcome.Queued) {
-            FeedbackThankYou(
-                type = type ?: FeedbackType.Suggestion,
-                queued = outcome == FeedbackOutcome.Queued,
-                offline = offline,
-                onDone = onDone,
-            )
-            return@Column
-        }
+            if (outcome == FeedbackOutcome.Sent || outcome == FeedbackOutcome.Queued) {
+                FeedbackThankYou(
+                    type = type ?: FeedbackType.Suggestion,
+                    queued = outcome == FeedbackOutcome.Queued,
+                    offline = offline,
+                    onDone = onDone,
+                )
+                return@Column
+            }
 
-        if (offline) {
-            Row(
-                Modifier.fillMaxWidth().background(c.bannerOffline).padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            if (offline) {
+                Row(
+                    Modifier.fillMaxWidth().background(c.bannerOffline).padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    EvIcon(EvIcons.WifiOff, size = 16.dp, tint = c.bannerOfflineInk)
+                    Text(
+                        "No connection. This sends when you're back online.",
+                        color = c.bannerOfflineInk,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .imeAndDoneBarPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 20.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(22.dp),
             ) {
-                EvIcon(EvIcons.WifiOff, size = 16.dp, tint = c.bannerOfflineInk)
+                EvField("What kind of feedback?") {
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        EvSegmented(
+                            options = FeedbackType.entries.map { it.label },
+                            selected = type?.label,
+                            onSelect = { label -> type = FeedbackType.entries.first { it.label == label } },
+                        )
+                        GapHint(show = showGaps && FeedbackGap.Type in gaps, text = "Pick one.")
+                    }
+                }
+
+                EvField("What's it about?") {
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            FeedbackCategory.entries.forEach { option ->
+                                val on = category == option
+                                EvChip(
+                                    text = option.label,
+                                    variant = if (on) ChipVariant.Blue else ChipVariant.Neutral,
+                                    large = true,
+                                    modifier = Modifier.selectable(selected = on) { category = option },
+                                )
+                            }
+                        }
+                        GapHint(show = showGaps && FeedbackGap.Category in gaps, text = "Pick one.")
+                    }
+                }
+
+                EvField("Your message") {
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        EvTextField(
+                            value = message,
+                            // Rejecting the edit rather than truncating it is spec §4.3: typing stops at the
+                            // cap so nobody loses their last sentence at the moment they hit Send.
+                            onValueChange = { next -> if (feedbackEditAllowed(message, next)) message = next },
+                            placeholder = placeholderFor(type),
+                            singleLine = false,
+                            minHeight = 132.dp,
+                            isError = showGaps && FeedbackGap.Message in gaps,
+                        )
+                        val words = feedbackWordCount(message)
+                        if (words >= FEEDBACK_COUNTER_FROM) {
+                            Text(
+                                "${FEEDBACK_WORD_CAP - words} words left",
+                                color = c.ink2,
+                                fontSize = 12.5.sp,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.End,
+                            )
+                        }
+                        GapHint(
+                            show = showGaps && FeedbackGap.Message in gaps,
+                            text = "Add a few words so we know what to look at.",
+                        )
+                    }
+                }
+
+                outcome?.let { ErrorNote(it) }
+
+                // Deliberately never disabled. Tapping with gaps marks them in place; a greyed-out control
+                // with no explanation is the dead end `ui/AGENTS.md` forbids.
+                EvButton(
+                    onClick = {
+                        if (gaps.isNotEmpty()) {
+                            showGaps = true
+                        } else if (!submitting) {
+                            onSubmit(draft)
+                        }
+                    },
+                    variant = ButtonVariant.PrimarySolid,
+                ) {
+                    if (submitting) {
+                        CircularProgressIndicator(Modifier.size(18.dp), color = c.onAccent, strokeWidth = 2.dp)
+                        Text("Sending", color = c.onAccent, fontSize = 16.sp)
+                    } else {
+                        Text("Send feedback", color = c.onAccent, fontSize = 16.sp)
+                    }
+                }
+
                 Text(
-                    "No connection. This sends when you're back online.",
-                    color = c.bannerOfflineInk,
-                    fontSize = 13.sp,
+                    "Your app version is sent with this.",
+                    color = c.ink3,
+                    fontSize = 12.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
                 )
             }
         }
-
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(horizontal = 16.dp)
-                .padding(top = 20.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-        ) {
-            EvField("What kind of feedback?") {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    EvSegmented(
-                        options = FeedbackType.entries.map { it.label },
-                        selected = type?.label,
-                        onSelect = { label -> type = FeedbackType.entries.first { it.label == label } },
-                    )
-                    GapHint(show = showGaps && FeedbackGap.Type in gaps, text = "Pick one.")
-                }
-            }
-
-            EvField("What's it about?") {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FeedbackCategory.entries.forEach { option ->
-                            val on = category == option
-                            EvChip(
-                                text = option.label,
-                                variant = if (on) ChipVariant.Blue else ChipVariant.Neutral,
-                                large = true,
-                                modifier = Modifier.selectable(selected = on) { category = option },
-                            )
-                        }
-                    }
-                    GapHint(show = showGaps && FeedbackGap.Category in gaps, text = "Pick one.")
-                }
-            }
-
-            EvField("Your message") {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    EvTextField(
-                        value = message,
-                        // Rejecting the edit rather than truncating it is spec §4.3: typing stops at the
-                        // cap so nobody loses their last sentence at the moment they hit Send.
-                        onValueChange = { next -> if (feedbackEditAllowed(message, next)) message = next },
-                        placeholder = placeholderFor(type),
-                        singleLine = false,
-                        minHeight = 132.dp,
-                        isError = showGaps && FeedbackGap.Message in gaps,
-                    )
-                    val words = feedbackWordCount(message)
-                    if (words >= FEEDBACK_COUNTER_FROM) {
-                        Text(
-                            "${FEEDBACK_WORD_CAP - words} words left",
-                            color = c.ink2,
-                            fontSize = 12.5.sp,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.End,
-                        )
-                    }
-                    GapHint(
-                        show = showGaps && FeedbackGap.Message in gaps,
-                        text = "Add a few words so we know what to look at.",
-                    )
-                }
-            }
-
-            outcome?.let { ErrorNote(it) }
-
-            // Deliberately never disabled. Tapping with gaps marks them in place; a greyed-out control
-            // with no explanation is the dead end `ui/AGENTS.md` forbids.
-            EvButton(
-                onClick = {
-                    if (gaps.isNotEmpty()) {
-                        showGaps = true
-                    } else if (!submitting) {
-                        onSubmit(draft)
-                    }
-                },
-                variant = ButtonVariant.PrimarySolid,
-            ) {
-                if (submitting) {
-                    CircularProgressIndicator(Modifier.size(18.dp), color = c.onAccent, strokeWidth = 2.dp)
-                    Text("Sending", color = c.onAccent, fontSize = 16.sp)
-                } else {
-                    Text("Send feedback", color = c.onAccent, fontSize = 16.sp)
-                }
-            }
-
-            Text(
-                "Your app version is sent with this.",
-                color = c.ink3,
-                fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-            )
-        }
+        // The message is multi-line, so its return key adds a line instead of closing the keyboard.
+        EvKeyboardDoneBar(onDone = { focusManager.clearFocus() }, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 

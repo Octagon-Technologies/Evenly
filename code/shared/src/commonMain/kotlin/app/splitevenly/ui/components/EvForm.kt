@@ -111,7 +111,7 @@ fun EvTextField(
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().bringIntoViewOnFocus(),
         singleLine = singleLine,
         textStyle = TextStyle(color = c.ink, fontSize = 16.sp, fontFamily = if (mono) EvenlyTheme.monoFamily else null),
         cursorBrush = SolidColor(c.blue),

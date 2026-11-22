@@ -55,6 +55,7 @@ import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvDivider
 import app.splitevenly.ui.components.EvIconButton
+import app.splitevenly.ui.components.EvKeyboardDoneBar
 import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvProgress
 import app.splitevenly.ui.components.EvSectionLabel
@@ -674,6 +675,12 @@ fun ExpenseDetailScreen(
                 }
             }
         }
+        // The comment field is multi-line, so its return key adds a line instead of closing the keyboard.
+        EvKeyboardDoneBar(
+            onDone = { focusManager.clearFocus() },
+            modifier = Modifier.align(Alignment.BottomCenter),
+            visible = viewerIndex == null && !confirmDelete && actionPayment == null && editingPayment == null,
+        )
         viewerIndex?.let { idx ->
             ReceiptViewerScreen(
                 receipts = receipts.map { ViewerReceipt(it.id, it.url, it.isPdf) },
