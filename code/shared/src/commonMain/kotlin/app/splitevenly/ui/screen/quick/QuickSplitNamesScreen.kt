@@ -36,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvTextField
@@ -43,6 +45,7 @@ import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
+import kotlinx.coroutines.flow.first
 
 /** Longest typed-in name we accept; matches what a placeholder row shows without truncating badly. */
 private const val MAX_NAME_LENGTH = 40
@@ -71,7 +74,14 @@ fun QuickSplitNamesScreen(
     var draft by remember { mutableStateOf("") }
     var hint by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(names.size) { runCatching { focus.requestFocus() } }
+    // Focus only once the push has settled (the entry turns RESUMED). The first focus after launch starts the
+    // iOS keyboard, which holds the main thread for about a second; focusing on first composition held back the
+    // screen's first frame by that much, so the tap on "Split a one-time bill" looked dead for ~1.5s.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(names.size) {
+        lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
+        runCatching { focus.requestFocus() }
+    }
     // The iOS keyboard keeps its own copy of the text across the clear on return, so the next name arrives
     // as "AnnJoe". Dropping the just-added name from the front of the first keystroke undoes that.
     var lastAdded by remember { mutableStateOf<String?>(null) }
