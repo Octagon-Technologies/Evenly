@@ -1,11 +1,14 @@
 package app.splitevenly.domain.repository
 
+import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.domain.settlement.ExpensePayment
 import app.splitevenly.domain.settlement.NewSettlement
+import app.splitevenly.domain.settlement.PaymentEditPreview
 import app.splitevenly.domain.settlement.SettlementRecord
 import kotlinx.coroutines.flow.Flow
 
@@ -16,7 +19,6 @@ import kotlinx.coroutines.flow.Flow
  * (cross-FX is v1.1, 03 §4.3.2). Server push is deferred to S-1.
  */
 interface SettlementRepository {
-
     /** Non-voided settlements in a group, newest first (05 §8). */
     fun observeSettlements(groupId: GroupId): Flow<List<SettlementRecord>>
 
@@ -33,18 +35,46 @@ interface SettlementRepository {
     fun observePaymentsForExpense(expenseId: ExpenseId): Flow<List<SettlementRecord>>
 
     /**
-     * Correct a recorded payment's amount in place: void the old one and re-record [newAmountSubunits]
-     * against the same expense / payer→payee, preserving app + notes. Guarded like recording —
-     * [newAmountSubunits] must be > 0 and can't exceed what the payer owes on the expense, so a correction
-     * can never manufacture an overpayment. The pre-check runs *before* voiding, so a rejected edit leaves
-     * the existing payment untouched. Only single-expense payments are editable this way.
+     * Every live payment that touched [expenseId], "Settle up" payments included, with what each put on
+     * this bill. Newest first.
+     */
+    fun observeExpensePayments(expenseId: ExpenseId): Flow<List<ExpensePayment>>
+
+    /**
+     * What [editSettlement] would do with the same arguments, without writing anything. Drives the
+     * read-only "Now covers" preview and the ceiling hint on the edit sheet.
+     */
+    suspend fun previewSettlementEdit(
+        settlementId: SettlementId,
+        newAmountSubunits: Long,
+        scopeExpenseId: ExpenseId? = null,
+    ): AppResult<PaymentEditPreview>
+
+    /**
+     * Change a recorded payment's amount (`docs/features/one-time-splits.md` Part B). Only its two
+     * parties may: [actor] must be the payer or the one owed, or the result is [AppError.NotAuthorized]
+     * (the server refuses it too). Voids the payment and records a replacement in one transaction, so a
+     * rejected edit leaves the original untouched.
+     *
+     * With [scopeExpenseId] null, [newAmountSubunits] is the new total and re-spreads by
+     * [app.splitevenly.domain.settlement.respreadPayment]: a cut comes off the newest covered bill first,
+     * an increase fills the oldest unpaid one. With it set, it is that bill's portion and no other bill
+     * changes. Never above what is owed. Writes one SETTLEMENT_EDITED history row per affected bill.
      */
     suspend fun editSettlement(
         settlementId: SettlementId,
         newAmountSubunits: Long,
         actor: UserId? = null,
+        scopeExpenseId: ExpenseId? = null,
     ): AppResult<SettlementRecord>
 
-    /** Void a settlement: restore the shares it paid and recompute status (04 §2.3 `void_settlement`). */
-    suspend fun voidSettlement(settlementId: SettlementId): AppResult<Unit>
+    /**
+     * Remove a payment ("I didn't pay this" / "I didn't get this"): soft-delete it so its allocations stop
+     * counting (04 §2.3 `void_settlement`). Party-only, like [editSettlement]; [actor] null skips the check
+     * for internal callers. Writes a SETTLEMENT_REMOVED history row per bill it covered.
+     */
+    suspend fun voidSettlement(
+        settlementId: SettlementId,
+        actor: UserId? = null,
+    ): AppResult<Unit>
 }

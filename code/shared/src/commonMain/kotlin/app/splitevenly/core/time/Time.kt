@@ -48,3 +48,13 @@ fun shortDate(epochMillis: Long): String {
             .date
     return "${SHORT_MONTHS[d.monthNumber - 1]} ${d.dayOfMonth}"
 }
+
+/** An epoch-millis timestamp as a local date and time ("Nov 19, 9:58 PM"), for a payment's record line. */
+@OptIn(ExperimentalTime::class)
+fun shortDateTime(epochMillis: Long): String {
+    val t = Instant.fromEpochMilliseconds(epochMillis).toLocalDateTime(TimeZone.currentSystemDefault())
+    val hour12 = if (t.hour % 12 == 0) 12 else t.hour % 12
+    val minute = t.minute.toString().padStart(2, '0')
+    val ampm = if (t.hour < 12) "AM" else "PM"
+    return "${SHORT_MONTHS[t.date.monthNumber - 1]} ${t.date.dayOfMonth}, $hour12:$minute $ampm"
+}

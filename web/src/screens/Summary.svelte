@@ -12,6 +12,7 @@
   import InstallLine from '../components/InstallLine.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import PayerSheet from './PayerSheet.svelte';
+  import MyPayment from './MyPayment.svelte';
   import { money, paymentAppName } from '../lib/format.ts';
   import type { ClaimStore } from '../lib/store.svelte.ts';
 
@@ -123,6 +124,10 @@
       <div class="note note--blue">
         {payerName} hasn't added a way to pay them yet. Settle it with them directly.
       </div>
+    {/if}
+
+    {#if !store.iAmPayer}
+      <MyPayment {store} />
     {/if}
 
     <!-- Whoever holds the app is usually not whoever's card went down (§3.8). This lives here rather

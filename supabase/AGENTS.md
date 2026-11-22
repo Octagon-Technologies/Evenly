@@ -372,10 +372,18 @@ Four tables are deliberately *not* plain membership scoping, and each arm is loa
 - **`device_tokens`** — per-user (`user_id = auth.uid()`), never group-scoped. It is a route to one person's
   lock screen.
 
-**Membership gates which group you may write to, not which row inside it.** Any ACTIVE member can edit or
-soft-delete any expense, settlement, or comment in their groups, including ones they did not create. That
-matches how the app already behaves. Per-actor rules (only the payer may edit their settlement) would be a
-separate design.
+**Membership gates which group you may write to; a payment's money is its two parties' alone.** Any ACTIVE
+member can edit or soft-delete any expense or comment in their groups. Settlements are the exception
+(one-time-splits Part B): `settlement_party_guard` refuses a change to `payment_amount_subunits`,
+`payment_currency`, or live/voided state unless `auth.uid()` is `from_user_id` or `to_user_id`, and an
+edit's replacement row (one carrying `original_settlement_id`) must come from a party too. It is a
+**trigger, not a policy**, because the push is a full-row upsert: a policy would also refuse the unchanged
+rows a third member's device re-sends, and a placeholder claim's from/to reassignment. A refused row stays
+dirty on that device, so the app checks party-ness itself before writing (`isPaymentParty`).
+`settlement_chain_last_wins` voids every other live payment of the same chain when a replacement arrives,
+so two parties editing at once leave one live payment (arrival order, not client time). Service-role
+callers have no `auth.uid()` and skip the guard; `record_web_payment` / `edit_web_payment` do their own
+party check. Proof: `supabase/tests/payment_edits.sql` (rolls itself back).
 
 **`merge_expense` and `commit_expense` are SECURITY INVOKER**, so these policies are enforced *inside* them.
 `can_access_expense` is a definer function and therefore sees the expense row the same transaction just

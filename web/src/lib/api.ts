@@ -44,6 +44,27 @@ export class ApiError extends Error {
   }
 }
 
+/** One payment the guest recorded. `hereSubunits` is what it put on this bill. */
+export interface MyPayment {
+  id: string;
+  amountSubunits: number;
+  hereSubunits: number;
+  app: string | null;
+  settledAt: number;
+}
+
+export interface MyPayments {
+  owedSubunits: number;
+  remainingSubunits: number;
+  payments: MyPayment[];
+}
+
+export interface PaymentWriteResult extends MyPayments {
+  ok: boolean;
+  reason: 'ABOVE_CEILING' | 'NOT_OWED' | 'NOT_COVERED' | 'GONE' | null;
+  ceilingSubunits: number | null;
+}
+
 export interface BillHeader {
   groupName: string;
   title: string;
@@ -279,6 +300,17 @@ export const api = {
       'payer',
       { token, sessionToken, userId, baseSplitVersion },
     ),
+
+  /** What this guest has paid back on this bill, and what is still owed (one-time-splits B4). */
+  payments: (token: string, sessionToken: string) => post<MyPayments>('payments', { token, sessionToken }),
+
+  /** "I paid {payer}". Above what is owed comes back `ok: false` with the ceiling, not an error. */
+  pay: (token: string, sessionToken: string, amountSubunits: number, app: string | null) =>
+    post<PaymentWriteResult>('pay', { token, sessionToken, amountSubunits, app }),
+
+  /** Change your own payment on this bill; 0 removes it. Same `ok: false` + ceiling shape as `pay`. */
+  changePayment: (token: string, sessionToken: string, settlementId: string, amountSubunits: number) =>
+    post<PaymentWriteResult>('payment', { token, sessionToken, settlementId, amountSubunits }),
 
   /** A nudge-silencer, not a lock (§3.3, E31). */
   done: (token: string, sessionToken: string, done: boolean) =>

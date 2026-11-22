@@ -26,28 +26,47 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.ButtonVariant
+import app.splitevenly.ui.components.EvAmountInput
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvSheetScaffold
+import app.splitevenly.ui.components.amountTextToSubunits
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
-import app.splitevenly.ui.components.money
+import app.splitevenly.ui.components.moneySubunits
+import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.theme.EvenlyTheme
 
-/** 16 · Deep-link confirmation sheet (design/src/screens-settle.jsx). */
+/**
+ * 16 · Deep-link confirmation sheet (design/src/screens-settle.jsx; one-time-splits mockup 7). The
+ * amount is pre-filled with what was being settled and stays editable, so a partial payment is recorded
+ * honestly in one step. "Yes, I paid" records exactly what was entered; it is not pending on anyone.
+ */
 @Composable
 fun DeepLinkConfirmSheet(
-    amount: Double = 24.0,
+    amountSubunits: Long = 2105,
+    maxSubunits: Long = amountSubunits,
+    currency: String = "USD",
+    payeeName: String = "Bob",
     handle: String = "@andrew-p",
     app: String = "Venmo",
     // Set once the payment is recorded, so the sheet slides out instead of vanishing mid-frame.
     dismissRequested: Boolean = false,
     onDismiss: () -> Unit = {},
-    onYes: () -> Unit = {},
+    onYes: (paidSubunits: Long) -> Unit = {},
     onCopy: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     // "Not yet" closes through the animation too, rather than calling onDismiss straight through.
     var closing by remember { mutableStateOf(false) }
+    var amountText by remember(amountSubunits) { mutableStateOf(format2dp(amountSubunits / 100.0)) }
+    val entered = amountTextToSubunits(amountText)
+    var showProblem by remember { mutableStateOf(false) }
+    val problem =
+        when {
+            entered <= 0L -> "Enter what you paid."
+            entered > maxSubunits -> "It can't be more than the ${moneySubunits(maxSubunits, currency)} you owe."
+            else -> null
+        }
     EvSheetScaffold(onDismiss, dismissRequested = dismissRequested || closing) {
         Column(
             Modifier.fillMaxWidth(),
@@ -59,22 +78,36 @@ fun DeepLinkConfirmSheet(
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    "Settled ${money(amount)} with $handle?",
+                    "Did the payment go through?",
                     color = c.ink,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    "We opened $app. Did the payment go through?",
+                    "We opened $app for $handle.",
                     color = c.ink2,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("You paid $payeeName", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                EvAmountInput(
+                    text = amountText,
+                    onTextChange = {
+                        amountText = it
+                        showProblem = false
+                    },
+                    currency = currency,
+                    helper = if (showProblem && problem != null) problem else "of ${moneySubunits(maxSubunits, currency)}",
+                    helperColor = if (showProblem && problem != null) c.danger else c.ink2,
+                )
+            }
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                EvButton("Yes, mark paid", onYes)
+                // Live, validated on tap: a bad amount says why rather than greying the button out.
+                EvButton("Yes, I paid", { if (problem == null) onYes(entered) else showProblem = true })
                 Row(
                     Modifier
                         .fillMaxWidth()

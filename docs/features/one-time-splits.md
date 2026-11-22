@@ -1,6 +1,6 @@
 # One-time splits (quick splits) + two-party payment edits
 
-**Status:** not started. Brief agreed in conversation 2026-11-19; scout findings below.
+**Status:** Part B (B1-B4) built and its migration applied 2026-11-21; `web-claim` not redeployed (see §7). Part A not started.
 **Owner agent/session:** unassigned
 **Mockup:** `design/one-time-splits-mockup.html` (screens 1–6 quick split, 7–11 payment edits)
 
@@ -209,10 +209,10 @@ Green means both targets (AGENTS.md §4.1), plus `linkReleaseFrameworkIosArm64` 
 
 Part B first: it is smaller, fixes a live complaint, and Part A's payment screens depend on it.
 
-- [ ] B1 — Server: party-only settlement policy/RPC, `payment_edited` history rows.
-- [ ] B2 — App: party gating on the payment sheet; edit a settle-up total with re-spread preview.
-- [ ] B3 — Confirm sheet with editable amount.
-- [ ] B4 — `web-claim` action + web UI for a guest correcting their own payment.
+- [x] B1 — Server: party-only settlement policy/RPC, `payment_edited` history rows.
+- [x] B2 — App: party gating on the payment sheet; edit a settle-up total with re-spread preview.
+- [x] B3 — Confirm sheet with editable amount.
+- [x] B4 — `web-claim` action + web UI for a guest correcting their own payment.
 - [ ] A1 — `groups.kind` server + Room; hidden from group lists; Home card + combined total.
 - [ ] A2 — + New chooser, Split a bill screen, names step, create & share.
 - [ ] A3 — Web/app link opens on the name picker; claiming a typed-in name.
@@ -223,4 +223,39 @@ Part B first: it is smaller, fixes a live complaint, and Part A's payment screen
 
 ## 7. Completion report
 
-Not started.
+### Part B (B1-B4), 2026-11-21
+
+**Built.**
+- **B1 server** (`supabase/schema.sql`, end of file): `settlements.original_settlement_id`;
+  `settlement_party_guard` (trigger) refuses amount/currency/void changes and edit replacements unless the
+  caller is a party; `settlement_allocation_party_guard`; `settlement_chain_last_wins` (two concurrent edits
+  leave one live payment, arrival order); `record_web_payment` / `edit_web_payment` (service-role only).
+  A trigger rather than a policy: see `supabase/AGENTS.md` ("Membership gates…").
+- **B1/B2 app**: pure rule `domain/settlement/PaymentEdit.kt` (`respreadPayment`: cut newest-first, increase
+  oldest-unpaid, single-bill scope); `SettlementRepository.editSettlement(…, scopeExpenseId)`,
+  `previewSettlementEdit`, `voidSettlement(…, actor)`, `observeExpensePayments`. Non-parties get
+  `AppError.NotAuthorized`. History: one `SETTLEMENT_EDITED` row per affected bill
+  (`edit:<oldTotal>:<newTotal>:<payer>:<newOnThisBill>`) and `SETTLEMENT_REMOVED` (`removed:<amount>:<payer>`).
+- **B2 UI**: `ui/screen/settle/PaymentSheets.kt` (mockups 8, 9). Bill screen: settle-up payments now
+  appear with this bill's portion; only parties get the chevron; edits there touch only that bill.
+  Settle-with-a-person screen: new "Payments" list; editing there changes the total with the read-only
+  "Now covers" preview.
+- **B3**: `DeepLinkConfirmSheet` has an editable amount ("You paid Bob $X of $Y", "Yes, I paid").
+  `SettleSingleSheet` already had the field; its confirm button now reads "Yes, I paid".
+- **B4**: `web-claim` actions `payments` / `pay` / `payment`; `web/src/screens/MyPayment.svelte` (mockup 11).
+
+**Deviations from the brief, on purpose.**
+- History type is the existing `SETTLEMENT_EDITED` wire name, not `payment_edited`: renaming a synced enum
+  would hide every existing row on old clients. `SETTLEMENT_REMOVED` is new; old clients drop unknown types.
+- Web guests could not record a payment at all before this, so B4 includes "I paid {payer}" on the bill
+  (one bill only, never a balance). `web/AGENTS.md` notes the exception.
+
+**Not done / not verified.**
+- Migration applied to the live project 2026-11-21 (`payment_edits_party_guard`).
+  `supabase/tests/payment_edits.sql` passed in full against it, and `get_advisors` flags none of the new
+  functions (none is executable by `anon` or `authenticated`).
+- `web-claim` is not redeployed. No Deno on this machine, so the function was not type-checked.
+- **Push is not live** (`FCM_SERVICE_ACCOUNT` unset, iOS host SDK deferred). "The other person is
+  notified" is the history row only. No in-app activity badge was added.
+- A refused settlements push still wedges that table's batch on the device (pre-existing behaviour for
+  any RLS refusal). The app checks party-ness first, so a legitimate client should not hit it.

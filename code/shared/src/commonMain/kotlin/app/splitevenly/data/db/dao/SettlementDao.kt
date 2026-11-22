@@ -6,7 +6,9 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import app.splitevenly.data.db.entity.SettlementAllocationEntity
 import app.splitevenly.data.db.entity.SettlementEntity
+import app.splitevenly.data.db.projection.ExpensePaymentRow
 import app.splitevenly.data.db.projection.SettlementCoveredTitleRow
+import app.splitevenly.data.db.projection.ShareExpenseRow
 import kotlinx.coroutines.flow.Flow
 
 /** DAO for `settlements` + `settlement_allocations` (02 §3.9). Owns the apply/void transactions. */
@@ -102,6 +104,39 @@ interface SettlementDao {
         toUserId: String,
         currency: String,
     ): List<Long>
+
+    /**
+     * Every live payment with an allocation on [expenseId], including "Settle up" payments that also paid
+     * other bills (`bill_count` > 1), with what each put on this bill. Newest first.
+     */
+    @Query(
+        """
+        SELECT st.*,
+          (SELECT COALESCE(SUM(sa.applied_amount_subunits), 0) FROM settlement_allocations sa
+             INNER JOIN shares sh ON sh.id = sa.share_id
+             WHERE sa.settlement_id = st.id AND sh.expense_id = :expenseId) AS applied_here,
+          (SELECT COUNT(DISTINCT sh2.expense_id) FROM settlement_allocations sa2
+             INNER JOIN shares sh2 ON sh2.id = sa2.share_id
+             WHERE sa2.settlement_id = st.id) AS bill_count
+        FROM settlements st
+        WHERE st.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM settlement_allocations sa3 INNER JOIN shares sh3 ON sh3.id = sa3.share_id
+            WHERE sa3.settlement_id = st.id AND sh3.expense_id = :expenseId)
+        ORDER BY st.settled_at DESC
+        """,
+    )
+    fun observePaymentsOnExpense(expenseId: String): Flow<List<ExpensePaymentRow>>
+
+    /** The bill behind each share, for naming the lines of a payment-edit preview. */
+    @Query(
+        """
+        SELECT sh.id AS share_id, sh.expense_id AS expense_id, e.title AS title, e.expense_date AS expense_date
+        FROM shares sh INNER JOIN expenses e ON e.id = sh.expense_id
+        WHERE sh.id IN (:shareIds)
+        """,
+    )
+    suspend fun shareExpenses(shareIds: List<String>): List<ShareExpenseRow>
 
     @Query("SELECT * FROM settlement_allocations WHERE settlement_id = :settlementId")
     suspend fun allocationsForSettlement(settlementId: String): List<SettlementAllocationEntity>

@@ -38,8 +38,8 @@ import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
 import app.splitevenly.domain.receipt.ScanOutcome
-import app.splitevenly.domain.receipt.printedHourOf
 import app.splitevenly.domain.receipt.VenueKind
+import app.splitevenly.domain.receipt.printedHourOf
 import app.splitevenly.domain.receipt.suggestBillTitle
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.domain.repository.BillRepository
@@ -47,7 +47,6 @@ import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.SettlementRepository
-import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
 import app.splitevenly.platform.FilePicker
@@ -72,7 +71,6 @@ import app.splitevenly.ui.screen.expense.DetailShareUi
 import app.splitevenly.ui.screen.expense.ExpenseDetailScreen
 import app.splitevenly.ui.screen.expense.ExpenseDetailState
 import app.splitevenly.ui.screen.expense.HistoryUi
-import app.splitevenly.ui.screen.expense.PaymentUi
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
 import app.splitevenly.ui.screen.expense.ReceiptUi
 import app.splitevenly.ui.screen.expense.ReceiptUploadUi
@@ -81,7 +79,6 @@ import app.splitevenly.ui.screen.expense.SplitMode
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.screen.group.GroupHomeScreen
 import app.splitevenly.ui.screen.group.buildGroupExpenses
-import app.splitevenly.ui.screen.settle.appLabel
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
@@ -617,7 +614,7 @@ fun ExpenseDetailRoute(
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val comments by remember(eid) { activity.observeComments(eid) }.collectAsStateWithLifecycle(emptyList())
-    val payments by remember(eid) { settlements.observePaymentsForExpense(eid) }.collectAsStateWithLifecycle(emptyList())
+    val payments by remember(eid) { settlements.observeExpensePayments(eid) }.collectAsStateWithLifecycle(emptyList())
     val receipts by remember(eid) { activity.observeReceipts(eid) }.collectAsStateWithLifecycle(emptyList())
     val history by remember(eid) { activity.observeHistory(eid) }.collectAsStateWithLifecycle(emptyList())
     val pendingUploads by remember(eid) {
@@ -690,22 +687,13 @@ fun ExpenseDetailRoute(
                 failed = u.status == ReceiptUploadStatus.FAILED,
             )
         }
-    val historyUi = history.map { ev -> HistoryUi(historyText(ev, e.currency) { nameOf(it) }, relativeTimeLabel(ev.createdAt, now)) }
-    val paymentUi =
-        payments.map { s ->
-            // What an edit can raise this payment to: what the payer owes on this expense (their share). The
-            // repository enforces the precise ceiling — this only drives the inline hint in the editor.
-            val owedByPayer = ews.shares.firstOrNull { it.userId == s.fromUserId }?.owedSubunits ?: s.paymentAmountSubunits
-            PaymentUi(
-                id = s.id.value,
-                payerName = nameOf(s.fromUserId),
-                byMe = s.fromUserId == userId,
-                amountSubunits = s.paymentAmountSubunits,
-                maxSubunits = owedByPayer,
-                app = s.paymentApp?.let { name -> runCatching { PaymentApp.valueOf(name).appLabel }.getOrDefault(name) },
-                dateLabel = relativeTimeLabel(s.settledAt, now),
-            )
+    val historyUi =
+        history.map { ev ->
+            HistoryUi(historyText(ev, e.currency, userId) { nameOf(it) }, relativeTimeLabel(ev.createdAt, now))
         }
+    // On a bill's screen a payment shows (and edits) only what it put on this bill; a "Settle up"
+    // payment's other bills are left alone (one-time-splits Part B).
+    val paymentUi = payments.map { p -> paymentUi(p.record, userId, p.appliedHereSubunits, p.billCount) { nameOf(it) } }
 
     ExpenseDetailScreen(
         state = ExpenseDetailState.Content,
@@ -739,8 +727,9 @@ fun ExpenseDetailRoute(
         renderPdfPage = { url, page, w -> getPdfBytes(url)?.let { rasterizer.renderPage(it, page, w) } },
         onBack = onBack,
         onSettleThis = { settleSheetOpen = true },
-        onEditPayment = { id, amount -> scope.launch { settlements.editSettlement(SettlementId(id), amount, userId) } },
-        onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
+        previewPayment = { id, amount -> paymentPreview(settlements, id, amount, e.currency, scopeExpenseId = eid) },
+        onSavePayment = { id, amount -> savePaymentEdit(settlements, id, amount, userId, scopeExpenseId = eid) },
+        onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id), userId) } },
         // A plain expense edits via the percent/exact/even editor. An itemized bill splits two ways: the
         // summary-card "Edit bill" action opens the menu/items editor, and the prominent button below opens
         // the claim screen.
@@ -761,77 +750,5 @@ fun ExpenseDetailRoute(
             onBack = { settleSheetOpen = false },
             onSettled = { settleSheetOpen = false },
         )
-    }
-}
-
-/**
- * Render a history event into a viewer-relative sentence (actor name resolved live). [detail] carries
- * raw amount tokens the repo stored ("amt:<subunits>", "edit:<old>:<new>") so the money is formatted
- * here in the expense's [currency] — keeping currency formatting out of the data layer.
- */
-private fun historyText(
-    ev: HistoryEvent,
-    currency: String,
-    nameOf: (UserId?) -> String,
-): String {
-    val verb =
-        when (ev.type) {
-            HistoryEventType.CREATED -> "added this expense"
-            HistoryEventType.EDITED -> "edited this expense"
-            HistoryEventType.SETTLED -> "settled"
-            HistoryEventType.SETTLEMENT_EDITED -> "corrected a payment"
-            HistoryEventType.COMMENTED -> "commented"
-            HistoryEventType.RECEIPT_ADDED -> "added a receipt"
-            HistoryEventType.DELETED -> "deleted this expense"
-        }
-    val passive =
-        when (ev.type) {
-            HistoryEventType.CREATED -> "created"
-            HistoryEventType.EDITED -> "edited"
-            HistoryEventType.SETTLED -> "settled"
-            HistoryEventType.SETTLEMENT_EDITED -> "corrected"
-            HistoryEventType.COMMENTED -> "commented on"
-            HistoryEventType.RECEIPT_ADDED -> "updated"
-            HistoryEventType.DELETED -> "deleted"
-        }
-    val base = if (ev.actorUserId != null) "${nameOf(ev.actorUserId)} $verb" else "This expense was $passive"
-    return ev.detail?.let { "$base · ${renderDetail(it, currency)}" } ?: base
-}
-
-/** Expand a stored detail token into human money text; pass through plain (non-token) details unchanged. */
-private fun renderDetail(
-    detail: String,
-    currency: String,
-): String {
-    val parts = detail.split(":")
-    return when (parts.firstOrNull()) {
-        "amt" -> {
-            parts.getOrNull(1)?.toLongOrNull()?.let { moneySubunits(it, currency) } ?: detail
-        }
-
-        "edit" -> {
-            val old = parts.getOrNull(1)?.toLongOrNull()
-            val new = parts.getOrNull(2)?.toLongOrNull()
-            if (old != null && new != null) "${moneySubunits(old, currency)} → ${moneySubunits(new, currency)}" else detail
-        }
-
-        else -> {
-            detail
-        }
-    }
-}
-
-/** Short relative time ("now", "5m", "2h", "3d", "2w") for activity stamps. */
-private fun relativeTimeLabel(
-    thenMs: Long,
-    nowMs: Long,
-): String {
-    val minutes = ((nowMs - thenMs).coerceAtLeast(0)) / 60_000
-    return when {
-        minutes < 1 -> "now"
-        minutes < 60 -> "${minutes}m"
-        minutes < 1_440 -> "${minutes / 60}h"
-        minutes < 10_080 -> "${minutes / 1_440}d"
-        else -> "${minutes / 10_080}w"
     }
 }

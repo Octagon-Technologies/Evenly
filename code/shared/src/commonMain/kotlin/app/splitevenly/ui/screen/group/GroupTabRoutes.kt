@@ -420,7 +420,7 @@ fun GroupBalancesRoute(
         overpayments = overpaymentsUi,
         onBack = onBack,
         onSettle = { onSettleNav(it.peerUserId) },
-        onVoidPayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id)) } },
+        onVoidPayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id), userId) } },
     )
 }
 

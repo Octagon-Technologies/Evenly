@@ -20,49 +20,37 @@ data class SettlementEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
     val id: String,
-
     @ColumnInfo(name = "group_id")
     val groupId: String,
-
     @ColumnInfo(name = "from_user_id")
     val fromUserId: String,
-
     @ColumnInfo(name = "to_user_id")
     val toUserId: String,
-
     @ColumnInfo(name = "payment_currency")
     val paymentCurrency: String,
-
     @ColumnInfo(name = "payment_amount_subunits")
     val paymentAmountSubunits: Long,
-
     @ColumnInfo(name = "payment_app")
     val paymentApp: String? = null,
-
     @ColumnInfo(name = "deep_link_attempted")
     val deepLinkAttempted: Boolean = false,
-
     @ColumnInfo(name = "deep_link_succeeded")
     val deepLinkSucceeded: Boolean? = null,
-
     @ColumnInfo(name = "settled_at")
     val settledAt: Long,
-
     @ColumnInfo(name = "notes")
     val notes: String? = null,
-
     @ColumnInfo(name = "created_by")
     val createdBy: String,
-
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
-
     @ColumnInfo(name = "updated_at")
     val updatedAt: Long,
-
     @ColumnInfo(name = "row_version")
     val rowVersion: Long = 1,
-
     @ColumnInfo(name = "deleted_at")
     val deletedAt: Long? = null,
+    /** The first payment of an edit chain; null until this payment is an edit of another one. */
+    @ColumnInfo(name = "original_settlement_id")
+    val originalSettlementId: String? = null,
 )

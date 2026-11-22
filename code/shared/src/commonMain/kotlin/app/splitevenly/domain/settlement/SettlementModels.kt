@@ -60,3 +60,34 @@ data class NewSettlement(
     val deepLinkAttempted: Boolean = false,
     val deepLinkSucceeded: Boolean? = null,
 )
+
+/**
+ * A payment as one bill's screen sees it: the whole payment plus what landed on this bill.
+ * [billCount] > 1 means it came from "Settle up" and also paid other bills.
+ */
+data class ExpensePayment(
+    val record: SettlementRecord,
+    val appliedHereSubunits: Long,
+    val billCount: Int,
+)
+
+/** One bill in a payment-edit preview: what this payment put on it before and after the edit. */
+data class PaymentEditPreviewLine(
+    val expenseId: ExpenseId,
+    val title: String,
+    val expenseDate: String,
+    val beforeSubunits: Long,
+    val afterSubunits: Long,
+)
+
+/**
+ * What an edit to [newTotalSubunits] would do, before it is saved. [refusal] is set when it can't be
+ * saved; [ceilingSubunits] is then the most the edited amount may be.
+ */
+data class PaymentEditPreview(
+    val oldTotalSubunits: Long,
+    val newTotalSubunits: Long,
+    val lines: List<PaymentEditPreviewLine>,
+    val refusal: PaymentEditRefusal? = null,
+    val ceilingSubunits: Long = 0L,
+)

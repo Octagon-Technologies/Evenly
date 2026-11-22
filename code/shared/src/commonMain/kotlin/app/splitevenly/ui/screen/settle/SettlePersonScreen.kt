@@ -95,6 +95,11 @@ fun SettlePersonScreen(
     onOpenApp: (amountSubunits: Long, app: PaymentApp, handle: String, expenseIds: List<String>) -> Unit = { _, _, _, _ -> },
     onConfirmPaid: (amountSubunits: Long, app: PaymentApp, expenseIds: List<String>) -> Unit = { _, _, _ -> },
     onMarkPaid: (amountSubunits: Long, expenseIds: List<String>) -> Unit = { _, _ -> },
+    // Payments between you and this person. A party can change the total or remove it (mockup 9).
+    payments: List<PaymentUi> = emptyList(),
+    previewPayment: suspend (paymentId: String, newAmountSubunits: Long) -> PaymentPreviewUi = { _, _ -> PaymentPreviewUi() },
+    onSavePayment: suspend (paymentId: String, newAmountSubunits: Long) -> String? = { _, _ -> null },
+    onRemovePayment: (paymentId: String) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val clipboard = LocalClipboardManager.current
@@ -110,6 +115,8 @@ fun SettlePersonScreen(
     // "Yes, mark paid" records first and then asks the sheet to slide out; the sheet is only dropped
     // once that animation ends, so confirming doesn't read as a hard cut.
     var confirmClosing by remember { mutableStateOf(false) }
+    var actionPayment by remember { mutableStateOf<PaymentUi?>(null) }
+    var editingPayment by remember { mutableStateOf<PaymentUi?>(null) }
 
     val checkedSum = shares.filter { it.expenseId in checked }.sumOf { it.amountSubunits }
     val selectedIds = shares.filter { it.expenseId in checked }.map { it.expenseId }
@@ -126,8 +133,16 @@ fun SettlePersonScreen(
             EvTopBar("Settle with $peerName", subtitle = "in $currencyCode", navIcon = { EvIconButton(EvIcons.Back, onBack) })
 
             if (shares.isEmpty()) {
-                Column(Modifier.weight(1f).background(c.surface).padding(16.dp)) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .background(c.surface)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                     Text("Nothing to settle with $peerName.", color = c.ink2, fontSize = 14.sp)
+                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it })
                 }
             } else {
                 Column(
@@ -213,6 +228,7 @@ fun SettlePersonScreen(
                             },
                         )
                     }
+                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it })
                 }
             }
 
@@ -249,9 +265,31 @@ fun SettlePersonScreen(
             }
         }
 
+        actionPayment?.let { p ->
+            PaymentActionSheet(
+                payment = p,
+                currencyCode = currencyCode,
+                onDismiss = { actionPayment = null },
+                onChangeAmount = { editingPayment = p },
+                onRemove = { onRemovePayment(p.id) },
+            )
+        }
+        editingPayment?.let { p ->
+            PaymentEditSheet(
+                payment = p,
+                currencyCode = currencyCode,
+                onDismiss = { editingPayment = null },
+                preview = { amount -> previewPayment(p.id, amount) },
+                onSave = { amount -> onSavePayment(p.id, amount) },
+            )
+        }
+
         confirmFor?.let { h ->
             DeepLinkConfirmSheet(
-                amount = payAmount / 100.0,
+                amountSubunits = payAmount,
+                maxSubunits = checkedSum,
+                currency = currencyCode,
+                payeeName = peerName,
                 handle = h.handle,
                 app = h.label,
                 dismissRequested = confirmClosing,
@@ -259,8 +297,8 @@ fun SettlePersonScreen(
                     confirmFor = null
                     confirmClosing = false
                 },
-                onYes = {
-                    onConfirmPaid(payAmount, h.app, selectedIds)
+                onYes = { paid ->
+                    onConfirmPaid(paid, h.app, selectedIds)
                     confirmClosing = true
                 },
                 onCopy = { clipboard.setText(AnnotatedString(h.handle)) },

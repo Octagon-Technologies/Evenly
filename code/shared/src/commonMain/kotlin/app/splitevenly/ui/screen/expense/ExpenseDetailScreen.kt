@@ -67,6 +67,10 @@ import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
+import app.splitevenly.ui.screen.settle.PaymentActionSheet
+import app.splitevenly.ui.screen.settle.PaymentEditSheet
+import app.splitevenly.ui.screen.settle.PaymentPreviewUi
+import app.splitevenly.ui.screen.settle.PaymentUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import coil3.compose.AsyncImage
 
@@ -79,21 +83,6 @@ data class DetailShareUi(
     val remainingSubunits: Long,
     val me: Boolean = false,
     val payer: Boolean = false,
-)
-
-/**
- * A payment recorded against this expense (a single-expense settlement). [maxSubunits] is the ceiling an
- * edit can raise it to (what the payer owes on this expense) — used for inline validation; the repository
- * is the true guard. [app] is a display label ("Venmo") or null; [dateLabel] a short relative stamp.
- */
-data class PaymentUi(
-    val id: String,
-    val payerName: String,
-    val byMe: Boolean,
-    val amountSubunits: Long,
-    val maxSubunits: Long,
-    val app: String? = null,
-    val dateLabel: String = "",
 )
 
 /** A receipt thumbnail (F5). [url] null = still uploading / unavailable; [isPdf] renders a file tile. */
@@ -161,8 +150,10 @@ fun ExpenseDetailScreen(
     renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     onBack: () -> Unit = {},
     onSettleThis: () -> Unit = {},
-    // Correct a recorded payment: raise/lower its amount (void + re-record, guarded ≤ owed).
-    onEditPayment: (paymentId: String, newAmountSubunits: Long) -> Unit = { _, _ -> },
+    // Change a recorded payment's amount on this bill. Returns the reason it was refused, or null once saved.
+    onSavePayment: suspend (paymentId: String, newAmountSubunits: Long) -> String? = { _, _ -> null },
+    // The per-bill result of an entered amount, for the edit sheet's preview and ceiling hint.
+    previewPayment: suspend (paymentId: String, newAmountSubunits: Long) -> PaymentPreviewUi = { _, _ -> PaymentPreviewUi() },
     // Remove a recorded payment entirely (void it); its balance is restored.
     onRemovePayment: (paymentId: String) -> Unit = {},
     onReload: () -> Unit = {},
@@ -361,7 +352,7 @@ fun ExpenseDetailScreen(
                                             Modifier
                                                 .fillMaxWidth()
                                                 .then(divider)
-                                                .clickable { actionPayment = p }
+                                                .then(if (p.canEdit) Modifier.clickable { actionPayment = p } else Modifier)
                                                 .padding(horizontal = 16.dp, vertical = 14.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -369,7 +360,7 @@ fun ExpenseDetailScreen(
                                             EvAvatar(p.payerName, me = p.byMe, size = AvatarSize.Sm)
                                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    if (p.byMe) "You paid" else "${p.payerName} paid",
+                                                    p.title,
                                                     color = c.ink,
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.SemiBold,
@@ -384,7 +375,8 @@ fun ExpenseDetailScreen(
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontFamily = EvenlyTheme.monoFamily,
                                             )
-                                            EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink3)
+                                            // Only the two people in the payment get the chevron (mockup 8).
+                                            if (p.canEdit) EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink3)
                                         }
                                     }
                                 }
@@ -728,67 +720,25 @@ fun ExpenseDetailScreen(
         }
     }
 
-    // Tap a payment → correct or remove it. Remove is destructive (voids the payment); Edit opens the
-    // amount editor below. Both are how a wrong amount — or a post-split-edit overpayment — gets fixed.
+    // Tap a payment you're part of → change or remove it (one-time-splits mockups 8-9).
     actionPayment?.let { p ->
-        EvModalScaffold(onDismiss = { actionPayment = null }) {
-            Text(moneySubunits(p.amountSubunits, currencyCode), color = c.ink, style = MaterialTheme.typography.titleMedium)
-            val sub =
-                listOfNotNull(
-                    if (p.byMe) "You paid" else "${p.payerName} paid",
-                    p.app,
-                    p.dateLabel.ifBlank { null },
-                ).joinToString(" · ")
-            Text(sub, color = c.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
-            OverflowRow(EvIcons.Edit, "Edit amount", c.blueText, c.ink) {
-                actionPayment = null
-                editingPayment = p
-            }
-            OverflowRow(EvIcons.Trash, "Remove payment", c.danger, c.danger) {
-                actionPayment = null
-                onRemovePayment(p.id)
-            }
-        }
+        PaymentActionSheet(
+            payment = p,
+            currencyCode = currencyCode,
+            onDismiss = { actionPayment = null },
+            onChangeAmount = { editingPayment = p },
+            onRemove = { onRemovePayment(p.id) },
+        )
     }
 
     editingPayment?.let { p ->
-        var amountText by remember(p.id) { mutableStateOf(format2dp(p.amountSubunits / 100.0)) }
-        val enteredSubunits = amountTextToSubunits(amountText)
-        val tooHigh = enteredSubunits > p.maxSubunits
-        val valid = enteredSubunits in 1..p.maxSubunits
-        EvModalScaffold(onDismiss = { editingPayment = null }) {
-            Text("Edit payment", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
-            Text(
-                "Correct what ${if (p.byMe) "you" else p.payerName} actually paid.",
-                color = c.ink2,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
-            EvAmountInput(
-                text = amountText,
-                onTextChange = { amountText = it },
-                currency = currencyCode,
-                helper =
-                    if (tooHigh) {
-                        "Can't exceed the ${moneySubunits(
-                            p.maxSubunits,
-                            currencyCode,
-                        )} owed"
-                    } else {
-                        "Up to the ${moneySubunits(p.maxSubunits, currencyCode)} owed on this expense"
-                    },
-                helperColor = if (tooHigh) c.danger else c.ink2,
-            )
-            // Keep Save live and validate on tap (guide-when-blocked): a valid amount commits, an invalid
-            // one just leaves the helper showing why. The repository re-guards regardless.
-            EvButton("Save", {
-                if (valid) {
-                    val id = p.id
-                    editingPayment = null
-                    onEditPayment(id, enteredSubunits)
-                }
-            }, modifier = Modifier.padding(top = 14.dp))
-        }
+        PaymentEditSheet(
+            payment = p,
+            currencyCode = currencyCode,
+            onDismiss = { editingPayment = null },
+            preview = { amount -> previewPayment(p.id, amount) },
+            onSave = { amount -> onSavePayment(p.id, amount) },
+        )
     }
 }
 
@@ -1134,28 +1084,6 @@ private fun UploadingThumb(
                 fontFamily = EvenlyTheme.monoFamily,
             )
         }
-    }
-}
-
-@Composable
-private fun OverflowRow(
-    icon: ImageVector,
-    label: String,
-    iconTint: androidx.compose.ui.graphics.Color,
-    textColor: androidx.compose.ui.graphics.Color,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        EvIcon(icon, size = 20.dp, tint = iconTint)
-        Text(label, color = textColor, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }
 

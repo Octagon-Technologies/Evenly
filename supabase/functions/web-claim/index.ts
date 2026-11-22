@@ -1079,6 +1079,103 @@ async function actionInviteClaim(
   });
 }
 
+// ── Paying back, and fixing what you recorded (one-time-splits Part B, B4) ──────────────────────
+// A guest's payments on THIS bill only, recorded and corrected through `record_web_payment` /
+// `edit_web_payment`, which re-check everything under a row lock. The session decides who the guest
+// is; nothing in the body can name another payer. The person owed corrects a payment from the app.
+
+/** What the session's person has paid back on this bill, and what they still owe on it. */
+async function myPaymentsOnBill(sb: SupabaseClient, expenseId: string, userId: string) {
+  const { data: share } = await sb.from("shares").select("id, share_owed_subunits")
+    .eq("expense_id", expenseId).eq("user_id", userId).is("deleted_at", null).maybeSingle();
+  if (!share) return { owedSubunits: 0, remainingSubunits: 0, payments: [] as unknown[] };
+  const { data: allocs } = await sb.from("settlement_allocations")
+    .select("settlement_id, applied_amount_subunits").eq("share_id", share.id);
+  const ids = Array.from(new Set((allocs ?? []).map((a) => a.settlement_id as string)));
+  const { data: rows } = ids.length
+    ? await sb.from("settlements").select("id, from_user_id, payment_amount_subunits, payment_app, settled_at, deleted_at")
+      .in("id", ids).is("deleted_at", null)
+    : { data: [] as Array<Record<string, unknown>> };
+  const live = new Set((rows ?? []).map((r) => r.id as string));
+  const hereBy: Record<string, number> = {};
+  for (const a of allocs ?? []) {
+    if (live.has(a.settlement_id as string)) {
+      hereBy[a.settlement_id as string] = (hereBy[a.settlement_id as string] ?? 0) + Number(a.applied_amount_subunits);
+    }
+  }
+  const paid = Object.values(hereBy).reduce((x, y) => x + y, 0);
+  const payments = (rows ?? [])
+    .filter((r) => r.from_user_id === userId)
+    .map((r) => ({
+      id: r.id, amountSubunits: Number(r.payment_amount_subunits), hereSubunits: hereBy[r.id as string] ?? 0,
+      app: r.payment_app ?? null, settledAt: Number(r.settled_at),
+    }))
+    .sort((a, b) => b.settledAt - a.settledAt);
+  const owed = Number(share.share_owed_subunits);
+  return { owedSubunits: owed, remainingSubunits: Math.max(owed - paid, 0), payments };
+}
+
+/** POST /web-claim/payments — the guest's own payments on this bill. A read, so no write guard. */
+async function actionPayments(sb: SupabaseClient, body: { token?: string; sessionToken?: string }): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  const session = await resolveSession(sb, ctx.link.group_id, body.sessionToken);
+  if (!session) return err("SESSION_REQUIRED", 401);
+  return json(await myPaymentsOnBill(sb, ctx.link.expense_id, session.user_id));
+}
+
+/** POST /web-claim/pay — "I paid {payer}" for some or all of the guest's share of this bill. */
+async function actionPay(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; amountSubunits?: number; app?: string | null },
+): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withWriteGuard(sb, ctx, async () => {
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
+    if (!Number.isInteger(body.amountSubunits)) return err("BAD_REQUEST", 400, "amountSubunits required");
+    const { data, error } = await sb.rpc("record_web_payment", {
+      p_expense_id: ctx.link.expense_id,
+      p_from_user_id: session.user_id,
+      p_amount: body.amountSubunits,
+      p_payment_app: body.app ?? null,
+      p_now: Date.now(),
+    });
+    if (error) return err("BACKEND", 500, error.message);
+    return json({ ok: data.ok, reason: data.reason ?? null, ceilingSubunits: data.ceiling ?? null,
+      ...(await myPaymentsOnBill(sb, ctx.link.expense_id, session.user_id)) });
+  });
+}
+
+/** POST /web-claim/payment — change (or, with 0, remove) the guest's OWN payment on this bill. The
+ *  same browser keeps the session, which is what "remembers her" means (mockup 11). */
+async function actionPaymentEdit(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; settlementId?: string; amountSubunits?: number },
+): Promise<Response> {
+  const ctx = await resolveLink(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withWriteGuard(sb, ctx, async () => {
+    const session = requireWritableSession(await resolveSession(sb, ctx.link.group_id, body.sessionToken));
+    if (session instanceof Response) return session;
+    if (!body.settlementId || !Number.isInteger(body.amountSubunits)) {
+      return err("BAD_REQUEST", 400, "settlementId and amountSubunits required");
+    }
+    const { data, error } = await sb.rpc("edit_web_payment", {
+      p_expense_id: ctx.link.expense_id,
+      p_settlement_id: body.settlementId,
+      p_actor: session.user_id,
+      p_new_amount: body.amountSubunits,
+      p_now: Date.now(),
+    });
+    if (error) return err("BACKEND", 500, error.message);
+    if (data.reason === "NOT_YOURS") return err("FORBIDDEN", 403, "only the person who paid can change this here");
+    return json({ ok: data.ok, reason: data.reason ?? null, ceilingSubunits: data.ceiling ?? null,
+      ...(await myPaymentsOnBill(sb, ctx.link.expense_id, session.user_id)) });
+  });
+}
+
 // deno-lint-ignore no-explicit-any
 const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => Promise<Response>> = {
   resolve: actionResolve,
@@ -1092,6 +1189,9 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => P
   edit: actionEdit,
   undo: actionUndoEdit,
   payer: actionSetPayer,
+  payments: actionPayments,
+  pay: actionPay,
+  payment: actionPaymentEdit,
   done: actionDone,
   release: actionRelease,
   "invite-preview": actionInvitePreview,

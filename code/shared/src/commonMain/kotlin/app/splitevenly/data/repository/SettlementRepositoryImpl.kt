@@ -16,12 +16,20 @@ import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.SettlementAllocationEntity
 import app.splitevenly.data.db.entity.SettlementEntity
+import app.splitevenly.data.db.projection.ShareExpenseRow
 import app.splitevenly.domain.activity.HistoryEventType
 import app.splitevenly.domain.repository.SettlementRepository
+import app.splitevenly.domain.settlement.CoveredPortion
+import app.splitevenly.domain.settlement.ExpensePayment
 import app.splitevenly.domain.settlement.NewSettlement
+import app.splitevenly.domain.settlement.PaymentEditPreview
+import app.splitevenly.domain.settlement.PaymentEditPreviewLine
+import app.splitevenly.domain.settlement.PaymentRespread
 import app.splitevenly.domain.settlement.SettlementRecord
 import app.splitevenly.domain.settlement.ShareBalance
 import app.splitevenly.domain.settlement.allocateSameCurrency
+import app.splitevenly.domain.settlement.isPaymentParty
+import app.splitevenly.domain.settlement.respreadPayment
 import app.splitevenly.newId
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.EvAnalytics
@@ -46,7 +54,6 @@ class SettlementRepositoryImpl(
     // Analytics: null in unit tests; production DI passes AndroidAnalytics.
     private val analytics: EvAnalytics? = null,
 ) : SettlementRepository {
-
     override fun observeSettlements(groupId: GroupId): Flow<List<SettlementRecord>> =
         settlementDao.observeByGroup(groupId.value).map { rows -> rows.map { it.toDomain() } }
 
@@ -58,7 +65,10 @@ class SettlementRepositoryImpl(
     override suspend fun applySettlement(input: NewSettlement): AppResult<SettlementRecord> {
         val write = writeSettlement(input)
         return when (write) {
-            is AppResult.Err -> write
+            is AppResult.Err -> {
+                write
+            }
+
             is AppResult.Ok -> {
                 // One SETTLED activity-log row per expense this payment touched (no-op when the log isn't
                 // wired). [detail] carries the amount as a raw token ("amt:<subunits>") so the UI formats it
@@ -98,60 +108,65 @@ class SettlementRepositoryImpl(
         // single expense (the "Settle 'X'" sheet), restrict allocation to that expense's shares so a
         // *partial* payment pays down the expense the user is looking at — not the oldest outstanding one.
         val selectedExpenseIds = input.expenseIds?.map { it.value }?.toSet()
-        val outstanding = shareDao
-            .outstandingForPair(input.groupId.value, input.fromUserId.value, input.toUserId.value)
-            .filter { it.currency == input.paymentCurrency }
-            .filter {
-                when {
-                    input.expenseId != null -> it.expenseId == input.expenseId.value
-                    selectedExpenseIds != null -> it.expenseId in selectedExpenseIds
-                    else -> true
+        val outstanding =
+            shareDao
+                .outstandingForPair(input.groupId.value, input.fromUserId.value, input.toUserId.value)
+                .filter { it.currency == input.paymentCurrency }
+                .filter {
+                    when {
+                        input.expenseId != null -> it.expenseId == input.expenseId.value
+                        selectedExpenseIds != null -> it.expenseId in selectedExpenseIds
+                        else -> true
+                    }
                 }
-            }
         val totalOutstanding = outstanding.sumOf { it.remainingSubunits }
         if (input.paymentAmountSubunits > totalOutstanding) {
             // PAYMENT_OVERALLOCATED (04 §2.2): can't pay more than is owed in this currency.
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
         }
-        val allocations = allocateSameCurrency(
-            paymentAmountSubunits = input.paymentAmountSubunits,
-            shares = outstanding.map { ShareBalance(it.shareId, it.currency, it.remainingSubunits) },
-        )
+        val allocations =
+            allocateSameCurrency(
+                paymentAmountSubunits = input.paymentAmountSubunits,
+                shares = outstanding.map { ShareBalance(it.shareId, it.currency, it.remainingSubunits) },
+            )
         val now = clock.nowEpochMillis()
         val settlementId = newId()
-        val settlement = SettlementEntity(
-            id = settlementId,
-            groupId = input.groupId.value,
-            fromUserId = input.fromUserId.value,
-            toUserId = input.toUserId.value,
-            paymentCurrency = input.paymentCurrency,
-            paymentAmountSubunits = input.paymentAmountSubunits,
-            paymentApp = input.paymentApp,
-            deepLinkAttempted = input.deepLinkAttempted,
-            deepLinkSucceeded = input.deepLinkSucceeded,
-            settledAt = now,
-            notes = input.notes,
-            createdBy = input.createdBy.value,
-            createdAt = now,
-            updatedAt = now,
-        )
-        val expenseIdByShare = outstanding.associate { it.shareId to it.expenseId }
-        val allocationEntities = allocations.map { a ->
-            SettlementAllocationEntity(
-                id = newId(),
-                settlementId = settlementId,
+        val settlement =
+            SettlementEntity(
+                id = settlementId,
                 groupId = input.groupId.value,
-                shareId = a.shareId,
-                appliedAmountSubunits = a.appliedSubunits,
-                appliedCurrency = input.paymentCurrency,
+                fromUserId = input.fromUserId.value,
+                toUserId = input.toUserId.value,
+                paymentCurrency = input.paymentCurrency,
+                paymentAmountSubunits = input.paymentAmountSubunits,
+                paymentApp = input.paymentApp,
+                deepLinkAttempted = input.deepLinkAttempted,
+                deepLinkSucceeded = input.deepLinkSucceeded,
+                settledAt = now,
+                notes = input.notes,
+                createdBy = input.createdBy.value,
                 createdAt = now,
+                updatedAt = now,
             )
-        }
+        val expenseIdByShare = outstanding.associate { it.shareId to it.expenseId }
+        val allocationEntities =
+            allocations.map { a ->
+                SettlementAllocationEntity(
+                    id = newId(),
+                    settlementId = settlementId,
+                    groupId = input.groupId.value,
+                    shareId = a.shareId,
+                    appliedAmountSubunits = a.appliedSubunits,
+                    appliedCurrency = input.paymentCurrency,
+                    createdAt = now,
+                )
+            }
         // How much of this payment landed on each expense — the audit-visible amount per activity row.
-        val appliedByExpense = allocations
-            .groupBy { expenseIdByShare[it.shareId] }
-            .mapNotNull { (expenseId, allocs) -> expenseId?.let { it to allocs.sumOf { a -> a.appliedSubunits } } }
-            .toMap()
+        val appliedByExpense =
+            allocations
+                .groupBy { expenseIdByShare[it.shareId] }
+                .mapNotNull { (expenseId, allocs) -> expenseId?.let { it to allocs.sumOf { a -> a.appliedSubunits } } }
+                .toMap()
         // Record the settlement + allocations — shares aren't touched; remaining derives from these. The
         // DAO re-checks against fresh in-txn state and refuses if a concurrent settlement already paid this
         // down (would over-apply, #9b); surface that as the same over-allocation validation error.
@@ -170,124 +185,215 @@ class SettlementRepositoryImpl(
     override fun observePaymentsForExpense(expenseId: ExpenseId): Flow<List<SettlementRecord>> =
         settlementDao.observeByExpense(expenseId.value).map { rows -> rows.map { it.toDomain() } }
 
+    override fun observeExpensePayments(expenseId: ExpenseId): Flow<List<ExpensePayment>> =
+        settlementDao.observePaymentsOnExpense(expenseId.value).map { rows ->
+            rows.map { ExpensePayment(it.settlement.toDomain(), it.appliedHere, it.billCount) }
+        }
+
+    /** Everything an edit is computed from, read once so the preview and the save agree. */
+    private class EditInputs(
+        val existing: SettlementEntity,
+        val portions: List<CoveredPortion>,
+        val outstanding: List<ShareBalance>,
+        val billByShare: Map<String, ShareExpenseRow>,
+    )
+
+    private suspend fun editInputs(settlementId: SettlementId): AppResult<EditInputs> {
+        val existing = settlementDao.getById(settlementId.value)
+        if (existing == null || existing.deletedAt != null) {
+            return validationErr("settlement", AppError.Validation.Reason.Required)
+        }
+        val allocations = settlementDao.allocationsForSettlement(settlementId.value)
+        // Live remaining per share with this payment still applied: the room an increase has on top.
+        val outstandingRows =
+            shareDao
+                .outstandingForPair(existing.groupId, existing.fromUserId, existing.toUserId)
+                .filter { it.currency == existing.paymentCurrency }
+        val shareIds = (allocations.map { it.shareId } + outstandingRows.map { it.shareId }).distinct()
+        val billByShare = if (shareIds.isEmpty()) emptyMap() else settlementDao.shareExpenses(shareIds).associateBy { it.shareId }
+        val portions =
+            allocations.map { a ->
+                val bill = billByShare[a.shareId]
+                CoveredPortion(
+                    shareId = a.shareId,
+                    expenseId = bill?.expenseId.orEmpty(),
+                    expenseOrder = "${bill?.expenseDate.orEmpty()}|${bill?.expenseId.orEmpty()}",
+                    appliedSubunits = a.appliedAmountSubunits,
+                )
+            }
+        val outstanding = outstandingRows.map { ShareBalance(it.shareId, it.currency, it.remainingSubunits) }
+        return EditInputs(existing, portions, outstanding, billByShare).asOk()
+    }
+
+    override suspend fun previewSettlementEdit(
+        settlementId: SettlementId,
+        newAmountSubunits: Long,
+        scopeExpenseId: ExpenseId?,
+    ): AppResult<PaymentEditPreview> {
+        val inputs =
+            when (val r = editInputs(settlementId)) {
+                is AppResult.Err -> return r
+                is AppResult.Ok -> r.value
+            }
+        val respread = respreadPayment(inputs.portions, inputs.outstanding, newAmountSubunits, scopeExpenseId?.value)
+        val before = inputs.portions.groupBy { it.shareId }.mapValues { (_, p) -> p.sumOf { it.appliedSubunits } }
+        val after = (respread as? PaymentRespread.Ok)?.appliedByShare ?: before
+        val lines =
+            (before.keys + after.keys)
+                .distinct()
+                .mapNotNull { shareId ->
+                    val bill = inputs.billByShare[shareId] ?: return@mapNotNull null
+                    PaymentEditPreviewLine(
+                        expenseId = ExpenseId(bill.expenseId),
+                        title = bill.title,
+                        expenseDate = bill.expenseDate,
+                        beforeSubunits = before[shareId] ?: 0L,
+                        afterSubunits = after[shareId] ?: 0L,
+                    )
+                }.sortedBy { it.expenseDate }
+        return PaymentEditPreview(
+            oldTotalSubunits = inputs.existing.paymentAmountSubunits,
+            newTotalSubunits = (respread as? PaymentRespread.Ok)?.newTotalSubunits ?: inputs.existing.paymentAmountSubunits,
+            lines = lines,
+            refusal = (respread as? PaymentRespread.Refused)?.reason,
+            ceilingSubunits = (respread as? PaymentRespread.Refused)?.ceilingSubunits ?: 0L,
+        ).asOk()
+    }
+
     override suspend fun editSettlement(
         settlementId: SettlementId,
         newAmountSubunits: Long,
         actor: UserId?,
+        scopeExpenseId: ExpenseId?,
     ): AppResult<SettlementRecord> {
         if (newAmountSubunits <= 0L) {
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
         }
-        val existing = settlementDao.getById(settlementId.value)
-        if (existing == null || existing.deletedAt != null) {
-            return validationErr("settlement", AppError.Validation.Reason.Required)
+        val inputs =
+            when (val r = editInputs(settlementId)) {
+                is AppResult.Err -> return r
+                is AppResult.Ok -> r.value
+            }
+        val existing = inputs.existing
+        // Only the two people in the payment. The server's `settlement_party_guard` refuses it as well;
+        // checking here is what lets the sheet say so instead of queueing a push that can never land.
+        if (actor != null && !isPaymentParty(existing.fromUserId, existing.toUserId, actor.value)) {
+            return AppError.NotAuthorized.asErr()
         }
-        // Only single-expense payments are correctable from an expense screen: re-recording a
-        // relationship-wide payment here would silently re-scope another expense's balance.
-        val allocations = settlementDao.allocationsForSettlement(settlementId.value)
-        val expenseIds = shareDao.expenseIdsForShares(allocations.map { it.shareId }).distinct()
-        if (expenseIds.size != 1) {
-            return validationErr("settlement", AppError.Validation.Reason.OutOfRange)
-        }
-        val expenseId = expenseIds.first()
-        // Ceiling: what's still owed on this expense for the pair, PLUS what this payment currently covers
-        // (it's about to be replaced). Guarding here — *before* voiding — means a rejected edit never
-        // destroys the existing payment, and a correction can't manufacture an overpayment (Rule 5).
-        val outstandingNow = shareDao
-            .outstandingForPair(existing.groupId, existing.fromUserId, existing.toUserId)
-            .filter { it.currency == existing.paymentCurrency && it.expenseId == expenseId }
-            .sumOf { it.remainingSubunits }
-        val thisApplied = allocations.sumOf { it.appliedAmountSubunits }
-        if (newAmountSubunits > outstandingNow + thisApplied) {
+        val respread = respreadPayment(inputs.portions, inputs.outstanding, newAmountSubunits, scopeExpenseId?.value)
+        if (respread !is PaymentRespread.Ok) {
+            // Over the ceiling (or a bill this payment never covered): refused before anything is voided,
+            // so a correction can't manufacture an overpayment (Rule 5) or lose the original.
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
         }
-        // Correct in place: void the old payment (soft-delete, Rule 1) and re-record the new amount,
-        // preserving the original payer, payee, currency, app, and notes.
-        //
-        // Both halves go through ONE `replaceSettlement` transaction. They used to be two separate
-        // writes, so a crash between them left the payment voided with no replacement: money that was
-        // actually paid silently became owed again, with nothing on either device to say why.
-        //
-        // That means the new allocation has to be computed against the state the void WILL produce,
-        // since we can no longer void first and re-read. `outstandingForPair` drops fully-paid shares
-        // (`remaining_subunits > 0`), so the shares this payment currently covers have to be added back
-        // by hand — omitting them would silently re-allocate the correction onto the wrong lines.
+        // Void + re-record in ONE `replaceSettlement` transaction. Two separate writes left the payment
+        // voided with no replacement after a crash between them: money actually paid became owed again.
         val now = clock.nowEpochMillis()
-        val freedByShare = allocations.groupBy { it.shareId }
-            .mapValues { (_, rows) -> rows.sumOf { it.appliedAmountSubunits } }
-        val liveByShare = shareDao
-            .outstandingForPair(existing.groupId, existing.fromUserId, existing.toUserId)
-            .filter { it.currency == existing.paymentCurrency && it.expenseId == expenseId }
-            .associate { it.shareId to it.remainingSubunits }
-        val postVoid = (liveByShare.keys + freedByShare.keys).sorted().map { shareId ->
-            ShareBalance(
-                shareId = shareId,
-                currency = existing.paymentCurrency,
-                remainingSubunits = (liveByShare[shareId] ?: 0L) + (freedByShare[shareId] ?: 0L),
-            )
-        }
         val newSettlementId = newId()
-        val newAllocations = allocateSameCurrency(newAmountSubunits, postVoid).map { a ->
-            SettlementAllocationEntity(
-                id = newId(),
-                settlementId = newSettlementId,
-                groupId = existing.groupId,
-                shareId = a.shareId,
-                appliedAmountSubunits = a.appliedSubunits,
-                appliedCurrency = existing.paymentCurrency,
-                createdAt = now,
-            )
-        }
-        val replacement = existing.copy(
-            id = newSettlementId,
-            paymentAmountSubunits = newAmountSubunits,
-            settledAt = now,
-            createdBy = (actor ?: UserId(existing.createdBy)).value,
-            createdAt = now,
-            updatedAt = now,
-            rowVersion = 1,
-            deletedAt = null,
-        )
-        val replaced = try {
-            settlementDao.replaceSettlement(settlementId.value, now, replacement, newAllocations)
-        } catch (e: SettlementReplaceRefused) {
-            // The in-transaction guard tripped, so the void rolled back with it and the original
-            // payment is intact. Same over-allocation error the pre-flight ceiling check reports.
-            false
-        }
-        val write: AppResult<Unit> =
-            if (replaced) AppResult.Ok(Unit) else validationErr("amount", AppError.Validation.Reason.OutOfRange)
-        return when (write) {
-            is AppResult.Err -> write
-            is AppResult.Ok -> {
-                // Activity feed: "corrected a payment · $old → $new" (edit:<old>:<new> token).
-                historyEventDao?.upsert(
-                    HistoryEventEntity(
-                        id = newId(),
-                        expenseId = expenseId,
-                        groupId = existing.groupId,
-                        actorUserId = (actor ?: UserId(existing.createdBy)).value,
-                        type = HistoryEventType.SETTLEMENT_EDITED.name,
-                        detail = "edit:${existing.paymentAmountSubunits}:$newAmountSubunits",
-                        createdAt = now,
-                    ),
+        val newAllocations =
+            respread.appliedByShare.map { (shareId, applied) ->
+                SettlementAllocationEntity(
+                    id = newId(),
+                    settlementId = newSettlementId,
+                    groupId = existing.groupId,
+                    shareId = shareId,
+                    appliedAmountSubunits = applied,
+                    appliedCurrency = existing.paymentCurrency,
+                    createdAt = now,
                 )
-                replacement.toDomain().asOk()
             }
+        val actorId = (actor ?: UserId(existing.createdBy)).value
+        val replacement =
+            existing.copy(
+                id = newSettlementId,
+                paymentAmountSubunits = respread.newTotalSubunits,
+                settledAt = now,
+                createdBy = actorId,
+                createdAt = now,
+                updatedAt = now,
+                rowVersion = 1,
+                deletedAt = null,
+                // The chain's first payment: what the server's last-edit-wins rule groups replacements by.
+                originalSettlementId = existing.originalSettlementId ?: existing.id,
+            )
+        val replaced =
+            try {
+                settlementDao.replaceSettlement(settlementId.value, now, replacement, newAllocations)
+            } catch (e: SettlementReplaceRefused) {
+                // The in-transaction guard tripped (a payment landed mid-edit), so the void rolled back with
+                // it and the original payment is intact.
+                false
+            }
+        if (!replaced) return validationErr("amount", AppError.Validation.Reason.OutOfRange)
+
+        // One history row per bill whose money moved: "Bob changed Alice's payment $15.00 → $5.00",
+        // plus what now lands on that bill. Token: edit:<oldTotal>:<newTotal>:<payer>:<newOnThisBill>.
+        historyEventDao?.let { dao ->
+            val beforeByBill = inputs.portions.groupBy { it.expenseId }.mapValues { (_, p) -> p.sumOf { it.appliedSubunits } }
+            val afterByBill =
+                respread.appliedByShare.entries
+                    .groupBy { inputs.billByShare[it.key]?.expenseId.orEmpty() }
+                    .mapValues { (_, e) -> e.sumOf { it.value } }
+            (beforeByBill.keys + afterByBill.keys)
+                .filter { it.isNotEmpty() && (beforeByBill[it] ?: 0L) != (afterByBill[it] ?: 0L) }
+                .forEach { expenseId ->
+                    dao.upsert(
+                        HistoryEventEntity(
+                            id = newId(),
+                            expenseId = expenseId,
+                            groupId = existing.groupId,
+                            actorUserId = actorId,
+                            type = HistoryEventType.SETTLEMENT_EDITED.name,
+                            detail =
+                                "edit:${existing.paymentAmountSubunits}:${respread.newTotalSubunits}:" +
+                                    "${existing.fromUserId}:${afterByBill[expenseId] ?: 0L}",
+                            createdAt = now,
+                        ),
+                    )
+                }
         }
+        return replacement.toDomain().asOk()
     }
 
-    override suspend fun voidSettlement(settlementId: SettlementId): AppResult<Unit> {
+    override suspend fun voidSettlement(
+        settlementId: SettlementId,
+        actor: UserId?,
+    ): AppResult<Unit> {
         val existing = settlementDao.getById(settlementId.value)
         if (existing == null || existing.deletedAt != null) {
             return validationErr("settlement", AppError.Validation.Reason.Required)
+        }
+        if (actor != null && !isPaymentParty(existing.fromUserId, existing.toUserId, actor.value)) {
+            return AppError.NotAuthorized.asErr()
         }
         // Soft-delete only: the allocations stay as history but drop out of the derived remaining (the
         // join filters non-voided settlements), so the paid-down amount is restored automatically.
-        settlementDao.voidSettlement(settlementId.value, clock.nowEpochMillis())
+        val now = clock.nowEpochMillis()
+        settlementDao.voidSettlement(settlementId.value, now)
+        if (actor != null) {
+            historyEventDao?.let { dao ->
+                val shareIds = settlementDao.allocationsForSettlement(settlementId.value).map { it.shareId }
+                val bills = if (shareIds.isEmpty()) emptyList() else settlementDao.shareExpenses(shareIds).map { it.expenseId }.distinct()
+                bills.forEach { expenseId ->
+                    dao.upsert(
+                        HistoryEventEntity(
+                            id = newId(),
+                            expenseId = expenseId,
+                            groupId = existing.groupId,
+                            actorUserId = actor.value,
+                            type = HistoryEventType.SETTLEMENT_REMOVED.name,
+                            detail = "removed:${existing.paymentAmountSubunits}:${existing.fromUserId}",
+                            createdAt = now,
+                        ),
+                    )
+                }
+            }
+        }
         return AppResult.Ok(Unit)
     }
 
-    private fun validationErr(field: String, reason: AppError.Validation.Reason): AppResult<Nothing> =
-        AppError.Validation(mapOf(field to reason)).asErr()
+    private fun validationErr(
+        field: String,
+        reason: AppError.Validation.Reason,
+    ): AppResult<Nothing> = AppError.Validation(mapOf(field to reason)).asErr()
 }

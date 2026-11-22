@@ -85,8 +85,20 @@ const state = {
   doneAt: null as number | null,
   payerUserId: 'u-andrew',
   me: null as string | null,
+  /** The guest's payments back to the payer (one-time-splits B4). Owed is fixed: a walkthrough, not math. */
+  myPayments: [] as Array<{ id: string; amountSubunits: number; hereSubunits: number; app: string | null; settledAt: number }>,
+  myOwedSubunits: 2105,
   seq: 0,
 };
+
+function paymentsView() {
+  const paid = state.myPayments.reduce((n, p) => n + p.hereSubunits, 0);
+  return {
+    owedSubunits: state.myOwedSubunits,
+    remainingSubunits: Math.max(state.myOwedSubunits - paid, 0),
+    payments: [...state.myPayments].sort((a, b) => b.settledAt - a.settledAt),
+  };
+}
 
 function flag(name: string): string | null {
   return new URLSearchParams(location.search).get(name);
@@ -437,6 +449,35 @@ export function installMockTransport(): void {
           payerUserId: state.payerUserId, payerName: NAMES[state.payerUserId] ?? null,
           splitVersion: state.splitVersion,
         };
+      }
+
+      case 'payments':
+        return paymentsView();
+
+      case 'pay': {
+        const amount = Number(body.amountSubunits);
+        const room = paymentsView().remainingSubunits;
+        if (!(amount > 0) || amount > room) {
+          return { ok: false, reason: 'ABOVE_CEILING', ceilingSubunits: room, ...paymentsView() };
+        }
+        state.myPayments.push({
+          id: nextId('pay'), amountSubunits: amount, hereSubunits: amount,
+          app: (body.app as string | null) ?? null, settledAt: Date.now(),
+        });
+        return { ok: true, reason: null, ceilingSubunits: null, ...paymentsView() };
+      }
+
+      case 'payment': {
+        const i = state.myPayments.findIndex((p) => p.id === body.settlementId);
+        if (i < 0) return { ok: false, reason: 'GONE', ceilingSubunits: null, ...paymentsView() };
+        const amount = Number(body.amountSubunits);
+        const room = state.myPayments[i].hereSubunits + paymentsView().remainingSubunits;
+        if (amount < 0 || amount > room) {
+          return { ok: false, reason: 'ABOVE_CEILING', ceilingSubunits: room, ...paymentsView() };
+        }
+        if (amount === 0) state.myPayments.splice(i, 1);
+        else state.myPayments[i] = { ...state.myPayments[i], id: nextId('pay'), amountSubunits: amount, hereSubunits: amount };
+        return { ok: true, reason: null, ceilingSubunits: null, ...paymentsView() };
       }
 
       case 'done':

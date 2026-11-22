@@ -111,7 +111,7 @@ import kotlinx.coroutines.Dispatchers
         SupersededNoticeEntity::class,
         FeedbackOutboxEntity::class,
     ],
-    version = 32,
+    version = 33,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)

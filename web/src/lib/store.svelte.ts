@@ -12,7 +12,17 @@
  * - **Money is computed here, from rows** (§2.10). The server never returns a total.
  */
 
-import { api, ApiError, type BillHeader, type BillResponse, type Candidate, type EditKind } from './api.ts';
+import {
+  api,
+  ApiError,
+  type BillHeader,
+  type BillResponse,
+  type Candidate,
+  type EditKind,
+  type MyPayments,
+  type PaymentWriteResult,
+} from './api.ts';
+import { money } from './format.ts';
 import { clearSessionToken, saveSessionToken, tokenForBill, tokenForGroup } from './session.ts';
 import { splitBill, toSplitInput, type BillResult, type ItemStatus } from './money/index.ts';
 import { buildChanges, buildLines, claimProgress, type ChangeView, type LineView } from './lines.ts';
@@ -82,6 +92,8 @@ export class ClaimStore {
 
   /** Set when this guest just lost a payer race (E25), so the page can say who won. */
   payerNotice = $state<string | null>(null);
+  /** The guest's own payments on this bill (one-time-splits B4); null until loaded. */
+  myPayments = $state<MyPayments | null>(null);
 
   /** Whether the person holding this browser is currently the bill's payer. */
   get iAmPayer(): boolean {
@@ -403,6 +415,39 @@ export class ClaimStore {
       await this.refresh();
       return res.ok;
     }, false);
+  }
+
+  /** Loads what this guest has paid back on this bill. Quietly leaves the last answer on failure. */
+  async loadPayments(): Promise<void> {
+    if (!this.sessionToken) return;
+    try {
+      this.myPayments = await api.payments(this.billToken, this.sessionToken);
+    } catch {
+      // A read the guest did not ask for; the pay row still works without it.
+    }
+  }
+
+  /** Records "I paid". Returns what to tell the guest when it was refused, or null once saved. */
+  async pay(amountSubunits: number, app: string | null): Promise<string | null> {
+    return this.#paymentWrite(() => api.pay(this.billToken, this.sessionToken!, amountSubunits, app));
+  }
+
+  /** Changes (or, with 0, removes) the guest's own payment. Same return as [pay]. */
+  async changePayment(settlementId: string, amountSubunits: number): Promise<string | null> {
+    return this.#paymentWrite(() => api.changePayment(this.billToken, this.sessionToken!, settlementId, amountSubunits));
+  }
+
+  async #paymentWrite(call: () => Promise<PaymentWriteResult>): Promise<string | null> {
+    return this.#write(async () => {
+      const res = await call();
+      this.myPayments = res;
+      if (res.ok) return null;
+      if (res.reason === 'ABOVE_CEILING' && res.ceilingSubunits !== null) {
+        return `It can't be more than ${money(res.ceilingSubunits, this.currency)}, what you owe on this bill.`;
+      }
+      if (res.reason === 'NOT_OWED') return "You don't owe anything on this bill.";
+      return 'That payment changed. Check it and try again.';
+    }, "Couldn't save that. Check your connection and try again.");
   }
 
   /** A nudge-silencer, not a lock: the guest can come back and change anything (§3.3, E31). */

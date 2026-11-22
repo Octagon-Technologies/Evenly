@@ -137,11 +137,8 @@ fun SettleSingleSheet(
                 val sel = selected
                 if (awaitingConfirm && sel != null) {
                     Text("We opened ${sel.label}. Did the payment go through?", color = c.ink2, fontSize = 13.sp)
-                    EvButton(
-                        "Yes, mark paid",
-                        { onConfirmPaid(enteredSubunits, sel.app) },
-                        enabled = amountValid,
-                    )
+                    // The amount above stays editable here (one-time-splits mockup 7): what's entered is what's recorded.
+                    EvButton("Yes, I paid", { if (amountValid) onConfirmPaid(enteredSubunits, sel.app) })
                     EvButton("Not yet", { awaitingConfirm = false }, variant = ButtonVariant.Tonal)
                 } else {
                     if (sel != null) {

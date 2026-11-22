@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
+import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.todayUtc
 import app.splitevenly.domain.auth.AuthSession
@@ -57,6 +58,8 @@ fun SettlePersonRoute(
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
+    val allPayments by remember(gid) { settlements.observeSettlements(gid) }.collectAsStateWithLifecycle(emptyList())
+    val coveredTitles by remember(gid) { settlements.observeCoveredExpenseTitles(gid) }.collectAsStateWithLifecycle(emptyMap())
     val scope = rememberCoroutineScope()
     val today = remember { Clock.System.todayUtc() }
 
@@ -104,6 +107,19 @@ fun SettlePersonRoute(
         }
     }
 
+    fun nameOf(id: UserId?): String =
+        when (id) {
+            null -> "Someone"
+            userId -> "You"
+            else -> members.firstOrNull { it.userId == id }?.displayName ?: "Someone"
+        }
+    // Every live payment between you and this person, either direction. Here a payment is its whole
+    // total, so editing it re-spreads across the bills it covered (one-time-splits mockup 9).
+    val pairPayments =
+        allPayments
+            .filter { (it.fromUserId == userId && it.toUserId == peerId) || (it.fromUserId == peerId && it.toUserId == userId) }
+            .map { s -> paymentUi(s, userId, s.paymentAmountSubunits, coveredTitles[s.id]?.size ?: 1) { nameOf(it) } }
+
     SettlePersonScreen(
         peerName = peerName,
         currencyCode = currency,
@@ -117,6 +133,10 @@ fun SettlePersonRoute(
         },
         onConfirmPaid = { amount, app, expenseIds -> record(amount, app, linkConfirmed = true, expenseIds) },
         onMarkPaid = { amount, expenseIds -> record(amount, app = null, linkConfirmed = false, expenseIds) },
+        payments = pairPayments,
+        previewPayment = { id, amount -> paymentPreview(settlements, id, amount, currency, scopeExpenseId = null) },
+        onSavePayment = { id, amount -> savePaymentEdit(settlements, id, amount, userId, scopeExpenseId = null) },
+        onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id), userId) } },
     )
 }
 

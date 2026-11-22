@@ -197,6 +197,12 @@ create table if not exists public.settlements (
   deleted_at bigint
 );
 create index if not exists settlements_group_idx on public.settlements (group_id, settled_at);
+-- Payment edits (one-time-splits Part B): an edit voids the payment and records a replacement. Every
+-- replacement names the FIRST payment of its chain, so "one live payment per chain" is checkable no
+-- matter how many times it was edited. Null on a payment that was never edited.
+alter table public.settlements add column if not exists original_settlement_id text;
+create index if not exists settlements_original_idx on public.settlements (original_settlement_id)
+  where original_settlement_id is not null;
 
 -- Settlement allocations: how a payment applied to specific shares. These are the GROUND TRUTH for
 -- payments — the client derives each share's `remaining = owed - Σ applied` from them (and skips
@@ -3439,3 +3445,259 @@ revoke all on function public.purge_deleted_groups() from public, anon, authenti
 --
 -- 03:15 UTC is deliberate: 15 minutes after `purge-deleted-accounts` so the two never interleave on
 -- the same `members` rows. `cron.schedule` upserts by jobname, so running it twice is safe.
+
+-- ── Payment edits: only the two parties (one-time-splits Part B, B1) ────────────────────────────────
+-- Membership RLS lets any ACTIVE member write any settlement row. A payment's AMOUNT and whether it is
+-- live are now the two parties' business only (from_user_id, to_user_id). This is a trigger, not a
+-- policy, on purpose: the push is a full-row upsert, so a policy on UPDATE would also refuse the
+-- unchanged rows a third member's device re-sends, and a placeholder claim's reassignment of
+-- from/to (written by the claimer, who is not yet the old row's party). The trigger refuses only the
+-- columns that move money. `auth.uid()` is null for the service role (`web-claim`), which does its own
+-- party check in `record_web_payment` / `edit_web_payment` below.
+create or replace function public.settlement_party_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := (select auth.uid())::text;
+begin
+  if v_uid is null then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    -- A replacement is an edit, so it carries the same rule. A brand-new payment does not.
+    if new.original_settlement_id is not null and v_uid not in (new.from_user_id, new.to_user_id) then
+      raise exception 'only the two people in a payment can change it' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  if (new.payment_amount_subunits is distinct from old.payment_amount_subunits
+      or (old.deleted_at is null) <> (new.deleted_at is null)
+      or new.payment_currency is distinct from old.payment_currency)
+     and v_uid not in (old.from_user_id, old.to_user_id) then
+    raise exception 'only the two people in a payment can change it' using errcode = '42501';
+  end if;
+  if (new.from_user_id is distinct from old.from_user_id or new.to_user_id is distinct from old.to_user_id)
+     and v_uid not in (new.from_user_id, new.to_user_id) then
+    raise exception 'only the two people in a payment can change it' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.settlement_party_guard() from public, anon, authenticated;
+
+drop trigger if exists settlement_party_guard on public.settlements;
+create trigger settlement_party_guard before insert or update on public.settlements
+  for each row execute function public.settlement_party_guard();
+
+-- An allocation's amount is the money itself. Edits never rewrite one (they void the payment and
+-- write new rows), so a changed amount is only ever legitimate from a party.
+create or replace function public.settlement_allocation_party_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid text := (select auth.uid())::text;
+begin
+  if v_uid is null or new.applied_amount_subunits is not distinct from old.applied_amount_subunits
+     and new.settlement_id is not distinct from old.settlement_id then
+    return new;
+  end if;
+  if not exists (
+    select 1 from public.settlements s
+    where s.id = old.settlement_id and v_uid in (s.from_user_id, s.to_user_id)
+  ) then
+    raise exception 'only the two people in a payment can change it' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.settlement_allocation_party_guard() from public, anon, authenticated;
+
+drop trigger if exists settlement_allocation_party_guard on public.settlement_allocations;
+create trigger settlement_allocation_party_guard before update on public.settlement_allocations
+  for each row execute function public.settlement_allocation_party_guard();
+
+-- Two parties editing the same payment at once each void it and write a replacement, which would leave
+-- both replacements live and the bill double-paid. The replacement that reaches the server last wins:
+-- it voids every other live payment of its chain. Both edits keep their history rows, so the record
+-- shows both. Arrival order, not client time, because a client's clock is not trusted
+-- (`data/AGENTS.md`). Statement-level would miss which row arrived; this is per row, after insert.
+create or replace function public.settlement_chain_last_wins()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now bigint := (extract(epoch from clock_timestamp()) * 1000)::bigint;
+begin
+  if new.original_settlement_id is null or new.deleted_at is not null then
+    return null;
+  end if;
+  update public.settlements s
+     set deleted_at = v_now,
+         updated_at = greatest(s.updated_at + 1, v_now),
+         row_version = s.row_version + 1
+   where s.group_id = new.group_id
+     and (s.id = new.original_settlement_id or s.original_settlement_id = new.original_settlement_id)
+     and s.id <> new.id
+     and s.deleted_at is null;
+  return null;
+end;
+$$;
+revoke all on function public.settlement_chain_last_wins() from public, anon, authenticated;
+
+drop trigger if exists settlement_chain_last_wins on public.settlements;
+create trigger settlement_chain_last_wins after insert on public.settlements
+  for each row execute function public.settlement_chain_last_wins();
+
+-- What a share still owes: owed minus every live payment's allocation. Mirrors the client's
+-- `derivedRemainingForShare`; the two web payment RPCs below are its only callers.
+create or replace function public._share_remaining(p_share_id text)
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select sh.share_owed_subunits - coalesce((
+    select sum(sa.applied_amount_subunits) from public.settlement_allocations sa
+    join public.settlements st on st.id = sa.settlement_id
+    where sa.share_id = sh.id and st.deleted_at is null), 0)
+  from public.shares sh where sh.id = p_share_id;
+$$;
+revoke all on function public._share_remaining(text) from public, anon, authenticated;
+
+-- B4: a web guest records what they paid back on ONE bill. Service-role only (`web-claim`, which has
+-- already bound the browser to [p_from_user_id] through `web_sessions`). The money lands on this
+-- bill's share only. A refusal is a result (`ok: false` with the ceiling), not an error: the guest
+-- typed a number, and the page has to say what the most is.
+create or replace function public.record_web_payment(
+  p_expense_id text,
+  p_from_user_id text,
+  p_amount bigint,
+  p_payment_app text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_exp public.expenses%rowtype;
+  v_share_id text;
+  v_remaining bigint;
+  v_id text := gen_random_uuid()::text;
+begin
+  select * into v_exp from public.expenses where id = p_expense_id and deleted_at is null for update;
+  if not found then raise exception 'bill not found'; end if;
+  if v_exp.payer_user_id is null or v_exp.payer_user_id = p_from_user_id then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_OWED', 'ceiling', 0);
+  end if;
+  select id into v_share_id from public.shares
+   where expense_id = p_expense_id and user_id = p_from_user_id and deleted_at is null;
+  if v_share_id is null then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_OWED', 'ceiling', 0);
+  end if;
+  v_remaining := greatest(coalesce(public._share_remaining(v_share_id), 0), 0);
+  if p_amount is null or p_amount <= 0 or p_amount > v_remaining then
+    return jsonb_build_object('ok', false, 'reason', 'ABOVE_CEILING', 'ceiling', v_remaining);
+  end if;
+  insert into public.settlements (id, group_id, from_user_id, to_user_id, payment_currency,
+    payment_amount_subunits, payment_app, deep_link_attempted, settled_at, created_by, created_at, updated_at)
+  values (v_id, v_exp.group_id, p_from_user_id, v_exp.payer_user_id, v_exp.currency,
+    p_amount, p_payment_app, false, p_now, p_from_user_id, p_now, p_now);
+  insert into public.settlement_allocations (id, settlement_id, group_id, share_id, applied_amount_subunits,
+    applied_currency, created_at)
+  values (gen_random_uuid()::text, v_id, v_exp.group_id, v_share_id, p_amount, v_exp.currency, p_now);
+  insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
+  values (gen_random_uuid()::text, p_expense_id, v_exp.group_id, p_from_user_id, 'SETTLED', 'amt:' || p_amount, p_now);
+  return jsonb_build_object('ok', true, 'settlement_id', v_id);
+end;
+$$;
+revoke all on function public.record_web_payment(text, text, bigint, text, bigint) from public, anon, authenticated;
+
+-- B4: a web guest changes or removes THEIR OWN payment, from one bill's link. Only this bill's portion
+-- moves; any other bill the payment covered keeps what it had (the same rule as the app's single-bill
+-- edit, `respreadPayment` with a scope). [p_new_amount] = 0 removes this bill's portion, and the whole
+-- payment when this bill was all it covered. History rows use the app's tokens so the app renders them.
+create or replace function public.edit_web_payment(
+  p_expense_id text,
+  p_settlement_id text,
+  p_actor text,
+  p_new_amount bigint,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_old public.settlements%rowtype;
+  v_share_id text;
+  v_here bigint;
+  v_others bigint;
+  v_room bigint;
+  v_new_total bigint;
+  v_new_id text := gen_random_uuid()::text;
+begin
+  select * into v_old from public.settlements where id = p_settlement_id for update;
+  if not found or v_old.deleted_at is not null then
+    return jsonb_build_object('ok', false, 'reason', 'GONE', 'ceiling', 0);
+  end if;
+  -- The guest is the one who paid. The person owed corrects it from the app.
+  if v_old.from_user_id <> p_actor then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_YOURS', 'ceiling', 0);
+  end if;
+  select sh.id into v_share_id from public.shares sh
+   where sh.expense_id = p_expense_id and sh.user_id = v_old.from_user_id and sh.deleted_at is null;
+  select coalesce(sum(sa.applied_amount_subunits) filter (where sa.share_id = v_share_id), 0),
+         coalesce(sum(sa.applied_amount_subunits) filter (where sa.share_id is distinct from v_share_id), 0)
+    into v_here, v_others
+    from public.settlement_allocations sa where sa.settlement_id = p_settlement_id;
+  if v_share_id is null or v_here = 0 then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_COVERED', 'ceiling', 0);
+  end if;
+  v_room := v_here + greatest(coalesce(public._share_remaining(v_share_id), 0), 0);
+  if p_new_amount is null or p_new_amount < 0 or p_new_amount > v_room then
+    return jsonb_build_object('ok', false, 'reason', 'ABOVE_CEILING', 'ceiling', v_room);
+  end if;
+  v_new_total := v_others + p_new_amount;
+
+  update public.settlements
+     set deleted_at = p_now, updated_at = greatest(updated_at + 1, p_now), row_version = row_version + 1
+   where id = p_settlement_id;
+
+  if v_new_total > 0 then
+    insert into public.settlements (id, group_id, from_user_id, to_user_id, payment_currency,
+      payment_amount_subunits, payment_app, deep_link_attempted, deep_link_succeeded, settled_at, notes,
+      created_by, created_at, updated_at, original_settlement_id)
+    values (v_new_id, v_old.group_id, v_old.from_user_id, v_old.to_user_id, v_old.payment_currency,
+      v_new_total, v_old.payment_app, v_old.deep_link_attempted, v_old.deep_link_succeeded, p_now, v_old.notes,
+      p_actor, p_now, p_now, coalesce(v_old.original_settlement_id, v_old.id));
+    insert into public.settlement_allocations (id, settlement_id, group_id, share_id, applied_amount_subunits,
+      applied_currency, fx_rate_used, fx_rate_date, created_at)
+    select gen_random_uuid()::text, v_new_id, sa.group_id, sa.share_id,
+           case when sa.share_id = v_share_id then p_new_amount else sa.applied_amount_subunits end,
+           sa.applied_currency, sa.fx_rate_used, sa.fx_rate_date, p_now
+      from public.settlement_allocations sa
+     where sa.settlement_id = p_settlement_id
+       and (sa.share_id <> v_share_id or p_new_amount > 0);
+    insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
+    values (gen_random_uuid()::text, p_expense_id, v_old.group_id, p_actor, 'SETTLEMENT_EDITED',
+      'edit:' || v_old.payment_amount_subunits || ':' || v_new_total || ':' || v_old.from_user_id || ':' || p_new_amount,
+      p_now);
+  else
+    insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
+    values (gen_random_uuid()::text, p_expense_id, v_old.group_id, p_actor, 'SETTLEMENT_REMOVED',
+      'removed:' || v_old.payment_amount_subunits || ':' || v_old.from_user_id, p_now);
+  end if;
+  return jsonb_build_object('ok', true, 'settlement_id', case when v_new_total > 0 then v_new_id end);
+end;
+$$;
+revoke all on function public.edit_web_payment(text, text, text, bigint, bigint) from public, anon, authenticated;

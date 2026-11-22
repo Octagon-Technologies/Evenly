@@ -8,7 +8,9 @@ real person in the group, no app, no account, no password) and, as of 2026-08-04
 
 **The claim flow is still not a web version of Evenly.** One bill, one job, until its link is revoked or its bill is deleted. Spec §9 lists
 what that deliberately excludes — no group view, no balances, no settle-up, no expense creation, no
-offline. If you are adding a second *claim* screen that is not in `design/web-claim-mockup.html`,
+offline. One narrow exception (one-time-splits B4, `MyPayment.svelte`): a guest may record what she paid
+back **on this bill** and change or remove her own record from the same browser. Never other bills,
+never a running balance. If you are adding a second *claim* screen that is not in `design/web-claim-mockup.html`,
 stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
 mockup (the "Finy-inspired" home/privacy/terms artifact) — a new marketing page is in scope there.
 
