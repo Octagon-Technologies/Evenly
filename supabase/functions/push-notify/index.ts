@@ -3,17 +3,24 @@
 // directly with a service key.
 //
 // Inert until configured: set the `FCM_SERVICE_ACCOUNT` secret (the JSON of a Firebase service account
-// with the Cloud Messaging role). Without it the function returns 200 + {sent:0, skipped:"..."} so a
+// with the Cloud Messaging role). Without it the function returns 200 + {sent:0, wouldSend:n, skipped:"..."} so a
 // trigger that calls it never errors.
 //
 //   POST  { "groupId": "...", "title": "...", "body": "...",
-//           "data"?: {..}, "excludeUserId"?: "...", "pref"?: "newExpenses"|"payments"|"conflictReminders" }
+//           "data"?: {..}, "excludeUserId"?: "...", "onlyUserIds"?: ["..."],
+//           "pref"?: "newExpenses"|"payments"|"conflictReminders" }
 //
-// Auth: the caller MUST present the project's service-role key as the Bearer. Title/body/data are fully
+// Callers today: the `notify_expense_inserted` / `notify_settlement_inserted` triggers in schema.sql.
+//
+// Auth: the caller MUST present `PUSH_NOTIFY_SECRET` (what the DB triggers send, read from Vault) or the
+// project's service-role key (manual/admin calls) as the Bearer. Title/body/data are fully
 // caller-controlled and this function fans a push out to every device in a group, so an anon-key caller
 // (the shipped app's key) must NOT be able to reach it — that would be arbitrary-content push spam to any
-// group (P1 #14). Legitimate callers are server-side only: a DB webhook/trigger or an admin task, both of
-// which hold the service role. This check MUST stay in place before the FCM secret is ever configured.
+// group (P1 #14). This check MUST stay in place before the FCM secret is ever configured.
+//
+// Why a dedicated secret: the triggers first sent the legacy service-role JWT, and every call was refused,
+// because the runtime's SUPABASE_SERVICE_ROLE_KEY is no longer that string. A secret this function owns
+// can't drift that way. Deployed with verify_jwt = false for the same reason (the secret is not a JWT).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -23,6 +30,8 @@ interface NotifyRequest {
   body: string;
   data?: Record<string, string>;
   excludeUserId?: string;
+  /** Narrow the group's active members to these users (a payment concerns one person, not the group). */
+  onlyUserIds?: string[];
   pref?: "newExpenses" | "payments" | "conflictReminders";
 }
 
@@ -35,12 +44,11 @@ const PREF_COLUMN: Record<string, string> = {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
-  // Require the service-role key explicitly (P1 #14). Anything else — anon key, a user JWT, nothing — is
-  // rejected before any work, so the shipped app's anon key can't drive arbitrary push. Constant-time-ish
-  // compare on the raw Bearer against the service-role secret.
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  // Anything else — anon key, a user JWT, nothing — is rejected before any work (P1 #14).
+  const accepted = [Deno.env.get("PUSH_NOTIFY_SECRET"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")]
+    .filter((k): k is string => !!k);
   const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!serviceRoleKey || bearer !== serviceRoleKey) {
+  if (!bearer || !accepted.includes(bearer)) {
     return json({ error: "forbidden" }, 403);
   }
 
@@ -51,12 +59,6 @@ Deno.serve(async (req) => {
     return json({ error: "invalid JSON body" }, 400);
   }
   if (!payload.groupId || !payload.title) return json({ error: "groupId + title required" }, 400);
-
-  const serviceAccountRaw = Deno.env.get("FCM_SERVICE_ACCOUNT");
-  if (!serviceAccountRaw) {
-    // Not yet configured — succeed without sending so triggers don't fail.
-    return json({ sent: 0, skipped: "FCM_SERVICE_ACCOUNT not set" }, 200);
-  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -73,6 +75,10 @@ Deno.serve(async (req) => {
 
   let userIds = (members ?? []).map((m) => m.user_id as string);
   if (payload.excludeUserId) userIds = userIds.filter((id) => id !== payload.excludeUserId);
+  if (payload.onlyUserIds) {
+    const only = new Set(payload.onlyUserIds);
+    userIds = userIds.filter((id) => only.has(id));
+  }
   if (userIds.length === 0) return json({ sent: 0, skipped: "no recipients" }, 200);
 
   // 2. Honour each recipient's per-event preference, if one was named.
@@ -97,6 +103,13 @@ Deno.serve(async (req) => {
   const tokens = (tokenRows ?? []).map((t) => t.id as string);
   if (tokens.length === 0) return json({ sent: 0, skipped: "no device tokens" }, 200);
 
+  // Not configured: succeed without sending so triggers don't fail. Checked last on purpose, so the
+  // response doubles as a dry run of who WOULD have been notified.
+  const serviceAccountRaw = Deno.env.get("FCM_SERVICE_ACCOUNT");
+  if (!serviceAccountRaw) {
+    return json({ sent: 0, wouldSend: tokens.length, skipped: "FCM_SERVICE_ACCOUNT not set" }, 200);
+  }
+
   // 4. Send via FCM HTTP v1.
   const serviceAccount = JSON.parse(serviceAccountRaw);
   const accessToken = await getAccessToken(serviceAccount);
@@ -104,6 +117,7 @@ Deno.serve(async (req) => {
 
   let sent = 0;
   const failures: string[] = [];
+  const dead: string[] = [];
   for (const token of tokens) {
     const res = await fetch(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -115,15 +129,25 @@ Deno.serve(async (req) => {
             token,
             notification: { title: payload.title, body: payload.body },
             data: payload.data ?? {},
+            // FCM's bare `notification` is silent on both OSes; ask for the default sound explicitly.
+            android: { notification: { sound: "default" } },
+            apns: { payload: { aps: { sound: "default" } } },
           },
         }),
       },
     );
-    if (res.ok) sent++;
-    else failures.push(`${res.status}: ${await res.text()}`);
+    if (res.ok) {
+      sent++;
+    } else {
+      const text = await res.text();
+      // Uninstalled app or rotated token: FCM will never accept it again, so stop sending to it.
+      if (res.status === 404 || text.includes("UNREGISTERED")) dead.push(token);
+      failures.push(`${res.status}: ${text}`);
+    }
   }
+  if (dead.length > 0) await supabase.from("device_tokens").delete().in("id", dead);
 
-  return json({ sent, attempted: tokens.length, failures }, 200);
+  return json({ sent, attempted: tokens.length, pruned: dead.length, failures }, 200);
 });
 
 function json(body: unknown, status: number): Response {

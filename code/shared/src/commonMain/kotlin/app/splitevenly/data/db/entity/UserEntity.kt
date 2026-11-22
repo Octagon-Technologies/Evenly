@@ -65,11 +65,12 @@ data class UserEntity(
     @ColumnInfo(name = "created_by")
     val createdBy: String? = null,
     // Notification preferences (06 §5.4). Stored on the user so they persist + sync across devices;
-    // a server-side push sender reads these before targeting a recipient.
+    // a server-side push sender reads these before targeting a recipient. Off until the user opts in and
+    // the OS grants permission, matching `NotificationPrefs` and the server column default.
     @ColumnInfo(name = "notify_new_expenses")
-    val notifyNewExpenses: Boolean = true,
+    val notifyNewExpenses: Boolean = false,
     @ColumnInfo(name = "notify_payments")
-    val notifyPayments: Boolean = true,
+    val notifyPayments: Boolean = false,
     @ColumnInfo(name = "notify_conflict_reminders")
     val notifyConflictReminders: Boolean = false,
     /** Appearance preference: "System" | "Light" | "Dark" (06 §UI). */

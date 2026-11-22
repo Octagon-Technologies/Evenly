@@ -1,37 +1,50 @@
 # `push-notify` edge function (F7)
 
-Sends an FCM notification to the device tokens of a group's members. **Deployed but inert** until the
-FCM credential is configured — without it, every call returns `200 {sent:0, skipped:"FCM_SERVICE_ACCOUNT not set"}`,
-so any trigger that calls it is safe.
+Sends an FCM notification to the device tokens of a group's members. **Wired, but delivers nothing** until
+the FCM credential is configured: every call then returns `200 {sent:0, wouldSend:n, skipped:"FCM_SERVICE_ACCOUNT not set"}`,
+which doubles as a dry run of who would have been notified.
+
+## Who calls it
+Two `AFTER INSERT` triggers in `schema.sql` (`expenses_push_notify`, `settlements_push_notify`) build the
+message text in SQL and queue a `pg_net` POST through `push_dispatch()`:
+
+| Event | Recipients | Pref | Example |
+| --- | --- | --- | --- |
+| Expense inserted | every ACTIVE member except its creator | `newExpenses` | "Bob added Dinner at Nopa" / "$84.00 in New group" |
+| Payment inserted | each party who did not record it | `payments` | "Bob paid you $21.00" / "In New group" |
+
+The sync push is an `INSERT ... ON CONFLICT DO UPDATE`, and `AFTER INSERT` fires only for rows actually
+inserted, so a re-push or an edit never re-notifies. Payment edit replacements (`original_settlement_id`)
+are skipped. Every trigger path swallows its own errors: a failed push must never refuse the row.
 
 ## What it does
-Given `{ groupId, title, body, data?, excludeUserId?, pref? }` it:
-1. resolves the group's ACTIVE members (minus `excludeUserId`),
+Given `{ groupId, title, body, data?, excludeUserId?, onlyUserIds?, pref? }` it:
+1. resolves the group's ACTIVE members (minus `excludeUserId`, narrowed to `onlyUserIds`),
 2. drops anyone who opted out of `pref` (`newExpenses` / `payments` / `conflictReminders` — the columns on `users`),
 3. looks up their rows in `device_tokens`,
-4. mints an OAuth token from the service account and POSTs each one via FCM HTTP v1.
+4. mints an OAuth token from the service account and POSTs each one via FCM HTTP v1, deleting any token
+   FCM reports as `UNREGISTERED`.
 
-It reads tokens with the service role (`SUPABASE_SERVICE_ROLE_KEY`, auto-injected), so the caller's own
-permissions don't matter — but `verify_jwt` is on, so callers must send a valid bearer (a DB webhook sends
-the service-role key; the app sends the user JWT).
+## Auth
+`verify_jwt = false` (see `config.toml`); the function's own check accepts only `PUSH_NOTIFY_SECRET` or the
+runtime service-role key as the Bearer. The triggers send `PUSH_NOTIFY_SECRET`, mirrored in Vault as
+`push_notify_service_key`. They used to be meant to send the service-role JWT, and every such call was
+refused: the runtime's `SUPABASE_SERVICE_ROLE_KEY` is not that string. The welcome-email webhook on
+`auth.users` still hardcodes it and has been 403ing for the same reason.
 
-## To turn it on
+## To turn delivery on
 1. Firebase console → Project settings → Service accounts → **Generate new private key** (a JSON file).
    The service account needs the *Firebase Cloud Messaging API*.
 2. Set it as a secret (single line of JSON):
    ```bash
    supabase secrets set FCM_SERVICE_ACCOUNT="$(cat service-account.json)" --project-ref wfpfgbipjmkysalfmyub
    ```
-3. (Optional, to fire automatically) add a **Database Webhook** (Dashboard → Database → Webhooks) on
-   `expenses` / `settlements` INSERT that POSTs to this function. Build the body from the row, e.g.
-   `{ "groupId": record.group_id, "title": "New expense", "body": record.title, "pref": "newExpenses",
-   "excludeUserId": record.created_by }`. Or invoke it from your own server logic.
+3. iOS also needs the Push Notifications capability and an APNs key uploaded to Firebase
+   (`code/iosApp/PUSH_SETUP.md` §3).
 
-## Manual test
-```bash
-curl -X POST "https://wfpfgbipjmkysalfmyub.supabase.co/functions/v1/push-notify" \
-  -H "Authorization: Bearer <SERVICE_ROLE_KEY>" -H "Content-Type: application/json" \
-  -d '{"groupId":"<group-uuid>","title":"Hi","body":"Test","pref":"newExpenses"}'
+## Checking it
+```sql
+select id, status_code, content, created from net._http_response order by id desc limit 10;
 ```
 
 ## Group deletion (the one event where a push is not optional)

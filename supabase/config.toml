@@ -384,6 +384,12 @@ verify_jwt = false
 [functions.revenuecat-webhook]
 verify_jwt = false
 
+# Called only by the expense/payment push triggers (schema.sql `push_dispatch`), authenticated by
+# PUSH_NOTIFY_SECRET (mirrored in Vault as `push_notify_service_key`). That secret is not a JWT, so
+# platform verification would refuse every trigger call before the function's own check runs.
+[functions.push-notify]
+verify_jwt = false
+
 # The admin dashboard's backend (ADMIN_FEEDBACK_SPEC.md §2.3). Off, and NOT because the endpoint is
 # public -- it is the opposite. Platform-level verification would 401 the CORS preflight before the
 # function's own gate ever runs, and it accepts the project's anon key as a valid JWT, which proves

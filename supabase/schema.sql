@@ -21,14 +21,19 @@ create table if not exists public.users (
   -- never ask someone whether they are a name they created themselves. Rows predating the column stay
   -- null ("creator unknown") and are offered to everyone, which is the pre-feature behaviour.
   created_by text,
-  notify_new_expenses boolean not null default true,
-  notify_payments boolean not null default true,
+  -- Off until the user opts in and the OS grants permission (the client flips them on at the grant).
+  notify_new_expenses boolean not null default false,
+  notify_payments boolean not null default false,
   notify_conflict_reminders boolean not null default false,
   theme_mode text not null default 'System',
   created_at bigint not null,
   updated_at bigint not null,
   row_version bigint not null default 1
 );
+
+-- Existing projects: the create above is a no-op, so the default flip needs its own statement.
+alter table public.users alter column notify_new_expenses set default false;
+alter table public.users alter column notify_payments set default false;
 
 create table if not exists public.groups (
   id text primary key,
@@ -3701,6 +3706,146 @@ begin
 end;
 $$;
 revoke all on function public.edit_web_payment(text, text, text, bigint, bigint) from public, anon, authenticated;
+
+-- ── Push: expense + payment triggers → push-notify ──────────────────────────────────────────────
+-- An AFTER INSERT row trigger on each table queues one pg_net POST to `push-notify`. The sync push is a
+-- full-row upsert (INSERT ... ON CONFLICT DO UPDATE), and Postgres fires AFTER INSERT only for rows that
+-- were actually inserted, so a re-push or an edit never re-notifies.
+--
+-- The bearer it sends is read from Vault (secret `push_notify_service_key`), never written into this file,
+-- and must equal the function's PUSH_NOTIFY_SECRET env var. No secret = silent no-op, so a fresh project
+-- or local stack is safe. To set both to one fresh value:
+--   supabase secrets set PUSH_NOTIFY_SECRET=<value>
+--   select vault.create_secret('<value>', 'push_notify_service_key');
+--
+-- Every path swallows its own errors: these run inside the client's sync transaction, and a push that
+-- fails must never turn into a refused expense or payment (that would wedge sync for the whole table).
+
+-- Display form of a money amount for a notification line. Deliberately small: the app's own formatter is
+-- Kotlin and the lock screen only needs something a person recognises.
+create or replace function public.push_money(p_subunits bigint, p_currency text)
+returns text language sql immutable set search_path = public as $$
+  select case
+    when upper(p_currency) in ('JPY','KRW','VND','CLP','ISK','UGX','PYG','RWF','XAF','XOF') then
+      coalesce(case upper(p_currency) when 'JPY' then '¥' when 'KRW' then '₩' end, upper(p_currency) || ' ')
+        || to_char(p_subunits, 'FM999,999,999,990')
+    else
+      coalesce(case upper(p_currency)
+                 when 'USD' then '$' when 'EUR' then '€' when 'GBP' then '£' when 'INR' then '₹'
+                 when 'CAD' then 'CA$' when 'AUD' then 'A$' when 'KES' then 'KSh ' end,
+               upper(p_currency) || ' ')
+        || to_char(p_subunits / 100.0, 'FM999,999,999,990.00')
+  end
+$$;
+
+create or replace function public.push_dispatch(p_body jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_key text;
+begin
+  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'push_notify_service_key';
+  if v_key is null then
+    return;
+  end if;
+  perform net.http_post(
+    url                  := 'https://wfpfgbipjmkysalfmyub.supabase.co/functions/v1/push-notify',
+    body                 := p_body,
+    headers              := jsonb_build_object('Authorization', 'Bearer ' || v_key,
+                                               'Content-Type', 'application/json'),
+    timeout_milliseconds := 5000
+  );
+exception when others then
+  raise warning 'push_dispatch: %', sqlerrm;
+end $$;
+-- Definer + caller-controlled title/body: callable by a client, this is arbitrary push to any group.
+revoke execute on function public.push_dispatch(jsonb) from public, anon, authenticated;
+
+create or replace function public.notify_expense_inserted()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_actor text;
+  v_group text;
+begin
+  -- Tombstones, auto-refunds and rows arriving already deleted are not news.
+  if new.deleted_at is not null or new.status <> 'ACTIVE' or coalesce(new.is_auto_refund, false) then
+    return new;
+  end if;
+  select name into v_group from groups where id = new.group_id and deleted_at is null;
+  if v_group is null then
+    return new;
+  end if;
+  select nullif(display_name, '') into v_actor from users where id = new.created_by;
+  perform push_dispatch(jsonb_build_object(
+    'groupId',       new.group_id,
+    'title',         coalesce(v_actor, 'Someone') || ' added ' || coalesce(nullif(new.title, ''), 'an expense'),
+    'body',          push_money(new.amount_subunits, new.currency) || ' in ' || v_group,
+    'excludeUserId', new.created_by,
+    'pref',          'newExpenses',
+    'data',          jsonb_build_object('route', 'group', 'groupId', new.group_id, 'expenseId', new.id)
+  ));
+  return new;
+exception when others then
+  raise warning 'notify_expense_inserted: %', sqlerrm;
+  return new;
+end $$;
+revoke execute on function public.notify_expense_inserted() from public, anon, authenticated;
+
+drop trigger if exists expenses_push_notify on public.expenses;
+create trigger expenses_push_notify after insert on public.expenses
+  for each row execute function public.notify_expense_inserted();
+
+-- A payment concerns its two parties, not the group: each party who did not record it gets one push,
+-- worded from their side. Edit replacements (original_settlement_id set) are skipped; the parties
+-- already heard about that payment once.
+create or replace function public.notify_settlement_inserted()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_from  text;
+  v_to    text;
+  v_group text;
+  v_amt   text;
+begin
+  if new.deleted_at is not null or new.original_settlement_id is not null then
+    return new;
+  end if;
+  select name into v_group from groups where id = new.group_id and deleted_at is null;
+  if v_group is null then
+    return new;
+  end if;
+  select coalesce(nullif(display_name, ''), 'Someone') into v_from from users where id = new.from_user_id;
+  select coalesce(nullif(display_name, ''), 'Someone') into v_to   from users where id = new.to_user_id;
+  v_amt := push_money(new.payment_amount_subunits, new.payment_currency);
+
+  if new.to_user_id is distinct from new.created_by then
+    perform push_dispatch(jsonb_build_object(
+      'groupId',     new.group_id,
+      'title',       coalesce(v_from, 'Someone') || ' paid you ' || v_amt,
+      'body',        'In ' || v_group,
+      'onlyUserIds', jsonb_build_array(new.to_user_id),
+      'pref',        'payments',
+      'data',        jsonb_build_object('route', 'group', 'groupId', new.group_id, 'settlementId', new.id)
+    ));
+  end if;
+  if new.from_user_id is distinct from new.created_by then
+    perform push_dispatch(jsonb_build_object(
+      'groupId',     new.group_id,
+      'title',       coalesce(v_to, 'Someone') || ' recorded your ' || v_amt || ' payment',
+      'body',        'In ' || v_group,
+      'onlyUserIds', jsonb_build_array(new.from_user_id),
+      'pref',        'payments',
+      'data',        jsonb_build_object('route', 'group', 'groupId', new.group_id, 'settlementId', new.id)
+    ));
+  end if;
+  return new;
+exception when others then
+  raise warning 'notify_settlement_inserted: %', sqlerrm;
+  return new;
+end $$;
+revoke execute on function public.notify_settlement_inserted() from public, anon, authenticated;
+
+drop trigger if exists settlements_push_notify on public.settlements;
+create trigger settlements_push_notify after insert on public.settlements
+  for each row execute function public.notify_settlement_inserted();
 
 -- ── Quick splits (docs/features/one-time-splits.md, Part A) ────────────────────────────────────────
 -- A quick split is a hidden group holding one bill: members, typed-in names, web claim, settlements and

@@ -77,6 +77,14 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Background FCM notifications are drawn by the SDK, not our code. Without these it falls back to
+             the full-colour launcher icon, which Android flattens into a white blob in the status bar. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/evenly_blue" />
         <!-- FCM delivery (06 §5.4): forwards tokens + messages into the shared PushBus. -->
         <service
             android:name=".EvenlyMessagingService"

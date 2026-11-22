@@ -67,7 +67,7 @@ Release/TestFlight steps, signing, and the App Store Connect prerequisites live 
   `handleEventsForBackgroundURLSession` for suspended-app completion of receipt uploads (session id
   `app.splitevenly.receiptUpload`). The shared side is `ReceiptUploadScheduler.ios.kt`; see
   `../shared/src/commonMain/kotlin/app/splitevenly/data/AGENTS.md` for the outbox design.
-- **Push setup** is documented in `PUSH_SETUP.md` (same directory). Delivery is currently inert.
+- **Push setup** is documented in `PUSH_SETUP.md` (same directory). Server triggers are wired; iOS still lacks the Push Notifications capability, so iPhones receive nothing yet.
 - **Never commit** `GoogleService-Info.plist` containing private data, or APNs `.p8`/`.p12` keys.
 
 ## Module shape

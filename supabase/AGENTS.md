@@ -429,7 +429,7 @@ A soft-deleted `receipts` row best-effort deletes its Storage object
 | --------------------------- | ---------------------------------------------------------- |
 | `extract-receipt`           | Live — Claude vision → structured bill draft (multi-page)  |
 | `web-claim`                 | Live — the web claim security boundary; `verify_jwt = false` (own token auth) |
-| `push-notify`               | Deployed but **inert** until `FCM_SERVICE_ACCOUNT` is set  |
+| `push-notify`               | Wired to expense/payment insert triggers; delivers nothing until `FCM_SERVICE_ACCOUNT` is set |
 | `dispatch_push`             | **Directory is EMPTY — never written or deployed**          |
 | `export_group`              | Live — free group CSV export; membership-gated server-side  |
 | `refresh_fx_rates`          | **Directory is EMPTY — never written or deployed**          |
