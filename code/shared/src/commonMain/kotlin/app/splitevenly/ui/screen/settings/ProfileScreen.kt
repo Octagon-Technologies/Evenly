@@ -32,11 +32,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.auth.NotificationPrefs
 import app.splitevenly.domain.auth.ThemeMode
+import app.splitevenly.domain.fx.CurrencyInfo
+import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
+import app.splitevenly.ui.components.EvCurrencyPickerModal
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvModalScaffold
 import app.splitevenly.ui.components.EvSectionLabel
@@ -55,6 +58,8 @@ fun ProfileScreen(
     displayName: String = "Alex Rivera",
     email: String = "alex@hey.com",
     baseCurrency: String = "USD",
+    currencies: List<CurrencyInfo> = FxCurrencyDefaults.fallback,
+    onChangeBaseCurrency: (String) -> Unit = {},
     paymentAppsSummary: String = "Venmo +2",
     paymentAppsSet: Boolean = true,
     isSignedIn: Boolean = true,
@@ -83,6 +88,7 @@ fun ProfileScreen(
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember(displayName) { mutableStateOf(displayName) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
 
     // A root tab of MainShell (the shell owns the status-bar scrim), but no bottom nav of its own —
     // matching Home, the only way back is this top-bar back button, not a persistent nav bar.
@@ -150,7 +156,7 @@ fun ProfileScreen(
 
             // ── Preferences ────────────────────────────────────
             ProfileGroup("Preferences") {
-                ProfileRow(icon = EvIcons.Globe, label = "Base currency", value = baseCurrency)
+                ProfileRow(icon = EvIcons.Globe, label = "Base currency", value = baseCurrency, onClick = { showCurrencyPicker = true })
                 // Nudge the app's signature feature: an unset handle means peers can only "mark as
                 // paid" instead of paying you through your own app. Surface it as an action, not a dead value.
                 ProfileRow(
@@ -253,6 +259,19 @@ fun ProfileScreen(
 
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    if (showCurrencyPicker) {
+        EvCurrencyPickerModal(
+            title = "Base currency",
+            currencies = currencies,
+            selected = baseCurrency,
+            onSelect = {
+                if (it != baseCurrency) onChangeBaseCurrency(it)
+                showCurrencyPicker = false
+            },
+            onDismiss = { showCurrencyPicker = false },
+        )
     }
 
     if (confirmDelete) {

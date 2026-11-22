@@ -22,4 +22,12 @@ object FxCurrencyDefaults {
         CurrencyInfo("HKD", "Hong Kong Dollar"),
         CurrencyInfo("NZD", "New Zealand Dollar"),
     )
+
+    /** Currencies the app supports that the ECB-backed provider does not list (Frankfurter has no KES),
+     *  so they would otherwise be missing from every picker. Expenses in them stay in their own currency
+     *  when no rate exists. */
+    private val appOnly: List<CurrencyInfo> = listOf(CurrencyInfo("KES", "Kenyan Shilling"))
+
+    fun withAppCurrencies(fetched: List<CurrencyInfo>): List<CurrencyInfo> =
+        (fetched + appOnly.filter { extra -> fetched.none { it.code == extra.code } }).sortedBy { it.code }
 }

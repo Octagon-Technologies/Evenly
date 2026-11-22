@@ -74,10 +74,9 @@ fun OnboardingScreen(
 ) {
     val c = EvenlyTheme.colors
     val scope = rememberCoroutineScope()
-    val steps = listOf("name", "currency", "handle", "analytics", "notify")
+    val steps = listOf("name", "handle", "analytics", "notify")
     var step by remember { mutableStateOf(0) }
     var name by remember { mutableStateOf(initialName) }
-    var currency by remember { mutableStateOf(initialCurrency) }
     var analytics by remember { mutableStateOf(true) }
     var asking by remember { mutableStateOf(false) }
     var handles by remember { mutableStateOf(emptyMap<PaymentApp, String>()) }
@@ -90,7 +89,7 @@ fun OnboardingScreen(
 
     fun advance() {
         onStepCompleted(cur)
-        if (step < steps.lastIndex) step++ else onFinish(name, currency, handles)
+        if (step < steps.lastIndex) step++ else onFinish(name, initialCurrency, handles)
     }
 
     // Continue validates on tap and shows what is wrong rather than going dead (ui/AGENTS.md). Skip
@@ -147,7 +146,6 @@ fun OnboardingScreen(
             icon =
                 when (cur) {
                     "name" -> EvIcons.User
-                    "currency" -> EvIcons.Globe
                     "handle" -> EvIcons.Wallet
                     "analytics" -> EvIcons.Chart
                     else -> EvIcons.Bell
@@ -155,7 +153,6 @@ fun OnboardingScreen(
             title =
                 when (cur) {
                     "name" -> "What should we call you?"
-                    "currency" -> "Pick your base currency"
                     "handle" -> "Add a payment handle"
                     "analytics" -> "Help improve Evenly"
                     else -> "Stay in the loop"
@@ -163,8 +160,7 @@ fun OnboardingScreen(
             text =
                 when (cur) {
                     "name" -> "This is how friends see you in groups."
-                    "currency" -> "Used as the default for new groups. You can change it per group."
-                    "handle" -> "So friends can pay you back in one tap. Optional, you can skip."
+                    "handle" -> "So friends can pay you back in one tap."
                     "analytics" -> "Share anonymous usage data. No expense details, ever."
                     else -> "Get notified when someone adds an expense or pays you back."
                 },
@@ -172,41 +168,6 @@ fun OnboardingScreen(
             when (cur) {
                 "name" -> {
                     EvField("Display name") { EvTextField(name, { name = it }) }
-                }
-
-                "currency" -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        EvSelectField("Search currency…", {
-                        }, leading = {
-                            EvIcon(
-                                EvIcons.Search,
-                                size = 18.dp,
-                                tint = c.ink3,
-                            )
-                        }, trailingIcon = EvIcons.Search, valueColor = c.ink3)
-                        EvListCard(
-                            items = listOf("USD" to "US Dollar", "EUR" to "Euro", "GBP" to "British Pound", "MXN" to "Mexican Peso"),
-                        ) { (code, label) ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        currency = code
-                                    }.padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    code,
-                                    color = c.ink,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = EvenlyTheme.monoFamily,
-                                    modifier = Modifier.width(44.dp),
-                                )
-                                Text(label, color = c.ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                                if (code == currency) EvIcon(EvIcons.Check, size = 20.dp, tint = c.blueText)
-                            }
-                        }
-                    }
                 }
 
                 "handle" -> {

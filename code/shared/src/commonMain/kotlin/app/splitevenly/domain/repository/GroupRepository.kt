@@ -122,6 +122,15 @@ interface GroupRepository {
         emoji: String? = null,
     ): AppResult<Group>
 
+    /**
+     * Change the currency the group is shown and netted in. Past expenses keep their own currency and are
+     * re-converted at today's rate wherever they are rendered, so nothing stored is rewritten.
+     */
+    suspend fun setBaseCurrency(
+        groupId: GroupId,
+        baseCurrency: String,
+    ): AppResult<Group>
+
     /** Archive/unarchive a group for the calling user (per-member view, 04 §2.3 `set_archive`). */
     suspend fun setArchived(
         groupId: GroupId,

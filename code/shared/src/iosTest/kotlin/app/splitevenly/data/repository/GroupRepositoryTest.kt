@@ -115,6 +115,20 @@ class GroupRepositoryTest {
         }
 
     @Test
+    fun setBaseCurrency_changesCurrency_andRejectsBlank() =
+        runTest {
+            val group = create()
+            val changed = repo.setBaseCurrency(group.id, " kes ")
+            assertTrue(changed is AppResult.Ok)
+            assertEquals("KES", changed.value.baseCurrency)
+            assertEquals("KES", repo.observeGroup(group.id).first()?.baseCurrency)
+
+            val blank = repo.setBaseCurrency(group.id, "  ")
+            assertTrue(blank is AppResult.Err)
+            assertEquals("KES", repo.observeGroup(group.id).first()?.baseCurrency)
+        }
+
+    @Test
     fun renameGroup_changesEmoji_andLeavesItAloneWhenNull() =
         runTest {
             val group = create()

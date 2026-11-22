@@ -15,7 +15,7 @@ object AnalyticsEvents {
     const val ACCOUNT_DELETION_CANCELLED = "account_deletion_cancelled"
 
     // Onboarding — WelcomeScreen (`step = "welcome_slides"`) then OnboardingScreen's own step ids
-    // (`name`, `currency`, `handle`, `analytics`, `notify`). `step` values must track
+    // (`name`, `handle`, `analytics`, `notify`). `step` values must track
     // OnboardingScreen.kt's `steps` list; see PlaceholderClaimSources below for the equivalent pattern.
     const val ONBOARDING_STEP_VIEWED = "onboarding_step_viewed"
     const val ONBOARDING_STEP_COMPLETED = "onboarding_step_completed"

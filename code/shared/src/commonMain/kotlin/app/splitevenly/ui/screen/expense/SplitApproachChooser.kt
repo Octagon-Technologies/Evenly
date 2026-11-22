@@ -48,14 +48,14 @@ internal fun SplitApproachChooser(onChoose: (SplitApproach) -> Unit) {
         }
         ApproachChoiceCard(
             icon = EvIcons.Wallet,
-            title = "Split one amount",
-            subtitle = "One total that you can split evenly, by percentages, or by typing everyone's exact share.",
+            title = "Split evenly",
+            subtitle = "Good for Uber rides and Airbnb stays",
             onClick = { onChoose(SplitApproach.Divide) },
         )
         ApproachChoiceCard(
             icon = EvIcons.Food,
-            title = "Splitting a restaurant bill",
-            subtitle = "Scan the receipt or list items, everyone pays for what they had.",
+            title = "Split by items",
+            subtitle = "Good for restaurant bills",
             onClick = { onChoose(SplitApproach.ByItem) },
         )
     }

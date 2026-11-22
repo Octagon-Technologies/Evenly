@@ -81,6 +81,8 @@ fun GroupSettingsRoute(
         groupName = group?.name ?: "",
         groupEmoji = group?.emoji ?: "💸",
         baseCurrency = group?.baseCurrency ?: "USD",
+        currencies = rememberFxCurrencies(),
+        onChangeCurrency = { code -> scope.launch { groups.setBaseCurrency(gid, code) } },
         members = rows,
         inviteLink = inviteLink,
         storageUsedBytes = storageUsedBytes,

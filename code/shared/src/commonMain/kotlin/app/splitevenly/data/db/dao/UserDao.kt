@@ -108,6 +108,14 @@ interface UserDao {
         now: Long,
     )
 
+    /** Change only the default currency for new groups (Profile editor). */
+    @Query("UPDATE users SET base_currency = :currency, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
+    suspend fun updateBaseCurrency(
+        id: String,
+        currency: String,
+        now: Long,
+    )
+
     /** Rename the user (Profile editor). */
     @Query("UPDATE users SET display_name = :name, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
     suspend fun updateDisplayName(

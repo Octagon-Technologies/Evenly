@@ -36,7 +36,7 @@ fi
 echo "  Using $UDID"
 
 xcrun simctl boot "$UDID" 2>/dev/null || true   # no-op if already booted
-open -a Simulator
+open -a Simulator || true   # headless hosts have no Simulator.app on the path
 
 echo "▸ Building $SCHEME ($CONFIG) — also compiles the shared Kotlin framework…"
 xcrun xcodebuild \

@@ -36,7 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
+import app.splitevenly.domain.fx.CurrencyInfo
+import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.ui.components.EvCard
+import app.splitevenly.ui.components.EvCurrencyPickerModal
 import app.splitevenly.ui.components.EvEmojiPicker
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
@@ -68,6 +71,8 @@ fun GroupSettingsScreen(
     groupName: String = "Tulum Trip",
     groupEmoji: String = "🏝️",
     baseCurrency: String = "USD",
+    currencies: List<CurrencyInfo> = FxCurrencyDefaults.fallback,
+    onChangeCurrency: (String) -> Unit = {},
     members: List<MemberRowUi> =
         listOf(
             MemberRowUi("u1", "Alex Rivera", "Admin", isMe = true),
@@ -104,6 +109,7 @@ fun GroupSettingsScreen(
     val t = EvenlyTheme.text
     var showAdd by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var showLeave by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<MemberRowUi?>(null) }
@@ -123,7 +129,7 @@ fun GroupSettingsScreen(
                     showRename =
                         true
                 })
-                SettingsRow(icon = EvIcons.Globe, label = "Base currency", value = baseCurrency, last = true)
+                SettingsRow(icon = EvIcons.Globe, label = "Base currency", value = baseCurrency, last = true, onClick = { showCurrencyPicker = true })
             }
             Text(
                 "Changing base currency re-converts past expenses at today's rate.",
@@ -282,6 +288,19 @@ fun GroupSettingsScreen(
 
     if (showAdd) {
         AddMemberSheet(onAdd = onAddMember, onDismiss = { showAdd = false })
+    }
+
+    if (showCurrencyPicker) {
+        EvCurrencyPickerModal(
+            title = "Group currency",
+            currencies = currencies,
+            selected = baseCurrency,
+            onSelect = {
+                if (it != baseCurrency) onChangeCurrency(it)
+                showCurrencyPicker = false
+            },
+            onDismiss = { showCurrencyPicker = false },
+        )
     }
 
     if (showRename) {

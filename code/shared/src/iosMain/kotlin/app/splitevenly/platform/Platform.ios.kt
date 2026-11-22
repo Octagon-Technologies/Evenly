@@ -1,5 +1,8 @@
 package app.splitevenly.platform
 
+import platform.Foundation.NSLocale
+import platform.Foundation.currencyCode
+import platform.Foundation.currentLocale
 import platform.UIKit.UIAccessibilityIsReduceMotionEnabled
 import platform.UIKit.UIDevice
 import kotlin.experimental.ExperimentalNativeApi
@@ -17,3 +20,5 @@ actual fun isIOS(): Boolean = true
 actual fun isDebugBuild(): Boolean = kotlin.native.Platform.isDebugBinary
 
 actual fun isReduceMotionEnabled(): Boolean = UIAccessibilityIsReduceMotionEnabled()
+
+actual fun deviceCurrencyCode(): String? = NSLocale.currentLocale.currencyCode

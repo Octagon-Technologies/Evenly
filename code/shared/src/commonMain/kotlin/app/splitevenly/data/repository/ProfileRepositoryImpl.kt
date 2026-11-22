@@ -71,6 +71,15 @@ class ProfileRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
+    override suspend fun updateBaseCurrency(baseCurrency: String): AppResult<Unit> {
+        val id = auth.currentUserId.value
+            ?: return AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
+        val code = baseCurrency.trim().uppercase()
+        if (code.isEmpty()) return AppError.Validation(mapOf("baseCurrency" to AppError.Validation.Reason.Required)).asErr()
+        userDao.updateBaseCurrency(id = id.value, currency = code, now = clock.nowEpochMillis())
+        return AppResult.Ok(Unit)
+    }
+
     override suspend fun updateDisplayName(displayName: String): AppResult<Unit> {
         val id = auth.currentUserId.value
             ?: return AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()

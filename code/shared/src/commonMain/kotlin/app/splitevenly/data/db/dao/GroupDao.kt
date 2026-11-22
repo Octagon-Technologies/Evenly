@@ -178,6 +178,14 @@ interface GroupDao {
         ts: Long,
     )
 
+    /** Change the currency a group is shown and netted in. Stored expense amounts are untouched. */
+    @Query("UPDATE groups SET base_currency = :currency, updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
+    suspend fun updateBaseCurrency(
+        id: String,
+        currency: String,
+        ts: Long,
+    )
+
     /** Reassign (or clear, when abandoned) a group's admin. */
     @Query("UPDATE groups SET admin_user_id = :adminUserId, updated_at = :ts, row_version = row_version + 1 WHERE id = :groupId")
     suspend fun setGroupAdmin(

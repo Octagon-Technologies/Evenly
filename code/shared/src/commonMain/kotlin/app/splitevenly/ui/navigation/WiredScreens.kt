@@ -23,7 +23,9 @@ import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.NotificationPrefs
 import app.splitevenly.domain.auth.OAuthProvider
 import app.splitevenly.domain.auth.ThemeMode
+import app.splitevenly.domain.currency.startingCurrency
 import app.splitevenly.domain.feedback.FeedbackSubmitter
+import app.splitevenly.domain.fx.CurrencyInfo
 import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
@@ -41,6 +43,7 @@ import app.splitevenly.platform.NotificationPermission
 import app.splitevenly.platform.NotificationPermissionStatus
 import app.splitevenly.platform.SecureStorage
 import app.splitevenly.platform.UrlOpener
+import app.splitevenly.platform.deviceCurrencyCode
 import app.splitevenly.platform.isDebugBuild
 import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.screen.auth.HomeGateState
@@ -165,9 +168,11 @@ fun MagicLinkRoute(
     var state by remember { mutableStateOf(MagicLinkState.Input) }
     var email by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var verifying by remember { mutableStateOf(false) }
     MagicLinkScreen(
         state = state,
         error = error,
+        verifying = verifying,
         allowPassword = isDebugBuild(),
         onBack = onBack,
         onSend = { e ->
@@ -188,12 +193,16 @@ fun MagicLinkRoute(
             }
         },
         onVerify = { code ->
+            // The field submits itself on the last digit, so a tap on the button can race it.
+            if (verifying) return@MagicLinkScreen
             error = null
+            verifying = true
             scope.launch {
                 when (auth.verifyEmailOtp(email, code)) {
                     is AppResult.Ok -> onVerified(!auth.hasOnboardedProfile())
                     is AppResult.Err -> error = "That code didn't work. Check it or resend."
                 }
+                verifying = false
             }
         },
         onResend = {
@@ -276,10 +285,15 @@ fun OnboardingRoute(onFinished: () -> Unit) {
     val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
     OnboardingScreen(
         initialName = profile?.displayName?.takeIf { it.isNotBlank() && it != "You" } ?: "",
-        initialCurrency = profile?.baseCurrency ?: "USD",
-        // The app's only notification-permission ask, and only on an explicit opt-in tap. The grant/refusal
-        // isn't acted on here: the FCM token registers regardless, and the OS drops what it won't show.
-        onEnableNotifications = { notifications.request() },
+        initialCurrency = startingCurrency(profile?.baseCurrency, deviceCurrencyCode()),
+        // An explicit opt-in tap is the only thing that reaches the OS prompt. A grant is what turns the
+        // per-event prefs on (they start off); a refusal leaves them off so Settings never claims a
+        // notification the OS will drop.
+        onEnableNotifications = {
+            if (notifications.request()) {
+                profiles.updateNotificationPrefs(NotificationPrefs(newExpenses = true, payments = true))
+            }
+        },
         onStepViewed = { step ->
             analytics?.capture(AnalyticsEvents.ONBOARDING_STEP_VIEWED, mapOf("step" to step))
         },
@@ -525,6 +539,19 @@ fun GroupDeletedRoute(
     )
 }
 
+/**
+ * The FX provider's currency list is effectively static (fetched once, cached locally by the repository),
+ * so it loads here and the DI-free screens just take a list. Starts on the built-in fallback so a picker
+ * is never empty on a cold offline launch.
+ */
+@Composable
+internal fun rememberFxCurrencies(): List<CurrencyInfo> {
+    val fx = koinInject<FxRepository>()
+    var currencies by remember { mutableStateOf(FxCurrencyDefaults.fallback) }
+    LaunchedEffect(Unit) { currencies = FxCurrencyDefaults.withAppCurrencies(fx.currencies()) }
+    return currencies
+}
+
 @Composable
 fun NewGroupRoute(
     onDismiss: () -> Unit,
@@ -532,15 +559,15 @@ fun NewGroupRoute(
 ) {
     val groups = koinInject<GroupRepository>()
     val auth = koinInject<AuthSession>()
-    val fx = koinInject<FxRepository>()
+    val profiles = koinInject<ProfileRepository>()
     val scope = rememberCoroutineScope()
-    // The FX provider's currency list is effectively static (fetched once, cached locally by the
-    // repository) — loaded here so the DI-free NewGroupSheet stays a plain-callback screen.
-    var currencies by remember { mutableStateOf(FxCurrencyDefaults.fallback) }
-    LaunchedEffect(Unit) { currencies = fx.currencies() }
+    val currencies = rememberFxCurrencies()
+    // New groups start in the creator's own currency; they can still change it on this screen.
+    val profile by profiles.observeProfile().collectAsStateWithLifecycle(null)
     NewGroupSheet(
         onDismiss = onDismiss,
         currencies = currencies,
+        initialCurrency = profile?.baseCurrency ?: "USD",
         onCreate = { name, emoji, baseCurrency ->
             val uid = auth.currentUserId.value ?: return@NewGroupSheet
             scope.launch {
@@ -655,11 +682,19 @@ fun ProfileRoute(
     var deleteAccountError by remember { mutableStateOf<String?>(null) }
     val signOutFlow = rememberSignOutFlow(auth, onSignedOut)
     LaunchedEffect(Unit) { notifStatus = notificationPermission.status() }
+    // A pref only means something if the OS will actually show the notification. Rows created before the
+    // default flipped to off still say "on" for people who never granted, so gate the display on the grant
+    // instead of trusting the stored value.
+    val osAllowsNotifications =
+        notifStatus == NotificationPermissionStatus.Granted || notifStatus == NotificationPermissionStatus.NotApplicable
+    val shownNotifications = if (osAllowsNotifications) profile?.notifications ?: NotificationPrefs() else NotificationPrefs()
 
     ProfileScreen(
         displayName = profile?.displayName ?: "You",
         email = profile?.email ?: "",
         baseCurrency = profile?.baseCurrency ?: "USD",
+        currencies = rememberFxCurrencies(),
+        onChangeBaseCurrency = { code -> scope.launch { profiles.updateBaseCurrency(code) } },
         paymentAppsSummary = paymentAppsSummary(handles),
         paymentAppsSet = handles.isNotEmpty(),
         isSignedIn = userId != null,
@@ -681,10 +716,12 @@ fun ProfileRoute(
         },
         onPrivacy = { urlOpener.open("https://split-evenly.app/privacy") },
         onTerms = { urlOpener.open("https://split-evenly.app/terms") },
-        notifications = profile?.notifications ?: NotificationPrefs(),
+        notifications = shownNotifications,
         notificationsBlocked = notifStatus == NotificationPermissionStatus.Denied,
         onNotificationsChange = { prefs ->
-            val current = profile?.notifications ?: NotificationPrefs()
+            // Diff against what the user SEES, not what is stored: a stored "on" without an OS grant shows
+            // as off, and tapping it must reach the permission prompt rather than look like a no-op.
+            val current = shownNotifications
             val turnedOn = (prefs.newExpenses && !current.newExpenses) || (prefs.payments && !current.payments)
             scope.launch {
                 // A toggle switching ON needs the OS permission first — request() shows the one-time

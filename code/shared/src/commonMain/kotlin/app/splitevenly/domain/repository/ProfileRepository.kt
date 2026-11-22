@@ -27,7 +27,10 @@ interface ProfileRepository {
     suspend fun updateProfile(displayName: String, baseCurrency: String): AppResult<Unit>
 
     /** Rename the current user (Profile editor). */
-    suspend fun updateDisplayName(displayName: String): AppResult<Unit>
+    /** Change the default currency new groups start in. Existing groups keep their own. */
+suspend fun updateBaseCurrency(baseCurrency: String): AppResult<Unit>
+
+suspend fun updateDisplayName(displayName: String): AppResult<Unit>
 
     /** Persist the current user's notification preferences (Profile editor). */
     suspend fun updateNotificationPrefs(prefs: NotificationPrefs): AppResult<Unit>

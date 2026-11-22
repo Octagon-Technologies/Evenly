@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.provider.Settings
+import java.util.Currency
+import java.util.Locale
 
 class AndroidPlatform : Platform {
     override val name: String = "Android ${Build.VERSION.SDK_INT}"
@@ -28,6 +30,10 @@ actual fun isReduceMotionEnabled(): Boolean =
         val app = currentApplication() ?: return false
         Settings.Global.getFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     }.getOrDefault(false)
+
+// Throws for a region-less locale ("en"), which is exactly the "unknown" answer the caller wants as null.
+actual fun deviceCurrencyCode(): String? =
+    runCatching { Currency.getInstance(Locale.getDefault()).currencyCode }.getOrNull()
 
 private fun currentApplication(): Application? =
     runCatching {

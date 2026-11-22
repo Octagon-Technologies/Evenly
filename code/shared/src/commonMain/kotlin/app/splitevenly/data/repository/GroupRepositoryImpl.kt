@@ -34,8 +34,8 @@ import app.splitevenly.domain.group.ClaimPreview
 import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
-import app.splitevenly.domain.group.GroupKind
 import app.splitevenly.domain.group.GroupDeleteImpact
+import app.splitevenly.domain.group.GroupKind
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.group.MemberSnapshot
 import app.splitevenly.domain.group.NewGroup
@@ -327,14 +327,13 @@ class GroupRepositoryImpl(
     override fun observeGroupIncludingDeleted(groupId: GroupId): Flow<Group?> =
         groupDao.observeByIdIncludingDeleted(groupId.value).map { it?.toDomain() }
 
-    override suspend fun deleteImpact(groupId: GroupId): GroupDeleteImpact {
-        return GroupDeleteImpact(
+    override suspend fun deleteImpact(groupId: GroupId): GroupDeleteImpact =
+        GroupDeleteImpact(
             memberCount = groupDao.activeMemberCount(groupId.value),
             expenseCount = groupDao.liveExpenseCount(groupId.value),
             receiptCount = groupDao.liveReceiptCount(groupId.value),
             unsettledCount = groupDao.unsettledBalanceCount(groupId.value),
         )
-    }
 
     override suspend fun deleteGroup(
         groupId: GroupId,
@@ -415,6 +414,19 @@ class GroupRepositoryImpl(
             return validationErr("emoji", AppError.Validation.Reason.TooLong)
         }
         groupDao.updateNameAndEmoji(groupId.value, trimmed, icon, clock.nowEpochMillis())
+        val updated =
+            groupDao.getById(groupId.value)
+                ?: return validationErr("group", AppError.Validation.Reason.Required)
+        return updated.toDomain().asOk()
+    }
+
+    override suspend fun setBaseCurrency(
+        groupId: GroupId,
+        baseCurrency: String,
+    ): AppResult<Group> {
+        val code = baseCurrency.trim().uppercase()
+        if (code.isEmpty()) return validationErr("baseCurrency", AppError.Validation.Reason.Required)
+        groupDao.updateBaseCurrency(groupId.value, code, clock.nowEpochMillis())
         val updated =
             groupDao.getById(groupId.value)
                 ?: return validationErr("group", AppError.Validation.Reason.Required)

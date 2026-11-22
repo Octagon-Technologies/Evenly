@@ -21,3 +21,8 @@ expect fun isDebugBuild(): Boolean
  *  it can't be determined, which is the safer default: a missed check plays an animation nobody asked
  *  to skip, rather than silently freezing one somebody wanted. */
 expect fun isReduceMotionEnabled(): Boolean
+
+/** ISO 4217 code of the device region's currency (Android default locale, iOS `NSLocale`), or null when the
+ *  locale carries no region (e.g. plain "en"). Seeds the base currency at onboarding; callers must still
+ *  check the code against the supported set. */
+expect fun deviceCurrencyCode(): String?
