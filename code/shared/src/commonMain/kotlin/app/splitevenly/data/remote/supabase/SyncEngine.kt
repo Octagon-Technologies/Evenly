@@ -751,16 +751,20 @@ class SyncEngine(
         }
     }
 
-    /** A full round trip: push local mutations, then pull the latest. */
+    /**
+     * A full round trip: push local mutations, then pull the latest.
+     *
+     * The pull runs even when the push failed. A row the server will never accept (RLS refusing a row
+     * this account does not own) used to fail every push, and skipping the pull on top of that meant
+     * the account's real groups never loaded at all. Pulling over unpushed local edits is safe and
+     * already happens on every push-notification pull: [keepNewer] keeps the newer local copy and
+     * expenses keep their dirty guard. The pull's error wins the return because it is the one that
+     * decides whether anything loaded; otherwise the push's error is still reported.
+     */
     suspend fun syncNow(userId: String): AppResult<Unit> {
-        push(userId).let {
-            if (it is AppResult.Err) {
-                // A failed push skips the pull, which would leave a first launch waiting forever.
-                hydration.pullFinished(userId, it)
-                return it
-            }
-        }
-        return pull(userId)
+        val pushed = push(userId)
+        val pulled = pull(userId)
+        return if (pulled is AppResult.Err) pulled else pushed
     }
 
     /**

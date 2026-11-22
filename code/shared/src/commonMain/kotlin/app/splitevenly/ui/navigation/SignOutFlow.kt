@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.auth.AuthSession
+import app.splitevenly.domain.auth.SaveBlocker
 import app.splitevenly.domain.auth.SignOutOutcome
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
@@ -114,10 +115,16 @@ class SignOutFlow internal constructor(
         // leave it invisible, and an equal question from the next tap would never bring it back. A save
         // still in flight then either signs out or re-asks with the failure line.
         EvModalScaffold(onDismiss = { unsynced = null }) {
+            // Refused means the server rejected the rows themselves, so "Try again" would be a button
+            // that can never work. Say so, and leave staying or discarding as the honest choices.
+            val refused = question.blocker == SaveBlocker.Refused
             Text(
                 // The count is the whole message: it says whether this is one stray edit or a whole
                 // evening. An unknown count stays vague rather than inventing a number.
                 when {
+                    refused && pending == null -> "Some changes can't be saved"
+                    refused && pending == 1 -> "1 change can't be saved"
+                    refused -> "$pending changes can't be saved"
                     pending == null -> "Some changes aren't saved yet"
                     pending == 1 -> "1 change isn't saved yet"
                     else -> "$pending changes aren't saved yet"
@@ -126,32 +133,44 @@ class SignOutFlow internal constructor(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
-            if (saveFailed && !busy) {
+            val failure =
+                when {
+                    busy -> null
+                    refused -> "Your account isn't allowed to save them."
+                    !saveFailed -> null
+                    question.blocker == SaveBlocker.Connection -> "Couldn't save. Check your connection."
+                    else -> "Couldn't save yet. Try again."
+                }
+            if (failure != null) {
                 Spacer(Modifier.height(8.dp))
-                Text("Couldn't save. Check your connection.", color = c.danger, fontSize = 15.sp)
+                Text(failure, color = if (refused) c.ink2 else c.danger, fontSize = 15.sp)
             }
             Spacer(Modifier.height(20.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Saving is the primary path: the user asked to sign out, and this gets them there
-                // without losing anything. The destructive path is a small text link, never a peer.
-                EvButton(onClick = { if (!busy) saveAndSignOut() }, variant = ButtonVariant.Primary) {
-                    if (busy) {
-                        EvSpinner(color = LocalContentColor.current)
-                        Text("Saving…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text(
-                            if (saveFailed) "Try again" else "Save and sign out",
-                            color = LocalContentColor.current,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                if (refused) {
+                    EvButton("Stay signed in", { if (!busy) unsynced = null }, variant = ButtonVariant.Primary)
+                } else {
+                    // Saving is the primary path: the user asked to sign out, and this gets them there
+                    // without losing anything. The destructive path is a small text link, never a peer.
+                    EvButton(onClick = { if (!busy) saveAndSignOut() }, variant = ButtonVariant.Primary) {
+                        if (busy) {
+                            EvSpinner(color = LocalContentColor.current)
+                            Text("Saving…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        } else {
+                            Text(
+                                if (saveFailed) "Try again" else "Save and sign out",
+                                color = LocalContentColor.current,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
+                    EvButton(
+                        "Stay signed in",
+                        { if (!busy) unsynced = null },
+                        variant = ButtonVariant.Tonal,
+                    )
                 }
-                EvButton(
-                    "Stay signed in",
-                    { if (!busy) unsynced = null },
-                    variant = ButtonVariant.Tonal,
-                )
                 EvButton(
                     onClick = {
                         if (!busy) {

@@ -16,6 +16,7 @@ import app.splitevenly.data.remote.supabase.SyncManager
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.OAuthProvider
 import app.splitevenly.domain.auth.PLAY_REVIEW_DEMO_EMAIL
+import app.splitevenly.domain.auth.SaveBlocker
 import app.splitevenly.domain.auth.SignOutOutcome
 import app.splitevenly.platform.AnalyticsEvents
 import app.splitevenly.platform.AppForeground
@@ -319,13 +320,13 @@ class SupabaseAuthSession(
         val userId = _currentUserId.value?.value
         val engine = syncEngine
         if (userId != null && engine != null) {
-            if (!discardUnsynced) engine.push(userId)
+            val pushed = if (discardUnsynced) null else engine.push(userId)
             val question =
                 engine.closeForSignOut(userId) {
                     // Inside the fence: no push, pull or wipe can interleave with either statement.
                     val pending =
                         if (discardUnsynced) 0 else pendingWritesOrUnknown { engine.countPendingLocalWrites() }
-                    val question = unsyncedChangesFor(pending)
+                    val question = unsyncedChangesFor(pending, saveBlockerOf(pushed))
                     // Best-effort: a failure here must not strand the user signed-in-but-wiped. Room is a
                     // cache of server truth, so the worst case is a stale row that the next account's pull
                     // overwrites — whereas refusing to sign out because a DELETE failed is a dead end.
@@ -511,8 +512,27 @@ internal suspend fun pendingWritesOrUnknown(count: suspend () -> Int): Int = run
  * Only an actual zero authorises the wipe. [PENDING_UNKNOWN] becomes `UnsyncedChanges(null)` — we stop
  * and ask, without inventing a number we were not able to take.
  */
-internal fun unsyncedChangesFor(pending: Int): SignOutOutcome.UnsyncedChanges? =
-    if (pending == 0) null else SignOutOutcome.UnsyncedChanges(pending.takeIf { it > 0 })
+internal fun unsyncedChangesFor(
+    pending: Int,
+    blocker: SaveBlocker? = null,
+): SignOutOutcome.UnsyncedChanges? = if (pending == 0) null else SignOutOutcome.UnsyncedChanges(pending.takeIf { it > 0 }, blocker)
+
+/**
+ * Whether the pre-sign-out save failed in a way a retry can fix.
+ *
+ * A 4xx is the server judging the rows themselves (RLS refusing rows this account does not own, a
+ * rejected payload), so asking again gets the same answer. Transport failures and 5xx can clear up.
+ * An expired session is grouped with refusals: retrying with the same dead token cannot succeed.
+ */
+internal fun saveBlockerOf(pushed: AppResult<Unit>?): SaveBlocker? {
+    val error = (pushed as? AppResult.Err)?.error ?: return null
+    return when (error) {
+        is AppError.Network -> SaveBlocker.Connection
+        is AppError.Backend -> if (error.status != null && error.status in 400..499) SaveBlocker.Refused else SaveBlocker.Connection
+        AppError.NotAuthorized, AppError.SessionExpired, is AppError.Conflict, is AppError.Validation -> SaveBlocker.Refused
+        is AppError.Unexpected -> SaveBlocker.Connection
+    }
+}
 
 /** Narrow projection of `public.users` for [SupabaseAuthSession.pendingDeletionAt]. */
 @Serializable

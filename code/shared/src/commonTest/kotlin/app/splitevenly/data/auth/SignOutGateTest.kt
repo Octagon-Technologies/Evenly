@@ -1,5 +1,8 @@
 package app.splitevenly.data.auth
 
+import app.splitevenly.core.error.AppError
+import app.splitevenly.core.error.AppResult
+import app.splitevenly.domain.auth.SaveBlocker
 import app.splitevenly.domain.auth.SignOutOutcome
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -57,4 +60,29 @@ class SignOutGateTest {
         runTest {
             assertEquals(7, pendingWritesOrUnknown { 7 })
         }
+    @Test
+    fun aRefusedSaveIsNotBlamedOnTheConnection() {
+        // RLS refusing rows this account does not own comes back as 403: retrying cannot help.
+        assertEquals(SaveBlocker.Refused, saveBlockerOf(AppResult.Err(AppError.NotAuthorized)))
+        assertEquals(SaveBlocker.Refused, saveBlockerOf(AppResult.Err(AppError.Backend(422, null, null))))
+        assertEquals(SaveBlocker.Refused, saveBlockerOf(AppResult.Err(AppError.SessionExpired)))
+    }
+
+    @Test
+    fun transientFailuresStayRetryable() {
+        val offline = AppError.Network(AppError.Network.Kind.Unreachable)
+        assertEquals(SaveBlocker.Connection, saveBlockerOf(AppResult.Err(offline)))
+        assertEquals(SaveBlocker.Connection, saveBlockerOf(AppResult.Err(AppError.Backend(503, null, null))))
+        assertEquals(SaveBlocker.Connection, saveBlockerOf(AppResult.Err(AppError.Backend(null, "decode", null))))
+    }
+
+    @Test
+    fun aCleanSaveOrADiscardHasNoBlocker() {
+        assertNull(saveBlockerOf(AppResult.Ok(Unit)))
+        assertNull(saveBlockerOf(null))
+        assertEquals(
+            SignOutOutcome.UnsyncedChanges(12, SaveBlocker.Refused),
+            unsyncedChangesFor(12, SaveBlocker.Refused),
+        )
+    }
 }

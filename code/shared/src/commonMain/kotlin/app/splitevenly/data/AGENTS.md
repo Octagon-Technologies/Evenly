@@ -58,6 +58,12 @@ pending until a pull that *started after* the join lands. Do not persist a "hydr
 cache wipe, and for the same reason sign-out's wipe calls `hydration.forget(userId)` so the same account signing
 back in waits for a fresh pull.
 
+**A failed push never skips the pull** (`SyncEngine.syncNow`). It used to, so one row the server will
+never accept (RLS refusing rows the account does not own, e.g. data seeded straight into a device's Room
+file) failed every push *and* kept the account's real groups from ever loading. Pulling over unpushed
+edits is safe: `keepNewer` keeps the newer local copy. Sign-out reports *why* a save failed
+(`SaveBlocker`) so the dialog never offers "Try again" for a refusal that retrying cannot change.
+
 ## One list of synced tables
 
 `SyncEngine.SYNCED_TABLES` is the single source: `SyncManager` drives Room invalidation off it, `push` and

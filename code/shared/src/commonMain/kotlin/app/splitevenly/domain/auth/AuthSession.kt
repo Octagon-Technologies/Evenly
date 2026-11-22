@@ -136,5 +136,20 @@ sealed interface SignOutOutcome {
      */
     data class UnsyncedChanges(
         val pendingWrites: Int?,
+        val blocker: SaveBlocker? = null,
     ) : SignOutOutcome
+}
+
+/**
+ * Why the save before sign-out did not go through, so the dialog can say whether trying again can
+ * help. Null on [SignOutOutcome.UnsyncedChanges] means the save reported no error but something is
+ * still pending (an edit landed mid-save), which a retry usually clears.
+ */
+enum class SaveBlocker {
+    /** No connection, a timeout, or a server error: retrying later can work. */
+    Connection,
+
+    /** The server refused the rows outright (permission or a rejected request). Retrying cannot
+     *  change the answer, so the dialog must not offer it as the way out. */
+    Refused,
 }
