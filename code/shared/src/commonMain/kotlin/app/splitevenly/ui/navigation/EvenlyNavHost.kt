@@ -134,23 +134,23 @@ fun EvenlyNavHost(
                     navController.navigate(Route.QuickSplit(r.groupId)) { popUpTo<Route.GroupHome> { inclusive = true } }
                 },
             ) {
-            GroupHomeScreen(
-                groupId = r.groupId,
-                initialTab = GroupTab.entries.firstOrNull { it.name == r.tab } ?: GroupTab.Expenses,
-                onBack = { navController.popBackStack() },
-                onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
-                onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
-                onOpenBill = { navController.navigate(Route.FinishBill(r.groupId, it)) },
-                onSearch = { navController.navigate(Route.Search(r.groupId)) },
-                onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
-                onSettlePeer = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
-                onIncludeNav = { conflictId, expenseId, memberUserId ->
-                    navController.navigate(Route.IncludeMember(r.groupId, conflictId, expenseId, memberUserId))
-                },
-                onClaimNames = {
-                    navController.navigate(Route.Reconcile(r.groupId, source = PlaceholderClaimSources.GROUP_HOME))
-                },
-            )
+                GroupHomeScreen(
+                    groupId = r.groupId,
+                    initialTab = GroupTab.entries.firstOrNull { it.name == r.tab } ?: GroupTab.Expenses,
+                    onBack = { navController.popBackStack() },
+                    onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
+                    onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
+                    onOpenBill = { navController.navigate(Route.FinishBill(r.groupId, it)) },
+                    onSearch = { navController.navigate(Route.Search(r.groupId)) },
+                    onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
+                    onSettlePeer = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
+                    onIncludeNav = { conflictId, expenseId, memberUserId ->
+                        navController.navigate(Route.IncludeMember(r.groupId, conflictId, expenseId, memberUserId))
+                    },
+                    onClaimNames = {
+                        navController.navigate(Route.Reconcile(r.groupId, source = PlaceholderClaimSources.GROUP_HOME))
+                    },
+                )
             }
         }
         composable<Route.Search> { entry ->

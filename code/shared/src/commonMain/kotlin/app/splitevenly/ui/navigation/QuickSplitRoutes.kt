@@ -20,8 +20,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavHostController
 import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.GroupId
@@ -160,9 +160,13 @@ fun QuickSplitGuard(
             Box(Modifier.fillMaxSize().background(EvenlyTheme.colors.page))
         }
 
-        false -> content()
+        false -> {
+            content()
+        }
 
-        null -> Box(Modifier.fillMaxSize().background(EvenlyTheme.colors.page))
+        null -> {
+            Box(Modifier.fillMaxSize().background(EvenlyTheme.colors.page))
+        }
     }
 }
 

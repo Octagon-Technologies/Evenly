@@ -24,8 +24,7 @@ data class WebBillLinkState(
     /** Newest web-session activity per participant, in this group. See [openedThisLink]. */
     val openedAtByUser: Map<UserId, Long>,
 ) {
-    fun isLive(now: Long): Boolean =
-        exists && revokedAt == null && (expiresAt == null || expiresAt > now)
+    fun isLive(now: Long): Boolean = exists && revokedAt == null && (expiresAt == null || expiresAt > now)
 
     /**
      * Whether this person has opened *this* link, rather than merely having a session in the group from

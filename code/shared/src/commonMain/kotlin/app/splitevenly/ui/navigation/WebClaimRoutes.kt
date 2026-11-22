@@ -315,6 +315,7 @@ fun BillClaimProgressRoute(
 // ── 3. Share the link ────────────────────────────────────────────────────────────────────────────
 
 /** Milliseconds in an hour, for the "open for N hours" line. */
+
 /**
  * "Let everyone claim" — the QR, the link, and the link's lifecycle (§3.9.3, E26–E30).
  *
@@ -351,10 +352,11 @@ fun ShareBillLinkRoute(
 
     val me = userId
     LaunchedEffect(eid, me) {
-        val actor = me ?: run {
-            busy = false
-            return@LaunchedEffect
-        }
+        val actor =
+            me ?: run {
+                busy = false
+                return@LaunchedEffect
+            }
         busy = true
         linkState = WebBillLinkState.None
         notice = null
@@ -371,7 +373,10 @@ fun ShareBillLinkRoute(
                     }
                 }
             }
-            is AppResult.Err -> notice = "Couldn't check the link. Check your connection."
+
+            is AppResult.Err -> {
+                notice = "Couldn't check the link. Check your connection."
+            }
         }
         busy = false
     }
@@ -379,7 +384,9 @@ fun ShareBillLinkRoute(
     val view = bill ?: return
     val url = linkState.url?.let { if (quick) quickSplitUrl(it) else it }
     val shareMessage =
-        url?.let { if (view.items.isEmpty()) "Your share of ${view.expense.title}: $it" else "Pick what you had on ${view.expense.title}: $it" }
+        url?.let {
+            if (view.items.isEmpty()) "Your share of ${view.expense.title}: $it" else "Pick what you had on ${view.expense.title}: $it"
+        }
     var autoShared by remember { mutableStateOf(false) }
     LaunchedEffect(autoShare, shareMessage, linkState.revokedAt) {
         if (autoShare && !autoShared && shareMessage != null && linkState.revokedAt == null) {

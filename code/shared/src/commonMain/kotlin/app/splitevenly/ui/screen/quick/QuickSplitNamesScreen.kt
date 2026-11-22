@@ -90,14 +90,24 @@ fun QuickSplitNamesScreen(
         return true
     }
 
-    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding().imePadding()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(c.page)
+            .systemBarsPadding()
+            .imePadding(),
+    ) {
         EvTopBar(
             title = "Who's splitting?",
             subtitle = "Split a bill · Step 1 of 2",
             navIcon = { EvIconButton(EvIcons.Back, onClick = onBack) },
         )
         Column(
-            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Type each person's name. They'll tap it on the link to see their share.", style = t.description)
@@ -109,7 +119,14 @@ fun QuickSplitNamesScreen(
                 value = draft,
                 onValueChange = {
                     val stale = lastAdded
-                    draft = if (draft.isEmpty() && stale != null && it.length > stale.length && it.startsWith(stale)) it.removePrefix(stale) else it
+                    draft =
+                        if (draft.isEmpty() && stale != null && it.length > stale.length &&
+                            it.startsWith(stale)
+                        ) {
+                            it.removePrefix(stale)
+                        } else {
+                            it
+                        }
                     lastAdded = null
                     hint = null
                 },
@@ -156,7 +173,12 @@ private fun NameChip(
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(20.dp)
     Row(
-        Modifier.clip(shape).background(c.surface).border(1.dp, c.border, shape).padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+        Modifier
+            .clip(
+                shape,
+            ).background(c.surface)
+            .border(1.dp, c.border, shape)
+            .padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

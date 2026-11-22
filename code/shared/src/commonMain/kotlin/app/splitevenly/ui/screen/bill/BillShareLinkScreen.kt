@@ -1,6 +1,10 @@
 package app.splitevenly.ui.screen.bill
 
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,24 +25,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.BannerVariant
@@ -140,9 +140,18 @@ fun BillShareLinkScreen(
                 state.url != null && state.live -> {
                     QrPlate(state.url)
                 }
-                state.busy -> QrLoadingPlate()
-                state.revoked -> DeadLinkNote("This link is off. Create a new QR to share this bill again.")
-                else -> DeadLinkNote("Couldn't load the QR. Try again when you're connected.")
+
+                state.busy -> {
+                    QrLoadingPlate()
+                }
+
+                state.revoked -> {
+                    DeadLinkNote("This link is off. Create a new QR to share this bill again.")
+                }
+
+                else -> {
+                    DeadLinkNote("Couldn't load the QR. Try again when you're connected.")
+                }
             }
 
             Spacer(Modifier.height(4.dp))
@@ -202,11 +211,12 @@ private fun QrLoadingPlate() {
         animationSpec = infiniteRepeatable(animation = tween(1200, easing = LinearEasing)),
         label = "qr-shimmer-offset",
     )
-    val shimmer = Brush.linearGradient(
-        colors = listOf(c.surface, c.page, c.surface),
-        start = Offset(offset, 0f),
-        end = Offset(offset + 180f, 180f),
-    )
+    val shimmer =
+        Brush.linearGradient(
+            colors = listOf(c.surface, c.page, c.surface),
+            start = Offset(offset, 0f),
+            end = Offset(offset + 180f, 180f),
+        )
     Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White).padding(14.dp)) {
             Box(Modifier.size(208.dp).clip(RoundedCornerShape(8.dp)).background(shimmer))

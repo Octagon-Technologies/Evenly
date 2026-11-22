@@ -56,7 +56,8 @@ class QuickSplitCardTest {
 
     @Test
     fun countsOnlyPeopleWhoPaidTheirWholeShare() {
-        val c = card(bill(3000, Triple(me, 1000, 0), Triple(ann, 1000, 0), Triple(joe, 1000, 400)), debts = listOf(Debt(joe, me, "USD", 400)))
+        val c =
+            card(bill(3000, Triple(me, 1000, 0), Triple(ann, 1000, 0), Triple(joe, 1000, 400)), debts = listOf(Debt(joe, me, "USD", 400)))
         assertEquals("1 of 2 paid", c.last)
         assertEquals("Dinner at Nobu", c.name)
         assertEquals(GroupBalanceStatus.Owed, c.status)

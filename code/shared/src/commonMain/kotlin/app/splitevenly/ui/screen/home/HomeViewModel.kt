@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.ListReadiness
 import app.splitevenly.domain.auth.AuthSession
@@ -12,8 +13,6 @@ import app.splitevenly.domain.group.NewGroup
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.SettlementRepository
-import app.splitevenly.core.time.nowEpochMillis
-import kotlin.time.Clock
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +25,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.time.Clock
 
 /**
  * Home group-list state (06 §3.3). Reactively maps the current user's groups (local-first `Flow` off
@@ -83,8 +83,7 @@ class HomeViewModel(
         group: Group,
         uid: UserId,
         archived: Boolean,
-    ): Flow<GroupCardUi> =
-        if (group.isQuick) quickCardFlow(group, uid) else groupCardFlow(group, uid, archived)
+    ): Flow<GroupCardUi> = if (group.isQuick) quickCardFlow(group, uid) else groupCardFlow(group, uid, archived)
 
     /** A quick split's card: its one bill, who has paid, and the viewer's net on it. */
     private fun quickCardFlow(
@@ -213,10 +212,11 @@ internal fun homeState(
             HomeUiState.Content(active = live, archived = archived, deletedCount = deletedCount, history = history)
         }
 
-        else ->
+        else -> {
             when (readiness) {
                 ListReadiness.Ready -> HomeUiState.Empty
                 ListReadiness.Waiting -> HomeUiState.Loading
                 is ListReadiness.Failed -> HomeUiState.Failed(readiness.offline)
             }
+        }
     }
