@@ -3405,3 +3405,61 @@ revoke all on function public.purge_deleted_groups() from public, anon, authenti
 --
 -- 03:15 UTC is deliberate: 15 minutes after `purge-deleted-accounts` so the two never interleave on
 -- the same `members` rows. `cron.schedule` upserts by jobname, so running it twice is safe.
+
+-- ─── Welcome email on sign-up ──────────────────────────────────────────────────────────────────────────
+--
+-- Posts to the `send-welcome-email` edge function once per account. Replaces the Studio Database Webhook
+-- `sign_up_to_waitlist_webhook`, whose header embedded the legacy service-role JWT and was refused (403)
+-- on every call once the function's runtime SUPABASE_SERVICE_ROLE_KEY stopped being that string.
+--
+-- The bearer is read from Vault (secret `welcome_email_service_key`), never written into this file, and
+-- must equal the function's WELCOME_EMAIL_SECRET env var. No secret = silent no-op, so a fresh project or
+-- local stack is safe. To set both to one fresh value:
+--   supabase secrets set WELCOME_EMAIL_SECRET=<value>
+--   select vault.create_secret('<value>', 'welcome_email_service_key');
+--
+-- Fires on INSERT with an email, or on the one UPDATE where an email first appears (an anonymous account
+-- gaining one). The old webhook fired on every UPDATE, and auth.users is updated on every sign-in
+-- (`last_sign_in_at`), while the function has no idempotency of its own: each call sends a mail. Only
+-- the email and user metadata leave the database; the webhook used to post the whole row, password hash
+-- included.
+--
+-- Errors are swallowed: this runs inside GoTrue's sign-up transaction, and a failed mail must never turn
+-- into a failed sign-up.
+create or replace function public.welcome_email_on_signup()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_key text;
+begin
+  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'welcome_email_service_key';
+  if v_key is null then
+    return new;
+  end if;
+  perform net.http_post(
+    url                  := 'https://wfpfgbipjmkysalfmyub.supabase.co/functions/v1/send-welcome-email',
+    body                 := jsonb_build_object('record', jsonb_build_object(
+                              'email', new.email,
+                              'raw_user_meta_data', coalesce(new.raw_user_meta_data, '{}'::jsonb))),
+    headers              := jsonb_build_object('Authorization', 'Bearer ' || v_key,
+                                               'Content-Type', 'application/json'),
+    timeout_milliseconds := 5000
+  );
+  return new;
+exception when others then
+  raise warning 'welcome_email_on_signup: %', sqlerrm;
+  return new;
+end $$;
+-- Definer + reads a Vault secret: trigger-only, callable by nobody.
+revoke execute on function public.welcome_email_on_signup() from public, anon, authenticated;
+
+drop trigger if exists sign_up_to_waitlist_webhook on auth.users;
+drop trigger if exists welcome_email_on_signup_insert on auth.users;
+create trigger welcome_email_on_signup_insert
+  after insert on auth.users
+  for each row when (new.email is not null)
+  execute function public.welcome_email_on_signup();
+drop trigger if exists welcome_email_on_signup_email_added on auth.users;
+create trigger welcome_email_on_signup_email_added
+  after update of email on auth.users
+  for each row when (old.email is null and new.email is not null)
+  execute function public.welcome_email_on_signup();
