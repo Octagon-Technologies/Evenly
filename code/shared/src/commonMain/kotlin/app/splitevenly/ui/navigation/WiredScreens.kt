@@ -332,8 +332,10 @@ fun HomeRoute(
     onOpenArchived: () -> Unit,
     onOpenRecentlyDeleted: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onEditExpense: (groupId: String, expenseId: String, itemized: Boolean) -> Unit = { _, _, _ -> },
 ) {
     val vm = koinViewModel<HomeViewModel>()
+    val scope = rememberCoroutineScope()
     val fx = koinInject<FxRepository>()
     val profiles = koinInject<ProfileRepository>()
     val groups = koinInject<GroupRepository>()
@@ -365,6 +367,8 @@ fun HomeRoute(
         deletedAlert = deletedAlertText(deletedGroups, meId, seenAt),
         onOpenSettings = onOpenSettings,
         onRetry = vm::retry,
+        onEditQuickSplit = onEditExpense,
+        onDeleteQuickSplit = { id -> meId?.let { me -> scope.launch { groups.deleteGroup(GroupId(id), me) } } },
     )
 }
 
@@ -625,6 +629,7 @@ fun HomeGateRoute(
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
     onSendFeedback: () -> Unit,
+    onEditExpense: (groupId: String, expenseId: String, itemized: Boolean) -> Unit = { _, _, _ -> },
 ) {
     val auth = koinInject<AuthSession>()
     val gate = koinViewModel<HomeGateViewModel>()
@@ -659,6 +664,7 @@ fun HomeGateRoute(
                 onSignIn = onSignIn,
                 onEditPaymentApps = onEditPaymentApps,
                 onSendFeedback = onSendFeedback,
+                onEditExpense = onEditExpense,
             )
         }
     }

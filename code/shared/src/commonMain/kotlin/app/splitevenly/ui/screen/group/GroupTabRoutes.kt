@@ -182,6 +182,7 @@ fun GroupExpensesRoute(
     onOpenBill: (String) -> Unit,
     onSearch: () -> Unit,
     onClaimNames: () -> Unit = {},
+    onEditExpense: (ExpenseItemUi) -> Unit = {},
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
@@ -315,6 +316,8 @@ fun GroupExpensesRoute(
         onOpenSettings = onOpenSettings,
         onAdd = onAdd,
         onOpenExpense = onOpenExpense,
+        onEditExpense = onEditExpense,
+        onDeleteExpense = { id -> scope.launch { expenses.deleteExpense(ExpenseId(id)) } },
         onSearch = onSearch,
         onFilter = {
             showFilter =

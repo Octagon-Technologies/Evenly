@@ -85,6 +85,9 @@ fun EvenlyNavHost(
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
                 onSendFeedback = { navController.navigate(Route.Feedback) },
+                onEditExpense = { gid, eid, itemized ->
+                    navController.navigate(if (itemized) Route.SplitBill(gid, eid) else Route.EditExpense(gid, eid))
+                },
             )
         }
         composable<Route.NewGroup> {
@@ -141,6 +144,9 @@ fun EvenlyNavHost(
                     onBack = { navController.popBackStack() },
                     onAdd = { navController.navigate(Route.AddExpense(r.groupId)) },
                     onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
+                    onEditExpense = { id, itemized ->
+                        navController.navigate(if (itemized) Route.SplitBill(r.groupId, id) else Route.EditExpense(r.groupId, id))
+                    },
                     onOpenBill = { navController.navigate(Route.FinishBill(r.groupId, it)) },
                     onSearch = { navController.navigate(Route.Search(r.groupId)) },
                     onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },

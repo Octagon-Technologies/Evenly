@@ -3,7 +3,9 @@ package app.splitevenly.ui.screen.group
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,8 @@ import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvChip
+import app.splitevenly.ui.components.EvContextMenu
+import app.splitevenly.ui.components.EvMenuAction
 import app.splitevenly.ui.components.EvDot
 import app.splitevenly.ui.components.EvEmptyState
 import app.splitevenly.ui.components.EvFab
@@ -52,6 +56,9 @@ import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.platform.isIOS
+import app.splitevenly.ui.screen.expense.DELETE_BILL_BODY
+import app.splitevenly.ui.screen.expense.DeleteBillSheet
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import app.splitevenly.ui.theme.categoryColor
@@ -75,6 +82,15 @@ data class ExpenseItemUi(
     val stakeLabel: String? = null,
     val stakeAmount: String? = null,
     val stakeOwedToYou: Boolean = false,
+    /** Split by items: its long-press edit opens the bill editor, not the amount editor. */
+    val itemized: Boolean = false,
+)
+
+/** What an expense row does on tap and from its long-press menu. */
+class ExpenseRowActions(
+    val onOpen: (String) -> Unit,
+    val onEdit: (ExpenseItemUi) -> Unit,
+    val onDelete: (String) -> Unit,
 )
 
 data class ExpenseDayUi(
@@ -113,6 +129,8 @@ fun GroupExpensesTab(
     onOpenSettings: () -> Unit = {},
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
+    onEditExpense: (ExpenseItemUi) -> Unit = {},
+    onDeleteExpense: (String) -> Unit = {},
     onSearch: () -> Unit = {},
     onFilter: () -> Unit = {},
     onClearFilter: () -> Unit = {},
@@ -139,6 +157,7 @@ fun GroupExpensesTab(
     onDismissClaimNotice: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
+    val rowActions = ExpenseRowActions(onOpenExpense, onEditExpense, onDeleteExpense)
     var sub by remember { mutableStateOf("Active") }
     var showInvite by remember { mutableStateOf(false) }
     var showMembers by remember { mutableStateOf(false) }
@@ -316,15 +335,15 @@ fun GroupExpensesTab(
                                 item(key = "day-$i-${day.label}") { EvDayHeader(day.label) }
                                 // Each expense is its own card (side margins + small gap, no hairlines).
                                 itemsIndexed(day.active, key = { _, it -> it.id }) { _, it ->
-                                    ExpenseRowFrom(it, onOpenExpense)
+                                    ExpenseRowFrom(it, rowActions)
                                 }
                                 if (day.settled.isNotEmpty()) {
                                     if (sub == "Settled") {
                                         itemsIndexed(day.settled, key = { _, it -> "s-${it.id}" }) { _, it ->
-                                            ExpenseRowFrom(it, onOpenExpense)
+                                            ExpenseRowFrom(it, rowActions)
                                         }
                                     } else {
-                                        item(key = "settled-$i-${day.label}") { SettledTray(day.settled, onOpenExpense) }
+                                        item(key = "settled-$i-${day.label}") { SettledTray(day.settled, rowActions) }
                                     }
                                 }
                             }
@@ -488,21 +507,60 @@ private fun FilterChipRow(onClear: () -> Unit) {
  * and a trailing **personal stake** — "you owe" in ink, "you're owed" in blue, or a Settled chip —
  * so the number that matters to the viewer leads.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ExpenseRowFrom(
     it: ExpenseItemUi,
-    onOpen: (String) -> Unit,
+    actions: ExpenseRowActions,
+) {
+    val c = EvenlyTheme.colors
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    // Android marks the pressed card with a blue outline; iOS lifts it out of the dim instead.
+    val outline = if (menuOpen && !isIOS()) c.blueText else c.border
+    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        ExpenseRowCard(
+            it,
+            Modifier
+                .clip(ExpenseCardShape)
+                .background(c.page)
+                .border(1.dp, outline, ExpenseCardShape)
+                .combinedClickable(onClick = { actions.onOpen(it.id) }, onLongClick = { menuOpen = true }),
+        )
+        EvContextMenu(
+            expanded = menuOpen,
+            onDismiss = { menuOpen = false },
+            cornerRadius = 14.dp,
+            actions =
+                listOf(
+                    EvMenuAction("Open", EvIcons.ChevR) { actions.onOpen(it.id) },
+                    EvMenuAction(if (it.itemized) "Edit bill" else "Edit expense", EvIcons.Edit) { actions.onEdit(it) },
+                    EvMenuAction("Delete", EvIcons.Trash, destructive = true) { confirmDelete = true },
+                ),
+        )
+    }
+    if (confirmDelete) {
+        DeleteBillSheet(
+            body = DELETE_BILL_BODY,
+            onConfirm = {
+                confirmDelete = false
+                actions.onDelete(it.id)
+            },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+}
+
+@Composable
+private fun ExpenseRowCard(
+    it: ExpenseItemUi,
+    modifier: Modifier,
 ) {
     val c = EvenlyTheme.colors
     val accent = it.categoryColor ?: c.ink2
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(ExpenseCardShape)
-            .background(c.page)
-            .border(1.dp, c.border, ExpenseCardShape)
-            .clickable { onOpen(it.id) }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -578,7 +636,7 @@ private fun EvDayHeader(label: String) {
 @Composable
 private fun SettledTray(
     items: List<ExpenseItemUi>,
-    onOpen: (String) -> Unit,
+    actions: ExpenseRowActions,
 ) {
     val c = EvenlyTheme.colors
     var open by remember { mutableStateOf(false) }
@@ -604,7 +662,7 @@ private fun SettledTray(
             EvIcon(if (open) EvIcons.ChevU else EvIcons.ChevD, size = 16.dp, tint = c.ink3)
         }
         if (open) {
-            items.forEach { ExpenseRowFrom(it, onOpen) }
+            items.forEach { ExpenseRowFrom(it, actions) }
         }
     }
 }
