@@ -1,6 +1,6 @@
 # Web group page: one person has the app, everyone else uses the link
 
-**Status:** built on `feat/web-group-page`; migration `web_group_page` and `web-claim` deployed to the live project 2026-11-23. The web page itself ships with the next site deploy
+**Status:** built on `feat/web-group-page`; migration `web_group_page` and `web-claim` deployed to the live project 2026-11-23, and the site was deployed to split-evenly.app the same day (from this branch, which also shipped the earlier unreleased web work: the `/j/` join page, permanent bill links, `/s/` quick splits, paying back on a bill)
 **Owner agent/session:** unassigned
 **Mockup:** `design/web-group-page-mockup.html` (required before any Compose or Svelte)
 
@@ -167,6 +167,6 @@ live project (rolled back, no test rows left); no new function is executable by 
 unknown invite with `GONE`.
 
 **Known gaps / unverified:** no browser has used the group page against a real group yet (that writes real
-rows, so it waits for the owner). The site (`web/`) is not deployed, so the live `/j/` still shows the old
-"you're in" screen until it is. `ux-firsttimer` not
+rows, so it waits for the owner). Vercel's production is now ahead of `main`: a later deploy from `main` before these branches merge
+would take the group page (and the other web work above) back off the site. `ux-firsttimer` not
 yet run on the web page. Itemized bills created on the web get shares only after an app device syncs.
