@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Web group page</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+  /* Light tokens are Color.kt / web app.css. Dark values are Color.kt's *Dark set. */
+  .light { --blue:#2563eb; --blue-text:#2563eb; --blue-tint:#eff4ff; --page:#fff; --surface:#f6f8fb; --border:#e6eaf0;
+    --border-strong:#d6dce6; --ink:#0b1220; --ink-2:#5b6577; --ink-3:#9aa3b2; --green:#16a34a; --green-tint:#e7f4ec;
+    --strip:#2563eb; --cat:#eef1f8; --frame-bg:#fff; }
+  .dark { --blue:#3a52d6; --blue-text:#7aa6ff; --blue-tint:#141c33; --page:#000; --surface:#1c1c1e; --border:#26282e;
+    --border-strong:#33363d; --ink:#e7ecf3; --ink-2:#9ba6b8; --ink-3:#67738a; --green:#4ade80; --green-tint:#13271b;
+    --strip:#6e9bff; --cat:#1b2230; --frame-bg:#000; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'IBM Plex Sans',system-ui,sans-serif; background:#e9edf3; color:#0b1220; padding:32px 16px 60px; }
+  .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; }
+  h1.title { font-size:22px; max-width:1240px; margin:0 auto 6px; }
+  h2.sec { font-size:16px; max-width:1240px; margin:36px auto 4px; }
+  p.lead { color:#5b6577; max-width:1240px; margin:0 auto 20px; font-size:14px; line-height:1.5; }
+  .row-frames { display:flex; gap:24px; flex-wrap:wrap; justify-content:center; max-width:1240px; margin:0 auto; }
+  .frame { width:290px; }
+  .cap { font-size:12px; font-weight:600; color:#5b6577; margin:0 0 8px 4px; text-transform:uppercase; letter-spacing:.04em; }
+  .phone { background:var(--frame-bg); color:var(--ink); border-radius:28px; height:600px; overflow:hidden; box-shadow:0 8px 30px rgba(11,18,32,.12); display:flex; flex-direction:column; position:relative; }
+  .url { background:var(--surface); border-bottom:1px solid var(--border); font-size:11px; color:var(--ink-2); padding:10px 14px; text-align:center; }
+  .status { height:22px; }
+  .scroll { padding:4px 0 16px; flex:1; overflow:hidden; display:flex; flex-direction:column; }
+  .pad { padding:0 16px; }
+
+  /* App top bar */
+  .topbar { display:flex; align-items:center; gap:6px; padding:6px 8px 6px 6px; }
+  .ib { width:34px; height:34px; border-radius:50%; display:grid; place-items:center; color:var(--ink); flex:none; }
+  .ib svg { width:20px; height:20px; }
+  .tb-title { font-weight:600; font-size:17px; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hl { outline:2px dashed #f59e0b; outline-offset:1px; border-radius:50%; }
+  .members { margin:4px 16px 10px; display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--border); border-radius:14px; font-size:13px; color:var(--ink-2); }
+  .av { width:24px; height:24px; border-radius:50%; background:var(--blue-tint); color:var(--blue-text); border:2px solid var(--page); font-size:10px; font-weight:600; display:grid; place-items:center; margin-left:-7px; }
+  .av:first-child { margin-left:0; }
+  .pill { display:flex; background:var(--surface); border-radius:999px; padding:3px; margin:0 16px 10px; font-size:13px; font-weight:600; }
+  .pill span { flex:1; text-align:center; padding:6px 0; border-radius:999px; color:var(--ink-2); }
+  .pill span.on { background:var(--page); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .day { font-size:11px; font-weight:600; color:var(--ink-3); text-transform:uppercase; letter-spacing:.05em; margin:8px 16px 4px; }
+
+  /* Expense card, as ExpenseRowFrom: 40dp category tile, title, payer · sub, stake column, chevron */
+  .card { position:relative; display:flex; align-items:center; gap:10px; margin:4px 12px; padding:10px 10px 10px 12px; border:1px solid var(--border); border-radius:14px; background:var(--page); overflow:hidden; }
+  .card.in::before { content:''; position:absolute; left:0; top:0; bottom:0; width:var(--sw,2px); background:var(--strip); }
+  .tile { width:36px; height:36px; border-radius:10px; background:var(--cat); display:grid; place-items:center; font-size:17px; flex:none; }
+  .tile.settled { background:var(--green-tint); color:var(--green); font-size:15px; font-weight:700; }
+  .grow { flex:1; min-width:0; }
+  .t { font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .s { font-size:12px; color:var(--ink-2); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .stake { text-align:right; flex:none; }
+  .stake .l { font-size:10px; font-weight:600; }
+  .stake .a { font-size:14px; font-weight:600; }
+  .owed { color:var(--green); }
+  .amt { font-size:13px; color:var(--ink-2); flex:none; }
+  .chev { color:var(--ink-3); font-size:14px; flex:none; }
+  .chip-set { font-size:11px; font-weight:600; color:var(--green); background:var(--green-tint); padding:3px 8px; border-radius:999px; flex:none; }
+
+  /* Web group page */
+  .hero { margin:12px 16px 10px; padding:14px; border-radius:16px; background:var(--surface); }
+  .hero .k { font-size:12px; color:var(--ink-2); }
+  .hero .v { font-size:24px; font-weight:700; letter-spacing:-.02em; margin:2px 0 8px; }
+  .hero .line { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-top:1px solid var(--border); }
+  .btn { display:block; width:100%; height:44px; border:0; border-radius:12px; background:var(--blue); color:#fff; font:600 15px 'IBM Plex Sans',sans-serif; margin-top:10px; }
+  .btn--ghost { background:transparent; color:var(--blue-text); border:1px solid var(--border-strong); }
+  .wait { margin:0 16px 10px; padding:12px; border-radius:14px; background:var(--blue-tint); }
+  .wait .h { font-size:13px; font-weight:600; }
+  .wait .r { display:flex; align-items:center; justify-content:space-between; margin-top:8px; font-size:13px; background:var(--page); border-radius:10px; padding:9px 10px; }
+  .wait .go { color:var(--blue-text); font-weight:600; white-space:nowrap; margin-left:8px; }
+  .who { display:flex; align-items:center; gap:8px; margin:0 16px 6px; }
+  .who .seg { flex:1; }
+  .me { font-size:12px; color:var(--ink-2); }
+  .fab { position:absolute; right:16px; bottom:18px; background:var(--blue); color:#fff; font-weight:600; font-size:14px; padding:12px 16px; border-radius:999px; box-shadow:0 6px 18px rgba(37,99,235,.35); }
+  .fab.later { opacity:.45; }
+  .foot { font-size:11px; color:var(--ink-3); text-align:center; margin-top:8px; }
+
+  /* Sheet */
+  .scrim { position:absolute; inset:0; background:rgba(11,18,32,.35); }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:var(--page); border-radius:20px 20px 0 0; padding:10px 16px 18px; }
+  .grab { width:36px; height:4px; border-radius:2px; background:var(--border-strong); margin:0 auto 12px; }
+  .sh { font-size:18px; font-weight:700; }
+  .ss { font-size:13px; color:var(--ink-2); margin:4px 0 12px; line-height:1.4; }
+  .field { border:1px solid var(--border-strong); border-radius:12px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-size:14px; }
+  .field .k { color:var(--ink-2); font-size:12px; }
+
+  /* Strip comparison */
+  .cmp { max-width:1240px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
+  .cmp .box { border-radius:16px; padding:12px 0; color:var(--ink); }
+  .cmp .lab { font-size:12px; font-weight:600; color:var(--ink-2); margin:0 16px 4px; }
+
+  .notes { max-width:1240px; margin:28px auto 0; background:#fff; border-radius:16px; padding:18px 22px; font-size:13.5px; line-height:1.6; color:#5b6577; }
+  .notes b { color:#0b1220; }
+  .notes ul { margin:6px 0 0 18px; }
+</style>
+</head>
+<body>
+
+<h1 class="title">Web group page, and the "you're in this" strip</h1>
+<p class="lead">For the one-app-user group: a friend without Evenly opens the group link, picks their name, and gets the whole group in a browser. The 2dp blue strip marks every expense you're part of, in the app and on the web. Brief: <code>docs/features/web-group-page.md</code>. Release A is shown; the Add expense button is greyed because creating is release C.</p>
+
+<!-- ============ APP ============ -->
+<h2 class="sec">In the app: new top bar + strip</h2>
+<p class="lead">Top bar is Search · Share · Settings (dashed outline marks the new Share button). Share opens the native share sheet with the group link in one tap.</p>
+
+<div class="row-frames">
+  <div class="frame light">
+    <div class="cap">App · light</div>
+    <div class="phone">
+      <div class="status"></div>
+      <div class="scroll" id="app-light"></div>
+    </div>
+  </div>
+  <div class="frame dark">
+    <div class="cap">App · dark</div>
+    <div class="phone">
+      <div class="status"></div>
+      <div class="scroll" id="app-dark"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ WEB ============ -->
+<h2 class="sec">On the web, without the app</h2>
+<p class="lead">Step 1 is the existing "Who are you?" screen from <code>web-group-join-mockup.html</code>, unchanged. These frames are what comes after it.</p>
+
+<div class="row-frames">
+  <!-- Web: All -->
+  <div class="frame light">
+    <div class="cap">2 · Group page, All (default)</div>
+    <div class="phone">
+      <div class="url">split-evenly.app/j/01a1…7339</div>
+      <div class="scroll">
+        <div class="pad" style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          <div style="font-size:26px">🏝️</div>
+          <div class="grow"><div style="font-weight:700;font-size:18px">Tulum trip</div><div class="me">You're Alice · <span style="color:var(--blue-text)">Not you?</span></div></div>
+        </div>
+        <div class="hero">
+          <div class="k">You owe</div>
+          <div class="v mono">$42.80</div>
+          <div class="line"><span>To Joe</span><span class="mono">$42.80</span></div>
+          <button class="btn">Settle up</button>
+        </div>
+        <div class="wait">
+          <div class="h">Waiting on you</div>
+          <div class="r"><span>🍜 Ramen night · pick your items</span><span class="go">Claim ›</span></div>
+        </div>
+        <div class="who"><div class="pill seg" style="margin:0"><span class="on">All</span><span>Mine</span></div></div>
+        <div class="list-all"></div>
+      </div>
+      <div class="fab later">+ Add expense</div>
+    </div>
+  </div>
+
+  <!-- Web: Mine -->
+  <div class="frame light">
+    <div class="cap">3 · Same page, Mine</div>
+    <div class="phone">
+      <div class="url">split-evenly.app/j/01a1…7339</div>
+      <div class="scroll">
+        <div class="pad" style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          <div style="font-size:26px">🏝️</div>
+          <div class="grow"><div style="font-weight:700;font-size:18px">Tulum trip</div><div class="me">You're Alice · <span style="color:var(--blue-text)">Not you?</span></div></div>
+        </div>
+        <div class="who" style="margin-top:12px"><div class="pill seg" style="margin:0"><span>All</span><span class="on">Mine</span></div></div>
+        <div class="list-mine"></div>
+        <p class="foot">Steve's taco night isn't here: Alice wasn't on it.</p>
+      </div>
+      <div class="fab later">+ Add expense</div>
+    </div>
+  </div>
+
+  <!-- Web: Settle -->
+  <div class="frame light">
+    <div class="cap">4 · Settle up</div>
+    <div class="phone">
+      <div class="url">split-evenly.app/j/01a1…7339</div>
+      <div class="scroll"><div class="list-all" style="margin-top:12px"></div></div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="sh">Pay Joe</div>
+        <div class="ss">Send it however you two usually do, then record it here so the group's numbers update.</div>
+        <div class="field"><span><span class="k">Amount</span><br><b class="mono">$42.80</b></span><span style="color:var(--blue-text);font-size:13px;font-weight:600">Change</span></div>
+        <div class="field"><span><span class="k">To</span><br><b>Joe</b></span></div>
+        <button class="btn">I paid Joe $42.80</button>
+        <p class="foot">Joe gets a notification and can say if it didn't arrive.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ STRIP OPTIONS ============ -->
+<h2 class="sec">Strip width and colour, side by side</h2>
+<p class="lead">You asked for 2dp. On a 14dp-radius card, 2dp reads clearly in light but gets faint in dark, so 3dp is shown for comparison. Brand blue is the pick because owed is green, credit is amber, and errors are red. Blue says nothing about money.</p>
+<div class="cmp">
+  <div class="box light" style="background:#fff"><div class="lab">2dp · blue · light</div><div class="sample" data-sw="2px"></div></div>
+  <div class="box light" style="background:#fff"><div class="lab">3dp · blue · light</div><div class="sample" data-sw="3px"></div></div>
+  <div class="box dark" style="background:#000"><div class="lab">2dp · blue · dark</div><div class="sample" data-sw="2px"></div></div>
+  <div class="box dark" style="background:#000"><div class="lab">3dp · blue · dark</div><div class="sample" data-sw="3px"></div></div>
+</div>
+
+<div class="notes">
+  <b>What to look at</b>
+  <ul>
+    <li><b>The strip never explains itself.</b> No legend or tooltip. Alice's rows have it in All; in Mine every row has it, which is how the meaning sinks in.</li>
+    <li><b>Settled expenses keep their strip</b> (the airport Uber): it means "you were on this", not "you still owe".</li>
+    <li><b>One thing that might clash:</b> the unread dot on a row is also blue. A row can have both (Groceries). I think they read as different things (an edge vs. a dot), but say if it bothers you.</li>
+    <li><b>"Not you?"</b> under the group name lets a guest switch names; that also covers a shared phone.</li>
+    <li><b>The web page uses the same link as the invite</b> (<code>/j/</code>). If the app is installed, the link opens the app instead.</li>
+  </ul>
+</div>
+
+<script>
+  const ICON = {
+    back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+    search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+    share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
+    gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
+  };
+  // in = viewer (Alice) is involved. Stake column only exists when involved, same as ExpenseRowFrom.
+  const ROWS = [
+    { day:'Today' },
+    { e:'🍜', t:'Ramen night', s:'Joe · itemized', in:true, stake:['you owe','$18.40'] },
+    { e:'🌮', t:'Taco night', s:'Steve · split evenly', amt:'$64.00' },
+    { e:'🛒', t:'Groceries', s:'Alice · split evenly', in:true, stake:['you\'re owed','$31.20', true], dot:true },
+    { day:'Mon, 18 Nov' },
+    { e:'⛽', t:'Gas', s:'Mary · split evenly', amt:'$40.00' },
+    { e:'✓', t:'Airport Uber', s:'Joe · split evenly', in:true, settled:true },
+  ];
+  function card(r, sw) {
+    if (r.day) return `<div class="day">${r.day}</div>`;
+    const right = r.settled ? '<span class="chip-set">✓ Settled</span>'
+      : r.stake ? `<div class="stake ${r.stake[2] ? 'owed' : ''}"><div class="l">${r.stake[0]}</div><div class="a mono">${r.stake[1]}</div></div>`
+      : `<span class="amt mono">${r.amt}</span>`;
+    const dot = r.dot ? '<span style="width:7px;height:7px;border-radius:50%;background:var(--blue-text);flex:none"></span>' : '';
+    return `<div class="card ${r.in ? 'in' : ''}" ${sw ? `style="--sw:${sw}"` : ''}>
+      <div class="tile ${r.settled ? 'settled' : ''}">${r.e}</div>
+      <div class="grow"><div class="t">${r.t}</div><div class="s">${r.s}</div></div>
+      ${right}${dot}<span class="chev">›</span></div>`;
+  }
+  const list = (rows, sw) => rows.map(r => card(r, sw)).join('');
+  const mine = [ROWS[0], ROWS[1], ROWS[3], ROWS[4], ROWS[6]];
+  const appTop = `
+    <div class="topbar">
+      <span class="ib">${ICON.back}</span><span style="font-size:20px">🏝️</span>
+      <span class="tb-title">Tulum trip</span>
+      <span class="ib">${ICON.search}</span><span class="ib hl">${ICON.share}</span><span class="ib">${ICON.gear}</span>
+    </div>
+    <div class="members"><span style="display:flex"><span class="av">A</span><span class="av">J</span><span class="av">M</span><span class="av">S</span></span><span class="grow">4 members</span><span style="color:var(--blue-text);font-weight:600">+ Add</span></div>
+    <div class="pill"><span class="on">Expenses</span><span>Balances</span><span>Overview</span></div>`;
+  for (const id of ['app-light','app-dark']) document.getElementById(id).innerHTML = appTop + list(ROWS);
+  document.querySelectorAll('.list-all').forEach(el => el.innerHTML = list(ROWS));
+  document.querySelectorAll('.list-mine').forEach(el => el.innerHTML = list(mine));
+  document.querySelectorAll('.sample').forEach(el => el.innerHTML = list(ROWS.slice(1, 4), el.dataset.sw));
+</script>
+</body>
+</html>

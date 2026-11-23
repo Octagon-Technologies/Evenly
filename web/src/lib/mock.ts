@@ -16,7 +16,8 @@
  *
  * The group invite page takes the same fixture: `/j/01a16973-8c78-7001-9dd8-3bdbc21b7339?mock`
  * (add `&as=new` for an empty list, `&as=purity` for a returning guest). Typing "Mary" hits the
- * exact-duplicate block; "Purityy" gets the "did you mean her?" suggestion.
+ * exact-duplicate block; "Purityy" gets the "did you mean her?" suggestion. After picking a name the page
+ * becomes the group page (docs/features/web-group-page.md), served by the `group-*` cases below.
  */
 
 import { ApiError, setTransport, type ApiErrorCode } from './api.ts';
@@ -37,6 +38,7 @@ const NAMES: Record<string, string> = {
   'u-mo': 'Mo',
   'u-purity': 'Purity',
   'u-jane': 'Jane',
+  'u-kim': 'Kim',
 };
 
 /** Mutable, because a guest's edit APPLIES (spec §2.7) — the fixture has to move with it or the mock
@@ -167,6 +169,85 @@ function joinPortion(itemId: string, userId: string, portionId: string | null): 
     added_by: state.me,
   });
   return pid;
+}
+
+
+// ── The web group page fixture: a few bills with real share rows, so balances come from the real math. ──
+
+interface MockShare { id: string; userId: string; owedSubunits: number; exactSubunits: number | null; paid: number }
+interface MockExpense {
+  id: string; title: string; date: string; createdAt: number; amountSubunits: number; currency: string;
+  payerUserId: string; splitMode: string; splitVersion: number; createdBy: string; shares: MockShare[];
+  participantIds: string[]; lineCount: number;
+}
+
+function evenShares(amount: number, ids: string[]): MockShare[] {
+  const sorted = [...ids].sort();
+  const base = Math.floor(amount / sorted.length);
+  return sorted.map((id, i) => ({
+    id: `sh-${Math.random().toString(36).slice(2)}`, userId: id,
+    owedSubunits: base + (i < amount % sorted.length ? 1 : 0), exactSubunits: null, paid: 0,
+  }));
+}
+
+const groupState = {
+  expenses: [
+    { id: 'gx-ramen', title: 'Ramen night', date: '2026-11-23', createdAt: 5, amountSubunits: 9640, currency: 'USD',
+      payerUserId: 'u-andrew', splitMode: 'ITEMIZED', splitVersion: 1, createdBy: 'u-andrew', shares: [],
+      participantIds: ['u-andrew', 'u-mary', 'u-purity', 'u-mo', 'u-kim'], lineCount: 6 },
+    { id: 'gx-taco', title: 'Taco night', date: '2026-11-23', createdAt: 4, amountSubunits: 6400, currency: 'USD',
+      payerUserId: 'u-steve', splitMode: 'EVEN', splitVersion: 1, createdBy: 'u-steve',
+      shares: evenShares(6400, ['u-steve', 'u-bob', 'u-mary']), participantIds: [], lineCount: 0 },
+    { id: 'gx-groc', title: 'Groceries', date: '2026-11-21', createdAt: 3, amountSubunits: 9360, currency: 'USD',
+      payerUserId: 'u-mary', splitMode: 'EVEN', splitVersion: 1, createdBy: 'u-mary',
+      shares: evenShares(9360, ['u-mary', 'u-purity', 'u-mo', 'u-kim']), participantIds: [], lineCount: 0 },
+    { id: 'gx-uber', title: 'Airport Uber', date: '2026-11-18', createdAt: 2, amountSubunits: 4960, currency: 'USD',
+      payerUserId: 'u-andrew', splitMode: 'EVEN', splitVersion: 1, createdBy: 'u-andrew',
+      shares: evenShares(4960, ['u-andrew', 'u-purity', 'u-mo', 'u-kim']), participantIds: [], lineCount: 0 },
+  ] as MockExpense[],
+  edits: [] as Array<{ id: string; expenseId: string; actorUserId: string; before: unknown; after: unknown; createdAt: number; undone: boolean; snapshot: MockExpense }>,
+};
+
+function snapshotOf(e: MockExpense) {
+  return {
+    title: e.title, amount: e.amountSubunits, payer: e.payerUserId, split_mode: e.splitMode,
+    shares: e.shares.map((s) => ({ id: s.id, user_id: s.userId, owed: s.owedSubunits, exact: s.exactSubunits })),
+  };
+}
+
+function groupView(me: string) {
+  return {
+    header: { groupName: 'Tulum trip', emoji: '🏝️', baseCurrency: 'USD' },
+    me: { userId: me, name: NAMES[me] ?? 'You' },
+    readOnly: false,
+    billTokens: groupState.expenses.some((e) => e.id === 'gx-ramen' && e.participantIds.includes(me)) ? { 'gx-ramen': 'mockmockmockmock' } : {},
+    members: Object.entries(NAMES).map(([userId, name]) => ({ userId, name, isPlaceholder: userId !== 'u-andrew' })),
+    expenses: groupState.expenses.map((e) => ({
+      ...e, payerOutsideName: null, categoryId: null, iClaimed: false, iAmDone: false,
+      shares: e.shares.map((s) => ({ userId: s.userId, owedSubunits: s.owedSubunits, exactSubunits: s.exactSubunits,
+        remainingSubunits: s.userId === e.payerUserId ? 0 : s.owedSubunits - s.paid })),
+    })),
+    payments: [],
+    edits: groupState.edits.map(({ snapshot: _s, ...rest }) => rest),
+  };
+}
+
+function peopleIds(people: Array<{ userId?: string; newName?: string; exactSubunits?: number }>): Array<{ id: string; exact?: number }> {
+  return people.map((p) => {
+    let id = p.userId;
+    if (!id && p.newName) {
+      id = `u-${p.newName.toLowerCase()}`;
+      NAMES[id] = p.newName;
+    }
+    return { id: id!, exact: p.exactSubunits };
+  });
+}
+
+function sharesFor(mode: string, amount: number, people: Array<{ id: string; exact?: number }>): MockShare[] {
+  if (mode === 'EXACT') {
+    return people.map((p) => ({ id: `sh-${Math.random().toString(36).slice(2)}`, userId: p.id, owedSubunits: p.exact ?? 0, exactSubunits: p.exact ?? 0, paid: 0 }));
+  }
+  return evenShares(amount, people.map((p) => p.id));
 }
 
 export function installMockTransport(): void {
@@ -483,6 +564,71 @@ export function installMockTransport(): void {
       case 'done':
         state.doneAt = body.done ? Date.now() : null;
         return { ok: true };
+
+
+      case 'group-view':
+        return groupView(state.me ?? 'u-purity');
+
+      case 'group-pay': {
+        const me = state.me ?? 'u-purity';
+        let left = Number(body.amountSubunits);
+        const open = groupState.expenses
+          .filter((e) => e.payerUserId === body.toUserId && (!body.expenseId || e.id === body.expenseId))
+          .flatMap((e) => e.shares.filter((s) => s.userId === me && s.owedSubunits - s.paid > 0))
+          .reverse();
+        const ceiling = open.reduce((t, s) => t + s.owedSubunits - s.paid, 0);
+        if (left > ceiling) return { ok: false, reason: 'ABOVE_CEILING', ceilingSubunits: ceiling };
+        for (const s of open) {
+          const apply = Math.min(left, s.owedSubunits - s.paid);
+          s.paid += apply;
+          left -= apply;
+        }
+        return { ok: true, reason: null };
+      }
+
+      case 'group-expense-create': {
+        const me = state.me ?? 'u-purity';
+        const people = peopleIds(body.people as never);
+        const items = (body.items as Array<{ lineTotalSubunits: number }> | undefined) ?? [];
+        const amount = body.splitMode === 'ITEMIZED' ? items.reduce((t, i) => t + i.lineTotalSubunits, 0) : Number(body.amountSubunits);
+        const id = `gx-${Date.now()}`;
+        groupState.expenses.unshift({
+          id, title: String(body.title), date: String(body.date), createdAt: Date.now(), amountSubunits: amount, currency: 'USD',
+          payerUserId: String(body.payerUserId), splitMode: String(body.splitMode), splitVersion: 1, createdBy: me,
+          shares: body.splitMode === 'ITEMIZED' ? [] : sharesFor(String(body.splitMode), amount, people),
+          participantIds: body.splitMode === 'ITEMIZED' ? people.map((p) => p.id) : [], lineCount: items.length,
+        });
+        return { ok: true, reason: null, expenseId: id, billToken: body.splitMode === 'ITEMIZED' ? 'mockmockmockmock' : null };
+      }
+
+      case 'group-expense-edit': {
+        const e = groupState.expenses.find((x) => x.id === body.expenseId);
+        if (!e) return { ok: false, reason: 'GONE' };
+        const money = body.amountSubunits !== undefined || body.people !== undefined;
+        if (money && body.baseSplitVersion !== e.splitVersion) return { ok: false, reason: 'STALE' };
+        const before = snapshotOf(e);
+        const snapshot = structuredClone(e);
+        if (body.title) e.title = String(body.title);
+        if (money) {
+          e.amountSubunits = Number(body.amountSubunits ?? e.amountSubunits);
+          e.payerUserId = String(body.payerUserId ?? e.payerUserId);
+          e.splitMode = String(body.splitMode ?? e.splitMode);
+          e.shares = sharesFor(e.splitMode, e.amountSubunits, peopleIds(body.people as never));
+          e.splitVersion += 1;
+        }
+        const editId = `ge-${Date.now()}`;
+        groupState.edits.unshift({ id: editId, expenseId: e.id, actorUserId: state.me ?? 'u-purity', before, after: snapshotOf(e), createdAt: Date.now(), undone: false, snapshot });
+        return { ok: true, reason: null, changed: true, editId };
+      }
+
+      case 'group-expense-undo': {
+        const edit = groupState.edits.find((x) => x.id === body.editId);
+        if (!edit || edit.undone) return { ok: true, changed: false, reason: null };
+        const i = groupState.expenses.findIndex((x) => x.id === edit.expenseId);
+        groupState.expenses[i] = { ...edit.snapshot, splitVersion: groupState.expenses[i].splitVersion + 1 };
+        edit.undone = true;
+        return { ok: true, changed: true, reason: null };
+      }
 
       case 'release':
         state.me = null;

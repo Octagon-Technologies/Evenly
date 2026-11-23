@@ -157,6 +157,25 @@ on top, and the guest's edit would revert with nothing to show it ever happened.
 Nothing in the app calls these. The payer's own undo is a local-first Room write that reaches the server
 through `merge_expense` like every other in-app money edit.
 
+## Web group page (`docs/features/web-group-page.md`) — the guest's group-wide writes
+
+Same shape as the bill-scoped guest RPCs below: all **service-role only**, all take the actor from the
+`web-claim` session and re-check ACTIVE membership (`_web_active_member`) themselves.
+
+- **`record_web_group_payment`** mirrors the app's `writeSettlement`: gross, never netted, oldest bill
+  first, ceiling = what `from` owes `to` in that currency. An advisory lock per pair keeps two taps from
+  both passing the ceiling.
+- **`create_web_expense`** writes EVEN/EXACT shares (EVEN through `_web_even_split`, which matches Kotlin's
+  `allocate`: leftover pennies to the lowest ids in `collate "C"` order). ITEMIZED writes lines and
+  `bill_participants` and **no shares**: the app re-derives an itemized bill's shares on every pull.
+- **`apply_web_expense_edit` / `undo_web_expense_edit`**: EVEN/EXACT only. Money changes need the
+  `split_version` the page read (STALE otherwise) and always advance it; shares are merged so a person who
+  stays keeps their share id and their payments. The log is `web_expense_edits` (RLS on, zero policies, not
+  synced); the app sees an `EDITED` history row. Undo refuses once the money moved again (`CHANGED_SINCE`).
+- **`web_group_snapshot`** is the page's one read. `remaining` is derived like the client, 0 for the payer.
+
+Proof: `supabase/tests/web_group_page.sql` (rolls back; "WEB GROUP PAGE: ALL PASSED" is green).
+
 ## Web claim (`WEB_CLAIM_SPEC.md`) — steps 1–6 landed
 
 Additive per the spec's §11 build order. Step 2 (`BillRepository.joinItem` + a `setPortion` fix) wired

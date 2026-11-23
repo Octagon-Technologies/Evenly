@@ -322,7 +322,7 @@ fun GroupExpensesRoute(
         },
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString(InviteLink.url(it))) } },
-        onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: ${InviteLink.url(it)}", "Join my Evenly group") } },
+        onShareInvite = { inviteToken?.let { share.shareText("See what you owe and settle up for ${group?.name ?: "our group"}, no app needed: ${InviteLink.url(it)}", "Evenly: ${group?.name ?: "our group"}") } },
         members = members.toMemberRows(userId),
         onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
         unresolvedBills = unresolvedUi,

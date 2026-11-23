@@ -18,8 +18,10 @@ no app, no account, and no password. They leave as a real person in the group, c
 Success looks like: a 12-person itemised bill fully claimed before anyone leaves the restaurant, and one
 row per real human afterwards.
 
-**Non-goal:** a web version of Evenly. This is one bill, one job, until its link is revoked or the bill is deleted. Everything else stays in the
-app, and §9 lists what that deliberately excludes.
+**Non-goal (for the bill page):** a web version of Evenly. The bill link is one bill, one job, until it is
+revoked or the bill is deleted, and §9 lists what that page excludes. **Superseded for the group link on
+2026-11-23:** the `/j/` page now shows the whole group, balances, settle-up, editing and adding expenses
+(`docs/features/web-group-page.md`). §9 still describes the bill page.
 
 ---
 
@@ -554,7 +556,9 @@ only the claimed part.
 
 ## 9. What we are NOT building
 
-Naming these prevents them being smuggled in as "obvious".
+Naming these prevents them being smuggled in as "obvious". These apply to the **bill page**. The group
+page reverses the first, second (minus receipt upload/OCR, still excluded), fourth and part of the sixth
+bullet on purpose; see `docs/features/web-group-page.md`.
 
 - **A web app.** No group view, no balances, no expense list, no settle-up flow, no history.
 - **Expense creation from web.** No receipt upload, no OCR, no new bills. Uploading arbitrary images to an

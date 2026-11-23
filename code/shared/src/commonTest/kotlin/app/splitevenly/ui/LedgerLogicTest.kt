@@ -4,6 +4,7 @@ import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.expense.Expense
+import app.splitevenly.domain.expense.ExpenseShare
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.Member
 import app.splitevenly.ui.screen.expense.evenSplit
@@ -12,6 +13,7 @@ import app.splitevenly.ui.screen.group.buildGroupExpenses
 import app.splitevenly.ui.screen.group.dayLabel
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LedgerLogicTest {
@@ -62,6 +64,33 @@ class LedgerLogicTest {
         assertEquals("Today", ui.days[0].label)
         assertEquals("You paid", ui.days[0].items.first { it.title == "Taxi" }.sub)
         assertEquals("Bob paid", ui.days[0].items.first { it.title == "Dinner" }.sub)
+    }
+
+    @Test
+    fun involved_strip_marks_payer_and_share_holders_only() {
+        val me = UserId("u1")
+        val bob = UserId("u2")
+        val group = Group(GroupId("g"), "Trip", "🏝️", "USD", adminUserId = me, inviteToken = "t", createdAt = 0)
+        val members = listOf(
+            Member(me, "Alex", isPlaceholder = false, isAdmin = true, joinedAt = 0),
+            Member(bob, "Bob", isPlaceholder = false, isAdmin = false, joinedAt = 0),
+        )
+        val iPaid = expense("e1", "Taxi", 1000, "2026-06-15", payer = me)
+        val iOwe = expense("e2", "Dinner", 1000, "2026-06-15", payer = bob)
+        val notMine = expense("e3", "Gas", 1000, "2026-06-15", payer = bob)
+        val settledMine = expense("e4", "Uber", 1000, "2026-06-15", payer = bob)
+        val shares = mapOf(
+            "e2" to listOf(ExpenseShare("s1", me, 500, 500), ExpenseShare("s2", bob, 500, 0)),
+            "e3" to listOf(ExpenseShare("s3", bob, 1000, 0)),
+            // Settled still counts: the strip records being on it, not owing on it.
+            "e4" to listOf(ExpenseShare("s4", me, 500, 0), ExpenseShare("s5", bob, 500, 0)),
+        )
+        val items = buildGroupExpenses(group, listOf(iPaid, iOwe, notMine, settledMine), members, me, "2026-06-15", shares)
+            .days.flatMap { it.items }.associateBy { it.title }
+        assertTrue(items.getValue("Taxi").involved)
+        assertTrue(items.getValue("Dinner").involved)
+        assertFalse(items.getValue("Gas").involved)
+        assertTrue(items.getValue("Uber").involved)
     }
 
     private fun expense(id: String, title: String, amount: Long, date: String, payer: UserId) = Expense(

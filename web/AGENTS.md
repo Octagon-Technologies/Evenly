@@ -6,13 +6,22 @@ real person in the group, no app, no account, no password) and, as of 2026-08-04
 (`src/marketing/` — home, privacy, terms) that lives at the same domain. `src/lib/router.ts`'s
 `resolveRoute` is what decides which one a given URL gets.
 
-**The claim flow is still not a web version of Evenly.** One bill, one job, until its link is revoked or its bill is deleted. Spec §9 lists
-what that deliberately excludes — no group view, no balances, no settle-up, no expense creation, no
-offline. One narrow exception (one-time-splits B4, `MyPayment.svelte`): a guest may record what she paid
-back **on this bill** and change or remove her own record from the same browser. Never other bills,
-never a running balance. If you are adding a second *claim* screen that is not in `design/web-claim-mockup.html`,
-stop and re-read it. That constraint does not extend to `src/marketing/`, which has its own approved
-mockup (the "Finy-inspired" home/privacy/terms artifact) — a new marketing page is in scope there.
+**The bill page (`/b/`) is still one bill, one job.** Spec §9 holds for the claim screens: one bill's
+lines, its claims and its payments, until the link is revoked or the bill is deleted. If you are adding a
+second *claim* screen that is not in `design/web-claim-mockup.html`, stop and re-read it.
+
+**The group page (`/j/` after "who are you?") is the deliberate exception**, decided 2026-11-23
+(`docs/features/web-group-page.md`, mockup `design/web-group-page-mockup.html`): one person has the app,
+everyone else uses the link. A guest sees every expense in the group (All is the default, Mine one tap
+away), their bilateral balances, a "Waiting on you" card for itemized bills that list them, and can
+settle up, edit an EVEN/EXACT expense (applies at once, logged, anyone may undo) and add an expense
+(even, exact, or typed items). Still out of scope: receipt scan/OCR (per-call cost on a public link),
+group settings, other people's profiles, offline. Do not "fix" the group page back out on the strength of
+the older spec text. That constraint does not extend to `src/marketing/`, which has its own approved
+mockup (the "Finy-inspired" home/privacy/terms artifact).
+
+**The 3px left strip on a group-page row means "you are on this expense"** (payer, a share, or listed on
+the bill), the same mark as the app's `InvolvedStripWidth`. Nothing on the page explains it, on purpose.
 
 **Pre-launch, `/` *is* the waitlist, and the page is prerendered.** As of 2026-08-18 `resolveRoute`
 sends `/`, `/waitlist` and every unknown path to `Waitlist.svelte`; the editorial home page is parked
@@ -96,8 +105,8 @@ the ledger *records*. If they disagree, Kotlin wins and the web is stale by one 
 served from the same noindex `app.html` shell as `/b/`, never prerendered. It is the bill flow's identity half
 and nothing more: "Are any of these you?" or a typed name makes the same placeholder member + group-scoped
 session as a bill does (`web-claim` actions `invite-resolve` / `invite-name` / `invite-claim`), filed under
-the group's name so a later bill link in that group recognises them. **No group view, balances or expenses
-here**; that line is the same one the claim flow holds. Anyone with the app installed never reaches this page:
+the group's name so a later bill link in that group recognises them. Once joined, the same page renders the
+group (`screens/group/`, state in `lib/group.svelte.ts`, `web-claim` actions `group-*`). Anyone with the app installed never reaches this page:
 the link is an iOS universal link / Android App Link (`public/.well-known/`), so the page is built for the
 friend without the app.
 

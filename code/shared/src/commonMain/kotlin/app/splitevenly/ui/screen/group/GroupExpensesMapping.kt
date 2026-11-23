@@ -94,6 +94,12 @@ internal fun Expense.isSettled(shares: List<ExpenseShare>): Boolean {
     return shares.filter { payerUserId == null || it.userId != payerUserId }.all { it.remainingSubunits == 0L }
 }
 
+/** Whether [me] paid for this expense or holds any share of it, settled or not. */
+internal fun Expense.isInvolved(me: UserId?, shares: List<ExpenseShare>): Boolean {
+    if (me == null) return false
+    return payerUserId == me || shares.any { it.userId == me }
+}
+
 private fun Expense.toItemUi(
     currentUserId: UserId?,
     nameByUser: Map<String, String>,
@@ -123,6 +129,7 @@ private fun Expense.toItemUi(
         stakeLabel = stake?.label,
         stakeAmount = stake?.let { moneySubunits(it.subunits, currency) },
         stakeOwedToYou = stake?.owedToYou ?: false,
+        involved = isInvolved(currentUserId, shares),
     )
 }
 

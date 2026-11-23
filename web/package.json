@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "vite build && node prerender.mjs",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test test/vectors.test.ts",
+    "test": "node --experimental-strip-types --test test/vectors.test.ts test/balances.test.ts",
     "typecheck": "tsc --noEmit && svelte-check --threshold error"
   },
   "devDependencies": {

@@ -1197,6 +1197,247 @@ async function actionPaymentEdit(
   });
 }
 
+// ── The web group page (docs/features/web-group-page.md) ─────────────────────────────────────────
+// The `/j/` page, after "who are you?", is the whole group: every expense, what you owe, paying people
+// back, fixing an expense and adding one. Every action here takes the GROUP invite token plus the guest's
+// session, re-resolves both from scratch, and passes only the session's own user id to the database as
+// the actor. Money writes go through service-role RPCs that re-check membership and the causal
+// split_version under a row lock; nothing in a body can name who the guest is.
+
+interface GroupGuest {
+  ctx: InviteContext;
+  session: Session;
+}
+
+/** Invite token + session → the guest, or the Response to send. Reads allow a claimed-elsewhere session
+ *  (the page then shows "open the app"); writes go through [requireGroupWriter]. */
+async function resolveGroupGuest(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string },
+): Promise<GroupGuest | Response> {
+  const ctx = await resolveInvite(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  const session = await resolveSession(sb, ctx.group.id, body.sessionToken);
+  if (!session) return err("SESSION_REQUIRED", 401);
+  return { ctx, session };
+}
+
+async function withGroupWriter(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string },
+  action: (g: GroupGuest) => Promise<Response>,
+): Promise<Response> {
+  const ctx = await resolveInvite(sb, body.token);
+  if (ctx instanceof Response) return ctx;
+  return withTokenWriteGuard(sb, ctx.tokenHash, `group ${ctx.group.id}`, async () => {
+    const session = requireWritableSession(await resolveSession(sb, ctx.group.id, body.sessionToken));
+    if (session instanceof Response) return session;
+    return action({ ctx, session });
+  });
+}
+
+/** The live bill-link token for each itemized bill the guest is on, minting one where none exists, so
+ *  "Waiting on you" can open the existing claim page. Same token shape and hash as the app's
+ *  `create_web_bill_link`, so either side's token resolves everywhere. */
+async function billTokensFor(sb: SupabaseClient, groupId: string, expenseIds: string[], actor: string) {
+  const out: Record<string, string> = {};
+  if (expenseIds.length === 0) return out;
+  const { data: links } = await sb.from("web_bill_links")
+    .select("expense_id, token").in("expense_id", expenseIds).is("revoked_at", null).not("token", "is", null);
+  for (const l of links ?? []) out[l.expense_id as string] ??= l.token as string;
+  const now = Date.now();
+  for (const id of expenseIds) {
+    if (out[id]) continue;
+    const token = newPlaintextToken();
+    const { error } = await sb.from("web_bill_links").insert({
+      id: newId(), expense_id: id, group_id: groupId, token_hash: await sha256Hex(token), token,
+      created_by: actor, created_at: now, expires_at: null, updated_at: now,
+    });
+    if (!error) out[id] = token;
+  }
+  return out;
+}
+
+/** POST /web-claim/group-view — `{ token, sessionToken }`. The whole group, from the guest's seat. */
+async function actionGroupView(sb: SupabaseClient, body: { token?: string; sessionToken?: string }): Promise<Response> {
+  const guest = await resolveGroupGuest(sb, body);
+  if (guest instanceof Response) return guest;
+  const { ctx, session } = guest;
+  const { data: snap, error } = await sb.rpc("web_group_snapshot", { p_group_id: ctx.group.id, p_user_id: session.user_id });
+  if (error) return err("BACKEND", 500, error.message);
+  const { data: g } = await sb.from("groups").select("base_currency").eq("id", ctx.group.id).maybeSingle();
+  const me = (snap.members as Array<{ userId: string; name: string }>).find((m) => m.userId === session.user_id);
+  // Scenario 4: only bills that list the guest as there get a claim link. Steve never sees Joe's dinner
+  // as something to claim, though it is in the list like every other expense.
+  const mine = (snap.expenses as Array<{ id: string; splitMode: string; participantIds: string[] }>)
+    .filter((e) => e.splitMode === "ITEMIZED" && e.participantIds.includes(session.user_id))
+    .map((e) => e.id);
+  const billTokens = session.claimedElsewhere ? {} : await billTokensFor(sb, ctx.group.id, mine, session.user_id);
+  return json({
+    header: { groupName: ctx.group.name, emoji: ctx.group.emoji, baseCurrency: g?.base_currency ?? "USD" },
+    me: { userId: session.user_id, name: me?.name ?? "You" },
+    readOnly: session.claimedElsewhere,
+    billTokens,
+    ...snap,
+  });
+}
+
+/** POST /web-claim/group-pay — `{ token, sessionToken, toUserId, currency, amountSubunits, app?, expenseId? }`.
+ *  With `expenseId` the payment pays down that one bill only. */
+async function actionGroupPay(
+  sb: SupabaseClient,
+  body: {
+    token?: string; sessionToken?: string; toUserId?: string; currency?: string; amountSubunits?: number;
+    app?: string | null; expenseId?: string | null;
+  },
+): Promise<Response> {
+  return withGroupWriter(sb, body, async ({ ctx, session }) => {
+    if (!body.toUserId || !body.currency || !Number.isInteger(body.amountSubunits)) {
+      return err("BAD_REQUEST", 400, "toUserId, currency and amountSubunits required");
+    }
+    const { data, error } = await sb.rpc("record_web_group_payment", {
+      p_group_id: ctx.group.id, p_from: session.user_id, p_to: body.toUserId, p_currency: body.currency,
+      p_amount: body.amountSubunits, p_payment_app: body.app ?? null, p_now: Date.now(),
+      p_expense_id: body.expenseId ?? null,
+    });
+    if (error) return err("BACKEND", 500, error.message);
+    return json({ ok: data.ok, reason: data.reason ?? null, ceilingSubunits: data.ceiling ?? null });
+  });
+}
+
+const SPLIT_MODES = new Set(["EVEN", "EXACT", "ITEMIZED"]);
+const MAX_NEW_NAMES = 10;
+
+interface PersonIn { userId?: string; newName?: string; exactSubunits?: number }
+
+/** Turns the page's people list into member ids, creating typed-in names first (`add_web_group_name`).
+ *  A typed name that already exists is refused rather than silently reused: the page offers the
+ *  existing person, and a guest who typed "Bob" past that meant a different Bob (spec §2.4). */
+async function resolvePeople(
+  sb: SupabaseClient, groupId: string, actor: string, people: PersonIn[],
+): Promise<Array<{ user_id: string; exact?: number }> | Response> {
+  if (people.filter((p) => p.newName).length > MAX_NEW_NAMES) return err("BAD_REQUEST", 400, "too many new names");
+  const out: Array<{ user_id: string; exact?: number }> = [];
+  for (const p of people) {
+    let id = p.userId;
+    if (!id && p.newName) {
+      const name = normalizeName(p.newName);
+      if (!name) return err("BAD_REQUEST", 400, "empty name");
+      const { count } = await sb.from("users").select("id", { count: "exact", head: true })
+        .eq("placeholder_group_id", groupId).eq("is_placeholder", true);
+      if ((count ?? 0) >= MAX_PLACEHOLDERS_PER_GROUP) return err("EXPIRED", 410, "too many placeholders");
+      const { data, error } = await sb.rpc("add_web_group_name", {
+        p_group_id: groupId, p_name: name, p_user_id: newId(), p_member_id: newId(), p_actor: actor, p_now: Date.now(),
+      });
+      if (error) return err("BACKEND", 500, error.message);
+      if (!data.created) return json({ ok: false, reason: "NAME_TAKEN", detail: data.name });
+      id = data.user_id as string;
+    }
+    if (!id) return err("BAD_REQUEST", 400, "person needs userId or newName");
+    out.push(p.exactSubunits === undefined ? { user_id: id } : { user_id: id, exact: p.exactSubunits });
+  }
+  return out;
+}
+
+/** A refused money write raises inside the RPC with a "web expense: …" message the page can show. A 200
+ *  with `ok: false`, like `pay`'s ceiling refusal: the guest typed something, and the page has to say what. */
+function rpcRefusal(error: { message: string }): Response {
+  const m = /web expense: (.*)$/.exec(error.message);
+  return m ? json({ ok: false, reason: "INVALID", detail: m[1] }) : err("BACKEND", 500, error.message);
+}
+
+/** POST /web-claim/group-expense-create — a guest adds an expense. Body: `{ token, sessionToken, title,
+ *  amountSubunits, currency, date, payerUserId, splitMode: EVEN|EXACT|ITEMIZED, people: PersonIn[],
+ *  items?: [{ label, quantity, lineTotalSubunits }], categoryId? }`. */
+async function actionGroupExpenseCreate(
+  sb: SupabaseClient,
+  body: {
+    token?: string; sessionToken?: string; title?: string; amountSubunits?: number; currency?: string; date?: string;
+    payerUserId?: string; splitMode?: string; people?: PersonIn[];
+    items?: Array<{ label?: string; quantity?: number; lineTotalSubunits?: number }>; categoryId?: string | null;
+  },
+): Promise<Response> {
+  return withGroupWriter(sb, body, async ({ ctx, session }) => {
+    if (!body.splitMode || !SPLIT_MODES.has(body.splitMode) || !Array.isArray(body.people)) {
+      return err("BAD_REQUEST", 400, "splitMode and people required");
+    }
+    const people = await resolvePeople(sb, ctx.group.id, session.user_id, body.people);
+    if (people instanceof Response) return people;
+    const expenseId = newId();
+    const { data, error } = await sb.rpc("create_web_expense", {
+      p_group_id: ctx.group.id,
+      p_actor: session.user_id,
+      p_expense_id: expenseId,
+      p_title: body.title ?? "",
+      p_amount: body.amountSubunits ?? 0,
+      p_currency: body.currency ?? "",
+      p_date: body.date ?? "",
+      p_payer: body.payerUserId ?? session.user_id,
+      p_split_mode: body.splitMode,
+      p_people: people,
+      p_items: (body.items ?? []).map((i) => ({ label: i.label ?? "", quantity: i.quantity ?? 0, line_total: i.lineTotalSubunits ?? -1 })),
+      p_category_id: body.categoryId ?? null,
+      p_now: Date.now(),
+    });
+    if (error) return rpcRefusal(error);
+    let billToken: string | null = null;
+    if (body.splitMode === "ITEMIZED") {
+      billToken = (await billTokensFor(sb, ctx.group.id, [expenseId], session.user_id))[expenseId] ?? null;
+    }
+    return json({ ok: true, expenseId: data.expense_id, billToken });
+  });
+}
+
+/** POST /web-claim/group-expense-edit — `{ token, sessionToken, expenseId, baseSplitVersion, title?,
+ *  amountSubunits?, payerUserId?, splitMode?, people? }`. Applies at once; STALE means someone changed the
+ *  money since the page read it, and the page reloads and shows the newer numbers. */
+async function actionGroupExpenseEdit(
+  sb: SupabaseClient,
+  body: {
+    token?: string; sessionToken?: string; expenseId?: string; baseSplitVersion?: number; title?: string;
+    amountSubunits?: number; payerUserId?: string; splitMode?: string; people?: PersonIn[];
+  },
+): Promise<Response> {
+  return withGroupWriter(sb, body, async ({ ctx, session }) => {
+    if (!body.expenseId) return err("BAD_REQUEST", 400, "expenseId required");
+    let people: Array<{ user_id: string; exact?: number }> | null = null;
+    if (Array.isArray(body.people)) {
+      const resolved = await resolvePeople(sb, ctx.group.id, session.user_id, body.people);
+      if (resolved instanceof Response) return resolved;
+      people = resolved;
+    }
+    const { data, error } = await sb.rpc("apply_web_expense_edit", {
+      p_expense_id: body.expenseId,
+      p_group_id: ctx.group.id,
+      p_actor: session.user_id,
+      p_base_split_version: body.baseSplitVersion ?? null,
+      p_title: body.title ?? null,
+      p_amount: Number.isInteger(body.amountSubunits) ? body.amountSubunits : null,
+      p_payer: body.payerUserId ?? null,
+      p_split_mode: body.splitMode ?? null,
+      p_people: people,
+      p_now: Date.now(),
+    });
+    if (error) return rpcRefusal(error);
+    return json({ ok: data.ok, reason: data.reason ?? null, changed: data.changed ?? false, editId: data.edit_id ?? null });
+  });
+}
+
+/** POST /web-claim/group-expense-undo — `{ token, sessionToken, editId }`. Anyone in the group may undo. */
+async function actionGroupExpenseUndo(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; editId?: string },
+): Promise<Response> {
+  return withGroupWriter(sb, body, async ({ ctx, session }) => {
+    if (!body.editId) return err("BAD_REQUEST", 400, "editId required");
+    const { data, error } = await sb.rpc("undo_web_expense_edit", {
+      p_edit_id: body.editId, p_group_id: ctx.group.id, p_actor: session.user_id, p_now: Date.now(),
+    });
+    if (error) return err("BACKEND", 500, error.message);
+    return json({ ok: data.ok, reason: data.reason ?? null, changed: data.changed ?? false });
+  });
+}
+
 // deno-lint-ignore no-explicit-any
 const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => Promise<Response>> = {
   resolve: actionResolve,
@@ -1219,6 +1460,11 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => P
   "invite-resolve": actionInviteResolve,
   "invite-name": actionInviteName,
   "invite-claim": actionInviteClaim,
+  "group-view": actionGroupView,
+  "group-pay": actionGroupPay,
+  "group-expense-create": actionGroupExpenseCreate,
+  "group-expense-edit": actionGroupExpenseEdit,
+  "group-expense-undo": actionGroupExpenseUndo,
 };
 
 Deno.serve(async (req) => {
