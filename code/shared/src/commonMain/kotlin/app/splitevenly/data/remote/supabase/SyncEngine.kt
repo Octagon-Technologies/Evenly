@@ -157,6 +157,8 @@ class SyncEngine(
         private val rows: suspend () -> List<T>,
         private val id: (T) -> String,
         private val upsert: suspend (List<T>) -> Unit,
+        /** Rows (given the actor's id) that must go up before every other roster table. See [push]. */
+        private val bootstrap: ((T, String) -> Boolean)? = null,
     ) {
         /** Rows whose content differs from the fingerprint recorded at their last successful sync. */
         private suspend fun dirty(states: RowSyncStateDao): List<T> {
@@ -175,6 +177,20 @@ class SyncEngine(
             upsert(outgoing)
             states.upsertAll(outgoing.map { RowSyncStateEntity(name, id(it), rowFingerprint(it)) })
         }
+
+        val hasBootstrap: Boolean get() = bootstrap != null
+
+        /** Push only this table's dirty [bootstrap] rows; a no-op for tables without one. */
+        suspend fun pushBootstrap(
+            states: RowSyncStateDao,
+            actorUserId: String,
+        ) {
+            val pick = bootstrap ?: return
+            val outgoing = dirty(states).filter { pick(it, actorUserId) }
+            if (outgoing.isEmpty()) return
+            upsert(outgoing)
+            states.upsertAll(outgoing.map { RowSyncStateEntity(name, id(it), rowFingerprint(it)) })
+        }
     }
 
     /**
@@ -189,7 +205,13 @@ class SyncEngine(
         listOf(
             SyncTable("users", { db.userDao().allForSync() }, { it.id }, { upsertAll("users", it) }),
             SyncTable("groups", { db.groupDao().allForSync() }, { it.id }, { upsertAll("groups", it) }),
-            SyncTable("members", { db.memberDao().allForSync() }, { it.id }, { upsertAll("members", it) }),
+            SyncTable(
+                "members",
+                { db.memberDao().allForSync() },
+                { it.id },
+                { upsertAll("members", it) },
+                bootstrap = { row, actor -> row.userId == actor },
+            ),
             SyncTable("settlements", { db.settlementDao().allForSync() }, { it.id }, { upsertAll("settlements", it) }),
             SyncTable("settlement_allocations", { db.settlementDao().allAllocationsForSync() }, {
                 it.id
@@ -618,7 +640,18 @@ class SyncEngine(
             // The roster goes first, and the order is not cosmetic: once RLS is membership-scoped (the P0
             // gate in `data/AGENTS.md`) the server has to already know the group and who is in it before
             // it will accept an expense underneath them.
-            for (table in roster) step { table.push(states) }
+            //
+            // Within the roster the order is: the actor's OWN membership rows, then every other member row,
+            // then users and groups. RLS forces it. A new group cannot be upserted until its creator is a
+            // member (ON CONFLICT DO UPDATE checks the row against the `is_group_member` USING clause), a
+            // placeholder's member row needs that membership, and a placeholder's `users` row is only
+            // visible once its member row exists. A batch mixing "me" with a placeholder fails whole, so a
+            // group created with friends already in it (every quick split) never reached the server and
+            // its 403 blocked every later push. Members has no FK to groups, which makes this order legal.
+            val (bootstrapped, others) = roster.partition { it.hasBootstrap }
+            for (table in bootstrapped) step { table.pushBootstrap(states, actorUserId) }
+            for (table in bootstrapped) step { table.push(states) }
+            for (table in others) step { table.push(states) }
             // Expenses + their shares move as one atomic, version-guarded unit through `merge_expense`
             // rather than as a dirty-row upsert, which is why this one is sequenced by hand.
             step { pushExpenses(actorUserId) }
