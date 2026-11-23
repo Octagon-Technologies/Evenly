@@ -460,7 +460,7 @@ A soft-deleted `receipts` row best-effort deletes its Storage object
 | `revenuecat-webhook`        | Deployed; **refuses every request** until `REVENUECAT_WEBHOOK_SECRET` is set; `verify_jwt = false` |
 | `admin`                     | The admin dashboard's whole security boundary; `verify_jwt = false` (own gate) |
 | `feedback`                  | Feedback submission from all three entry points; `verify_jwt = false` (two are anonymous) |
-| `send-welcome-email`        | Deployed but **inert** until `RESEND_API_KEY` is set, and **unwired** until a Database Webhook on `auth.users` insert is added by hand in Studio (see the function's own header) |
+| `send-welcome-email`        | Live; called by the `welcome_email_on_signup` trigger on `auth.users`; `verify_jwt = false` (own `WELCOME_EMAIL_SECRET` check); sends nothing if `RESEND_API_KEY` is unset |
 
 `admin` and `feedback` are `ADMIN_FEEDBACK_SPEC.md`, build-order steps 1 to 4. Both carry
 `verify_jwt = false`, and for `admin` that is the opposite of what it looks like: platform-level
@@ -499,9 +499,14 @@ optional `RESEND_FROM`), same env-optional/best-effort/never-throws shape as `sl
 email sends inline from `waitlist/index.ts`, gated on `.select()` actually returning an inserted row
 (`ON CONFLICT DO NOTHING` returns nothing for a resubmit) so retrying the form never re-sends it. The
 welcome email has no table write to hang off — an account is a Supabase Auth event, not a row this
-project's own migrations create — so it lives behind `send-welcome-email` instead, wired the same way
-`push-notify` is meant to be: a Database Webhook configured in Studio, not SQL, so the service-role key
-it authenticates with never lands in a tracked file. Both templates live in `_shared/emailTemplates.ts`
+project's own migrations create — so it lives behind `send-welcome-email`, called by the SQL trigger
+`welcome_email_on_signup` on `auth.users` (`schema.sql`). The trigger reads its bearer from Vault
+(`welcome_email_service_key`), which must equal the function's `WELCOME_EMAIL_SECRET`; neither value is in
+a tracked file. **Do not go back to a Studio Database Webhook:** the one this replaced embedded the legacy
+service-role JWT in its header and was refused with 403 on every call once the runtime
+`SUPABASE_SERVICE_ROLE_KEY` stopped being that string. The function has no idempotency, so the trigger
+fires only on insert or when an email first appears on an account, never on every update (sign-in
+updates `auth.users`). Both templates live in `_shared/emailTemplates.ts`
 as table-based, inline-styled HTML (the approved "Bloom" mockup, `design/waitlist-bevel.html`'s dark
 ground and brand-blue bloom) — a browser-only CSS layout silently breaks in Outlook and the Gmail app.
 
