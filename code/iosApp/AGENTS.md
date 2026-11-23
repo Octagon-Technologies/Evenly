@@ -16,6 +16,16 @@ simulator and an Android emulator at once burns CPU/RAM for nothing. Defaults to
 `CONFIG=Release ./run-ios-sim.sh` runs Release instead. Both point at the same cloud Supabase project —
 `SupabaseConfig.USE_LOCAL` is a manual flag for local destructive QA, not tied to Debug/Release.
 
+**Parallel sessions: one simulator per checkout, two builds at a time.** Each checkout (main tree or
+worktree) gets its own simulator named `Evenly-<folder>`. It is created on first run and reused after that.
+Never point a session at another checkout's simulator: two sessions on one simulator install over each other's
+app and fake `SurfaceMetalRedrawer` crashes. Machine-wide, at most `EVENLY_BUILD_SLOTS` (default 2)
+runs of this script build at once; the rest print who holds the slots and wait. More than two Kotlin/Native
+builds on this 16 GB Mac swap and are slower overall. Debug builds run Gradle with a 3g heap
+(`EVENLY_DEBUG_GRADLE_HEAP`, set in the Xcode "Compile Kotlin Framework" phase). Release keeps
+`gradle.properties`' 6g. When you are done, `./run-ios-sim.sh shutdown` frees that simulator's memory. Each
+checkout's console log is `$TMPDIR/evenly-console-<folder>.log`.
+
 Compile-only check, much faster than a full Xcode build:
 
 ```bash

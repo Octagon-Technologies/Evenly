@@ -182,7 +182,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :shared:embedAndSignAppleFrameworkForXcode\n";
+			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n# Debug builds skip the opt-mode LTO that needs the 6g heap in gradle.properties; a smaller daemon lets\n# two worktrees build in parallel on a 16 GB Mac without swapping. Release keeps the 6g default.\nif [ \"$CONFIGURATION\" = \"Debug\" ]; then\n  ./gradlew \"-Dorg.gradle.jvmargs=-Xmx${EVENLY_DEBUG_GRADLE_HEAP:-3g} -Dfile.encoding=UTF-8\" :shared:embedAndSignAppleFrameworkForXcode\nelse\n  ./gradlew :shared:embedAndSignAppleFrameworkForXcode\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
