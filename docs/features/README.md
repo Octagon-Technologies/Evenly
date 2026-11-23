@@ -26,3 +26,4 @@ Precedence is unchanged: the nearest `AGENTS.md` > root `AGENTS.md` > `design/` 
 | Bill edit auto-save + Scan (T5a–c) | Planned | [bill-edit-autosave-and-scan.md](bill-edit-autosave-and-scan.md) |
 | Expense detail: claim QR + cards (T4, T7) | Planned | [expense-detail-and-claim-qr.md](expense-detail-and-claim-qr.md) |
 | Quick splits + two-party payment edits | Brief agreed, not started | [one-time-splits.md](one-time-splits.md) |
+| Web group page (no app needed) | Built, server not deployed | [web-group-page.md](web-group-page.md) |

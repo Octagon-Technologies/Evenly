@@ -8,7 +8,8 @@
    * action for the cases where the OS hands the link to the browser anyway (some in-app browsers).
    *
    * The landing proves the group is real before asking for anything (emoji, name, who is in it), the
-   * same rule as the bill page's header (spec §3.1).
+   * same rule as the bill page's header (spec §3.1). After that the page is the whole group
+   * (`screens/group/GroupPage.svelte`): balances, every expense, settling, editing and adding.
    */
   import { onMount, untrack } from 'svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -16,6 +17,8 @@
   import JoinPick from '../screens/join/JoinPick.svelte';
   import JoinName from '../screens/join/JoinName.svelte';
   import { JoinStore } from '../lib/join.svelte.ts';
+  import { GroupStore } from '../lib/group.svelte.ts';
+  import GroupPage from '../screens/group/GroupPage.svelte';
 
   const { token }: { token: string } = $props();
   // The route is resolved once per page load, so the token never changes under this component.
@@ -23,6 +26,14 @@
 
   onMount(() => {
     store.load();
+  });
+
+  // Once the page knows who this browser is, the invite page IS the group (docs/features/web-group-page.md).
+  // Keyed on the name, so "Not you?" followed by a different name starts a fresh group store.
+  const groupStore = $derived.by(() => {
+    if (store.phase !== 'joined' || !store.me) return null;
+    const session = store.sessionToken;
+    return session ? new GroupStore(token, session) : null;
   });
 
   const who = $derived.by(() => {
@@ -72,31 +83,10 @@
     <JoinPick {store} />
   {:else if store.phase === 'name_entry'}
     <JoinName {store} />
-  {:else if store.phase === 'joined' && store.header}
-    <div class="page">
-      <div class="scroll">
-        <div class="join-check" aria-hidden="true">✓</div>
-        <div class="hdr" style="padding-top:0">
-          <div class="eyebrow">{store.header.groupName}</div>
-          <div class="h1">{store.returning ? `You're already in, ${store.me}` : `You're in, ${store.me}`}</div>
-          <div class="sub">The group can now add you to expenses.</div>
-        </div>
-        <div class="note note--green">
-          When someone shares a bill with you, open its link and tap what you had. This browser will
-          remember you.
-        </div>
-        {#if store.error}
-          <ErrorBanner message={store.error} />
-        {/if}
-
-        <div class="spacer"></div>
-
-        <button type="button" class="btn btn--ghost btn--sm" onclick={() => store.forget()}>
-          Not {store.me}? Use a different name
-        </button>
-        <InstallLine benefit="See what you owe and settle up in the app." />
-      </div>
-    </div>
+  {:else if store.phase === 'joined' && groupStore}
+    {#key groupStore}
+      <GroupPage store={groupStore} onNotMe={() => store.forget()} />
+    {/key}
   {:else if store.phase === 'claimed_elsewhere'}
     <div class="page">
       <div class="scroll">
@@ -145,18 +135,6 @@
     display: grid;
     place-items: center;
     font-size: 28px;
-    margin: 8px 0 14px;
-  }
-  .join-check {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: var(--green-tint);
-    color: var(--green);
-    display: grid;
-    place-items: center;
-    font-size: 26px;
-    font-weight: 700;
     margin: 8px 0 14px;
   }
   .join-faces {

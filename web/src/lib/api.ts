@@ -23,6 +23,8 @@ export type ApiErrorCode =
   | 'BACKEND'
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
+  | 'SESSION_REQUIRED'
+  | 'CLAIMED_ELSEWHERE'
   | 'NETWORK';
 
 export class ApiError extends Error {
@@ -325,4 +327,132 @@ export const api = {
   /** "Not Purity? Use a different name" — releases this browser, never the placeholder (E4, E5). */
   release: (token: string, sessionToken: string) =>
     post<{ ok: true; released: boolean }>('release', { token, sessionToken }),
+};
+
+// ── The web group page (`/j/:token` after "who are you?", docs/features/web-group-page.md) ──────────
+
+export interface GroupMember {
+  userId: string;
+  name: string;
+  isPlaceholder: boolean;
+}
+
+export interface GroupShare {
+  userId: string;
+  owedSubunits: number;
+  exactSubunits: number | null;
+  /** Owed minus live payments, 0 on the payer's own share: derived server-side the way the app does. */
+  remainingSubunits: number;
+}
+
+export interface GroupExpense {
+  id: string;
+  title: string;
+  date: string;
+  createdAt: number;
+  amountSubunits: number;
+  currency: string;
+  payerUserId: string | null;
+  payerOutsideName: string | null;
+  splitMode: 'EVEN' | 'EXACT' | 'PERCENT' | 'SHARES' | 'ITEMIZED' | string;
+  categoryId: string | null;
+  splitVersion: number;
+  createdBy: string;
+  shares: GroupShare[];
+  /** Who was there, for an itemized bill. */
+  participantIds: string[];
+  lineCount: number;
+  iClaimed: boolean;
+  iAmDone: boolean;
+}
+
+export interface GroupPayment {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  amountSubunits: number;
+  currency: string;
+  settledAt: number;
+}
+
+export interface ExpenseState {
+  title: string;
+  amount: number;
+  payer: string | null;
+  split_mode: string;
+  shares: Array<{ id: string; user_id: string; owed: number; exact: number | null }>;
+}
+
+export interface GroupEdit {
+  id: string;
+  expenseId: string;
+  actorUserId: string;
+  before: ExpenseState;
+  after: ExpenseState;
+  createdAt: number;
+  undone: boolean;
+}
+
+export interface GroupView {
+  header: { groupName: string; emoji: string; baseCurrency: string };
+  me: { userId: string; name: string };
+  /** The name was merged into an Evenly account: the group lives in the app now, and this page only reads. */
+  readOnly: boolean;
+  /** Claim-page tokens for the itemized bills that list the guest. */
+  billTokens: Record<string, string>;
+  members: GroupMember[];
+  expenses: GroupExpense[];
+  payments: GroupPayment[];
+  edits: GroupEdit[];
+}
+
+/** A person in a new or edited split: an existing member, or a name typed in for someone new. */
+export interface PersonIn {
+  userId?: string;
+  newName?: string;
+  exactSubunits?: number;
+}
+
+export interface GroupWriteResult {
+  ok: boolean;
+  reason: 'ABOVE_CEILING' | 'NOT_OWED' | 'STALE' | 'CHANGED_SINCE' | 'UNSUPPORTED' | 'GONE' | 'NAME_TAKEN' | 'INVALID' | 'NOT_A_MEMBER' | null;
+  detail?: string;
+  ceilingSubunits?: number | null;
+  changed?: boolean;
+  editId?: string | null;
+  expenseId?: string;
+  billToken?: string | null;
+}
+
+export interface NewExpense {
+  title: string;
+  amountSubunits: number;
+  currency: string;
+  date: string;
+  payerUserId: string;
+  splitMode: 'EVEN' | 'EXACT' | 'ITEMIZED';
+  people: PersonIn[];
+  items?: Array<{ label: string; quantity: number; lineTotalSubunits: number }>;
+}
+
+export interface ExpenseEdit {
+  expenseId: string;
+  baseSplitVersion: number;
+  title?: string;
+  amountSubunits?: number;
+  payerUserId?: string;
+  splitMode?: 'EVEN' | 'EXACT';
+  people?: PersonIn[];
+}
+
+export const groupApi = {
+  view: (token: string, sessionToken: string) => post<GroupView>('group-view', { token, sessionToken }),
+  pay: (token: string, sessionToken: string, toUserId: string, currency: string, amountSubunits: number, expenseId: string | null) =>
+    post<GroupWriteResult>('group-pay', { token, sessionToken, toUserId, currency, amountSubunits, expenseId }),
+  create: (token: string, sessionToken: string, expense: NewExpense) =>
+    post<GroupWriteResult>('group-expense-create', { token, sessionToken, ...expense }),
+  edit: (token: string, sessionToken: string, edit: ExpenseEdit) =>
+    post<GroupWriteResult>('group-expense-edit', { token, sessionToken, ...edit }),
+  undo: (token: string, sessionToken: string, editId: string) =>
+    post<GroupWriteResult>('group-expense-undo', { token, sessionToken, editId }),
 };

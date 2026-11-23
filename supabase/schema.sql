@@ -3911,3 +3911,565 @@ $$;
 
 revoke all on function public.quick_split_names_by_bill_token(text) from public, anon;
 grant execute on function public.quick_split_names_by_bill_token(text) to authenticated;
+
+-- ── Web group page (docs/features/web-group-page.md) ─────────────────────────────────────────────
+-- A guest without the app sees the whole group, pays people back across bills, edits expenses and adds
+-- new ones, all through the `web-claim` edge function's group actions (keyed on the group invite token +
+-- the guest's web session). Every function below is service-role only, like the bill-scoped web RPCs:
+-- the edge function has already bound the browser to [p_actor] through `web_sessions`, and none of these
+-- trust anything else the browser says about who it is.
+
+-- Is [p_user] an ACTIVE member of [p_group]? The shared guard for every function below.
+create or replace function public._web_active_member(p_group text, p_user text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.members where group_id = p_group and user_id = p_user and status = 'ACTIVE');
+$$;
+revoke all on function public._web_active_member(text, text) from public, anon, authenticated;
+
+-- An even split, penny-exact the same way as Kotlin's `allocate` with equal weights: everyone gets the
+-- floor, and the leftover pennies go one each to the lowest user ids (byte order, `collate "C"`, which is
+-- what Kotlin's String compare gives for these ASCII ids).
+create or replace function public._web_even_split(p_amount bigint, p_users text[])
+returns table (user_id text, owed bigint)
+language sql
+immutable
+set search_path = public
+as $$
+  with u as (
+    select x as uid, row_number() over (order by x collate "C") as rn, count(*) over () as n
+    from (select distinct unnest(p_users) as x) d
+  )
+  select uid, (p_amount / n) + case when rn <= (p_amount % n) then 1 else 0 end from u;
+$$;
+revoke all on function public._web_even_split(bigint, text[]) from public, anon, authenticated;
+
+-- "I paid Joe $42" from the group page: the same rule as the app's group settle (SettlementRepositoryImpl
+-- .writeSettlement). Gross, never netted: the payment pays down what [p_from] owes [p_to] in
+-- [p_currency], oldest bill first, and can never be more than that. [p_expense_id] scopes it to one bill
+-- ("Pay Mary back for Groceries"), like the app's per-expense settle sheet. A refusal is a result.
+create or replace function public.record_web_group_payment(
+  p_group_id text,
+  p_from text,
+  p_to text,
+  p_currency text,
+  p_amount bigint,
+  p_payment_app text,
+  p_now bigint,
+  p_expense_id text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_total bigint := 0;
+  v_left bigint;
+  v_id text := gen_random_uuid()::text;
+  r record;
+  v_apply bigint;
+begin
+  if p_from = p_to or not public._web_active_member(p_group_id, p_from) or not public._web_active_member(p_group_id, p_to) then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_OWED', 'ceiling', 0);
+  end if;
+  -- One payment between this pair at a time, so two taps cannot both pass the ceiling check.
+  perform pg_advisory_xact_lock(hashtextextended('web-pay:' || p_group_id || ':' || p_from || ':' || p_to, 0));
+
+  create temp table if not exists _web_pay_out (share_id text, expense_id text, remaining bigint, ord bigint) on commit drop;
+  truncate _web_pay_out;
+  insert into _web_pay_out
+  select s.id, e.id, public._share_remaining(s.id),
+         row_number() over (order by e.expense_date, e.id, s.id)
+    from public.shares s join public.expenses e on e.id = s.expense_id
+   where e.group_id = p_group_id and e.deleted_at is null and s.deleted_at is null
+     and e.payer_user_id = p_to and s.user_id = p_from and e.currency = p_currency
+     and (p_expense_id is null or e.id = p_expense_id);
+  delete from _web_pay_out where remaining <= 0;
+  select coalesce(sum(remaining), 0) into v_total from _web_pay_out;
+
+  if p_amount is null or p_amount <= 0 or p_amount > v_total then
+    return jsonb_build_object('ok', false, 'reason', 'ABOVE_CEILING', 'ceiling', v_total);
+  end if;
+
+  insert into public.settlements (id, group_id, from_user_id, to_user_id, payment_currency,
+    payment_amount_subunits, payment_app, deep_link_attempted, settled_at, created_by, created_at, updated_at)
+  values (v_id, p_group_id, p_from, p_to, p_currency, p_amount, p_payment_app, false, p_now, p_from, p_now, p_now);
+
+  v_left := p_amount;
+  for r in select * from _web_pay_out order by ord loop
+    exit when v_left <= 0;
+    v_apply := least(v_left, r.remaining);
+    insert into public.settlement_allocations (id, settlement_id, group_id, share_id, applied_amount_subunits,
+      applied_currency, created_at)
+    values (gen_random_uuid()::text, v_id, p_group_id, r.share_id, v_apply, p_currency, p_now);
+    insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
+    values (gen_random_uuid()::text, r.expense_id, p_group_id, p_from, 'SETTLED', 'amt:' || v_apply, p_now);
+    v_left := v_left - v_apply;
+  end loop;
+  return jsonb_build_object('ok', true, 'settlement_id', v_id);
+end;
+$$;
+revoke all on function public.record_web_group_payment(text, text, text, text, bigint, text, bigint, text) from public, anon, authenticated;
+
+-- A guest adding someone else's name while creating an expense ("Bob was there too"). The §2.4 rule from
+-- `create_web_placeholder`, under the same lock key, minus the session: Bob gets no browser identity, he
+-- picks his name later like any typed-in name. created_by is the guest, so Bob is still asked "is this
+-- you?" when he installs the app (IDENTITY_CLAIM_SPEC.md skips only self-created names).
+create or replace function public.add_web_group_name(
+  p_group_id text,
+  p_name text,
+  p_user_id text,
+  p_member_id text,
+  p_actor text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text := left(regexp_replace(btrim(p_name), '\s+', ' ', 'g'), 40);
+  v_clash text;
+  v_clash_id text;
+begin
+  if v_name = '' then raise exception 'add_web_group_name: name required'; end if;
+  if not public._web_active_member(p_group_id, p_actor) then raise exception 'add_web_group_name: not a member'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_group_id || ':' || lower(v_name), 0));
+  select u.display_name, u.id into v_clash, v_clash_id
+    from public.members m join public.users u on u.id = m.user_id
+   where m.group_id = p_group_id and m.status = 'ACTIVE'
+     and lower(left(regexp_replace(btrim(u.display_name), '\s+', ' ', 'g'), 40)) = lower(v_name)
+   limit 1;
+  if v_clash is not null then
+    return jsonb_build_object('created', false, 'conflict', true, 'name', v_clash, 'user_id', v_clash_id);
+  end if;
+  insert into public.users (id, is_placeholder, display_name, placeholder_group_id, created_by, created_at, updated_at)
+  values (p_user_id, true, v_name, p_group_id, p_actor, p_now, p_now);
+  insert into public.members (id, group_id, user_id, status, joined_at, created_at, updated_at)
+  values (p_member_id, p_group_id, p_user_id, 'ACTIVE', p_now, p_now, p_now);
+  return jsonb_build_object('created', true, 'conflict', false, 'name', v_name, 'user_id', p_user_id);
+end;
+$$;
+revoke all on function public.add_web_group_name(text, text, text, text, text, bigint) from public, anon, authenticated;
+
+-- Desired shares for an EVEN or EXACT split. [p_people] is `[{ "user_id": "...", "exact": 1234 }]`
+-- (`exact` only for EXACT). Raises on anything the page should have refused, so a bad payload never
+-- half-writes: everyone a member, nobody twice, EXACT summing to the amount.
+create or replace function public._web_desired_shares(
+  p_group_id text, p_amount bigint, p_split_mode text, p_people jsonb
+) returns table (user_id text, owed bigint, exact bigint)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_ids text[];
+  v_sum bigint;
+begin
+  select array_agg(p->>'user_id') into v_ids from jsonb_array_elements(coalesce(p_people, '[]'::jsonb)) p;
+  if v_ids is null or array_length(v_ids, 1) = 0 then raise exception 'web expense: nobody to split with'; end if;
+  if (select count(distinct x) from unnest(v_ids) x) <> array_length(v_ids, 1) then raise exception 'web expense: a person is listed twice'; end if;
+  if exists (select 1 from unnest(v_ids) x where not public._web_active_member(p_group_id, x)) then
+    raise exception 'web expense: everyone in the split must be in the group';
+  end if;
+  if p_split_mode = 'EVEN' then
+    return query select s.user_id, s.owed, null::bigint from public._web_even_split(p_amount, v_ids) s;
+  elsif p_split_mode = 'EXACT' then
+    select sum((p->>'exact')::bigint) into v_sum from jsonb_array_elements(p_people) p;
+    if exists (select 1 from jsonb_array_elements(p_people) p where coalesce((p->>'exact')::bigint, -1) < 0) or v_sum <> p_amount then
+      raise exception 'web expense: exact amounts must add up to the total';
+    end if;
+    return query select p->>'user_id', (p->>'exact')::bigint, (p->>'exact')::bigint from jsonb_array_elements(p_people) p;
+  else
+    raise exception 'web expense: unsupported split mode %', p_split_mode;
+  end if;
+end;
+$$;
+revoke all on function public._web_desired_shares(text, bigint, text, jsonb) from public, anon, authenticated;
+
+-- A guest adds an expense. EVEN and EXACT write their shares here. ITEMIZED writes the lines and who was
+-- there (`bill_participants`) and NO shares: an itemized bill's shares are a derived materialization the
+-- app re-derives on every pull (`rematerializeGroups`), and people claim their lines on the bill's link.
+-- The insert fires `expenses_push_notify`, so the group hears about it like any app-added expense.
+create or replace function public.create_web_expense(
+  p_group_id text,
+  p_actor text,
+  p_expense_id text,
+  p_title text,
+  p_amount bigint,
+  p_currency text,
+  p_date text,
+  p_payer text,
+  p_split_mode text,
+  p_people jsonb,
+  p_items jsonb,
+  p_category_id text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_title text := left(btrim(coalesce(p_title, '')), 80);
+  v_amount bigint := p_amount;
+  i record;
+  v_sort int := 0;
+begin
+  if not public._web_active_member(p_group_id, p_actor) or not public._web_active_member(p_group_id, p_payer) then
+    raise exception 'web expense: payer and author must be in the group';
+  end if;
+  if v_title = '' then raise exception 'web expense: title required'; end if;
+  if p_currency !~ '^[A-Z]{3}$' then raise exception 'web expense: bad currency'; end if;
+  if p_date !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'web expense: bad date'; end if;
+
+  if p_split_mode = 'ITEMIZED' then
+    if jsonb_array_length(coalesce(p_items, '[]'::jsonb)) = 0 then raise exception 'web expense: add at least one line'; end if;
+    if jsonb_array_length(p_items) > 200 then raise exception 'web expense: too many lines'; end if;
+    select sum((x->>'line_total')::bigint) into v_amount from jsonb_array_elements(p_items) x;
+    if exists (select 1 from jsonb_array_elements(p_items) x
+               where coalesce((x->>'line_total')::bigint, -1) < 0 or coalesce((x->>'quantity')::int, 0) < 1
+                  or btrim(coalesce(x->>'label', '')) = '') then
+      raise exception 'web expense: every line needs a name, a quantity and a price';
+    end if;
+  end if;
+  if v_amount is null or v_amount <= 0 then raise exception 'web expense: amount must be above zero'; end if;
+
+  insert into public.expenses (id, group_id, title, amount_subunits, currency, expense_date, payer_user_id,
+    split_mode, category_id, created_by, created_at, updated_at, title_updated_at, date_updated_at,
+    category_updated_at, split_version, split_updated_by)
+  values (p_expense_id, p_group_id, v_title, v_amount, p_currency, p_date, p_payer,
+    p_split_mode, p_category_id, p_actor, p_now, p_now, p_now, p_now, p_now, 1, p_actor);
+
+  if p_split_mode = 'ITEMIZED' then
+    for i in select x from jsonb_array_elements(p_items) x loop
+      insert into public.expense_items (id, expense_id, group_id, label, quantity, unit_price_subunits,
+        line_total_subunits, sort_order, created_at, updated_at)
+      values (gen_random_uuid()::text, p_expense_id, p_group_id, left(btrim(i.x->>'label'), 80),
+        (i.x->>'quantity')::int, round((i.x->>'line_total')::numeric / (i.x->>'quantity')::int)::bigint,
+        (i.x->>'line_total')::bigint, v_sort, p_now, p_now);
+      v_sort := v_sort + 1;
+    end loop;
+    insert into public.bill_participants (id, expense_id, group_id, user_id, created_at, updated_at)
+    select gen_random_uuid()::text, p_expense_id, p_group_id, u, p_now, p_now
+      from (select distinct p->>'user_id' as u from jsonb_array_elements(coalesce(p_people, '[]'::jsonb)) p
+            union select p_payer) d
+     where public._web_active_member(p_group_id, u);
+  else
+    insert into public.shares (id, expense_id, user_id, share_owed_subunits, remaining_subunits,
+      share_exact_subunits, created_at, updated_at)
+    select gen_random_uuid()::text, p_expense_id, d.user_id, d.owed, d.owed, d.exact, p_now, p_now
+      from public._web_desired_shares(p_group_id, v_amount, p_split_mode, p_people) d;
+  end if;
+
+  insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
+  values (gen_random_uuid()::text, p_expense_id, p_group_id, p_actor, 'CREATED', null, p_now);
+  return jsonb_build_object('ok', true, 'expense_id', p_expense_id, 'amount_subunits', v_amount);
+end;
+$$;
+revoke all on function public.create_web_expense(text, text, text, text, bigint, text, text, text, text, jsonb, jsonb, text, bigint) from public, anon, authenticated;
+
+-- The change log behind a guest's expense edit, and what Undo restores. Not synced: the app sees the
+-- edit as an ordinary `EDITED` history row plus the new split. RLS on, zero policies (service key only).
+create table if not exists public.web_expense_edits (
+  id text primary key,
+  expense_id text not null,
+  group_id text not null,
+  actor_user_id text not null,
+  before jsonb not null,
+  after jsonb not null,
+  split_version_after bigint not null,
+  created_at bigint not null,
+  undone_at bigint,
+  undone_by text
+);
+create index if not exists web_expense_edits_expense_idx on public.web_expense_edits (expense_id, created_at);
+alter table public.web_expense_edits enable row level security;
+
+-- Snapshot of the editable state of a non-itemized expense: Zone-1 title + the Zone-2 money.
+create or replace function public._web_expense_state(p_expense_id text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'title', e.title, 'amount', e.amount_subunits, 'payer', e.payer_user_id, 'split_mode', e.split_mode,
+    'shares', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'user_id', s.user_id,
+                 'owed', s.share_owed_subunits, 'exact', s.share_exact_subunits) order by s.user_id)
+               from public.shares s where s.expense_id = e.id and s.deleted_at is null), '[]'::jsonb))
+  from public.expenses e where e.id = p_expense_id;
+$$;
+revoke all on function public._web_expense_state(text) from public, anon, authenticated;
+
+-- Writes a desired share set onto an expense the way the app's `mergeShares` does: a person who stays
+-- keeps their share id (so their payments still apply to it), a person who leaves is tombstoned, a new
+-- person gets a new row. [p_shares] is `[{ "id"?: ..., "user_id": ..., "owed": ..., "exact": ... }]`;
+-- an `id` is honoured when it names a share of this expense (Undo restoring the exact old rows).
+create or replace function public._web_write_shares(p_expense_id text, p_shares jsonb, p_now bigint)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  d record;
+  v_existing text;
+begin
+  update public.shares set deleted_at = p_now, updated_at = greatest(updated_at + 1, p_now), row_version = row_version + 1
+   where expense_id = p_expense_id and deleted_at is null
+     and user_id not in (select x->>'user_id' from jsonb_array_elements(p_shares) x);
+  for d in select x->>'id' as id, x->>'user_id' as user_id, (x->>'owed')::bigint as owed,
+                  (x->>'exact')::bigint as exact from jsonb_array_elements(p_shares) x loop
+    select id into v_existing from public.shares
+     where expense_id = p_expense_id and user_id = d.user_id and deleted_at is null;
+    if v_existing is null and d.id is not null then
+      select id into v_existing from public.shares where id = d.id and expense_id = p_expense_id and user_id = d.user_id;
+    end if;
+    if v_existing is not null then
+      update public.shares set share_owed_subunits = d.owed, share_exact_subunits = d.exact,
+        share_units = null, share_percentage = null, deleted_at = null,
+        updated_at = greatest(updated_at + 1, p_now), row_version = row_version + 1
+       where id = v_existing;
+    else
+      insert into public.shares (id, expense_id, user_id, share_owed_subunits, remaining_subunits,
+        share_exact_subunits, created_at, updated_at)
+      values (gen_random_uuid()::text, p_expense_id, d.user_id, d.owed, d.owed, d.exact, p_now, p_now);
+    end if;
+  end loop;
+end;
+$$;
+revoke all on function public._web_write_shares(text, jsonb, bigint) from public, anon, authenticated;
+
+-- A guest edits an EVEN or EXACT expense: applies at once, logged, undoable by anyone, the payer told.
+-- The title is Zone 1 and always lands. The money (amount, payer, split) is Zone 2 and needs the
+-- `split_version` the guest's page read: stale ⇒ refuse with STALE, the same causal rule as
+-- `merge_expense` and `set_web_bill_payer`, never a silent overwrite of an edit she did not see. Every
+-- money change advances split_version, or the next app push would revert it (supabase/AGENTS.md).
+-- Itemized bills are edited line by line on their own link, not here.
+create or replace function public.apply_web_expense_edit(
+  p_expense_id text,
+  p_group_id text,
+  p_actor text,
+  p_base_split_version bigint,
+  p_title text,
+  p_amount bigint,
+  p_payer text,
+  p_split_mode text,
+  p_people jsonb,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_e public.expenses%rowtype;
+  v_before jsonb;
+  v_after jsonb;
+  v_title text := nullif(left(btrim(coalesce(p_title, '')), 80), '');
+  v_money boolean := p_amount is not null or p_payer is not null or p_people is not null;
+  v_desired jsonb;
+  v_edit_id text := gen_random_uuid()::text;
+  v_actor_name text;
+  v_payer text;
+begin
+  if not public._web_active_member(p_group_id, p_actor) then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_A_MEMBER');
+  end if;
+  select * into v_e from public.expenses where id = p_expense_id and group_id = p_group_id and deleted_at is null for update;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'GONE'); end if;
+  if v_e.split_mode not in ('EVEN', 'EXACT') or (p_split_mode is not null and p_split_mode not in ('EVEN', 'EXACT')) then
+    return jsonb_build_object('ok', false, 'reason', 'UNSUPPORTED');
+  end if;
+  if v_money and p_base_split_version is distinct from v_e.split_version then
+    return jsonb_build_object('ok', false, 'reason', 'STALE', 'split_version', v_e.split_version);
+  end if;
+  if v_money and p_payer is not null and not public._web_active_member(p_group_id, p_payer) then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_A_MEMBER');
+  end if;
+
+  v_before := public._web_expense_state(p_expense_id);
+
+  if v_title is not null and v_title <> v_e.title then
+    update public.expenses set title = v_title, title_updated_at = greatest(coalesce(title_updated_at, 0) + 1, p_now),
+      updated_at = greatest(updated_at + 1, p_now), row_version = row_version + 1
+     where id = p_expense_id;
+  end if;
+
+  if v_money then
+    select coalesce(jsonb_agg(jsonb_build_object('user_id', d.user_id, 'owed', d.owed, 'exact', d.exact)), '[]'::jsonb)
+      into v_desired
+      from public._web_desired_shares(p_group_id, coalesce(p_amount, v_e.amount_subunits),
+             coalesce(p_split_mode, v_e.split_mode),
+             coalesce(p_people, (select jsonb_agg(jsonb_build_object('user_id', s.user_id, 'exact', s.share_owed_subunits))
+                                   from public.shares s where s.expense_id = p_expense_id and s.deleted_at is null))) d;
+    perform public._web_write_shares(p_expense_id, v_desired, p_now);
+    update public.expenses set
+      amount_subunits = coalesce(p_amount, amount_subunits),
+      payer_user_id = coalesce(p_payer, payer_user_id),
+      split_mode = coalesce(p_split_mode, split_mode),
+      split_version = split_version + 1,
+      split_updated_by = p_actor,
+      updated_at = greatest(updated_at + 1, p_now),
+      row_version = row_version + 1
+     where id = p_expense_id;
+  end if;
+
+  v_after := public._web_expense_state(p_expense_id);
+  if v_after = v_before then
+    return jsonb_build_object('ok', true, 'changed', false);
+  end if;
+
+  insert into public.web_expense_edits (id, expense_id, group_id, actor_user_id, before, after, split_version_after, created_at)
+  values (v_edit_id, p_expense_id, p_group_id, p_actor, v_before, v_after,
+          (select split_version from public.expenses where id = p_expense_id), p_now);
+  insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
+  values (gen_random_uuid()::text, p_expense_id, p_group_id, p_actor, 'EDITED', null, p_now);
+
+  -- The payer hears about it (both of them, when the edit moved who paid). push_dispatch swallows its own
+  -- failures, so a push outage can never refuse an edit.
+  select coalesce(nullif(display_name, ''), 'Someone') into v_actor_name from public.users where id = p_actor;
+  for v_payer in select distinct x from unnest(array[v_e.payer_user_id, (v_after->>'payer')]) x
+                  where x is not null and x <> p_actor loop
+    perform public.push_dispatch(jsonb_build_object(
+      'groupId', p_group_id,
+      'title', v_actor_name || ' changed ' || coalesce(v_after->>'title', 'an expense'),
+      'body', push_money((v_after->>'amount')::bigint, v_e.currency) || ' now',
+      'onlyUserIds', jsonb_build_array(v_payer),
+      'pref', 'newExpenses',
+      'data', jsonb_build_object('route', 'group', 'groupId', p_group_id, 'expenseId', p_expense_id)));
+  end loop;
+  return jsonb_build_object('ok', true, 'changed', true, 'edit_id', v_edit_id);
+end;
+$$;
+revoke all on function public.apply_web_expense_edit(text, text, text, bigint, text, bigint, text, text, jsonb, bigint) from public, anon, authenticated;
+
+-- Undo a guest's expense edit, by anyone in the group. First undo wins (conditional on undone_at is
+-- null). Refused with CHANGED_SINCE when the money moved again after this edit: restoring an older split
+-- over a newer one is exactly the silent revert the causal version exists to prevent.
+create or replace function public.undo_web_expense_edit(
+  p_edit_id text,
+  p_group_id text,
+  p_actor text,
+  p_now bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_edit public.web_expense_edits%rowtype;
+  v_e public.expenses%rowtype;
+  v_money_changed boolean;
+begin
+  if not public._web_active_member(p_group_id, p_actor) then
+    return jsonb_build_object('ok', false, 'reason', 'NOT_A_MEMBER');
+  end if;
+  select * into v_edit from public.web_expense_edits where id = p_edit_id and group_id = p_group_id for update;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'GONE'); end if;
+  if v_edit.undone_at is not null then return jsonb_build_object('ok', true, 'changed', false); end if;
+  select * into v_e from public.expenses where id = v_edit.expense_id and deleted_at is null for update;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'GONE'); end if;
+
+  v_money_changed := (v_edit.before - 'title') is distinct from (v_edit.after - 'title');
+  if v_money_changed and v_e.split_version <> v_edit.split_version_after then
+    return jsonb_build_object('ok', false, 'reason', 'CHANGED_SINCE');
+  end if;
+
+  if (v_edit.before->>'title') is distinct from (v_edit.after->>'title') and v_e.title = v_edit.after->>'title' then
+    update public.expenses set title = v_edit.before->>'title',
+      title_updated_at = greatest(coalesce(title_updated_at, 0) + 1, p_now),
+      updated_at = greatest(updated_at + 1, p_now), row_version = row_version + 1
+     where id = v_e.id;
+  end if;
+  if v_money_changed then
+    perform public._web_write_shares(v_e.id, v_edit.before->'shares', p_now);
+    update public.expenses set
+      amount_subunits = (v_edit.before->>'amount')::bigint,
+      payer_user_id = v_edit.before->>'payer',
+      split_mode = v_edit.before->>'split_mode',
+      split_version = split_version + 1,
+      split_updated_by = p_actor,
+      updated_at = greatest(updated_at + 1, p_now),
+      row_version = row_version + 1
+     where id = v_e.id;
+  end if;
+  update public.web_expense_edits set undone_at = p_now, undone_by = p_actor where id = p_edit_id;
+  insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
+  values (gen_random_uuid()::text, v_e.id, p_group_id, p_actor, 'EDITED', null, p_now);
+  return jsonb_build_object('ok', true, 'changed', true);
+end;
+$$;
+revoke all on function public.undo_web_expense_edit(text, text, text, bigint) from public, anon, authenticated;
+
+-- Everything the web group page shows, in one read (the browser has no Supabase client, and an `in (...)`
+-- over hundreds of expense ids does not fit in a PostgREST query string). `remaining` is derived exactly
+-- as the client does it (`derivedRemainingForShare`): owed minus live allocations, and 0 for the payer's
+-- own share. Newest 500 expenses; the page is a phone screen, not an export.
+create or replace function public.web_group_snapshot(p_group_id text, p_user_id text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with ex as (
+    select * from public.expenses
+     where group_id = p_group_id and deleted_at is null and status = 'ACTIVE'
+     order by expense_date desc, created_at desc limit 500
+  ), alloc as (
+    select sa.share_id, sum(sa.applied_amount_subunits) as paid
+      from public.settlement_allocations sa join public.settlements st on st.id = sa.settlement_id
+     where sa.group_id = p_group_id and st.deleted_at is null
+     group by sa.share_id
+  )
+  select jsonb_build_object(
+    'members', coalesce((
+      select jsonb_agg(jsonb_build_object('userId', u.id, 'name', coalesce(nullif(btrim(u.display_name), ''), 'Someone'),
+               'isPlaceholder', u.is_placeholder) order by m.joined_at)
+        from public.members m join public.users u on u.id = m.user_id
+       where m.group_id = p_group_id and m.status = 'ACTIVE'), '[]'::jsonb),
+    'expenses', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', e.id, 'title', e.title, 'date', e.expense_date, 'createdAt', e.created_at,
+        'amountSubunits', e.amount_subunits, 'currency', e.currency, 'payerUserId', e.payer_user_id,
+        'payerOutsideName', e.payer_outside_name, 'splitMode', e.split_mode, 'categoryId', e.category_id,
+        'splitVersion', e.split_version, 'createdBy', e.created_by,
+        'shares', coalesce((
+          select jsonb_agg(jsonb_build_object('userId', s.user_id, 'owedSubunits', s.share_owed_subunits,
+                   'exactSubunits', s.share_exact_subunits,
+                   'remainingSubunits', case when s.user_id = e.payer_user_id then 0
+                                             else s.share_owed_subunits - coalesce(a.paid, 0) end))
+            from public.shares s left join alloc a on a.share_id = s.id
+           where s.expense_id = e.id and s.deleted_at is null), '[]'::jsonb),
+        'participantIds', coalesce((
+          select jsonb_agg(bp.user_id) from public.bill_participants bp
+           where bp.expense_id = e.id and bp.deleted_at is null), '[]'::jsonb),
+        'lineCount', (select count(*) from public.expense_items i where i.expense_id = e.id and i.deleted_at is null),
+        'iClaimed', exists (select 1 from public.item_claims c where c.expense_id = e.id and c.user_id = p_user_id and c.deleted_at is null)
+                 or exists (select 1 from public.item_shares c where c.expense_id = e.id and c.user_id = p_user_id and c.deleted_at is null),
+        'iAmDone', exists (select 1 from public.bill_participants bp where bp.expense_id = e.id and bp.user_id = p_user_id
+                             and bp.deleted_at is null and bp.done_at is not null)
+      ) order by e.expense_date desc, e.created_at desc) from ex e), '[]'::jsonb),
+    'payments', coalesce((
+      select jsonb_agg(jsonb_build_object('id', st.id, 'fromUserId', st.from_user_id, 'toUserId', st.to_user_id,
+               'amountSubunits', st.payment_amount_subunits, 'currency', st.payment_currency, 'settledAt', st.settled_at)
+               order by st.settled_at desc)
+        from (select * from public.settlements where group_id = p_group_id and deleted_at is null
+               order by settled_at desc limit 100) st), '[]'::jsonb),
+    'edits', coalesce((
+      select jsonb_agg(jsonb_build_object('id', w.id, 'expenseId', w.expense_id, 'actorUserId', w.actor_user_id,
+               'before', w.before, 'after', w.after, 'createdAt', w.created_at, 'undone', w.undone_at is not null)
+               order by w.created_at desc)
+        from (select * from public.web_expense_edits where group_id = p_group_id
+               order by created_at desc limit 50) w), '[]'::jsonb)
+  );
+$$;
+revoke all on function public.web_group_snapshot(text, text) from public, anon, authenticated;

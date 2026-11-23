@@ -4,7 +4,8 @@
  *
  * It is the bill claim flow's identity half and nothing else. Joining creates the same placeholder
  * member and group-scoped session as naming yourself on a bill, so the guest is recognised later on any
- * bill link in the group. There is no group view, balance or expense here (web/AGENTS.md).
+ * bill link in the group. Once joined, `Join.svelte` hands the session to the group page
+ * (`group.svelte.ts`, docs/features/web-group-page.md).
  *
  * No optimistic writes (spec §6): `busy` while a write is in flight and an `error` that says it did not
  * land, never a "you're in" that is not true.
@@ -46,6 +47,11 @@ export class JoinStore {
 
   constructor(token: string) {
     this.token = token;
+  }
+
+  /** The browser's group session, once joined or recognised; the group page reads and writes with it. */
+  get sessionToken(): string | null {
+    return this.#sessionToken;
   }
 
   async load(): Promise<void> {
