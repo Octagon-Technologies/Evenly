@@ -32,6 +32,7 @@ import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.auth.providers.builtin.OTP
+import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.auth.user.UserInfo
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
@@ -48,8 +49,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -118,6 +121,15 @@ class SupabaseAuthSession(
         // Push (F7): register the FCM token for the signed-in user + pull on delivered messages.
         pushController?.bind(scope, currentUserId)
     }
+
+    // supabase-kt loads the stored session asynchronously (sessionStatus starts at Initializing), and
+    // currentUserId only flips once mirrorCurrentUser has run. Bounded so a stuck restore falls back to
+    // sign-in, whose own currentUserId watcher still forwards to Home if the session lands later.
+    override suspend fun awaitRestoredSession(): UserId? =
+        withTimeoutOrNull(RESTORE_TIMEOUT_MS) {
+            client.auth.sessionStatus.first { it !is SessionStatus.Initializing }
+            if (client.auth.currentUserOrNull() == null) null else currentUserId.first { it != null }
+        } ?: currentUserId.value
 
     override suspend fun signIn(displayName: String): UserId {
         if (client.auth.currentUserOrNull() == null) {
@@ -483,6 +495,7 @@ class SupabaseAuthSession(
     private companion object {
         /** Seeded for a brand-new account that hasn't set a real name yet (also the onboarding sentinel). */
         const val PLACEHOLDER_NAME = "You"
+        const val RESTORE_TIMEOUT_MS = 3_000L
 
         /** Mirrors the grace period baked into `request_account_deletion`/`purge_deleted_accounts`. */
         const val GRACE_PERIOD_MS = 30L * 24 * 60 * 60 * 1000

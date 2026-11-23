@@ -114,6 +114,13 @@ interface AuthSession {
      * Checked right after sign-in to gate the app behind a "cancel or sign out" screen.
      */
     suspend fun pendingDeletionAt(): AppResult<Long?>
+
+    /**
+     * Suspends until a session saved by a previous launch has been restored (or found absent), then
+     * returns the signed-in user. The cold-start screen choice waits on this: [currentUserId] reads
+     * null while the saved session is still loading, which used to open sign-in for a signed-in user.
+     */
+    suspend fun awaitRestoredSession(): UserId? = currentUserId.value
 }
 
 /** OAuth identity providers offered on the sign-in screen. */

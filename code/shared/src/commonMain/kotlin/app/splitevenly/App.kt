@@ -15,6 +15,7 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
+import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.auth.ThemeMode
 import app.splitevenly.platform.AppForeground
 import app.splitevenly.platform.SecureStorage
@@ -65,13 +66,18 @@ fun App() {
         ThemeMode.Light -> false
         ThemeMode.Dark -> true
     }
-    // First launch (no "welcome_seen" flag) opens on the intro carousel; every launch after goes
-    // straight to sign-in. Resolved off the device-local store before the NavHost composes, since
-    // startDestination is locked in on first composition — null means "still reading" (the brand
-    // splash holds, a blink at most), so we never flash sign-in and then jump back to Welcome.
+    // A session restored from the last launch opens on Home; otherwise first launch (no "welcome_seen"
+    // flag) opens on the intro carousel and every launch after on sign-in. Resolved before the NavHost
+    // composes, since startDestination is locked in on first composition. null means "still resolving"
+    // and the brand splash holds, so a signed-in user never sees sign-in flash before Home.
     val storage = koinInject<SecureStorage>()
+    val auth = koinInject<AuthSession>()
     val startDestination by produceState<Route?>(initialValue = null) {
-        value = if (storage.contains(WELCOME_SEEN_KEY)) Route.SignIn else Route.Welcome
+        value = when {
+            auth.awaitRestoredSession() != null -> Route.Home
+            storage.contains(WELCOME_SEEN_KEY) -> Route.SignIn
+            else -> Route.Welcome
+        }
     }
     EvenlyTheme(darkTheme = darkTheme) {
         // Until the start destination resolves, hold the brand splash rather than a blank page. It
