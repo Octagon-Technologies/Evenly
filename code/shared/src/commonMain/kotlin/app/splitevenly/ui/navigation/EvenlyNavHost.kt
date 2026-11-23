@@ -1,5 +1,6 @@
 package app.splitevenly.ui.navigation
 
+import app.splitevenly.ui.screen.bill.BillNext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -206,9 +207,24 @@ fun EvenlyNavHost(
                 },
                 // An itemized ("By what each had") save creates the bill in-place, then asks how people will
                 // pick its items, replacing this editor on the back stack so Back lands on the group, not here.
-                onCreatedBill = { newId ->
-                    navController.navigate(Route.FinishBill(r.groupId, newId, justSaved = true)) {
-                        popUpTo(Route.AddExpense(r.groupId)) { inclusive = true }
+                // The review screen already asked how people will pick, so those saves skip the chooser and
+                // land over the bill's details: Back from assigning or sharing returns to the bill.
+                onCreatedBill = { newId, next ->
+                    when (next) {
+                        BillNext.Choose -> {
+                            navController.navigate(Route.FinishBill(r.groupId, newId, justSaved = true)) {
+                                popUpTo(Route.AddExpense(r.groupId)) { inclusive = true }
+                            }
+                        }
+
+                        BillNext.Assign, BillNext.Share -> {
+                            navController.navigate(Route.ExpenseDetail(r.groupId, newId)) {
+                                popUpTo(Route.AddExpense(r.groupId)) { inclusive = true }
+                            }
+                            navController.navigate(
+                                if (next == BillNext.Assign) Route.ClaimBill(r.groupId, newId) else Route.ShareBillLink(r.groupId, newId),
+                            )
+                        }
                     }
                 },
             )

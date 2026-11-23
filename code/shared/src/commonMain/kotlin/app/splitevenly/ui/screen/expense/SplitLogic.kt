@@ -39,6 +39,8 @@ data class AddExpensePrefill(
     val categoryId: String? = null,
     /** Non-null when the expense was paid by someone outside the group (no [payerUserId]). */
     val payerOutsideName: String? = null,
+    /** The bill's calendar date, ISO-8601. */
+    val expenseDate: String? = null,
 )
 
 /**
@@ -99,6 +101,8 @@ data class AddExpenseSubmit(
     val currency: String,
     val categoryId: String? = null,
     val payerOutsideName: String? = null,
+    /** ISO-8601 calendar date; the editor defaults it to today. */
+    val expenseDate: String,
 )
 
 /** Sum of typed percentages in hundredths-of-a-percent (so an exact 100% reads as `10_000`). */

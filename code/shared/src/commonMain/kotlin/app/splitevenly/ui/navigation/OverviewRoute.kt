@@ -5,7 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.id.GroupId
-import app.splitevenly.core.time.todayUtc
+import app.splitevenly.core.time.localToday
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.CategoryDefaults
 import app.splitevenly.domain.repository.CategoryRepository
@@ -40,7 +40,7 @@ fun OverviewRoute(groupId: String, onBack: () -> Unit) {
     val balances by remember(gid) { expenses.observeBalances(gid) }.collectAsStateWithLifecycle(emptyList())
     val categories by remember(gid) { categoriesRepo.observeCategories(gid) }.collectAsStateWithLifecycle(CategoryDefaults.all)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    val today = remember { Clock.System.todayUtc() }
+    val today = remember { Clock.System.localToday() }
 
     val ui = buildOverview(group, expenseList, members, balances, today)
     GroupOverviewTab(

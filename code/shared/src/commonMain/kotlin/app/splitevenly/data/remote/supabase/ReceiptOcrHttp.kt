@@ -171,6 +171,7 @@ private class SummaryDto(
     @SerialName("expense_kind") val expenseKind: String? = null,
     val category: String? = null,
     @SerialName("printed_time") val printedTime: String? = null,
+    @SerialName("printed_date") val printedDate: String? = null,
     @SerialName("total_subunits") val totalSubunits: Long = 0,
     val currency: String? = null,
     @SerialName("short_title") val shortTitle: String? = null,
@@ -182,6 +183,7 @@ private class SummaryDto(
             kind = venueKindOf(expenseKind),
             categoryKey = category,
             printedTime = printedTime,
+            printedDate = printedDate,
             totalSubunits = totalSubunits.coerceAtLeast(0),
             currency = currency,
             shortTitle = shortTitle,
@@ -222,6 +224,7 @@ private class RcptDto(
     @SerialName("merchant_name") val merchantName: String? = null,
     @SerialName("venue_kind") val venueKind: String? = null,
     @SerialName("printed_time") val printedTime: String? = null,
+    @SerialName("printed_date") val printedDate: String? = null,
 ) {
     fun toDraft(verified: Boolean) =
         ReceiptDraft(
@@ -237,6 +240,7 @@ private class RcptDto(
             merchantName = merchantName,
             venueKind = venueKindOf(venueKind),
             printedTime = printedTime,
+            printedDate = printedDate,
         )
 }
 

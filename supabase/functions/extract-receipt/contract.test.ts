@@ -29,3 +29,11 @@ test("out-of-range times are dropped and long names capped", () => {
   assert.equal(normalizeReceipt({ ...base, printed_time: "24:10" }).printed_time, null);
   assert.equal(normalizeReceipt({ ...base, merchant_name: "x".repeat(80) }).merchant_name?.length, 40);
 });
+
+test("printed date passes through only as a real YYYY-MM-DD", () => {
+  assert.equal(normalizeReceipt({ ...base, printed_date: "2026-11-20" }).printed_date, "2026-11-20");
+  assert.equal(normalizeReceipt({ ...base, printed_date: " 2026-02-28 " }).printed_date, "2026-02-28");
+  assert.equal(normalizeReceipt({ ...base, printed_date: "2026-02-30" }).printed_date, null);
+  assert.equal(normalizeReceipt({ ...base, printed_date: "20/11/2026" }).printed_date, null);
+  assert.equal(normalizeReceipt(base).printed_date, null);
+});

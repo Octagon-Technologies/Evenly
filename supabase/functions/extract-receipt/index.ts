@@ -682,6 +682,7 @@ function clientReceipt(receipt: Receipt, math: BillMath) {
     merchant_name: receipt.merchant_name ?? null,
     venue_kind: receipt.venue_kind ?? null,
     printed_time: receipt.printed_time ?? null,
+    printed_date: receipt.printed_date ?? null,
   };
 }
 

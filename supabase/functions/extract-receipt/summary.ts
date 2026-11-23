@@ -10,7 +10,7 @@
 // Pure module (no Deno.*, no network) so `summary.test.ts` and the receipt lab can import it under Node.
 
 import { parseAmountSubunits } from "./amount.ts";
-import { normalizeMerchant, normalizeTime } from "./contract.ts";
+import { normalizeDate, normalizeMerchant, normalizeTime } from "./contract.ts";
 
 export const EXPENSE_KINDS = [
   "restaurant", "cafe", "bar", "grocery", "shop", "ride", "flight", "transit", "fuel", "parking",
@@ -35,6 +35,7 @@ export interface RawExpenseSummary {
   expense_kind?: string;
   category?: string;
   printed_time?: string;
+  printed_date?: string;
   total?: unknown;
   currency?: string;
   short_title?: string;
@@ -47,6 +48,8 @@ export interface ExpenseSummary {
   expense_kind: ExpenseKind | null;
   category: CategoryKey | null;
   printed_time: string | null;
+  /** "YYYY-MM-DD" as shown, or null. */
+  printed_date: string | null;
   /** 0 when no total could be read; the app then leaves its amount box alone. */
   total_subunits: number;
   currency: string | null;
@@ -106,6 +109,13 @@ export const SUMMARY_TOOL = {
           "The time of the purchase or transaction if shown, as 24-hour HH:MM (a printed \"8:05 PM\" is \"20:05\"). " +
           "Empty if no time is shown.",
       },
+      printed_date: {
+        type: "string",
+        description:
+          "The date of the transaction as printed, as YYYY-MM-DD. When day and month could be either way round " +
+          "(04/03/26), read it the way the receipt's country writes dates: day first everywhere except the US. " +
+          "A two-digit year is 20xx. Leave empty if no date is printed. Never guess a date that is not printed.",
+      },
       total: {
         ...AMOUNT_FIELD,
         description:
@@ -146,6 +156,7 @@ export function normalizeSummary(raw: RawExpenseSummary): ExpenseSummary {
     expense_kind: KIND_SET.has(raw?.expense_kind ?? "") ? (raw!.expense_kind as ExpenseKind) : null,
     category: CATEGORY_SET.has(raw?.category ?? "") ? (raw!.category as CategoryKey) : null,
     printed_time: normalizeTime(raw?.printed_time),
+    printed_date: normalizeDate(raw?.printed_date),
     total_subunits: parseAmountSubunits(raw?.total),
     currency,
     short_title: normalizeMerchant(raw?.short_title),
