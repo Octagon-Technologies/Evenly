@@ -161,8 +161,8 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   `https://` (a bare `split-evenly.app/j/…` was searched, not opened, by QR scanners), and incoming links on
   both platforms go through `PendingInvite`, never a `navDeepLink` (Android-only, and lost on `onNewIntent`). The QR leads; the invite is the tertiary text button. On the expense detail the bill QR is the full-width
   "Let friends pick their items" button in `BillPickCard`, and the group sheet is titled "Invite to group".
-  The scope reassurance under it ("this bill only") is not decoration: the payer is deciding whether to
-  pass a URL into their finances round a table.
+  The share screen shows the link as copyable text under the QR (owner call, 2026-11-22: the "this bill
+  only" scope note was removed). The link is shared with its `https://` scheme, same reason as invites.
 - **"Hasn't opened the link" is only said about someone without the app.** An app member who simply
   hasn't claimed gets different wording, because telling the payer to re-send a link to somebody who
   was never going to use one turns a nudge into noise. Same reason the freshness line degrades from

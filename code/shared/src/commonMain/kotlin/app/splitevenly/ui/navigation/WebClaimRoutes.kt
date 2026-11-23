@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
@@ -314,7 +316,8 @@ fun BillClaimProgressRoute(
 
 // ── 3. Share the link ────────────────────────────────────────────────────────────────────────────
 
-/** Milliseconds in an hour, for the "open for N hours" line. */
+/** Back-off between link-status retries while a fresh bill is still being pushed (about 10s total). */
+private val STATUS_RETRY_DELAYS_MS = listOf(800L, 1_500L, 2_500L, 5_000L)
 
 /**
  * "Let everyone claim" — the QR, the link, and the link's lifecycle (§3.9.3, E26–E30).
@@ -341,6 +344,7 @@ fun ShareBillLinkRoute(
     val links = koinInject<WebBillLinkRepository>()
     val auth = koinInject<AuthSession>()
     val share = koinInject<PlatformShare>()
+    val clipboard = LocalClipboardManager.current
     val eid = remember(expenseId) { ExpenseId(expenseId) }
     val bill by remember(eid) { bills.observeBill(eid) }.collectAsStateWithLifecycle(null)
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -360,7 +364,16 @@ fun ShareBillLinkRoute(
         busy = true
         linkState = WebBillLinkState.None
         notice = null
-        when (val result = links.status(eid, actor)) {
+        // A bill created a moment ago (every quick split lands here straight from creation) is usually
+        // still in the push queue, and the server answers "expense not found" until it arrives. Retry
+        // through that window rather than reporting a connection problem the payer doesn't have.
+        var status = links.status(eid, actor)
+        for (waitMs in STATUS_RETRY_DELAYS_MS) {
+            if (status is AppResult.Ok) break
+            delay(waitMs)
+            status = links.status(eid, actor)
+        }
+        when (val result = status) {
             is AppResult.Ok -> {
                 linkState = result.value
                 val shouldCreateOrRecover =
@@ -382,7 +395,12 @@ fun ShareBillLinkRoute(
     }
 
     val view = bill ?: return
-    val url = linkState.url?.let { if (quick) quickSplitUrl(it) else it }
+    // Shared and encoded with its scheme: QR scanners search a bare `split-evenly.app/...` instead of
+    // opening it, and messaging apps don't always turn it into a tappable link.
+    val url =
+        linkState.url
+            ?.let { if (quick) quickSplitUrl(it) else it }
+            ?.let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
     val shareMessage =
         url?.let {
             if (view.items.isEmpty()) "Your share of ${view.expense.title}: $it" else "Pick what you had on ${view.expense.title}: $it"
@@ -432,6 +450,7 @@ fun ShareBillLinkRoute(
         onCreate = { act("Couldn't make the link. Check your connection and try again.") { links.create(eid, it) } },
         onRevoke = { act("Couldn't turn the link off. Check your connection and try again.") { links.revoke(eid, it) } },
         onShare = { shareMessage?.let { share.shareText(it, view.expense.title) } },
+        onCopyLink = { url?.let { clipboard.setText(AnnotatedString(it)) } },
         onInviteToGroup = onInviteToGroup,
         onSeeProgress = onSeeProgress,
         notice = notice,

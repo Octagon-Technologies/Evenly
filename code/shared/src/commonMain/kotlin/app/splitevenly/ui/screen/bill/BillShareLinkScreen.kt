@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,11 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.BannerVariant
@@ -53,6 +52,7 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.theme.EvenlyTheme
 import io.github.alexzhirkevich.qrose.rememberQrCodePainter
+import kotlinx.coroutines.delay
 
 /**
  * What the payer is looking at. The three states that matter are all reachable and all have a way out:
@@ -82,8 +82,8 @@ data class ShareBillLinkState(
  * Do not merge the two controls, and do not promote the invite: holding up a screen beats messaging
  * eleven people who are standing up to leave.
  *
- * The scope reassurance at the foot is not decoration. A guest is being handed a URL into someone's
- * finances, and the payer is the one who has to be comfortable passing it round. DI-free.
+ * The link sits under the QR as text with a copy button, for anyone who isn't at the table to scan it.
+ * DI-free.
  */
 @Composable
 fun BillShareLinkScreen(
@@ -91,6 +91,7 @@ fun BillShareLinkScreen(
     onBack: () -> Unit = {},
     onCreate: () -> Unit = {},
     onShare: () -> Unit = {},
+    onCopyLink: () -> Unit = {},
     onRevoke: () -> Unit = {},
     onInviteToGroup: () -> Unit = {},
     onSeeProgress: () -> Unit = {},
@@ -139,6 +140,7 @@ fun BillShareLinkScreen(
             when {
                 state.url != null && state.live -> {
                     QrPlate(state.url)
+                    LinkRow(state.url, onCopyLink)
                 }
 
                 state.busy -> {
@@ -177,8 +179,6 @@ fun BillShareLinkScreen(
 //                small = true,
 //                enabled = !state.busy,
 //            )
-
-            ScopeNote()
 
 //            if (state.live) {
 //                Spacer(Modifier.height(4.dp))
@@ -283,28 +283,51 @@ private fun Note(
     }
 }
 
-/** Spelled out because the payer is the one deciding whether to pass this round (spec §3.9.3). */
+/** The link itself, readable and one tap to copy, for when a QR can't be scanned (texting someone not at the table). */
 @Composable
-private fun ScopeNote() {
+private fun LinkRow(
+    url: String,
+    onCopy: () -> Unit,
+) {
     val c = EvenlyTheme.colors
+    var copied by remember(url) { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(2_000)
+            copied = false
+        }
+    }
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(c.blueTint)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.Top,
+            .background(c.surface)
+            .border(1.dp, c.border, RoundedCornerShape(12.dp))
+            .clickable {
+                onCopy()
+                copied = true
+            }.padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        EvIcon(EvIcons.Lock, size = 15.dp, tint = c.blueText, modifier = Modifier.padding(top = 1.dp))
+        EvIcon(EvIcons.Link, size = 16.dp, tint = c.ink3)
         Text(
-            buildAnnotatedString {
-                append("This link opens ")
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("this bill only") }
-                append(". It can't see your balances, your other expenses, or anyone's history.")
+            url.removePrefix("https://"),
+            color = c.ink,
+            fontSize = 13.5.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        EvButton(
+            if (copied) "Copied" else "Copy",
+            onClick = {
+                onCopy()
+                copied = true
             },
-            color = c.blueText,
-            fontSize = 12.5.sp,
+            variant = ButtonVariant.Tonal,
+            small = true,
+            fillMaxWidth = false,
         )
     }
 }
