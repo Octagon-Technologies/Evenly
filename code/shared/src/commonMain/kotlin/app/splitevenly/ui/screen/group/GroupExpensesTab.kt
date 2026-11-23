@@ -27,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +77,8 @@ data class ExpenseItemUi(
     val stakeLabel: String? = null,
     val stakeAmount: String? = null,
     val stakeOwedToYou: Boolean = false,
+    /** The viewer paid for it or has a share in it; drawn as the left-edge strip, never explained in copy. */
+    val involved: Boolean = false,
 )
 
 data class ExpenseDayUi(
@@ -86,6 +90,9 @@ enum class ExpensesState { Loading, Failed, Empty, Populated }
 
 /** Shared corner radius for the expense feed's per-row cards (and the settled tray). */
 private val ExpenseCardShape = RoundedCornerShape(14.dp)
+
+/** 3dp, not 2dp: 2dp went faint against the black dark-mode page (design/web-group-page-mockup.html). */
+private val InvolvedStripWidth = 3.dp
 
 /**
  * Whether [inviteLink] is a real join link rather than the "Generating link…" placeholder.
@@ -169,6 +176,9 @@ fun GroupExpensesTab(
                 },
                 actions = {
                     EvIconButton(EvIcons.Search, onSearch)
+                    // Straight to the native share sheet: the group link now opens a full web page for anyone
+                    // without the app, so sharing it is the action we most want people to take.
+                    EvIconButton(EvIcons.Share, onShareInvite)
                     EvIconButton(EvIcons.Gear, onOpenSettings)
                 },
             )
@@ -495,6 +505,8 @@ private fun ExpenseRowFrom(
 ) {
     val c = EvenlyTheme.colors
     val accent = it.categoryColor ?: c.ink2
+    // blueText, not blue: the fill blue sinks into the black dark-mode page at this width.
+    val stripColor = c.blueText
     Row(
         Modifier
             .fillMaxWidth()
@@ -502,6 +514,7 @@ private fun ExpenseRowFrom(
             .clip(ExpenseCardShape)
             .background(c.page)
             .border(1.dp, c.border, ExpenseCardShape)
+            .then(if (it.involved) Modifier.drawBehind { drawRect(stripColor, size = Size(InvolvedStripWidth.toPx(), size.height)) } else Modifier)
             .clickable { onOpen(it.id) }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

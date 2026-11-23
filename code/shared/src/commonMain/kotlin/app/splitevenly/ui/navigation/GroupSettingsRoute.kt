@@ -136,7 +136,12 @@ fun GroupSettingsRoute(
             }
         },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString(InviteLink.url(it))) } },
-        onShareInvite = { inviteToken?.let { share.shareText("Join my group on Evenly: ${InviteLink.url(it)}", "Join my Evenly group") } },
+        onShareInvite = {
+            inviteToken?.let {
+                share.shareText("See what you owe and settle up for ${group?.name ?: "our group"}, no app needed: ${InviteLink.url(it)}", "Evenly: ${group?.name ?: "our group"}")
+            }
+        },
+        onResetInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
         onReconcile = onReconcile,
         unclaimedNameCount = unclaimed.size,

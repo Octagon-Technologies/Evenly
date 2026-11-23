@@ -98,6 +98,11 @@ ShareCost-era and is fully retired; do not reintroduce it.
   (`rememberSheetSwipe`: a scrolling body hands over its pull once at the top). A hand-rolled sheet
   (`CameraPermissionSheet`) must use the same helper. Don't add a per-screen ✕.
 
+- **The 3dp left strip on an expense row means "you're on this"** (payer or a share holder,
+  `ExpenseItemUi.involved`), in `c.blueText` because the fill blue sinks into the black dark page. It is
+  never explained in copy and is not a status: a settled expense keeps it. The web group page draws the
+  same mark (`docs/features/web-group-page.md`).
+
 ## Copy rules
 
 **User-facing copy is concise and functional, never explanatory marketing.** A subtitle or caption earns its

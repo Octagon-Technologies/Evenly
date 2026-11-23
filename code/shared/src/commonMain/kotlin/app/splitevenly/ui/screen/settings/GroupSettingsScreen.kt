@@ -3,6 +3,7 @@ package app.splitevenly.ui.screen.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,6 +91,8 @@ fun GroupSettingsScreen(
     onRename: (name: String, emoji: String) -> Unit = { _, _ -> },
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
+    /** Replaces the group link. Lives here, not on the group page: it is the fix for a link that went too far. */
+    onResetInvite: () -> Unit = {},
     onRemoveMember: (MemberRowUi) -> Unit = {},
     onReconcile: () -> Unit = {},
     /** Names in this group with no account that the viewer hasn't answered. 0 hides the claim row. */
@@ -114,6 +117,7 @@ fun GroupSettingsScreen(
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var showLeave by remember { mutableStateOf(false) }
+    var showResetLink by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<MemberRowUi?>(null) }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
@@ -184,6 +188,13 @@ fun GroupSettingsScreen(
                             small = true,
                         )
                     }
+                    // The group link now lets anyone holding it see the group and add expenses on the web,
+                    // so a link forwarded too far needs a way back (docs/features/web-group-page.md, #7).
+                    Text(
+                        "Reset link",
+                        style = t.caption.copy(color = c.blueText, fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.clickable { showResetLink = true }.padding(vertical = 4.dp),
+                    )
                 }
             }
 
@@ -352,6 +363,22 @@ fun GroupSettingsScreen(
                 onLeave()
             },
         )
+    }
+
+    if (showResetLink) {
+        EvModalScaffold(onDismiss = { showResetLink = false }) {
+            Text("Reset the group link?", style = t.sheetTitle, modifier = Modifier.padding(bottom = 8.dp))
+            Text(
+                "The current link stops working. Everyone already in the group stays in, and you'll share the new link with anyone else.",
+                style = t.description,
+            )
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                EvButton("Reset link", {
+                    showResetLink = false
+                    onResetInvite()
+                }, variant = ButtonVariant.Danger)
+            }
+        }
     }
 
     removeTarget?.let { target ->
