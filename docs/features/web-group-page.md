@@ -167,6 +167,6 @@ live project (rolled back, no test rows left); no new function is executable by 
 unknown invite with `GONE`.
 
 **Known gaps / unverified:** no browser has used the group page against a real group yet (that writes real
-rows, so it waits for the owner). Vercel's production is now ahead of `main`: a later deploy from `main` before these branches merge
-would take the group page (and the other web work above) back off the site. `ux-firsttimer` not
+rows, so it waits for the owner). Merged into `main` the same day; the push to `main` redeployed production from `main`, so the site and
+`main` match again. `ux-firsttimer` not
 yet run on the web page. Itemized bills created on the web get shares only after an app device syncs.
