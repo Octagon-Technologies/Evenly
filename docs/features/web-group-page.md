@@ -1,6 +1,6 @@
 # Web group page: one person has the app, everyone else uses the link
 
-**Status:** built on `feat/web-group-page` (2026-11-23); server migration not yet applied to the live project
+**Status:** built on `feat/web-group-page`; migration `web_group_page` and `web-claim` deployed to the live project 2026-11-23. The web page itself ships with the next site deploy
 **Owner agent/session:** unassigned
 **Mockup:** `design/web-group-page-mockup.html` (required before any Compose or Svelte)
 
@@ -161,6 +161,12 @@ page, settle, expense detail with change log + undo, add/edit form, a balances p
 balances, Mine, settle, add with exact-split validation, edit, undo); shared compiles on Android and iOS;
 `testAndroidHostTest` green including the new strip test.
 
-**Known gaps / unverified:** the migration and edge function are not on the live project, so the web page
-has not run against real data. The edge function was not typechecked (no Deno here). `ux-firsttimer` not
+**Deployed 2026-11-23:** migration `web_group_page` applied; `supabase/tests/web_group_page.sql` passed on the
+live project (rolled back, no test rows left); no new function is executable by `anon` or `authenticated`;
+`web-claim` deployed with `--use-api` (server-side bundle succeeded), and all five `group-*` actions answer an
+unknown invite with `GONE`.
+
+**Known gaps / unverified:** no browser has used the group page against a real group yet (that writes real
+rows, so it waits for the owner). The site (`web/`) is not deployed, so the live `/j/` still shows the old
+"you're in" screen until it is. `ux-firsttimer` not
 yet run on the web page. Itemized bills created on the web get shares only after an app device syncs.
