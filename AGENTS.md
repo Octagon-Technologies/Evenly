@@ -116,7 +116,7 @@ usually has it open, and running a simulator and an emulator at once burns CPU/R
 code/iosApp/run-ios-sim.sh
 ```
 
-It mirrors the Android Studio "iOS App (Simulator)" run config: boots or reuses a sim, builds via
+It mirrors the Android Studio "iOS App (Simulator)" run config: boots this checkout's own sim, builds via
 `xcodebuild` (which also compiles the shared Kotlin/Native framework), then installs and launches.
 Reach for the Android emulator only when the change is Android-specific (`androidMain`,
 Compose-on-Android quirks, manifest/Firebase) or the owner asks for Android.
