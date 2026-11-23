@@ -1,0 +1,606 @@
+<title>Evenly Dates and Payments</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: a brainstorm doc. Prose column on top of each section, then a row of phone mockups drawn in the app's own blue/light tokens. */
+:root{
+  --page:#F4F6FB; --paper:#FFFFFF; --ink:#141A2E; --ink2:#5A6378; --ink3:#8A92A6; --line:#E3E7F0;
+  --blue:#3762E3; --blueText:#2B52C9; --blueTint:#EAF0FF;
+  --owe:#C77A12; --oweTint:#FFF4E2; --owed:#1E8A55; --owedTint:#E6F6EE;
+  --phone:#FFFFFF; --phoneBg:#F6F8FC; --frame:#1B2133; --scrim:rgba(20,26,46,.38);
+  --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --body:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blue:#3762E3; --blueText:#8FA9FF; --blueTint:#1D2747;
+  --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blue:#3762E3; --blueText:#8FA9FF; --blueTint:#1D2747;
+  --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--page);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 80px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(30px,5vw,44px);line-height:1.1}
+h2{font-size:26px}
+h3{font-size:17px}
+p{margin:0;max-width:68ch}
+.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--blueText);font-weight:600}
+.lede{color:var(--ink2);font-size:17px}
+header{display:flex;flex-direction:column;gap:14px}
+.sec{display:flex;flex-direction:column;gap:22px}
+.sec-head{display:flex;flex-direction:column;gap:8px}
+.status{display:inline-flex;gap:8px;align-items:center;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;width:fit-content}
+.status.now{background:var(--blueTint);color:var(--blueText)}
+.status.later{background:var(--oweTint);color:var(--owe)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.note{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.note ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--ink2)}
+.note b{color:var(--ink)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;background:var(--blueTint);color:var(--blueText);padding:1px 5px;border-radius:4px}
+
+/* phones */
+.phones{display:flex;gap:22px;overflow-x:auto;padding:6px 2px 14px;scroll-snap-type:x mandatory}
+.ph-wrap{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;scroll-snap-align:start;width:272px}
+.ph-cap{font-size:13px;color:var(--ink2)}
+.ph-cap b{color:var(--ink);display:block;font-size:14px}
+.phone{position:relative;width:272px;height:560px;border-radius:34px;border:7px solid var(--frame);background:var(--phoneBg);overflow:hidden;font-size:12px;display:flex;flex-direction:column}
+.sb{height:26px;display:flex;justify-content:space-between;align-items:center;padding:0 18px;font-size:11px;font-weight:600;color:var(--ink)}
+.bar{display:flex;align-items:center;gap:8px;padding:6px 14px 10px}
+.bar .t{font-weight:700;font-size:15px;flex:1;font-family:var(--display)}
+.ic{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--ink2);font-size:14px}
+.body{padding:0 12px;display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden}
+.card{background:var(--phone);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--line)}
+.hero{font-family:var(--display);font-size:26px;font-weight:700}
+.muted{color:var(--ink2)} .faint{color:var(--ink3);font-size:11px}
+.row{display:flex;align-items:center;gap:9px}
+.row .grow{flex:1;min-width:0}
+.av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
+.av.a{background:#3762E3}.av.p{background:#B24C8C}.av.k{background:#2D8F86}.av.j{background:#7A5BD6}
+.amt{font-weight:700;font-variant-numeric:tabular-nums}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;font-weight:600;font-size:11.5px;border:1px solid var(--line);background:var(--phone);color:var(--ink);width:fit-content}
+.chip.blue{background:var(--blueTint);color:var(--blueText);border-color:transparent}
+.chip.sel{background:var(--blue);color:#fff;border-color:var(--blue)}
+.chip.ghost{border-style:dashed;color:var(--ink2)}
+.btn{background:var(--blue);color:#fff;text-align:center;font-weight:700;padding:11px;border-radius:12px;font-size:13px}
+.btn.sec{background:var(--blueTint);color:var(--blueText)}
+.btn.sm{padding:6px 10px;font-size:11.5px;border-radius:9px;display:inline-block}
+.btn.out{background:transparent;color:var(--blueText);border:1px solid var(--blue)}
+.field{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--phone);display:flex;flex-direction:column;gap:2px}
+.field .l{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.field .v{font-size:13px;font-weight:600}
+.hl{outline:2px solid var(--blue);outline-offset:2px;border-radius:10px;position:relative}
+.tag{position:absolute;right:-4px;top:-10px;background:var(--blue);color:#fff;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
+.sheet{position:absolute;inset:auto 0 0 0;background:var(--phone);border-radius:20px 20px 0 0;padding:10px 14px 18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 -6px 24px rgba(0,0,0,.18)}
+.grab{width:36px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 2px}
+.scrim{position:absolute;inset:0;background:var(--scrim)}
+.dim{opacity:.55}
+.seg{display:flex;background:var(--phoneBg);border-radius:10px;padding:3px;gap:3px}
+.seg div{flex:1;text-align:center;padding:7px 4px;border-radius:8px;font-weight:600;font-size:11.5px;color:var(--ink2)}
+.seg .on{background:var(--phone);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.big{font-family:var(--display);font-size:30px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.owe{color:var(--owe)} .owed{color:var(--owed)}
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px}
+.pill.owe{background:var(--oweTint)} .pill.owed{background:var(--owedTint)}
+.sub{margin-left:35px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink2);padding:5px 8px;background:var(--phoneBg);border-radius:8px}
+.sub .e{margin-left:auto;color:var(--blueText);font-weight:600}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;font-size:10.5px}
+.cal span{padding:5px 0;border-radius:7px;font-variant-numeric:tabular-nums}
+.cal .h{color:var(--ink3);font-weight:600}
+.cal .x{color:var(--ink3);opacity:.45}
+.cal .s{background:var(--blue);color:#fff;font-weight:700}
+.cal .td{outline:1px solid var(--blue)}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:600}
+.toast{background:var(--ink);color:var(--page);border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;font-size:11.5px}
+.toast .u{margin-left:auto;font-weight:700;color:var(--blueText);filter:brightness(1.4)}
+.warnbox{background:var(--oweTint);color:var(--ink);border-radius:10px;padding:9px 10px;font-size:11.5px;display:flex;flex-direction:column;gap:4px}
+.stack{position:relative;height:150px}
+.stack .card{position:absolute;left:0;right:0}
+.dec{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.q{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.q .rec{font-size:13px;color:var(--owed);font-weight:600}
+hr{border:none;border-top:1px solid var(--line);margin:0}
+@media (prefers-reduced-motion:no-preference){.phones{scroll-behavior:smooth}}
+</style>
+
+<style>
+.titlerow{display:flex;gap:10px;align-items:center}
+.titlerow .field{flex:1;min-width:0}
+.datecol{display:flex;flex-direction:column;gap:3px;align-items:center;flex:none}
+.dlab{font-size:9.5px;color:var(--ink3);font-weight:600;letter-spacing:.02em}
+.dchip{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border-radius:999px;font-size:11px;font-weight:600;background:var(--blueTint);color:var(--blueText)}
+.cur{display:inline-block;font-size:15px;font-weight:600;padding:3px 7px;border-radius:7px;background:var(--phoneBg);color:var(--ink2);vertical-align:middle;margin-right:6px;font-family:var(--body);border:1px solid var(--line)}
+.amtedit{display:flex;justify-content:center;align-items:center;gap:2px;padding:6px 0;border-bottom:2px solid var(--blue);margin:0 34px}
+.amtedit .n{font-family:var(--display);font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.caret{width:2px;height:28px;background:var(--blue);margin-left:2px}
+.exp{margin-left:35px;font-size:11px;color:var(--blueText);font-weight:600;display:flex;align-items:center;gap:4px}
+.subs{margin-left:35px;display:flex;flex-direction:column;gap:4px}
+.subs .sub{margin-left:0}
+.thumb{width:40px;height:52px;border-radius:7px;flex:none;border:1px solid var(--line);background:repeating-linear-gradient(180deg,var(--phone) 0 5px,var(--line) 5px 6px);position:relative}
+.thumb::after{content:"⤢";position:absolute;right:2px;bottom:1px;font-size:10px;color:var(--ink2)}
+.bigthumb{height:110px;border-radius:10px;border:1px solid var(--line);background:repeating-linear-gradient(180deg,var(--phone) 0 7px,var(--line) 7px 8px);display:flex;align-items:flex-end;justify-content:flex-end;padding:6px}
+.ck{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--ink3);flex:none;display:grid;place-items:center;font-size:10px;color:#fff}
+.ck.on{background:var(--blue);border-color:var(--blue)}
+.pen{color:var(--ink3);font-size:11px}
+.vtag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--blueTint);color:var(--blueText);width:fit-content}
+.plain{font-size:11.5px;color:var(--ink2);padding:2px 2px;display:flex;gap:6px}
+.plain b{color:var(--blueText)}
+.changes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px 22px;margin:0;padding:0;list-style:none}
+.changes li{font-size:13.5px;color:var(--ink2);display:flex;gap:8px;min-width:0}
+.changes li::before{content:"→";color:var(--blueText);font-weight:700}
+.changes b{color:var(--ink)}
+.labels{display:flex;gap:8px;flex-wrap:wrap}
+.lchip{display:inline-flex;align-items:center;gap:3px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:700;background:var(--blueTint);color:var(--blueText);white-space:nowrap}
+.hist{background:var(--phoneBg);border-radius:12px;padding:9px 11px;display:flex;flex-direction:column;gap:7px}
+.hist .hh{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700}
+.hist .hh .c{margin-left:auto;color:var(--ink3);font-weight:600;font-size:11px}
+.hist .hl{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0;font-size:11.5px;color:var(--ink2);padding-top:7px;border-top:1px solid var(--line)}
+.hist .hl b{color:var(--ink);font-variant-numeric:tabular-nums;margin-right:2px;white-space:nowrap}
+.hist .hl .e{margin-left:auto;color:var(--blueText);font-weight:600;flex:none}
+.hist .hm{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.hist .ht{display:flex;align-items:center;gap:6px}
+.hist .hs{font-size:10.5px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:600;border:1px solid transparent;white-space:nowrap}
+.mc.g{background:var(--phoneBg);color:var(--ink2);border-color:var(--line)}
+.mc.w{background:var(--blueTint);color:var(--blueText)}
+.mc.s{background:var(--owedTint);color:var(--owed)}
+.mc.chg{border-color:currentColor}
+.mcs{display:flex;gap:4px;flex-wrap:wrap}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.opt{background:var(--phone);border:1px solid var(--line);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.opt .why{font-size:12px;color:var(--ink2)}
+.opt.pick{border:2px solid var(--blue)}
+.qr{width:120px;height:120px;margin:4px auto;border-radius:10px;background:conic-gradient(var(--ink) 25%,transparent 0 50%,var(--ink) 0 75%,transparent 0) 0 0/16px 16px;border:8px solid var(--phone);outline:1px solid var(--line)}
+.link{font-size:11.5px;color:var(--blueText);font-weight:600;text-align:center}
+.chosen{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--owedTint);color:var(--owed);width:fit-content}
+</style>
+<div class="wrap">
+<header>
+  <div class="eyebrow">Evenly brainstorm · Nov 22, 2026 · revision 4</div>
+  <h1>Dates and payments</h1>
+  <p class="lede">Two changes for now: bills carry the day they happened, read from the receipt when it's there, and payments get recorded and edited on the bill itself, by either person. Adding several receipts at once is sketched at the end as a future feature.</p>
+  <div class="note">
+    <h3>What changed in revision 4</h3>
+    <ul class="changes">
+      <li><span><b>Latest:</b> each History line is the amount with one method chip, then the date and who recorded it underneath. "Nothing paid yet" is gone from the rows. The batch split is whatever you pick on the setup screen, with no automatic rule, since a table that orders many items can still want to split evenly.</span></li>
+      <li><span><b>The button is the balance.</b> Each row ends in a tappable "210 left ›" chip. There's no word to learn.</span></li>
+      <li><span><b>History moved into the sheet.</b> Tapping the chip opens the add-payment sheet, and that person's past payments sit in a collapsible "History" card between "Via / On" and "Record payment".</span></li>
+      <li><span><b>The bill screen is calmer.</b> The "2 payments ⌄" lines under each row are gone, since the history now lives in the sheet.</span></li>
+      <li><span><b>Review bill uses two buttons</b> (Flow 1): "Assign items" and "Share link". The one-button flow is removed.</span></li>
+    </ul>
+  </div>
+</header>
+
+<!-- ============ A. DATES ============ -->
+<section class="sec">
+  <div class="sec-head">
+    <span class="status now">Build now</span>
+    <h2>A. The bill's date</h2>
+    <p class="muted">The app already stores a date per bill and groups the list by day. Nobody can set it, though, and every new bill is dated in UTC, so a bill added just after midnight in Kenya lands on the day before. The scanner already reads the printed time for the "Dinner at Java House" name. It just needs to read the printed date too.</p>
+  </div>
+
+  <div class="phones">
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>1 · Default: today</b>A small "Date" chip, centered beside the title field. No extra row on a screen that already has a lot of sections.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">✕</span><span class="t">New bill</span></div>
+        <div class="body">
+          <div class="titlerow">
+            <div class="field"><span class="l">What for</span><span class="v">Groceries</span></div>
+            <div class="datecol"><span class="dlab">Date</span><span class="dchip">Today</span></div>
+          </div>
+          <div class="card"><span class="faint">Amount</span><span class="hero">KSh 3,450</span></div>
+          <div class="card">
+            <div class="row"><div class="av a">A</div><div class="grow"><b>You</b> paid</div></div>
+            <div class="row"><span class="faint">Split evenly between 3 people</span></div>
+          </div>
+          <div style="flex:1"></div>
+          <div class="btn" style="margin-bottom:14px">Save bill</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>2 · Scanned: the receipt sets it</b>Same chip, filled with the receipt's date: "Yesterday", or a short date like "Nov 20". Tapping it changes it.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">✕</span><span class="t">Review bill</span></div>
+        <div class="body">
+          <div class="titlerow">
+            <div class="field"><span class="l">What for</span><span class="v">Dinner at Java House</span></div>
+            <div class="datecol"><span class="dlab">Date</span><span class="dchip">Nov 20</span></div>
+          </div>
+          <div class="card">
+            <div class="row"><span class="grow">Chicken tikka</span><span class="amt">1,250</span></div>
+            <div class="row"><span class="grow">Masala fries</span><span class="amt">480</span></div>
+            <div class="row"><span class="grow">Passion juice ×2</span><span class="amt">560</span></div>
+            <hr>
+            <div class="row"><b class="grow">Total</b><span class="amt">KSh 2,290</span></div>
+          </div>
+          <p class="faint" style="padding:0 2px">The receipt's time (8:14 PM) only picks the "Dinner" name. It isn't stored.</p>
+          <div style="flex:1"></div>
+          <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:nowrap"><div class="btn sec" style="flex:1">Assign items</div><div class="btn" style="flex:1">Share link</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>3 · Changing it</b>Unchanged: you marked this one as good. Today and Yesterday are one tap, the calendar covers the rest, and future days are off.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">✕</span><span class="t">New bill</span></div>
+        <div class="body dim">
+          <div class="field"><span class="l">What for</span><span class="v">Groceries</span></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <h3 style="font-size:15px">When was this?</h3>
+          <div class="row" style="gap:6px"><span class="chip">Today</span><span class="chip sel">Yesterday</span><span class="chip">Fri, Nov 20</span></div>
+          <div class="row"><b class="grow">November 2026</b><span class="muted">‹ ›</span></div>
+          <div class="cal">
+            <span class="h">S</span><span class="h">M</span><span class="h">T</span><span class="h">W</span><span class="h">T</span><span class="h">F</span><span class="h">S</span>
+            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span>
+            <span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span>
+            <span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span class="s">21</span>
+            <span class="td">22</span><span class="x">23</span><span class="x">24</span><span class="x">25</span><span class="x">26</span><span class="x">27</span><span class="x">28</span>
+          </div>
+          <div class="btn">Use Sat, Nov 21</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="sec-head" style="margin-top:8px">
+    <h3 style="font-size:17px">After the review: two buttons</h3>
+    <p class="muted">"Next: who had what" is replaced by two buttons on the review screen. "Assign items" opens the assign screen. "Share link" opens the QR screen that already exists, with the link under the code.</p>
+  </div>
+  <div class="phones">
+    <div class="ph-wrap">
+      <div class="ph-cap"><span class="chosen">Chosen · Flow 1</span><b style="margin-top:6px">Pick the path on the review screen</b>"Assign items" opens the assign screen. "Share link" opens the QR screen, with the link under the code.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">✕</span><span class="t">Review bill</span></div>
+        <div class="body">
+          <div class="titlerow">
+            <div class="field"><span class="l">What for</span><span class="v">Dinner at Java House</span></div>
+            <div class="datecol"><span class="dlab">Date</span><span class="dchip">Nov 20</span></div>
+          </div>
+          <div class="card">
+            <div class="row"><span class="grow">Chicken tikka</span><span class="amt">1,250</span></div>
+            <div class="row"><span class="grow">Masala fries</span><span class="amt">480</span></div>
+            <div class="row"><span class="grow">Passion juice ×2</span><span class="amt">560</span></div>
+            <hr>
+            <div class="row"><b class="grow">Total</b><span class="amt">KSh 2,290</span></div>
+          </div>
+          <div style="flex:1"></div>
+          <div class="row" style="gap:8px;margin-bottom:14px;flex-wrap:nowrap">
+            <div class="btn sec" style="flex:1">Assign items</div>
+            <div class="btn" style="flex:1">Share link</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>Where "Share link" goes</b>The existing QR screen, with the link right under the code so it can be copied or sent.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">‹</span><span class="t">Let friends pick their items</span></div>
+        <div class="body">
+          <p class="muted" style="font-size:12px;text-align:center">Scan to pick your items</p>
+          <div class="qr"></div>
+          <div class="row" style="justify-content:center;gap:6px"><span class="link">split-evenly.app/b/7Kq2</span><span class="chip blue" style="font-size:10.5px;padding:3px 9px">Copy</span></div>
+          <div class="faint" style="text-align:center">Friends open it in their browser and tap their name. No app needed.</div>
+          <div class="btn">Share the link</div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cols">
+    <div class="note">
+      <h3>Two buttons, decided</h3>
+      <ul>
+        <li><b>Both paths are one tap</b> from the review screen, and the choice is visible up front.</li>
+        <li><b>"Assign items" is the tonal button, "Share link" the filled one</b>, since letting friends pick is less work for you.</li>
+        <li>An evenly split bill skips this step: there is nothing to assign.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="cols">
+    <div class="note">
+      <h3>Rules</h3>
+      <ul>
+        <li><b>The chip text:</b> "Today", "Yesterday", or a short date ("Nov 20"). Add the year only when it isn't this year ("Dec 30, 2025").</li>
+        <li><b>Date only, never a time.</b> The printed time stays inside the scanner and only feeds the bill's name.</li>
+        <li><b>Default is the phone's local today,</b> not UTC. This is a real bug today regardless of the feature.</li>
+        <li><b>Distrust odd receipt dates.</b> A future date, or one more than about 60 days back, is more likely a misread. Fall back to today and say so in one line.</li>
+        <li><b>04/03/26 is ambiguous.</b> Send the model today's date and the currency, and pick the reading that's closest to today without being in the future.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>What changes in code</h3>
+      <ul>
+        <li><b>Scanner</b>: add an optional <code>printed_date</code> field next to <code>printed_time</code>.</li>
+        <li><b>App</b>: the date chip on the new-bill, review and edit screens, and a local-today helper in place of <code>todayUtc()</code>.</li>
+        <li><b>Server and sync: nothing to do.</b> The date already syncs, and the merge already treats it as its own field (<code>date_updated_at</code>).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B. PAYMENTS ============ -->
+<section class="sec">
+  <div class="sec-head">
+    <span class="status now">Build now</span>
+    <h2>B. Payments live on the bill</h2>
+    <p class="muted">Each row on the bill ends in what's left, as a chip. Tapping it opens one sheet that records a new payment and shows that person's history, where earlier payments can be edited. "Edit bill" only changes the bill. Either person in a payment can record it, and the server already allows that.</p>
+  </div>
+
+  <div class="phones">
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>1 · You paid the bill</b>Every row ends in what's left. Tap "210 left ›" to record or check Kevin's payments. Joy's "✓ Paid" opens her history the same way.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">‹</span><span class="t">Dinner at Java House</span><span class="chip" style="font-size:10.5px">Edit bill</span></div>
+        <div class="body">
+          <div class="card">
+            <span class="hero">KSh 2,290</span>
+            <span class="faint">Nov 20 · You paid</span>
+            <div class="row"><span class="pill owed owed">You're owed KSh 970</span></div>
+          </div>
+          <span class="lbl">Who owes you</span>
+          <div class="card" style="gap:9px">
+            <div class="row"><div class="av p">P</div><div class="grow"><b>Purity</b><div class="faint">share 760</div></div><span class="lchip">760 left ›</span></div>
+            <hr>
+            <div class="row"><div class="av k">K</div><div class="grow"><b>Kevin</b><div class="faint">paid 280 of 490</div></div><span class="lchip">210 left ›</span></div>
+            <hr>
+            <div class="row"><div class="av j">J</div><div class="grow"><b>Joy</b><div class="faint">paid 520 of 520</div></div><span class="pill owed owed">✓ Paid ›</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>2 · "Kevin paid you"</b>The amount starts at what's left and can be typed over. History is collapsed at first, showing only how many payments there are.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Dinner at Java House</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><div class="av k">K</div><h3 style="font-size:15px" class="grow">Kevin paid you</h3></div>
+          <div class="amtedit"><span class="cur">KSh</span><span class="n">210</span><span class="caret"></span></div>
+          <div class="faint" style="text-align:center">KSh 210 left of his 490</div>
+          <div class="row" style="gap:6px;flex-wrap:nowrap"><span class="faint">Via</span><span class="chip">M-Pesa ▾</span><span class="faint" style="margin-left:6px">On</span><span class="chip">Today ▾</span></div>
+          <div class="hist"><div class="hh">History<span class="c">2 payments · 280 ⌄</span></div></div>
+          <div class="btn">Record payment</div>
+          <div class="faint" style="text-align:center">Kevin gets a notification and can edit it.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>3 · History open</b>Tap the card to expand it. Each payment is two lines: the amount with one method chip, then the date and who recorded it in small grey text. "Edit" sits on the right. The amount and button above stay put.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Dinner at Java House</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><div class="av k">K</div><h3 style="font-size:15px" class="grow">Kevin paid you</h3></div>
+          <div class="amtedit"><span class="cur">KSh</span><span class="n">210</span><span class="caret"></span></div>
+          <div class="faint" style="text-align:center">KSh 210 left of his 490</div>
+          <div class="row" style="gap:6px;flex-wrap:nowrap"><span class="faint">Via</span><span class="chip">M-Pesa ▾</span><span class="faint" style="margin-left:6px">On</span><span class="chip">Today ▾</span></div>
+          <div class="hist">
+            <div class="hh">History<span class="c">⌃</span></div>
+            <div class="hl"><div class="hm"><div class="ht"><b>KSh 200</b><span class="mc s">M-Pesa</span></div><span class="hs">Nov 21 · by Kevin</span></div><span class="e">Edit</span></div>
+            <div class="hl"><div class="hm"><div class="ht"><b>KSh 80</b><span class="mc s">Cash</span></div><span class="hs">Nov 20 · by you</span></div><span class="e">Edit</span></div>
+          </div>
+          <div class="btn">Record payment</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>4 · Editing a payment</b>Opened from "Edit" in History. "Cancel payment" removes it, and the other person can see that it was removed. Back returns to the History sheet.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Dinner at Java House</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><span class="faint">‹</span><div class="av k">K</div><h3 style="font-size:15px" class="grow">Kevin's payment</h3></div>
+          <div class="faint">Recorded by Kevin · Nov 21</div>
+          <div class="amtedit"><span class="cur">KSh</span><span class="n">300</span><span class="caret"></span></div>
+          <div class="row" style="gap:6px"><span class="faint">Via</span><span class="chip">M-Pesa ▾</span><span class="faint" style="margin-left:6px">On</span><span class="chip">Nov 21 ▾</span></div>
+          <div class="card" style="background:var(--phoneBg);gap:4px">
+            <div class="row"><span class="grow muted">Kevin's share</span><span class="amt">490</span></div>
+            <div class="row"><span class="grow muted">Left after this</span><span class="amt owe">110</span></div>
+          </div>
+          <div class="btn">Save</div>
+          <div class="btn sec" style="background:transparent;color:var(--owe)">Cancel payment</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><span class="chosen">Chosen · Open</span><b style="margin-top:6px">5 · You owe: you see everyone</b>Only your own row gets the chip. Tapping it opens the same sheet titled "You paid Andrew", with your history inside. Others' rows just show their status.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">‹</span><span class="t">Dinner at Java House</span></div>
+        <div class="body">
+          <div class="card">
+            <span class="hero">KSh 2,290</span>
+            <span class="faint">Nov 20 · Andrew paid</span>
+            <div class="row"><span class="pill owe owe">You owe KSh 210</span></div>
+          </div>
+          <span class="lbl">Everyone on this bill</span>
+          <div class="card" style="gap:9px">
+            <div class="row"><div class="av k">K</div><div class="grow"><b>You</b><div class="faint">paid 280 of 490</div></div><span class="lchip">210 left ›</span></div>
+            <hr>
+            <div class="row"><div class="av p">P</div><div class="grow"><b>Purity</b><div class="faint">760 left</div></div></div>
+            <hr>
+            <div class="row"><div class="av j">J</div><div class="grow"><b>Joy</b><div class="faint">paid in full</div></div><span class="pill owed owed">✓ Paid</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+
+  <div class="cols">
+    <div class="note">
+      <h3>Open, decided</h3>
+      <ul>
+        <li><b>Everyone sees every row</b>, like a group chat. It matches how the app works today and needs no server change.</li>
+        <li><b>Built on what's there.</b> The bill screen already lists who owes what. This adds the "left ›" chip to the rows you can act on, and the separate Payments section moves into each person's History.</li>
+        <li><b>Who gets the chip:</b> the payer on every row, and each person on their own row only. Rows you can't act on show plain text, with no chevron.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>The chip is the button</h3>
+      <ul>
+        <li><b>Why it works:</b> what's left is what you came to change, so tapping it is "edit balance" with no word to choose. The "›" and the blue fill say it taps.</li>
+        <li><b>Paid in full</b> becomes a green "✓ Paid ›" that opens the same sheet, so you can still edit or cancel a payment after it's settled.</li>
+        <li><b>History card:</b> collapsed by default, showing "2 payments · 280". It's hidden entirely when there are no payments yet, as on Purity's sheet. Its background is the page grey, a step off the white sheet.</li>
+        <li><b>Long histories</b> scroll inside the card, so "Record payment" never moves off screen.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Rules</h3>
+      <ul>
+        <li><b>Method is remembered.</b> Pre-pick the last method you used, Zelle included. Save it on your account so it carries across devices, with the device as a fallback.</li>
+        <li><b>Currency is the bill's currency.</b> Changing it is possible, but the button is muted on purpose. An amount in another currency goes through the same conversion Settle up already uses.</li>
+        <li><b>Paying twice is already caught.</b> A payment can't go over what's left. The Balances tab already flags a "possible double payment" and offers to remove it. A payment made from a bill shows up in that check too.</li>
+        <li><b>The other person always hears about it</b>, with "Edit" in their History. Cancelling a payment is a soft delete.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C. BATCH (FUTURE) ============ -->
+<section class="sec">
+  <div class="sec-head">
+    <span class="status later">Future</span>
+    <h2>C. A long day: several receipts at once</h2>
+    <p class="muted">Picking more than one photo in the existing scan picker starts this flow. Every receipt stays attached to its own bill, the same way a single scan does, so you can open it from the bill later.</p>
+  </div>
+  <div class="phones">
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>1 · Who were you with?</b>One set of defaults for every receipt. You marked this screen as good, so only the split choice changed.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">✕</span><span class="t">4 receipts</span></div>
+        <div class="body">
+          <p class="muted" style="font-size:12px">Auto-creates a bill for each receipt. Afterwards, you can edit each bill.</p>
+          <span class="lbl">Group</span>
+          <div class="card"><div class="row"><span style="font-size:18px">🏝️</span><b class="grow">Diani trip</b><span class="faint">5 people ›</span></div></div>
+          <span class="lbl">Paid by</span>
+          <div class="row"><span class="chip sel">You</span><span class="chip">Someone else</span></div>
+          <span class="lbl">How to split</span>
+          <div class="seg"><div class="on">By items</div><div>Evenly</div></div>
+          
+          <div style="flex:1"></div>
+          <div class="btn" style="margin-bottom:14px">Read 4 receipts</div>
+        </div>
+      </div>
+    </div>
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>2 · Check the bills</b>Each card shows its receipt (tap to see it full size) and a name you can edit. Three chips say the group, who's in and how it's split. A chip you changed gets an outline.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">✕</span><span class="t">Check 4 bills</span></div>
+        <div class="body">
+          <div class="card" style="gap:6px">
+            <div class="row" style="align-items:flex-start"><div class="thumb"></div>
+              <div class="grow" style="display:flex;flex-direction:column;gap:3px">
+                <div class="row" style="gap:4px"><b class="grow">Lunch at Ali Barbour's</b><span class="pen">✎</span></div>
+                <span class="amt">KSh 6,800 <span class="faint">· Nov 21</span></span>
+                <div class="mcs"><span class="mc g">🏝️ Diani trip</span><span class="mc w">👥 All 5</span><span class="mc s">By items</span></div>
+              </div></div>
+          </div>
+          <div class="card" style="gap:6px">
+            <div class="row" style="align-items:flex-start"><div class="thumb"></div>
+              <div class="grow" style="display:flex;flex-direction:column;gap:3px">
+                <div class="row" style="gap:4px"><b class="grow">Fuel at Rubis</b><span class="pen">✎</span></div>
+                <span class="amt">KSh 4,200 <span class="faint">· Nov 21</span></span>
+                <div class="mcs"><span class="mc g">🏝️ Diani trip</span><span class="mc w chg">👥 3 of 5</span><span class="mc s chg">Evenly</span></div>
+              </div></div>
+          </div>
+          <div class="card" style="gap:6px">
+            <div class="row" style="align-items:flex-start"><div class="thumb"></div>
+              <div class="grow" style="display:flex;flex-direction:column;gap:3px">
+                <div class="row" style="gap:4px"><b class="grow">Groceries</b><span class="pen">✎</span></div>
+                <span class="amt">KSh 3,450 <span class="faint">· Today</span></span>
+                <div class="mcs"><span class="mc g">🏝️ Diani trip</span><span class="mc w">👥 All 5</span><span class="mc s">By items</span></div>
+              </div></div>
+          </div>
+          <div class="plain">1 receipt couldn't be read. <b>Retake</b> <b>Skip</b></div>
+          <div style="flex:1"></div>
+          <div class="btn" style="margin-bottom:14px">Add 3 bills</div>
+        </div>
+      </div>
+    </div>
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>3 · Tap a card to change it</b>The receipt sits above the fields so you can check the name and amount against it. Who's in is a checklist of the group's members.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">✕</span><span class="t">Check 4 bills</span></div>
+        <div class="scrim"></div>
+        <div class="sheet" style="gap:8px">
+          <div class="grab"></div>
+          <div class="bigthumb"><span class="chip" style="font-size:10px">⤢ View receipt</span></div>
+          <div class="titlerow">
+            <div class="field"><span class="l">What for</span><span class="v">Fuel at Rubis</span></div>
+            <div class="datecol"><span class="dlab">Date</span><span class="dchip">Nov 21</span></div>
+          </div>
+          <div class="field"><span class="l">Total</span><span class="v">KSh 4,200</span></div>
+          <div class="row"><span class="lbl grow">Who's in · Diani trip ▾</span><span class="faint">3 of 5</span></div>
+          <div class="row" style="gap:6px;flex-wrap:wrap">
+            <span class="row" style="gap:4px"><span class="ck on">✓</span>You</span>
+            <span class="row" style="gap:4px"><span class="ck on">✓</span>Kevin</span>
+            <span class="row" style="gap:4px"><span class="ck on">✓</span>Joy</span>
+            <span class="row" style="gap:4px"><span class="ck"></span>Purity</span>
+            <span class="row" style="gap:4px"><span class="ck"></span>Brian</span>
+          </div>
+          <div class="seg"><div>By items</div><div class="on">Evenly</div></div>
+          <div class="btn">Done</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cols">
+    <div class="note">
+      <h3>Your questions</h3>
+      <ul>
+        <li><b>Where do the receipts go?</b> Each photo is attached to the bill it created, using the same upload as a single scan. It shows as the thumbnail on the card now, and in the bill's receipt viewer afterwards.</li>
+        <li><b>Fixing a wrong name or amount:</b> the name has a pencil and can be edited on the card. Tapping anywhere else opens the sheet with the receipt above the fields. A wrong item total is fixed in the full review screen, the same one a single scan uses ("Edit items" on the sheet).</li>
+        <li><b>5 people down to 3 from the same group:</b> uncheck two people in "Who's in". The bill stays in the group. Picking "No group" from the group menu turns it into a one-time split with whoever you choose.</li>
+        <li><b>Three chips per card:</b> group (grey), who's in (blue), split (green). A chip that differs from the defaults gets an outline, like the fuel receipt's "3 of 5" and "Evenly".</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DECISIONS ============ -->
+<section class="sec">
+  <div class="sec-head"><h2>Decisions for you</h2></div>
+  <div class="dec">
+    
+    <div class="q"><h3>How far back can a receipt date go?</h3><p class="muted">Older dates are usually a misread. People can still set an older date by hand.</p><span class="rec">Suggest: 60 days, otherwise use today and say so</span></div>
+    
+  </div>
+</section>
+</div>
