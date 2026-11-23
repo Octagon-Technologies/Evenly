@@ -68,9 +68,6 @@ internal fun ParticipantsField(
     if (participants.size <= PARTICIPANTS_INLINE_THRESHOLD) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Who's splitting this?", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            if (participants.size <= 1) {
-                Text("Add the people splitting this bill.", color = c.ink3, fontSize = 12.sp)
-            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 participants.forEach { p ->
                     val on = p.userId in selected

@@ -40,11 +40,11 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.plus
 
-/** Height of an `EvTextField`, so the date column centers on the field rather than on its label. */
+/** Height of an `EvTextField`, so the chip centers on the field rather than on its label. */
 private val FIELD_HEIGHT = 52.dp
 
 /**
- * The bill's title field with its date beside it: a small "Date" label over a rounded chip ("Today",
+ * The bill's title field with its date beside it: a "Date" label over a rounded chip ("Today",
  * "Yesterday", "Nov 20"). Kept on the title row so the date adds no section to an editor that already has
  * several. Tapping the chip opens [ExpenseDateSheet].
  */
@@ -56,17 +56,18 @@ fun TitleWithDateRow(
     titleLabel: String = "Title",
     field: @Composable () -> Unit,
 ) {
-    // Bottom-aligned so the date column sits level with the text field, not with the label above it; its
-    // minimum height is the field's, which centers the label and chip on the field.
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
+    // Both columns are EvFields, so the "Date" label matches the title's label in size and sits on its line.
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         EvField(titleLabel, Modifier.weight(1f)) { field() }
-        Column(Modifier.heightIn(min = FIELD_HEIGHT), verticalArrangement = Arrangement.Center) {
-            ExpenseDateChip(date, today, onDateClick)
+        EvField("Date") {
+            Box(Modifier.heightIn(min = FIELD_HEIGHT), contentAlignment = Alignment.Center) {
+                ExpenseDateChip(date, today, onDateClick)
+            }
         }
     }
 }
 
-/** The "Date" label and chip on their own, centered on each other. */
+/** The tappable date chip, without a label. */
 @Composable
 fun ExpenseDateChip(
     date: String,
@@ -74,17 +75,14 @@ fun ExpenseDateChip(
     onClick: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("Date", color = c.ink3, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Box(
-            Modifier
-                .clip(RoundedCornerShape(99.dp))
-                .background(c.blueTint)
-                .clickableClearingFocus(onClick = onClick)
-                .padding(horizontal = 12.dp, vertical = 5.dp),
-        ) {
-            Text(expenseDateChipLabel(date, today), color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        }
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(99.dp))
+            .background(c.blueTint)
+            .clickableClearingFocus(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+    ) {
+        Text(expenseDateChipLabel(date, today), color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

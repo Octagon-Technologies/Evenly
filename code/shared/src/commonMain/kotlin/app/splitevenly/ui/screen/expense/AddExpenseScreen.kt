@@ -21,7 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -76,6 +78,7 @@ data class AddParticipantUi(
  * sums to the total — AC-INV-001). The route maps the emitted [AddExpenseSubmit] straight onto `NewExpense`,
  * preserving the raw share inputs.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun AddExpenseScreen(
     editing: Boolean = false,
@@ -279,16 +282,48 @@ fun AddExpenseScreen(
         }
     }
 
+    // What the person has entered, minus what the editor fills in for itself (a guessed category, a default
+    // date), so leaving can ask before throwing it away. Saved receipts are left out: removing one is
+    // committed on its own, not on Save. The first composition's value is the baseline.
+    val entered =
+        listOf(
+            title.trim(), expenseDate.takeIf { datePicked }, selected, effectivePayerId, outsidePayerName,
+            categoryId.takeIf { categoryPicked }, currency, divide.amountSubunits, divide.mode,
+            if (divide.amountSubunits > 0) divide.shares(ids) else null,
+            receipts.filter { it.remoteUrl == null }.map { it.id }, attachedReceipts.map { it.id },
+            itemized.items.map { it.label to it.totalText },
+            listOf(itemized.taxText, itemized.gratuityText, itemized.otherChargesText, itemized.tipText, itemized.discountText),
+        )
+    val baseline = remember { entered }
+    val unsaved = entered != baseline && !saving
+    var confirmDiscard by remember { mutableStateOf(false) }
+    val leave = { if (unsaved) confirmDiscard = true else onBack() }
+    // System back and the iOS edge swipe would otherwise drop the route without asking. Each step back
+    // mirrors its on-screen arrow; only leaving the editor altogether asks first. Sheets opened later in
+    // composition register their own handler, which wins while they are open.
+    BackHandler(enabled = unsaved && !confirmDiscard) {
+        when {
+            isItemized && reviewingScan -> reviewingScan = false
+            !editing && splitApproach != null -> splitApproach = null
+            else -> confirmDiscard = true
+        }
+    }
+    // Drawn after everything else in each branch (here and at the end), so the card sits on top.
+    val discardDialog: @Composable () -> Unit = {
+        if (confirmDiscard) DiscardChangesDialog(editing, onDiscard = onBack, onDismiss = { confirmDiscard = false })
+    }
+
     // Up-front split-type question: a focused editor beats a toggle you can flip by accident. Until it's
     // answered on a new expense, show the chooser; Back from the editor returns here (see navIcon below).
     if (splitApproach == null) {
         Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
-            EvTopBar(title = "New expense", navIcon = { EvIconButton(EvIcons.Close, onBack) })
+            EvTopBar(title = "New expense", navIcon = { EvIconButton(EvIcons.Close, leave) })
             SplitApproachChooser(onChoose = {
                 splitApproach = it
                 onSplitApproachChosen(it)
             })
         }
+        discardDialog()
         return
     }
 
@@ -331,7 +366,7 @@ fun AddExpenseScreen(
                     navIcon = {
                         EvIconButton(
                             if (editing) EvIcons.Close else EvIcons.Back,
-                            { if (editing) onBack() else splitApproach = null },
+                            { if (editing) leave() else splitApproach = null },
                         )
                     },
                     actions = { TopBarSaveButton(saving) { submit(BillNext.Choose) } },
@@ -350,7 +385,7 @@ fun AddExpenseScreen(
                 ) {
                     // A restaurant bill starts with the scan, above Title: one scan fills the title and the items.
                     // After the first scan (or a typed item) the hero drops back into the items section below.
-                    val quickReadReceipt = receiptsEnabled && !isItemized && !editing && receipts.size <= 1
+                    val quickReadReceipt = receiptsEnabled && !isItemized && receipts.size <= 1
                     val notScannedYet = isItemized && itemized.items.all { it.isUntouched() } && attachedReceipts.isEmpty()
                     if (notScannedYet) {
                         ScanReceiptHero(onScanSource = { source -> startScan(source) })
@@ -365,6 +400,7 @@ fun AddExpenseScreen(
                             onAdd = { showReceiptSource = true },
                             onRemove = { onRemoveReceipt(0) },
                             onOpen = { viewerIndex = 0 },
+                            fillsDetails = !editing,
                         )
                     }
 
@@ -416,7 +452,7 @@ fun AddExpenseScreen(
                         )
                     }
 
-                    // An edit (or a legacy multi-receipt expense) keeps its receipts down here as a plain strip.
+                    // An expense with more than one receipt keeps them down here as a plain strip.
                     if (receiptsEnabled && !isItemized && !quickReadReceipt) {
                         PickedReceiptStrip(
                             receipts = receipts,
@@ -585,6 +621,8 @@ fun AddExpenseScreen(
             onDismiss = { showPeoplePicker = false },
         )
     }
+
+    discardDialog()
 }
 
 @Preview

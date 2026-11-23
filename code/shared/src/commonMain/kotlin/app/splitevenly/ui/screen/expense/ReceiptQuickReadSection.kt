@@ -71,6 +71,8 @@ internal fun QuickReadReceiptSection(
     onAdd: () -> Unit,
     onRemove: () -> UndoRemoval,
     onOpen: () -> Unit,
+    // False on an edit, where no quick read runs, so the empty card must not promise to fill anything in.
+    fillsDetails: Boolean = true,
 ) {
     val c = EvenlyTheme.colors
     var undo by remember { mutableStateOf<UndoRemoval?>(null) }
@@ -101,12 +103,12 @@ internal fun QuickReadReceiptSection(
                 }
 
             receipt == null -> {
-                AddReceiptCard(onAdd)
+                AddReceiptCard(onAdd, if (fillsDetails) "Automatically fills in expense details." else "Attach a photo or PDF.")
                 OrFillItIn()
             }
 
             else -> {
-                val (title, caption) = rowText(read)
+                val (title, caption) = if (receipt.remoteUrl != null) "Receipt attached" to "Saved with the bill." else rowText(read)
                 Row(
                     Modifier.fillMaxWidth().clip(shape).background(c.surface).border(1.dp, c.border, shape)
                         .clickable(onClick = onOpen).padding(8.dp),
@@ -118,12 +120,15 @@ internal fun QuickReadReceiptSection(
                         Text(title, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (caption != null) Text(caption, color = c.ink3, fontSize = 12.sp, lineHeight = 16.sp)
                     }
-                    TextAction("Replace", onClick = onAdd)
+                    // A saved receipt stays when another is picked (the editor then lists both), so it isn't "Replace".
+                    TextAction(if (receipt.remoteUrl != null) "Add more" else "Replace", onClick = onAdd)
                     val btn = RoundedCornerShape(10.dp)
-                    Box(
-                        Modifier.size(40.dp).clip(btn).border(1.dp, c.borderStrong, btn).clickable { undo = onRemove() },
-                        contentAlignment = Alignment.Center,
-                    ) { EvIcon(EvIcons.Trash, size = 18.dp, tint = c.ink2, contentDescription = "Remove receipt") }
+                    if (receipt.removable) {
+                        Box(
+                            Modifier.size(40.dp).clip(btn).border(1.dp, c.borderStrong, btn).clickable { undo = onRemove() },
+                            contentAlignment = Alignment.Center,
+                        ) { EvIcon(EvIcons.Trash, size = 18.dp, tint = c.ink2, contentDescription = "Remove receipt") }
+                    }
                 }
             }
         }
@@ -132,7 +137,10 @@ internal fun QuickReadReceiptSection(
 
 /** The empty receipt slot at the top of the editor: a dashed drop-target card, so it reads as the place to start. */
 @Composable
-private fun AddReceiptCard(onAdd: () -> Unit) {
+private fun AddReceiptCard(
+    onAdd: () -> Unit,
+    subtitle: String,
+) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(14.dp)
     Row(
@@ -160,7 +168,7 @@ private fun AddReceiptCard(onAdd: () -> Unit) {
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("Add a receipt", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Text("Automatically fills in expense details.", color = c.ink2, fontSize = 12.sp, lineHeight = 16.sp)
+            Text(subtitle, color = c.ink2, fontSize = 12.sp, lineHeight = 16.sp)
         }
         EvIcon(EvIcons.Plus, size = 16.dp, tint = c.blueText)
     }
