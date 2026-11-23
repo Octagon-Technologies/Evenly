@@ -325,6 +325,7 @@ fun OnboardingRoute(onFinished: () -> Unit) {
 @Composable
 fun HomeRoute(
     onOpenGroup: (String) -> Unit,
+    onOpenQuickSplit: (groupId: String, expenseId: String?) -> Unit,
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
     onSplitBill: () -> Unit = {},
@@ -356,6 +357,7 @@ fun HomeRoute(
         state = state,
         userName = name,
         onOpenGroup = onOpenGroup,
+        onOpenQuickSplit = onOpenQuickSplit,
         onNewGroup = onNewGroup,
         onJoin = onJoin,
         onSplitBill = onSplitBill,
@@ -615,6 +617,7 @@ fun JoinByLinkRoute(
 @Composable
 fun HomeGateRoute(
     onOpenGroup: (String) -> Unit,
+    onOpenQuickSplit: (groupId: String, expenseId: String?) -> Unit,
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
     onSplitBill: () -> Unit,
@@ -649,6 +652,7 @@ fun HomeGateRoute(
         HomeGateState.Allowed -> {
             MainShell(
                 onOpenGroup = onOpenGroup,
+                onOpenQuickSplit = onOpenQuickSplit,
                 onNewGroup = onNewGroup,
                 onJoin = onJoin,
                 onSplitBill = onSplitBill,

@@ -43,7 +43,7 @@ fun JoinByLinkSheet(
     var link by remember { mutableStateOf("") }
     val token = extractInviteToken(link)
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
-        EvTopBar(title = "Join with a link", navIcon = { EvIconButton(EvIcons.Back, onClick = onDismiss) })
+        EvTopBar(title = "Join a friend's group", navIcon = { EvIconButton(EvIcons.Back, onClick = onDismiss) })
         Column(
             Modifier
                 .fillMaxSize()

@@ -74,6 +74,7 @@ fun EvenlyNavHost(
         composable<Route.Home> {
             HomeGateRoute(
                 onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
+                onOpenQuickSplit = { groupId, expenseId -> navController.openQuickSplit(groupId, expenseId) },
                 onNewGroup = { navController.navigate(Route.NewGroup) },
                 onJoin = { navController.navigate(Route.JoinByLink) },
                 onSplitBill = { navController.navigate(Route.QuickSplitNew) },
@@ -105,7 +106,7 @@ fun EvenlyNavHost(
         composable<Route.QuickSplitHistory> {
             QuickSplitHistoryRoute(
                 onBack = { navController.popBackStack() },
-                onOpen = { navController.navigate(Route.QuickSplit(it)) },
+                onOpen = { groupId, expenseId -> navController.openQuickSplit(groupId, expenseId) },
             )
         }
         composable<Route.Archived> { ArchivedRoute(onBack = { navController.popBackStack() }) }

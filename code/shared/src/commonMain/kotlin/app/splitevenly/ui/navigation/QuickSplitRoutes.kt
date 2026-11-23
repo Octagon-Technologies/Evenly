@@ -140,6 +140,21 @@ fun QuickSplitRoute(
 }
 
 /**
+ * Opens a quick split from a card that already knows its bill: straight to the bill in one navigation.
+ *
+ * Going through [Route.GroupHome] instead costs three back-to-back destination changes ([QuickSplitGuard]
+ * redirects to [Route.QuickSplit], which redirects to the bill), each with its own crossfade over a blank
+ * page and a database read gating the next. Without a bill id (a bill never saved), [Route.QuickSplit]
+ * still resolves it and resumes the editor.
+ */
+internal fun NavHostController.openQuickSplit(
+    groupId: String,
+    expenseId: String?,
+) {
+    if (expenseId == null) navigate(Route.QuickSplit(groupId)) else navigate(Route.ExpenseDetail(groupId, expenseId))
+}
+
+/**
  * Wraps the group screen so a quick split never shows one: every door that names a group (a Home tap,
  * a notification, finishing a join) passes through here and is redirected to [Route.QuickSplit].
  */
@@ -181,7 +196,7 @@ fun rememberIsQuickSplit(groupId: String): Boolean {
 @Composable
 fun QuickSplitHistoryRoute(
     onBack: () -> Unit,
-    onOpen: (groupId: String) -> Unit,
+    onOpen: (groupId: String, expenseId: String?) -> Unit,
 ) {
     val vm = koinViewModel<HomeViewModel>()
     val state by vm.state.collectAsStateWithLifecycle()
@@ -195,7 +210,9 @@ fun QuickSplitHistoryRoute(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                history.forEach { g -> EvCard(fill = true, bordered = true) { QuickSplitRow(g, onClick = { onOpen(g.id) }) } }
+                history.forEach { g ->
+                    EvCard(fill = true, bordered = true) { QuickSplitRow(g, onClick = { onOpen(g.id, g.quick?.expenseId) }) }
+                }
             }
         }
     }

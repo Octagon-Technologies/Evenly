@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +45,7 @@ import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
+import app.splitevenly.ui.components.EvDivider
 import app.splitevenly.ui.components.EvDot
 import app.splitevenly.ui.components.EvEmptyState
 import app.splitevenly.ui.components.EvSectionLabel
@@ -100,6 +102,11 @@ fun HomeScreen(
     state: HomeUiState = HomeSamples.content,
     userName: String = "there",
     onOpenGroup: (String) -> Unit = {},
+    /**
+     * A quick split's card. Carries the bill id the card already loaded so the tap lands on the bill in
+     * one navigation, instead of routing through the group screen's quick-split redirect.
+     */
+    onOpenQuickSplit: (groupId: String, expenseId: String?) -> Unit = { id, _ -> onOpenGroup(id) },
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
     onSplitBill: () -> Unit = {},
@@ -187,7 +194,7 @@ fun HomeScreen(
                                     state.active.forEach { g ->
                                         EvCard(fill = true, bordered = true) {
                                             if (g.quick != null) {
-                                                QuickSplitRow(g, onClick = { onOpenGroup(g.id) })
+                                                QuickSplitRow(g, onClick = { onOpenQuickSplit(g.id, g.quick.expenseId) })
                                             } else {
                                                 GroupRow(g, onClick = { onOpenGroup(g.id) })
                                             }
@@ -235,18 +242,26 @@ fun HomeScreen(
 
     if (showActions) {
         EvSheetScaffold(onDismiss = { showActions = false }, title = "What are you splitting?") {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ActionRow(EvIcons.Receipt, "Split a bill", "Dinner, a ride, tickets. No group needed.") {
-                    showActions = false
-                    onSplitBill()
+            // The one-time bill gets its own panel; the two group actions share a second one, so the
+            // sheet reads as "a bill, or a group" rather than three peers.
+            Column {
+                ActionPanel {
+                    ActionRow(EvIcons.Receipt, "Split a one-time bill", "For a single restaurant bill\nNo group needed") {
+                        showActions = false
+                        onSplitBill()
+                    }
                 }
-                ActionRow(EvIcons.Users, "Start a group", "For trips and housemates you split with often.") {
-                    showActions = false
-                    onNewGroup()
-                }
-                ActionRow(EvIcons.Link, "Join with a link", "Someone sent you an Evenly link.") {
-                    showActions = false
-                    onJoin()
+                Spacer(Modifier.height(16.dp))
+                ActionPanel {
+                    ActionRow(EvIcons.Users, "Start a trip group", "Track every cost on a trip and settle up at the end.") {
+                        showActions = false
+                        onNewGroup()
+                    }
+                    EvDivider(Modifier.padding(start = 58.dp))
+                    ActionRow(EvIcons.Link, "Join a friend's group", "Paste the invite link they sent you.") {
+                        showActions = false
+                        onJoin()
+                    }
                 }
             }
         }
@@ -255,7 +270,7 @@ fun HomeScreen(
 
 /**
  * First-run welcome — no template chips, no numbered primer. One hero, one headline, one job: get
- * the first bill split, with "Start a group" and "Join with a link" under it. The quick split leads
+ * the first bill split, with "Start a trip group" and "Join a friend's group" under it. The quick split leads
  * because it needs no decision about who counts as a group (docs/features/one-time-splits.md).
  */
 @Composable
@@ -295,25 +310,38 @@ private fun HomeWelcome(
             // this hero action swaps to the solid-blue variant there; Secondary now handles its own
             // light/dark treatment internally.
             EvButton(
-                "Split a bill",
+                "Split a one-time bill",
                 onSplitBill,
                 variant = if (c.isDark) ButtonVariant.PrimarySolid else ButtonVariant.Primary,
                 leadingIcon = EvIcons.Receipt,
             )
             EvButton(
-                "Start a group",
+                "Start a trip group",
                 onNewGroup,
                 variant = ButtonVariant.Secondary,
                 leadingIcon = EvIcons.Users,
             )
             EvButton(
-                "Join with a link",
+                "Join a friend's group",
                 onJoin,
                 variant = ButtonVariant.Text,
                 leadingIcon = EvIcons.Link,
             )
         }
     }
+}
+
+/** The tinted rounded panel that holds one or more [ActionRow]s in the home Create sheet. */
+@Composable
+private fun ActionPanel(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(EvenlyTheme.colors.surface)
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+        content = content,
+    )
 }
 
 /** A tappable "icon tile + title + subtitle" row used in the home Create sheet. */

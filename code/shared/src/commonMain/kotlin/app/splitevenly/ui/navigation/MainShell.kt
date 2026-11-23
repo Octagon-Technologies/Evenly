@@ -44,6 +44,7 @@ private val RootTabSaver = Saver<RootTab, String>(save = { it.name }, restore = 
 @Composable
 fun MainShell(
     onOpenGroup: (String) -> Unit = {},
+    onOpenQuickSplit: (groupId: String, expenseId: String?) -> Unit = { id, _ -> onOpenGroup(id) },
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
     onSplitBill: () -> Unit = {},
@@ -66,6 +67,7 @@ fun MainShell(
                     RootTab.Groups -> {
                         HomeRoute(
                             onOpenGroup = onOpenGroup,
+                            onOpenQuickSplit = onOpenQuickSplit,
                             onNewGroup = onNewGroup,
                             onJoin = onJoin,
                             onSplitBill = onSplitBill,
