@@ -1,5 +1,9 @@
 package app.splitevenly.ui.screen.bill
 
+import kotlin.time.Clock
+import app.splitevenly.ui.screen.expense.TitleWithDateRow
+import app.splitevenly.ui.screen.expense.ExpenseDateSheet
+import app.splitevenly.core.time.localToday
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -139,6 +143,10 @@ data class EditBillState(
     val verified: Boolean = true,
     // The category a scan implies ("groceries" for a supermarket receipt). Null when not from a scan.
     val categoryKey: String? = null,
+    // The date printed on the receipt, already checked by trustedReceiptDate. Null keeps the editor's date.
+    val receiptDate: String? = null,
+    // A saved bill's date. Null for a new bill, which starts at today.
+    val expenseDate: String? = null,
 )
 
 /** A group member shown as a selectable participant chip on the bill. */
@@ -163,7 +171,14 @@ data class EditBillSubmit(
     val payerUserId: String? = null,
     /** Non-blank when someone outside the group paid. They are not part of the split. */
     val payerOutsideName: String? = null,
+    /** The bill's calendar date, ISO-8601. Null keeps the saved date (or today for a new bill). */
+    val expenseDate: String? = null,
+    /** Where a new bill goes once saved: the review screen's two buttons pick it, the editor leaves it to the chooser. */
+    val next: BillNext = BillNext.Choose,
 )
+
+/** After a new bill saves: ask how people will pick, assign on this phone, or share the link. */
+enum class BillNext { Choose, Assign, Share }
 
 /** Parse a "18.50" style string to integer minor units; blank/garbage → 0. */
 fun priceToSubunits(text: String): Long {
@@ -221,6 +236,10 @@ fun BillEditScreen(
     // Which scanned page the full-screen viewer is open on; null = closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     var title by remember { mutableStateOf(initial?.title ?: "") }
+    val today = remember { Clock.System.localToday() }
+    var expenseDate by remember { mutableStateOf(initial?.expenseDate ?: today) }
+    var datePicked by remember { mutableStateOf(initial?.expenseDate != null) }
+    var showDateSheet by remember { mutableStateOf(false) }
     var items by remember { mutableStateOf(initial?.items ?: listOf(editBillItemUi(null, "", 1, 0L))) }
     var taxText by remember { mutableStateOf(initial?.taxText ?: "") }
     var gratuityText by remember { mutableStateOf(initial?.gratuityText ?: "") }
@@ -300,6 +319,7 @@ fun BillEditScreen(
         scanned?.let { s ->
             // The scan's suggested name ("Dinner at Tavolo") fills an empty Name field, never a typed one.
             if (title.isBlank() && s.title.isNotBlank()) title = s.title
+            if (!datePicked) s.receiptDate?.let { expenseDate = it }
             if (items.any { it.isComplete() }) pendingScan = s else applyScan(s, ScanMergeMode.REPLACE)
         }
     }
@@ -340,6 +360,7 @@ fun BillEditScreen(
             participantIds = effectiveSelected,
             payerUserId = payerId.takeIf { it.isNotBlank() },
             payerOutsideName = outsidePayerName?.takeIf { it.isNotBlank() },
+            expenseDate = expenseDate,
         )
     // The last snapshot written. For an existing bill it is captured once members have loaded, so opening
     // the editor does not count as a change.
@@ -466,16 +487,8 @@ fun BillEditScreen(
                     ScanReceiptCard(scanning = scanning, onClick = { scanSource = true })
                 }
 
-                EvField("Name") {
-                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        EvTextField(
-                            title,
-                            { title = it },
-                            placeholder = "Dinner at Tavolo",
-                            isError =
-                                leaveNoticeText != null && title.isBlank(),
-                        )
-                    }
+                TitleWithDateRow(expenseDate, today, onDateClick = { showDateSheet = true }, titleLabel = "Name") {
+                    EvTextField(title, { title = it }, placeholder = "Dinner at Tavolo", isError = leaveNoticeText != null && title.isBlank())
                 }
 
                 // The bill's receipt pages sit under its name: what was scanned, then what it became.
@@ -647,7 +660,7 @@ fun BillEditScreen(
 
         // Prices and quantity use a decimal/number pad, which has no return key on iOS.
         val overlayOpen =
-            showAddDialog || showPicker || showPayerSheet || scanSource ||
+            showAddDialog || showPicker || showPayerSheet || showDateSheet || scanSource ||
                 pendingScan != null || pendingRemoval != null || viewerIndex != null
         EvKeyboardDoneBar(
             onDone = { focusManager.clearFocus() },
@@ -744,6 +757,12 @@ fun BillEditScreen(
             )
         }
 
+        if (showDateSheet) {
+            ExpenseDateSheet(expenseDate, today, onPick = {
+                expenseDate = it
+                datePicked = true
+            }, onDismiss = { showDateSheet = false })
+        }
         if (showPayerSheet) {
             BillPayerSheet(
                 participants = participants,
@@ -1002,80 +1021,6 @@ private fun LabeledPriceField(
     }
 }
 
-@Composable
-internal fun ExtrasCard(
-    symbol: String,
-    subtotalSubunits: Long,
-    totalSubunits: Long,
-    currencyCode: String,
-    taxText: String,
-    onTax: (String) -> Unit,
-    gratuityText: String,
-    onGratuity: (String) -> Unit,
-    otherChargesText: String,
-    onOtherCharges: (String) -> Unit,
-    tipText: String,
-    onTip: (String) -> Unit,
-    discountText: String,
-    onDiscount: (String) -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    EvCard(padded = true) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ExtraRow("Subtotal") {
-                Text(
-                    moneySubunits(subtotalSubunits, currencyCode),
-                    color = c.ink,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = EvenlyTheme.monoFamily,
-                )
-            }
-            ExtraRow("Tax") { PriceField(taxText, onTax, symbol) }
-            ExtraRow("Gratuity") { PriceField(gratuityText, onGratuity, symbol) }
-            // Anything the receipt charges that isn't tax, gratuity, a tip, or a discount. The caption
-            // names examples because "Other charges" alone doesn't tell you what belongs in it.
-            ExtraRow("Other charges", "Delivery, deposits, card fees") {
-                PriceField(otherChargesText, onOtherCharges, symbol)
-            }
-            // Tip is firmly an even split now — no per-bill toggle; the caption just states it.
-            ExtraRow("Tip", "Split evenly") { PriceField(tipText, onTip, symbol) }
-            // Discount is the one line that *reduces* the total — a green field + leading "−" make that
-            // unmistakable while typing (green = money coming back off).
-            ExtraRow("Discount", "Comes off the total") {
-                PriceField(discountText, onDiscount, symbol, sign = "−", accent = c.settled, accentFill = c.settledTint)
-            }
-            Box(Modifier.fillMaxWidth().topHairline(c.border).padding(top = 12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Total", color = c.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text(
-                        moneySubunits(totalSubunits, currencyCode),
-                        color = c.ink,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = EvenlyTheme.monoFamily,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExtraRow(
-    label: String,
-    hint: String? = null,
-    trailing: @Composable () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    Row(Modifier.fillMaxWidth().bringIntoViewOnFocus(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(label, color = c.ink, fontSize = 14.sp)
-            hint?.let { Text(it, color = c.ink3, fontSize = 11.sp) }
-        }
-        trailing()
-    }
-}
-
 /**
  * A compact right-aligned price input ("$ 0.00") used for item prices and extras. [sign] is an optional
  * leading glyph (e.g. "−" for the discount) that flags the amount as a deduction without recoloring it.
@@ -1083,7 +1028,7 @@ private fun ExtraRow(
 @Composable
 // [accent]/[accentFill] tint the whole field (border, sign, symbol, value) one colour — used to paint
 // the discount GREEN, so the "−" and the box read as "this reduces the total" while you type.
-private fun PriceField(
+internal fun PriceField(
     text: String,
     onChange: (String) -> Unit,
     symbol: String,

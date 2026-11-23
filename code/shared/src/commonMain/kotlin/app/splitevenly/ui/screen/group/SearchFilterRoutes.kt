@@ -8,7 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
-import app.splitevenly.core.time.todayUtc
+import app.splitevenly.core.time.localToday
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.Expense
 import app.splitevenly.domain.repository.ExpenseRepository
@@ -85,7 +85,7 @@ fun FilterRoute(groupId: String, onDismiss: () -> Unit) {
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val current by remember(groupId) { store.filterFor(groupId) }.collectAsStateWithLifecycle()
-    val today = remember { Clock.System.todayUtc() }
+    val today = remember { Clock.System.localToday() }
 
     val memberUis = members.map { m ->
         FilterMemberUi(m.userId.value, if (m.userId == userId) "You" else (m.displayName ?: "Someone"), me = m.userId == userId)

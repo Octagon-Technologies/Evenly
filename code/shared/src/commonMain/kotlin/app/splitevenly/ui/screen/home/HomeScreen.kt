@@ -124,6 +124,8 @@ fun HomeScreen(
     deletedAlert: String? = null,
     onOpenSettings: () -> Unit = {},
     onRetry: () -> Unit = {},
+    onEditQuickSplit: (groupId: String, expenseId: String, itemized: Boolean) -> Unit = { _, _, _ -> },
+    onDeleteQuickSplit: (groupId: String) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
@@ -192,10 +194,15 @@ fun HomeScreen(
                                 Spacer(Modifier.height(4.dp))
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     state.active.forEach { g ->
-                                        EvCard(fill = true, bordered = true) {
-                                            if (g.quick != null) {
-                                                QuickSplitRow(g, onClick = { onOpenQuickSplit(g.id, g.quick.expenseId) })
-                                            } else {
+                                        if (g.quick != null) {
+                                            QuickSplitCardWithMenu(
+                                                g,
+                                                onOpen = { onOpenQuickSplit(g.id, g.quick.expenseId) },
+                                                onEdit = { expenseId, itemized -> onEditQuickSplit(g.id, expenseId, itemized) },
+                                                onDelete = { onDeleteQuickSplit(g.id) },
+                                            )
+                                        } else {
+                                            EvCard(fill = true, bordered = true) {
                                                 GroupRow(g, onClick = { onOpenGroup(g.id) })
                                             }
                                         }

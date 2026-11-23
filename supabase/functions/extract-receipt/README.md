@@ -48,7 +48,8 @@ an anon-key-only caller used to bypass it entirely on a paid endpoint.
     "detected_total_subunits": 10350,
     "merchant_name": "Tom's Watch Bar",
     "venue_kind": "restaurant",
-    "printed_time": "20:05"
+    "printed_time": "20:05",
+    "printed_date": "2026-11-20"
   }
 }
 ```
@@ -75,6 +76,11 @@ the app can suggest a bill name ("Dinner at Tom's Watch Bar"); the wording is a 
 (`domain/receipt/ReceiptTitle.kt`), not model output. All three are optional on the wire, so an app older than
 them ignores them and an app newer than the deployed function just gets no suggestion.
 
+`printed_date` (`YYYY-MM-DD`, also in the quick read) dates the bill. The model resolves day/month order by the
+receipt's country; the function only drops strings that aren't a real calendar date. Whether to believe it is the
+app's call (`domain/expense/ExpenseDate.kt` `trustedReceiptDate`): a future date or one more than 60 days back is
+ignored and the bill keeps today. Optional on the wire like the fields above.
+
 ## Quick read (`mode: "summary"`)
 
 "Split one amount" sends the same request with `"mode": "summary"` and gets back what the expense *was*,
@@ -93,6 +99,7 @@ printed receipt **or a screenshot of a bank, card or payment-app transaction**, 
     "expense_kind": "ride",           // restaurant … utility, health, other (see EXPENSE_KINDS)
     "category": "transport",          // a built-in category key, or null
     "printed_time": "07:42",
+    "printed_date": "2026-11-20",
     "total_subunits": 2417,           // the printed total, converted by parseAmountSubunits; 0 if unread
     "currency": "USD",
     "short_title": null               // used by the app only where its own title table has no wording

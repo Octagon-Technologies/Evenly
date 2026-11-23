@@ -30,6 +30,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.AvatarSize
+import app.splitevenly.ui.components.BannerVariant
+import app.splitevenly.ui.components.EvBanner
+import androidx.compose.foundation.clickable
 import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvCheck
@@ -65,9 +68,6 @@ internal fun ParticipantsField(
     if (participants.size <= PARTICIPANTS_INLINE_THRESHOLD) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Who's splitting this?", color = c.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            if (participants.size <= 1) {
-                Text("Add the people splitting this bill.", color = c.ink3, fontSize = 12.sp)
-            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 participants.forEach { p ->
                     val on = p.userId in selected
@@ -194,5 +194,41 @@ internal fun PaidByField(
                 }
             },
         )
+    }
+}
+
+/** The editor's top-bar Save. Stays live while incomplete: tapping it reveals the gaps instead of sitting greyed. */
+@Composable
+internal fun TopBarSaveButton(
+    saving: Boolean,
+    onClick: () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    val active = !saving
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (active) c.blue else c.blueTint2)
+            .then(if (active) Modifier.clickableClearingFocus(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            if (saving) "Saving…" else "Save",
+            color = if (active) c.onAccent else c.disabledInk,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+/** A refused save's explanation above the editor; tapping it dismisses it. */
+@Composable
+internal fun EditorNotice(
+    notice: String?,
+    onDismiss: () -> Unit,
+) {
+    notice ?: return
+    Row(Modifier.fillMaxWidth().clickable { onDismiss() }) {
+        EvBanner(notice, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
     }
 }

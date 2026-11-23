@@ -1,6 +1,8 @@
 package app.splitevenly.core.time
 
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atTime
+import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -30,6 +32,33 @@ fun Clock.nowEpochMillis(): Long = ServerClock.clamp(now().toEpochMilliseconds()
 /** The current hour (0-23) on the phone's local clock. */
 @OptIn(ExperimentalTime::class)
 fun Clock.localHour(): Int = now().toLocalDateTime(TimeZone.currentSystemDefault()).hour
+
+/**
+ * Today's date on the phone's own clock and time zone, as ISO-8601 ("YYYY-MM-DD"). This is the date a bill
+ * is filed under and what "Today" means in the UI. [todayUtc] put a bill added just after midnight in
+ * Nairobi on the previous day.
+ */
+@OptIn(ExperimentalTime::class)
+fun Clock.localToday(): String = now().toLocalDateTime(TimeZone.currentSystemDefault()).date.toString()
+
+/** An epoch-millis timestamp as the local calendar date it falls on, ISO-8601. */
+@OptIn(ExperimentalTime::class)
+fun localIsoDate(epochMillis: Long): String =
+    Instant.fromEpochMilliseconds(epochMillis).toLocalDateTime(TimeZone.currentSystemDefault()).date.toString()
+
+/**
+ * Local noon on [isoDate] as epoch millis, for a payment dated by day only. Noon keeps the stored instant
+ * on the same calendar day for anyone within twelve hours of the person who picked it.
+ */
+@OptIn(ExperimentalTime::class)
+fun localNoonEpochMillis(isoDate: String): Long? =
+    runCatching {
+        kotlinx.datetime.LocalDate
+            .parse(isoDate)
+            .atTime(12, 0)
+            .toInstant(TimeZone.currentSystemDefault())
+            .toEpochMilliseconds()
+    }.getOrNull()
 
 /** Today's calendar date in UTC as an ISO-8601 string ("YYYY-MM-DD") — the FX rate-date key (03 §6). */
 @OptIn(ExperimentalTime::class)

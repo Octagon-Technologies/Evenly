@@ -44,6 +44,8 @@ fun GroupHomeScreen(
     onBack: () -> Unit = {},
     onAdd: () -> Unit = {},
     onOpenExpense: (String) -> Unit = {},
+    /** Long-press "Edit": the amount editor for a plain expense, the bill editor for an itemized one. */
+    onEditExpense: (expenseId: String, itemized: Boolean) -> Unit = { _, _ -> },
     onOpenBill: (String) -> Unit = {},
     onSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
@@ -100,6 +102,7 @@ fun GroupHomeScreen(
                             onOpenBill,
                             onSearch,
                             onClaimNames,
+                            onEditExpense = { onEditExpense(it.id, it.itemized) },
                         )
                     }
 

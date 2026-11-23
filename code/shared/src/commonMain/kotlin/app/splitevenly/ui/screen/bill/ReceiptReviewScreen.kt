@@ -28,9 +28,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
-import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSectionLabel
 import app.splitevenly.ui.components.EvSheetScaffold
@@ -41,6 +41,7 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.ui.screen.expense.TitleWithDateRow
 import app.splitevenly.ui.theme.EvenlyTheme
 
 /**
@@ -51,13 +52,20 @@ import app.splitevenly.ui.theme.EvenlyTheme
  *
  * Reads and writes the same [ItemizedBillState] as the editor behind it, so Back keeps every correction.
  * A scan lands here before anyone may have picked people, so who's splitting and who paid are shown and
- * editable at the top ([ReviewWhoRows]); the sheets are the editor's. A missing title is asked for here.
+ * editable at the top ([ReviewWhoRows]); the sheets are the editor's. The title and date sit first, with
+ * the date read off the receipt when it printed a believable one.
+ *
+ * Two exits instead of one "continue": "Assign items" (do it on this phone) and "Share link" (friends pick
+ * their own). Asking here saves the chooser screen that used to follow the save.
  */
 @Composable
 fun ReceiptReviewScreen(
     state: ItemizedBillState,
     title: String,
     onTitle: (String) -> Unit,
+    date: String,
+    today: String,
+    onDateClick: () -> Unit,
     symbol: String,
     currencyCode: String,
     attachedReceipts: List<PickedReceiptUi>,
@@ -70,7 +78,7 @@ fun ReceiptReviewScreen(
     saving: Boolean,
     onOpenReceipt: (Int) -> Unit,
     onBack: () -> Unit,
-    onSave: () -> Unit,
+    onSave: (BillNext) -> Unit,
 ) {
     val c = EvenlyTheme.colors
     // Index into state.items of the line being edited; -1 = the extras sheet; null = nothing open.
@@ -91,14 +99,10 @@ fun ReceiptReviewScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                if (showErrors && title.isBlank()) {
-                    EvField("Title") {
-                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            EvTextField(title, onTitle, placeholder = "What was it for?", isError = true)
-                            Text("Give it a title", color = c.danger, fontSize = 12.sp)
-                        }
-                    }
+                TitleWithDateRow(date, today, onDateClick) {
+                    EvTextField(title, onTitle, placeholder = "What was it for?", isError = showErrors && title.isBlank())
                 }
+                if (showErrors && title.isBlank()) Text("Give it a title", color = c.danger, fontSize = 12.sp)
                 ReviewWhoRows(
                     people = people,
                     payerName = payerName,
@@ -172,8 +176,25 @@ fun ReceiptReviewScreen(
                     )
                 }
             }
-            Box(Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp)) {
-                EvButton(if (saving) "Saving…" else "Save & continue", onSave, enabled = !saving)
+            Row(
+                Modifier.fillMaxWidth().topHairline(c.border).padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                EvButton(
+                    "Assign items",
+                    { onSave(BillNext.Assign) },
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.Tonal,
+                    enabled = !saving,
+                )
+                EvButton(
+                    if (saving) "Saving…" else "Share link",
+                    { onSave(BillNext.Share) },
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.PrimarySolid,
+                    enabled = !saving,
+                    leadingIcon = EvIcons.Share,
+                )
             }
         }
 
@@ -326,6 +347,9 @@ private fun ReceiptReviewPreview() {
             state = state,
             title = "Friday dinner",
             onTitle = {},
+            date = "2026-11-20",
+            today = "2026-11-22",
+            onDateClick = {},
             symbol = "$",
             currencyCode = "USD",
             attachedReceipts = emptyList(),

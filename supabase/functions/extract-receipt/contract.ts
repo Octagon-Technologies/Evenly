@@ -68,6 +68,8 @@ export interface Receipt {
   venue_kind?: VenueKind | null;
   /** 24-hour "HH:MM" as printed, or null. */
   printed_time?: string | null;
+  /** "YYYY-MM-DD" as printed, or null. The app decides whether to believe it (future or too old is dropped). */
+  printed_date?: string | null;
 }
 
 export type VenueKind = "restaurant" | "cafe" | "bar" | "grocery" | "shop" | "other";
@@ -93,6 +95,7 @@ export interface RawReceipt {
   merchant_name?: string;
   venue_kind?: string;
   printed_time?: string;
+  printed_date?: string;
 }
 
 const AMOUNT_DESC =
@@ -137,6 +140,13 @@ export const RECEIPT_TOOL = {
         description:
           "The time of the transaction as printed, converted to 24-hour HH:MM (\"8:05 PM\" -> \"20:05\"). " +
           "Leave empty if no time is printed. Never guess a time that is not printed.",
+      },
+      printed_date: {
+        type: "string",
+        description:
+          "The date of the transaction as printed, as YYYY-MM-DD. When day and month could be either way round " +
+          "(04/03/26), read it the way the receipt's country writes dates: day first everywhere except the US. " +
+          "A two-digit year is 20xx. Leave empty if no date is printed. Never guess a date that is not printed.",
       },
       items: {
         type: "array",
@@ -243,6 +253,7 @@ export function normalizeReceipt(raw: RawReceipt): Receipt {
     merchant_name: normalizeMerchant(raw?.merchant_name),
     venue_kind: VENUE_KINDS.has(raw?.venue_kind ?? "") ? (raw!.venue_kind as VenueKind) : null,
     printed_time: normalizeTime(raw?.printed_time),
+    printed_date: normalizeDate(raw?.printed_date),
   };
 }
 
@@ -253,6 +264,17 @@ export function normalizeMerchant(name: unknown): string | null {
   if (typeof name !== "string") return null;
   const trimmed = name.replace(/\s+/g, " ").trim();
   return trimmed ? trimmed.slice(0, 40) : null;
+}
+
+/** A real calendar date as "YYYY-MM-DD", or null. Anything else (wrong shape, Feb 30) is dropped. */
+export function normalizeDate(date: unknown): string | null {
+  if (typeof date !== "string") return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const parsed = new Date(Date.UTC(y, mo - 1, d));
+  if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() !== mo - 1 || parsed.getUTCDate() !== d) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
 /** A valid 24-hour "HH:MM", zero-padded, or null. Anything else is dropped rather than half-trusted. */

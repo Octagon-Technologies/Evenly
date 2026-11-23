@@ -4,6 +4,7 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.data.remote.supabase.ListReadiness
 import app.splitevenly.domain.expense.Expense
 import app.splitevenly.domain.expense.ExpenseCategory
+import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.expense.ExpenseShare
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.Member
@@ -130,6 +131,7 @@ private fun Expense.toItemUi(
         stakeAmount = stake?.let { moneySubunits(it.subunits, currency) },
         stakeOwedToYou = stake?.owedToYou ?: false,
         involved = isInvolved(currentUserId, shares),
+        itemized = splitMode == SPLIT_MODE_ITEMIZED,
     )
 }
 

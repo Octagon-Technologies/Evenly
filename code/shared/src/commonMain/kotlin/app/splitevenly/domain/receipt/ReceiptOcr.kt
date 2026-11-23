@@ -24,6 +24,8 @@ data class ReceiptDraft(
     val venueKind: VenueKind? = null,
     /** 24-hour "HH:MM" as printed on the receipt. */
     val printedTime: String? = null,
+    /** "YYYY-MM-DD" as printed, unchecked. Run it through trustedReceiptDate before using it. */
+    val printedDate: String? = null,
 )
 
 data class ReceiptDraftItem(
@@ -103,6 +105,8 @@ data class ReceiptSummary(
     val categoryKey: String?,
     /** 24-hour "HH:MM" as printed. */
     val printedTime: String?,
+    /** "YYYY-MM-DD" as printed, unchecked. Run it through trustedReceiptDate before using it. */
+    val printedDate: String? = null,
     /** 0 when no total could be read. */
     val totalSubunits: Long,
     val currency: String?,

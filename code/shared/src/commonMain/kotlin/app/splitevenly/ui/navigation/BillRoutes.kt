@@ -1,5 +1,6 @@
 package app.splitevenly.ui.navigation
 
+import app.splitevenly.domain.expense.trustedReceiptDate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -16,7 +17,7 @@ import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.localHour
 import app.splitevenly.core.time.nowEpochMillis
-import app.splitevenly.core.time.todayUtc
+import app.splitevenly.core.time.localToday
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.auth.AuthSession
@@ -276,7 +277,7 @@ fun BillEditRoute(
                             groupId = gid,
                             title = submit.title,
                             currency = currency,
-                            expenseDate = Clock.System.todayUtc(),
+                            expenseDate = submit.expenseDate ?: Clock.System.localToday(),
                             payerUserId = if (outsidePayer != null) null else (payer ?: me),
                             payerOutsideName = outsidePayer,
                             createdBy = me,
@@ -297,7 +298,8 @@ fun BillEditRoute(
                     eid,
                     EditBill(
                         title = submit.title,
-                        expenseDate = before?.expense?.expenseDate ?: existing?.expense?.expenseDate ?: Clock.System.todayUtc(),
+                        expenseDate =
+                            submit.expenseDate ?: before?.expense?.expenseDate ?: existing?.expense?.expenseDate ?: Clock.System.localToday(),
                         payerUserId = if (keepPayer) (before?.expense?.payerUserId ?: me) else payer,
                         payerOutsideName = if (keepPayer) before?.expense?.payerOutsideName else outsidePayer,
                         items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
@@ -444,6 +446,7 @@ private fun ReceiptDraft.toEditState(): EditBillState =
         discountText = subunitsToText(discountSubunits),
         otherChargesText = subunitsToText(otherChargesSubunits),
         verified = verified,
+        receiptDate = trustedReceiptDate(printedDate, Clock.System.localToday()),
     )
 
 private fun BillView.toEditState(): EditBillState =
@@ -458,6 +461,7 @@ private fun BillView.toEditState(): EditBillState =
         tipText = subunitsToText(extras.tipSubunits),
         discountText = subunitsToText(extras.discountSubunits),
         otherChargesText = subunitsToText(extras.otherChargesSubunits),
+        expenseDate = expense.expenseDate,
     )
 
 /** How many distinct lines each person holds, counting a solo claim and a shared slice the same. It

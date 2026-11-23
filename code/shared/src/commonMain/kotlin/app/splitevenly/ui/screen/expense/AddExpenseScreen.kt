@@ -1,7 +1,6 @@
 package app.splitevenly.ui.screen.expense
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,31 +21,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.core.time.localToday
 import app.splitevenly.domain.expense.CategoryDefaults
 import app.splitevenly.domain.expense.CategoryHistoryEntry
 import app.splitevenly.domain.expense.GroupCategory
 import app.splitevenly.domain.expense.guessCategory
+import app.splitevenly.domain.expense.trustedReceiptDate
 import app.splitevenly.platform.PickSource
-import app.splitevenly.ui.components.BannerVariant
-import app.splitevenly.ui.components.EvBanner
-import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvKeyboardDoneBar
 import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.EvTopBar
-import app.splitevenly.ui.components.clickableClearingFocus
 import app.splitevenly.ui.components.currencySymbol
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.imeAndDoneBarPadding
+import app.splitevenly.ui.screen.bill.BillNext
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.EditBillSubmit
 import app.splitevenly.ui.screen.bill.ItemizedExpenseBody
@@ -61,6 +58,7 @@ import app.splitevenly.ui.screen.bill.priceToSubunits
 import app.splitevenly.ui.screen.bill.rememberItemizedBillState
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 
 /** A participant the expense can be split between (real members are passed by the route). */
 data class AddParticipantUi(
@@ -80,6 +78,7 @@ data class AddParticipantUi(
  * sums to the total — AC-INV-001). The route maps the emitted [AddExpenseSubmit] straight onto `NewExpense`,
  * preserving the raw share inputs.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun AddExpenseScreen(
     editing: Boolean = false,
@@ -149,6 +148,11 @@ fun AddExpenseScreen(
     var categoryPicked by remember { mutableStateOf(prefill?.categoryId != null) }
     var showCategoryDialog by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf(prefill?.title ?: "") }
+    val today = remember { Clock.System.localToday() }
+    var expenseDate by remember { mutableStateOf(prefill?.expenseDate ?: today) }
+    // A receipt's date fills in only until someone picks a date by hand (an edit counts as picked).
+    var datePicked by remember { mutableStateOf(prefill?.expenseDate != null) }
+    var showDateSheet by remember { mutableStateOf(false) }
     // Default selection: editing keeps its saved shares; a new expense defaults to whoever was on the
     // group's last expense (filtered to people still around); with no such signal, everyone's selected.
     var selected by remember {
@@ -185,6 +189,7 @@ fun AddExpenseScreen(
         scanned?.let {
             // The scan's suggested name ("Dinner at Tavolo") fills an empty Title, never a typed one.
             if (title.isBlank() && it.title.isNotBlank()) title = it.title
+            if (!datePicked) it.receiptDate?.let { d -> expenseDate = d }
             itemized.applyScan(it)
             splitApproach = SplitApproach.ByItem
             reviewingScan = true
@@ -224,6 +229,7 @@ fun AddExpenseScreen(
         fill.title?.let { title = it }
         fill.amountText?.let { divide.amountText = it }
         fill.currency?.let { currency = it }
+        if (!datePicked) trustedReceiptDate(read.summary.printedDate, today)?.let { expenseDate = it }
     }
     // The category picks itself from the title (and the receipt read) until someone chooses one.
     val receiptCategory = (receiptRead as? ReceiptReadUi.Read)?.summary?.categoryKey
@@ -237,7 +243,7 @@ fun AddExpenseScreen(
 
     // The Save action, shared by the top bar and the button under the totals (A4). Stays live so we can
     // validate on tap and reveal the gaps instead of leaving a dead, greyed button.
-    val submit = fun() {
+    val submit = fun(next: BillNext) {
         if (!isValid) {
             showErrors = true
             scope.launch { scrollState.animateScrollTo(0) }
@@ -255,6 +261,8 @@ fun AddExpenseScreen(
                     discountSubunits = priceToSubunits(itemized.discountText),
                     participantIds = selected,
                     payerUserId = if (isOutsidePayer) null else effectivePayerId,
+                    expenseDate = expenseDate,
+                    next = next,
                 ),
             )
         } else {
@@ -268,21 +276,54 @@ fun AddExpenseScreen(
                     currency = currency,
                     categoryId = categoryId,
                     shares = divide.shares(ids),
+                    expenseDate = expenseDate,
                 ),
             )
         }
+    }
+
+    // What the person has entered, minus what the editor fills in for itself (a guessed category, a default
+    // date), so leaving can ask before throwing it away. Saved receipts are left out: removing one is
+    // committed on its own, not on Save. The first composition's value is the baseline.
+    val entered =
+        listOf(
+            title.trim(), expenseDate.takeIf { datePicked }, selected, effectivePayerId, outsidePayerName,
+            categoryId.takeIf { categoryPicked }, currency, divide.amountSubunits, divide.mode,
+            if (divide.amountSubunits > 0) divide.shares(ids) else null,
+            receipts.filter { it.remoteUrl == null }.map { it.id }, attachedReceipts.map { it.id },
+            itemized.items.map { it.label to it.totalText },
+            listOf(itemized.taxText, itemized.gratuityText, itemized.otherChargesText, itemized.tipText, itemized.discountText),
+        )
+    val baseline = remember { entered }
+    val unsaved = entered != baseline && !saving
+    var confirmDiscard by remember { mutableStateOf(false) }
+    val leave = { if (unsaved) confirmDiscard = true else onBack() }
+    // System back and the iOS edge swipe would otherwise drop the route without asking. Each step back
+    // mirrors its on-screen arrow; only leaving the editor altogether asks first. Sheets opened later in
+    // composition register their own handler, which wins while they are open.
+    BackHandler(enabled = unsaved && !confirmDiscard) {
+        when {
+            isItemized && reviewingScan -> reviewingScan = false
+            !editing && splitApproach != null -> splitApproach = null
+            else -> confirmDiscard = true
+        }
+    }
+    // Drawn after everything else in each branch (here and at the end), so the card sits on top.
+    val discardDialog: @Composable () -> Unit = {
+        if (confirmDiscard) DiscardChangesDialog(editing, onDiscard = onBack, onDismiss = { confirmDiscard = false })
     }
 
     // Up-front split-type question: a focused editor beats a toggle you can flip by accident. Until it's
     // answered on a new expense, show the chooser; Back from the editor returns here (see navIcon below).
     if (splitApproach == null) {
         Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
-            EvTopBar(title = "New expense", navIcon = { EvIconButton(EvIcons.Close, onBack) })
+            EvTopBar(title = "New expense", navIcon = { EvIconButton(EvIcons.Close, leave) })
             SplitApproachChooser(onChoose = {
                 splitApproach = it
                 onSplitApproachChosen(it)
             })
         }
+        discardDialog()
         return
     }
 
@@ -295,15 +336,14 @@ fun AddExpenseScreen(
                     .systemBarsPadding()
                     .imeAndDoneBarPadding(),
             ) {
-                notice?.let {
-                    Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
-                        EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
-                    }
-                }
+                EditorNotice(notice, onDismissNotice)
                 ReceiptReviewScreen(
                     state = itemized,
                     title = title,
                     onTitle = { title = it },
+                    date = expenseDate,
+                    today = today,
+                    onDateClick = { showDateSheet = true },
                     symbol = symbol,
                     currencyCode = currency,
                     attachedReceipts = attachedReceipts,
@@ -316,45 +356,22 @@ fun AddExpenseScreen(
                     saving = saving,
                     onOpenReceipt = { viewerIndex = it },
                     onBack = { reviewingScan = false },
-                    onSave = { submit() },
+                    onSave = { next -> submit(next) },
                 )
             }
         } else {
             Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
                 EvTopBar(
-                    title =
-                        if (editing) {
-                            "Edit expense"
-                        } else if (isItemized) {
-                            "Restaurant bill"
-                        } else {
-                            "Split one amount"
-                        },
+                    title = if (editing) "Edit expense" else if (isItemized) "Restaurant bill" else "Split one amount",
                     navIcon = {
                         EvIconButton(
                             if (editing) EvIcons.Close else EvIcons.Back,
-                            { if (editing) onBack() else splitApproach = null },
+                            { if (editing) leave() else splitApproach = null },
                         )
                     },
-                    actions = {
-                        // Button stays live; validate on tap and reveal the gaps rather than sitting dead + greyed.
-                        val active = !saving
-                        val bg = if (active) c.blue else c.blueTint2
-                        val fg = if (active) c.onAccent else c.disabledInk
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(11.dp))
-                                .background(bg)
-                                .then(if (active) Modifier.clickableClearingFocus { submit() } else Modifier)
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                        ) { Text(if (saving) "Saving…" else "Save", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-                    },
+                    actions = { TopBarSaveButton(saving) { submit(BillNext.Choose) } },
                 )
-                notice?.let {
-                    Row(Modifier.fillMaxWidth().clickable { onDismissNotice() }) {
-                        EvBanner(it, variant = BannerVariant.Amber, leadingIcon = EvIcons.Info)
-                    }
-                }
+                EditorNotice(notice, onDismissNotice)
                 Column(
                     Modifier
                         .fillMaxSize()
@@ -368,7 +385,7 @@ fun AddExpenseScreen(
                 ) {
                     // A restaurant bill starts with the scan, above Title: one scan fills the title and the items.
                     // After the first scan (or a typed item) the hero drops back into the items section below.
-                    val quickReadReceipt = receiptsEnabled && !isItemized && !editing && receipts.size <= 1
+                    val quickReadReceipt = receiptsEnabled && !isItemized && receipts.size <= 1
                     val notScannedYet = isItemized && itemized.items.all { it.isUntouched() } && attachedReceipts.isEmpty()
                     if (notScannedYet) {
                         ScanReceiptHero(onScanSource = { source -> startScan(source) })
@@ -383,18 +400,15 @@ fun AddExpenseScreen(
                             onAdd = { showReceiptSource = true },
                             onRemove = { onRemoveReceipt(0) },
                             onOpen = { viewerIndex = 0 },
+                            fillsDetails = !editing,
                         )
                     }
 
                     // ── shared header: title, category, paid by, participants — entered once, both modes ──
-                    EvField("Title") {
-                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            EvTextField(title, { title = it }, placeholder = "What was it for?", isError = showErrors && title.isBlank())
-                            if (showErrors && title.isBlank()) {
-                                Text("Give it a title", color = c.danger, fontSize = 12.sp)
-                            }
-                        }
+                    TitleWithDateRow(expenseDate, today, onDateClick = { showDateSheet = true }) {
+                        EvTextField(title, { title = it }, placeholder = "What was it for?", isError = showErrors && title.isBlank())
                     }
+                    if (showErrors && title.isBlank()) Text("Give it a title", color = c.danger, fontSize = 12.sp)
                     // The scanned pages sit under the bill's title, the thing they are the receipt for.
                     if (isItemized && attachedReceipts.isNotEmpty()) {
                         PickedReceiptStrip(
@@ -438,7 +452,7 @@ fun AddExpenseScreen(
                         )
                     }
 
-                    // An edit (or a legacy multi-receipt expense) keeps its receipts down here as a plain strip.
+                    // An expense with more than one receipt keeps them down here as a plain strip.
                     if (receiptsEnabled && !isItemized && !quickReadReceipt) {
                         PickedReceiptStrip(
                             receipts = receipts,
@@ -464,7 +478,7 @@ fun AddExpenseScreen(
                                 saving = saving,
                                 saveLabel = "Save & continue",
                                 onScanSource = { source -> startScan(source) },
-                                onSave = { submit() },
+                                onSave = { submit(BillNext.Choose) },
                                 showScanHero = !notScannedYet,
                                 showReceipts = false,
                             )
@@ -477,7 +491,7 @@ fun AddExpenseScreen(
                                 showErrors = showErrors,
                                 saving = saving,
                                 onCurrencyClick = { showCurrencyDialog = true },
-                                onSave = { submit() },
+                                onSave = { submit(BillNext.Choose) },
                             )
                         }
                     }
@@ -486,11 +500,23 @@ fun AddExpenseScreen(
         }
         val overlayOpen =
             showAddDialog || showReceiptSource || showCurrencyDialog || showCategoryDialog ||
-                showPayerDialog || showScanSource || showPeoplePicker || viewerIndex != null
+                showPayerDialog || showScanSource || showPeoplePicker || showDateSheet || viewerIndex != null
         EvKeyboardDoneBar(
             onDone = { focusManager.clearFocus() },
             modifier = Modifier.align(Alignment.BottomCenter),
             visible = !overlayOpen,
+        )
+    }
+
+    if (showDateSheet) {
+        ExpenseDateSheet(
+            date = expenseDate,
+            today = today,
+            onPick = {
+                expenseDate = it
+                datePicked = true
+            },
+            onDismiss = { showDateSheet = false },
         )
     }
 
@@ -595,6 +621,8 @@ fun AddExpenseScreen(
             onDismiss = { showPeoplePicker = false },
         )
     }
+
+    discardDialog()
 }
 
 @Preview

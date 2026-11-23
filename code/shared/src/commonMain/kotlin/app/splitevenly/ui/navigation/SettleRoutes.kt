@@ -11,7 +11,7 @@ import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
-import app.splitevenly.core.time.todayUtc
+import app.splitevenly.core.time.localToday
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
@@ -61,7 +61,7 @@ fun SettlePersonRoute(
     val allPayments by remember(gid) { settlements.observeSettlements(gid) }.collectAsStateWithLifecycle(emptyList())
     val coveredTitles by remember(gid) { settlements.observeCoveredExpenseTitles(gid) }.collectAsStateWithLifecycle(emptyMap())
     val scope = rememberCoroutineScope()
-    val today = remember { Clock.System.todayUtc() }
+    val today = remember { Clock.System.localToday() }
 
     val peer = members.firstOrNull { it.userId == peerId }
     val peerName = peer?.displayName ?: "Someone"

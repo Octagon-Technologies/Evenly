@@ -17,7 +17,7 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.shortDate
-import app.splitevenly.core.time.todayUtc
+import app.splitevenly.core.time.localToday
 import app.splitevenly.data.claim.ClaimStatus
 import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
@@ -182,6 +182,7 @@ fun GroupExpensesRoute(
     onOpenBill: (String) -> Unit,
     onSearch: () -> Unit,
     onClaimNames: () -> Unit = {},
+    onEditExpense: (ExpenseItemUi) -> Unit = {},
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
@@ -196,7 +197,7 @@ fun GroupExpensesRoute(
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     val store = koinInject<GroupFilterStore>()
     val filter by remember(groupId) { store.filterFor(groupId) }.collectAsStateWithLifecycle()
-    val today = remember { Clock.System.todayUtc() }
+    val today = remember { Clock.System.localToday() }
     val filtered = applyFilter(expenseList, filter, today)
     val sharesById = remember(withShares) { withShares.associate { it.expense.id.value to it.shares } }
     val hydration = koinInject<HydrationTracker>()
@@ -315,6 +316,8 @@ fun GroupExpensesRoute(
         onOpenSettings = onOpenSettings,
         onAdd = onAdd,
         onOpenExpense = onOpenExpense,
+        onEditExpense = onEditExpense,
+        onDeleteExpense = { id -> scope.launch { expenses.deleteExpense(ExpenseId(id)) } },
         onSearch = onSearch,
         onFilter = {
             showFilter =
@@ -411,7 +414,7 @@ fun GroupBalancesRoute(
     val overpaymentsRaw by remember(gid, userId) { expenses.observeOverpayments(gid, userId) }.collectAsStateWithLifecycle(emptyList())
     val settlementList by remember(gid) { settlements.observeSettlements(gid) }.collectAsStateWithLifecycle(emptyList())
     val coveredTitles by remember(gid) { settlements.observeCoveredExpenseTitles(gid) }.collectAsStateWithLifecycle(emptyMap())
-    val today = remember { Clock.System.todayUtc() }
+    val today = remember { Clock.System.localToday() }
     val rows = buildBalances(debts, items, members, userId, today)
     val overpaymentsUi = buildOverpayments(overpaymentsRaw, settlementList, members, userId, coveredTitles)
     val scope = rememberCoroutineScope()

@@ -1,5 +1,7 @@
 package app.splitevenly.ui.navigation
 
+import app.splitevenly.ui.screen.bill.BillNext
+import app.splitevenly.domain.expense.trustedReceiptDate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +20,7 @@ import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.localHour
 import app.splitevenly.core.time.nowEpochMillis
-import app.splitevenly.core.time.todayUtc
+import app.splitevenly.core.time.localToday
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
 import app.splitevenly.domain.activity.HistoryEvent
@@ -95,7 +97,8 @@ import kotlin.time.ExperimentalTime
 /**
  * Add expense, wired. One screen, two split approaches: "Divide the total" persists a normal expense with
  * the split the editor computed; "By what each had" runs the scan pipeline and creates an itemized bill,
- * then hands off to its live claim screen ([onCreatedBill]).
+ * then hands off to its live claim screen ([onCreatedBill]). The review screen's two buttons say where:
+ * [BillNext.Choose] is the editor's own save, which still goes through the chooser.
  */
 @OptIn(ExperimentalTime::class)
 @Composable
@@ -103,7 +106,7 @@ fun AddExpenseRoute(
     groupId: String,
     onBack: () -> Unit,
     onSaved: () -> Unit,
-    onCreatedBill: (String) -> Unit,
+    onCreatedBill: (String, BillNext) -> Unit,
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val bills = koinInject<BillRepository>()
@@ -346,7 +349,7 @@ fun AddExpenseRoute(
                             title = submit.title,
                             amountSubunits = submit.amountSubunits,
                             currency = submit.currency,
-                            expenseDate = Clock.System.todayUtc(),
+                            expenseDate = submit.expenseDate,
                             payerUserId = if (outside != null) null else UserId(submit.payerUserId),
                             payerOutsideName = outside,
                             splitMode = submit.mode.wire,
@@ -395,7 +398,7 @@ fun AddExpenseRoute(
                             groupId = gid,
                             title = submit.title,
                             currency = currency,
-                            expenseDate = Clock.System.todayUtc(),
+                            expenseDate = submit.expenseDate ?: Clock.System.localToday(),
                             // The shared header's "Paid by" carries over; fall back to me if it's blank/outside.
                             payerUserId = submit.payerUserId?.takeIf { it.isNotBlank() }?.let { UserId(it) } ?: me,
                             createdBy = me,
@@ -417,7 +420,7 @@ fun AddExpenseRoute(
                                 mapOf("items_changed" to changed, "items_total" to total, "group_id" to gid.value),
                             )
                         }
-                        onCreatedBill(result.value.value)
+                        onCreatedBill(result.value.value, submit.next)
                     }
 
                     is AppResult.Err -> {
@@ -450,6 +453,7 @@ private fun ReceiptDraft.toAddEditState(): EditBillState =
         otherChargesText = if (otherChargesSubunits == 0L) "" else format2dp(otherChargesSubunits / 100.0),
         verified = verified,
         categoryKey = if (venueKind == VenueKind.GROCERY) "groceries" else "food",
+        receiptDate = trustedReceiptDate(printedDate, Clock.System.localToday()),
     )
 
 /** Edit expense, wired: prefills the split editor from the saved expense; Save replaces its shares. */
@@ -504,6 +508,7 @@ fun EditExpenseRoute(
                 exactText = ews.shares.mapNotNull { s -> s.shareExactSubunits?.let { s.userId.value to format2dp(it / 100.0) } }.toMap(),
                 categoryId = e.categoryId,
                 payerOutsideName = e.payerOutsideName,
+                expenseDate = e.expenseDate,
             )
         }
 
@@ -544,7 +549,7 @@ fun EditExpenseRoute(
                             title = submit.title,
                             amountSubunits = submit.amountSubunits,
                             currency = submit.currency,
-                            expenseDate = e.expenseDate,
+                            expenseDate = submit.expenseDate,
                             payerUserId = if (outside != null) null else UserId(submit.payerUserId),
                             splitMode = submit.mode.wire,
                             shares = shares,

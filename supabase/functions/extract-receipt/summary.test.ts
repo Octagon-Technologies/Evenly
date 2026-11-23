@@ -14,6 +14,7 @@ test("a card transaction passes through cleaned", () => {
     expense_kind: "ride",
     category: "transport",
     printed_time: "7:42",
+    printed_date: "2026-11-20",
     total: "24.17",
     currency: "usd",
   });
@@ -23,6 +24,7 @@ test("a card transaction passes through cleaned", () => {
     expense_kind: "ride",
     category: "transport",
     printed_time: "07:42",
+    printed_date: "2026-11-20",
     total_subunits: 2417,
     currency: "USD",
     short_title: null,

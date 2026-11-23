@@ -173,6 +173,14 @@ and are not (`WEB_CLAIM_SPEC.md` §2.7, §2.9, §3.9):
   was never going to use one turns a nudge into noise. Same reason the freshness line degrades from
   "updated just now" rather than lying.
 
+**A bill's date is a day, never a time** (`docs/features/bill-dates-and-payments.md`). It shows as the
+"Date" chip beside the title (`TitleWithDateRow`, `expense/ExpenseDateField.kt`) on the add-expense editor,
+the scan review and the bill editor, and defaults to `Clock.localToday()`. Never `todayUtc()` for anything a
+person reads: that is the FX rate key only, and it filed a bill added after midnight in Nairobi under the
+day before. A receipt's date fills the chip only through `trustedReceiptDate` and only until someone picks
+one by hand. The scan review ends in two buttons, "Assign items" and "Share link" (`BillNext`), which land
+over the bill's details and skip the chooser.
+
 **The participant picker scales with group size.** ≤6 members render as inline select-all/deselect toggle
 chips; larger groups collapse to a summary row that opens a searchable member-picker sheet. Same underlying
 selection state either way.
