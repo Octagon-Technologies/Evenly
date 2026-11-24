@@ -1,5 +1,6 @@
 package app.splitevenly.ui.screen.settings
 
+import app.splitevenly.ui.screen.people.KnownPersonUi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -88,6 +89,8 @@ fun GroupSettingsScreen(
     storageUsedBytes: Long = 212L * 1024 * 1024,
     onBack: () -> Unit = {},
     onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
+    knownPeople: List<KnownPersonUi> = emptyList(),
+    onAddKnown: (KnownPersonUi, addToPast: Boolean) -> Unit = { _, _ -> },
     onRename: (name: String, emoji: String) -> Unit = { _, _ -> },
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
@@ -303,7 +306,7 @@ fun GroupSettingsScreen(
     }
 
     if (showAdd) {
-        AddMemberSheet(onAdd = onAddMember, onDismiss = { showAdd = false })
+        AddMemberSheet(onAdd = onAddMember, onDismiss = { showAdd = false }, known = knownPeople, onAddKnown = onAddKnown)
     }
 
     if (showCurrencyPicker) {

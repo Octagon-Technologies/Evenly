@@ -25,6 +25,8 @@ import app.splitevenly.data.db.dao.ItemClaimDao
 import app.splitevenly.data.db.dao.ItemShareDao
 import app.splitevenly.data.db.dao.MemberDao
 import app.splitevenly.data.db.dao.PendingItemEditDao
+import app.splitevenly.data.db.dao.PeopleDao
+import app.splitevenly.data.db.dao.PersonLinkDao
 import app.splitevenly.data.db.dao.PlaceholderClaimAnswerDao
 import app.splitevenly.data.db.dao.PlaceholderMergeDao
 import app.splitevenly.data.db.dao.ReceiptDao
@@ -54,6 +56,7 @@ import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
+import app.splitevenly.data.db.entity.PersonLinkEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
@@ -86,6 +89,7 @@ import kotlinx.coroutines.Dispatchers
         GroupEntity::class,
         MemberEntity::class,
         PlaceholderClaimAnswerEntity::class,
+        PersonLinkEntity::class,
         ExpenseEntity::class,
         ShareEntity::class,
         SettlementEntity::class,
@@ -111,7 +115,7 @@ import kotlinx.coroutines.Dispatchers
         SupersededNoticeEntity::class,
         FeedbackOutboxEntity::class,
     ],
-    version = 34,
+    version = 35,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -127,6 +131,10 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun placeholderMergeDao(): PlaceholderMergeDao
 
     abstract fun placeholderClaimAnswerDao(): PlaceholderClaimAnswerDao
+
+    abstract fun personLinkDao(): PersonLinkDao
+
+    abstract fun peopleDao(): PeopleDao
 
     abstract fun expenseDao(): ExpenseDao
 
