@@ -123,6 +123,36 @@ create policy placeholder_claim_answers_update on public.placeholder_claim_answe
 revoke delete on public.placeholder_claim_answers from anon, authenticated;
 -- ⚠️ Deliberately NOT in the `supabase_realtime` publication. See the doorbell section below.
 
+-- People tab (docs/features/people-tab.md): one account's private statement that two names in its
+-- groups are the same person ("Pookie" in Boston is "Purity"), or that a same-name suggestion is NOT.
+-- Owner-scoped, never group-scoped: a link changes only the owner's People tab, so no other member may
+-- read it, and nobody else's roster or ledger is touched. Ids only, no names.
+--   kind     : 'SAME' or 'NOT_SAME'
+--   user_id  : the name being attached (always a placeholder for SAME)
+--   person_id: the name it is attached to (a placeholder or a real account)
+-- Unlinking soft-deletes (deleted_at); delete is revoked like every user-data table.
+create table if not exists public.person_links (
+  id text primary key,
+  owner_user_id text not null,
+  user_id text not null,
+  person_id text not null,
+  kind text not null default 'SAME' check (kind in ('SAME', 'NOT_SAME')),
+  created_at bigint not null,
+  updated_at bigint not null,
+  row_version bigint not null default 1,
+  deleted_at bigint
+);
+create index if not exists person_links_owner_idx on public.person_links (owner_user_id);
+alter table public.person_links enable row level security;
+drop policy if exists person_links_owner_rw on public.person_links;
+create policy person_links_owner_rw on public.person_links
+  for all to authenticated
+  using (owner_user_id = (select auth.uid())::text)
+  with check (owner_user_id = (select auth.uid())::text);
+revoke delete on public.person_links from anon, authenticated;
+-- ⚠️ Deliberately NOT in the `supabase_realtime` publication, and no doorbell trigger: it has no
+-- group_id, and only the owner's own devices care. The 60s pull tick carries it.
+
 create table if not exists public.expenses (
   id text primary key,
   group_id text not null,

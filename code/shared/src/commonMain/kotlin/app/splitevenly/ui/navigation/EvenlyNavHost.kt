@@ -89,7 +89,23 @@ fun EvenlyNavHost(
                 onEditExpense = { gid, eid, itemized ->
                     navController.navigate(if (itemized) Route.SplitBill(gid, eid) else Route.EditExpense(gid, eid))
                 },
+                onOpenPerson = { navController.navigate(Route.Person(it)) },
             )
+        }
+        composable<Route.Person> { entry ->
+            val r = entry.toRoute<Route.Person>()
+            PersonRoute(
+                personKey = r.personKey,
+                onBack = { navController.popBackStack() },
+                onLinkOtherNames = { navController.navigate(Route.LinkNames(r.personKey)) },
+                onOpenExpense = { e ->
+                    if (e.isQuick) navController.openQuickSplit(e.groupId, e.expenseId) else navController.navigate(Route.ExpenseDetail(e.groupId, e.expenseId))
+                },
+            )
+        }
+        composable<Route.LinkNames> { entry ->
+            val r = entry.toRoute<Route.LinkNames>()
+            LinkNamesRoute(personKey = r.personKey, onBack = { navController.popBackStack() })
         }
         composable<Route.NewGroup> {
             NewGroupRoute(

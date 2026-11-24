@@ -1,5 +1,7 @@
 package app.splitevenly.ui.screen.group
 
+import app.splitevenly.domain.repository.PeopleRepository
+import app.splitevenly.ui.navigation.rememberKnownPeople
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -186,6 +188,7 @@ fun GroupExpensesRoute(
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val people = koinInject<PeopleRepository>()
     val bills = koinInject<BillRepository>()
     val auth = koinInject<AuthSession>()
     var showFilter by remember { mutableStateOf(false) }
@@ -328,6 +331,8 @@ fun GroupExpensesRoute(
         onShareInvite = { inviteToken?.let { share.shareText("See what you owe and settle up for ${group?.name ?: "our group"}, no app needed: ${InviteLink.url(it)}", "Evenly: ${group?.name ?: "our group"}") } },
         members = members.toMemberRows(userId),
         onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
+        knownPeople = rememberKnownPeople(gid.value),
+        onAddKnown = { k, addToPast -> scope.launch { groups.addKnownPerson(gid, k, addToPast, userId, people) } },
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,
         identityNames = identityNames,

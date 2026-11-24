@@ -19,6 +19,7 @@ import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
+import app.splitevenly.data.db.entity.PersonLinkEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
@@ -52,6 +53,7 @@ class EntitySerializablePartitionTest {
             GroupEntity::class to typeOf<GroupEntity>(),
             MemberEntity::class to typeOf<MemberEntity>(),
             PlaceholderClaimAnswerEntity::class to typeOf<PlaceholderClaimAnswerEntity>(),
+            PersonLinkEntity::class to typeOf<PersonLinkEntity>(),
             ExpenseEntity::class to typeOf<ExpenseEntity>(),
             ShareEntity::class to typeOf<ShareEntity>(),
             SettlementEntity::class to typeOf<SettlementEntity>(),

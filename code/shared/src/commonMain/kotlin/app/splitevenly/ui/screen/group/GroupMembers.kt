@@ -1,5 +1,9 @@
 package app.splitevenly.ui.screen.group
 
+import app.splitevenly.domain.repository.PeopleRepository
+import app.splitevenly.ui.screen.people.KnownPeopleList
+import app.splitevenly.ui.screen.people.KnownPersonUi
+import app.splitevenly.ui.screen.people.matchKnown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -64,6 +68,23 @@ internal fun List<Member>.toMemberRows(me: UserId?): List<MemberRowUi> =
             isMe = m.userId == me,
         )
     }
+
+/**
+ * Adds someone the viewer already knows from other groups: a placeholder under their name, linked to that
+ * person so the People tab counts them as one (docs/features/people-tab.md, "People you know").
+ */
+internal suspend fun GroupRepository.addKnownPerson(
+    groupId: GroupId,
+    person: KnownPersonUi,
+    addToPast: Boolean,
+    me: UserId?,
+    people: PeopleRepository,
+) {
+    val added = addPlaceholder(groupId, person.name, createdBy = me)
+    if (added !is AppResult.Ok || me == null) return
+    people.link(me, listOf(added.value.userId.value), person.key)
+    if (addToPast) addMemberToPastExpenses(groupId, added.value.userId, me)
+}
 
 /** Adds [name] as a placeholder member; "all past" also sweeps them into existing expenses (03 §8.1). */
 internal suspend fun GroupRepository.addMemberByName(
@@ -222,6 +243,8 @@ internal fun MemberRow(
 internal fun AddMemberSheet(
     onAdd: (name: String, addToPast: Boolean) -> Unit,
     onDismiss: () -> Unit,
+    known: List<KnownPersonUi> = emptyList(),
+    onAddKnown: (KnownPersonUi, addToPast: Boolean) -> Unit = { _, _ -> },
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
@@ -243,6 +266,10 @@ internal fun AddMemberSheet(
                 )
                 if (missingName) Text("Type their name first", color = c.danger, fontSize = 12.sp)
             }
+        }
+        KnownPeopleList(matchKnown(known, name)) { k ->
+            onAddKnown(k, addToPast)
+            onDismiss()
         }
         Row(
             Modifier.fillMaxWidth().padding(top = 16.dp),

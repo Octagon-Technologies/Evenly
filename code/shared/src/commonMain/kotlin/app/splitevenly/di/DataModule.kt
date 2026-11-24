@@ -21,6 +21,7 @@ import app.splitevenly.data.repository.ExpenseRepositoryImpl
 import app.splitevenly.data.repository.FxRepositoryImpl
 import app.splitevenly.data.repository.GroupRepositoryImpl
 import app.splitevenly.data.repository.ProfileRepositoryImpl
+import app.splitevenly.data.repository.PeopleRepositoryImpl
 import app.splitevenly.data.repository.SettlementRepositoryImpl
 import app.splitevenly.data.repository.WebBillLinkRepositoryImpl
 import app.splitevenly.data.upload.ReceiptUploadHttp
@@ -33,6 +34,7 @@ import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.domain.repository.ProfileRepository
+import app.splitevenly.domain.repository.PeopleRepository
 import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.repository.WebBillLinkRepository
 import app.splitevenly.platform.AppForeground
@@ -140,6 +142,9 @@ val dataModule: Module =
         // The payer's web claim link (WEB_CLAIM_SPEC.md §3.9.3). Not local-first on purpose: a link is a
         // server-side authorisation, so the gateway is required and its absence is reported, never faked.
         single<WebBillLinkRepository> { WebBillLinkRepositoryImpl(getOrNull<WebBillLinkGateway>(), get()) }
+        single<PeopleRepository> {
+            PeopleRepositoryImpl(get<EvenlyDatabase>().peopleDao(), get<EvenlyDatabase>().personLinkDao(), get())
+        }
         single<SettlementRepository> {
             SettlementRepositoryImpl(
                 get(),

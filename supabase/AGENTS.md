@@ -378,7 +378,7 @@ Four rules govern anything you add here:
    tombstones stops them reaching other devices and the data resurrects on the next pull.
 4. **Wrap `auth.uid()` as `(select auth.uid())`** so it is evaluated once per statement, not once per row.
 
-Four tables are deliberately *not* plain membership scoping, and each arm is load-bearing:
+Five tables are deliberately *not* plain membership scoping, and each arm is load-bearing:
 
 - **`groups`** — insert also accepts `created_by = auth.uid()`. `SyncEngine.push` sends users → groups →
   members, so a newly created group is inserted before its creator has a membership row.
@@ -390,6 +390,10 @@ Four tables are deliberately *not* plain membership scoping, and each arm is loa
   historical rows. Write is my own row, or a placeholder in one of my groups.
 - **`device_tokens`** — per-user (`user_id = auth.uid()`), never group-scoped. It is a route to one person's
   lock screen.
+- **`person_links`** — per-owner (`owner_user_id = auth.uid()`), never group-scoped: one account's private
+  "Pookie is Purity" for its own People tab (`docs/features/people-tab.md`). No other member may read it,
+  it has no `group_id`, so it gets no doorbell trigger and rides the 60s pull tick. Delete is revoked;
+  unlinking soft-deletes.
 
 **Membership gates which group you may write to; a payment's money is its two parties' alone.** Any ACTIVE
 member can edit or soft-delete any expense or comment in their groups. Settlements are the exception

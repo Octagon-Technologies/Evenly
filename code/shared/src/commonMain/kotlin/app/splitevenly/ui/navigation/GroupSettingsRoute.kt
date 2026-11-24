@@ -1,5 +1,7 @@
 package app.splitevenly.ui.navigation
 
+import app.splitevenly.domain.repository.PeopleRepository
+import app.splitevenly.ui.screen.group.addKnownPerson
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +40,7 @@ fun GroupSettingsRoute(
     onEditCategories: () -> Unit = {},
 ) {
     val groups = koinInject<GroupRepository>()
+    val people = koinInject<PeopleRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
     val group by remember(gid) { groups.observeGroup(gid) }.collectAsStateWithLifecycle(null)
@@ -127,6 +130,8 @@ fun GroupSettingsRoute(
         },
         onBack = onBack,
         onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
+        knownPeople = rememberKnownPeople(gid.value),
+        onAddKnown = { k, addToPast -> scope.launch { groups.addKnownPerson(gid, k, addToPast, userId, people) } },
         onRename = { name, emoji ->
             // Only a changed emoji counts as a use; re-saving a name shouldn't evict a recent.
             val emojiChanged = emoji != group?.emoji
