@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,6 +72,8 @@ import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.settle.PaymentActionSheet
 import app.splitevenly.ui.screen.settle.PaymentEditSheet
 import app.splitevenly.ui.screen.settle.PaymentPreviewUi
+import app.splitevenly.ui.screen.settle.PaymentProofThumb
+import app.splitevenly.ui.screen.settle.PaymentProofViewer
 import app.splitevenly.ui.screen.settle.PaymentUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import coil3.compose.AsyncImage
@@ -84,6 +87,8 @@ data class DetailShareUi(
     val remainingSubunits: Long,
     val me: Boolean = false,
     val payer: Boolean = false,
+    // At least one payment from this person on this bill has a screenshot (docs/features/payment-proof.md).
+    val hasProof: Boolean = false,
 )
 
 /** A receipt thumbnail (F5). [url] null = still uploading / unavailable; [isPdf] renders a file tile. */
@@ -157,6 +162,9 @@ fun ExpenseDetailScreen(
     previewPayment: suspend (paymentId: String, newAmountSubunits: Long) -> PaymentPreviewUi = { _, _ -> PaymentPreviewUi() },
     // Remove a recorded payment entirely (void it); its balance is restored.
     onRemovePayment: (paymentId: String) -> Unit = {},
+    // Payment proof: attach (or replace) a payment's screenshot, and take off one you added.
+    onAddProof: (PaymentUi) -> Unit = {},
+    onRemoveProof: (PaymentUi) -> Unit = {},
     onReload: () -> Unit = {},
     // Null hides the "Send feedback" button in the error state rather than rendering a dead one. It
     // used to be wired to an empty lambda, which is the dead end `ui/AGENTS.md` forbids.
@@ -184,6 +192,8 @@ fun ExpenseDetailScreen(
     var editingPayment by remember { mutableStateOf<PaymentUi?>(null) }
     // Index of the receipt the in-app viewer is showing, or null when it's closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
+    var viewingProof by remember { mutableStateOf<PaymentUi?>(null) }
+    val proofPayments = payments.filter { it.hasProof }
     // Your own row leads the breakdown — it's what you're here to check. `sortedByDescending` is stable,
     // so everyone else keeps their incoming order behind you.
     val split = splitRows.sortedByDescending { it.me }
@@ -325,17 +335,51 @@ fun ExpenseDetailScreen(
                         onShareSplit?.let { EvButton("Share the link", it, variant = ButtonVariant.Tonal, leadingIcon = EvIcons.Share) }
 
                         // receipts
-                        if (receipts.isNotEmpty() || pendingUploads.isNotEmpty()) {
+                        // Payment screenshots sit beside the receipt (docs/features/payment-proof.md): one card
+                        // answers "what's attached to this bill?", each labelled with who paid and how much.
+                        val hasReceipts = receipts.isNotEmpty() || pendingUploads.isNotEmpty()
+                        if (hasReceipts || proofPayments.isNotEmpty()) {
                             EvCard(Modifier.fillMaxWidth(), padded = true) {
-                                Text("Receipt", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    when {
+                                        hasReceipts && proofPayments.isNotEmpty() -> "Receipt & payments"
+                                        hasReceipts -> "Receipt"
+                                        else -> "Payment screenshots"
+                                    },
+                                    color = c.ink,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                                 Row(
                                     Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.Top,
                                 ) {
                                     receipts.forEachIndexed { i, r -> ReceiptThumb(r, onClick = { viewerIndex = i }) }
                                     // In-flight uploads render right after the published ones, each with its own ring.
                                     pendingUploads.forEach { u ->
                                         UploadingThumb(u, onRetry = { onRetryUpload(u.id) }, onCancel = { onCancelUpload(u.id) })
+                                    }
+                                    if (hasReceipts && proofPayments.isNotEmpty()) {
+                                        Box(Modifier.width(1.dp).height(108.dp).background(c.border))
+                                    }
+                                    proofPayments.forEach { p ->
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            PaymentProofThumb(
+                                                url = p.proofUrl,
+                                                uploadingModel = p.proofUploadingModel,
+                                                onOpen = { viewingProof = p },
+                                                onAdd = null,
+                                                width = 72.dp,
+                                                height = 92.dp,
+                                            )
+                                            Text(
+                                                "${p.payerName} · ${moneySubunits(p.amountSubunits, currencyCode)}",
+                                                color = c.ink2,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -359,6 +403,12 @@ fun ExpenseDetailScreen(
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
                                             EvAvatar(p.payerName, me = p.byMe, size = AvatarSize.Sm)
+                                            PaymentProofThumb(
+                                                url = p.proofUrl,
+                                                uploadingModel = p.proofUploadingModel,
+                                                onOpen = { viewingProof = p },
+                                                onAdd = if (p.canEdit) ({ onAddProof(p) }) else null,
+                                            )
                                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
                                                     p.title,
@@ -366,7 +416,12 @@ fun ExpenseDetailScreen(
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.SemiBold,
                                                 )
-                                                val sub = listOfNotNull(p.app, p.dateLabel.ifBlank { null }).joinToString(" · ")
+                                                val sub =
+                                                    listOfNotNull(
+                                                        p.app,
+                                                        p.dateLabel.ifBlank { null },
+                                                        if (!p.hasProof && p.canEdit) "No screenshot" else null,
+                                                    ).joinToString(" · ")
                                                 if (sub.isNotEmpty()) Text(sub, color = c.ink2, fontSize = 12.sp)
                                             }
                                             Text(
@@ -487,6 +542,10 @@ fun ExpenseDetailScreen(
                                                         fontSize = 15.sp,
                                                         modifier = Modifier.weight(1f),
                                                     )
+                                                    // Someone's payment here has a screenshot: one glance says whose.
+                                                    if (s.hasProof) {
+                                                        EvIcon(EvIcons.Paperclip, "Has a payment screenshot", Modifier.padding(top = 2.dp), size = 15.dp, tint = c.blueText)
+                                                    }
                                                     Text(
                                                         when {
                                                             overpaid -> moneySubunits(-s.remainingSubunits, currencyCode) + " back"
@@ -735,6 +794,27 @@ fun ExpenseDetailScreen(
             onDismiss = { actionPayment = null },
             onChangeAmount = { editingPayment = p },
             onRemove = { onRemovePayment(p.id) },
+            onOpenProof = { viewingProof = p },
+            onAddProof = { onAddProof(p) },
+        )
+    }
+
+    viewingProof?.let { p ->
+        // Re-read from the live list so a removal or a finished upload shows at once.
+        val live = payments.firstOrNull { it.id == p.id } ?: p
+        PaymentProofViewer(
+            payment = live,
+            currencyCode = currencyCode,
+            onClose = { viewingProof = null },
+            onRemove =
+                if (live.proofMine) {
+                    {
+                        viewingProof = null
+                        onRemoveProof(live)
+                    }
+                } else {
+                    null
+                },
         )
     }
 

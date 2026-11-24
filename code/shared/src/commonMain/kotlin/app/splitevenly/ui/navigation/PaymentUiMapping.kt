@@ -41,6 +41,7 @@ internal fun paymentUi(
         dateLabel = shortDate(record.settledAt),
         dateTimeLabel = shortDateTime(record.settledAt),
         recordedBy = record.createdBy?.let { if (it == viewer) "you" else nameOf(it) }.orEmpty(),
+        chainId = record.chainId,
     )
 
 /** The edit sheet's preview for an entered amount, with the refusal said in plain words. */

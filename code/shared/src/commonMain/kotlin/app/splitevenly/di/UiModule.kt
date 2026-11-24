@@ -86,6 +86,7 @@ val authModule =
                     auth = get(),
                     connectivity = get(),
                     tokens = get(),
+                    proofDao = get(),
                 )
             }
             // In-app feedback (ADMIN_FEEDBACK_SPEC.md step 8). Eager for the same reason the receipt

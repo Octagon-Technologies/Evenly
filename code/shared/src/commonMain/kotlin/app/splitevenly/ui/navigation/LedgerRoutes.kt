@@ -638,6 +638,7 @@ fun ExpenseDetailRoute(
         uploadManager?.observe(eid) ?: flowOf(emptyList())
     }.collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
+    val proofs = rememberPaymentProofs(gid, userId)
     var draft by remember { mutableStateOf("") }
     // Settling one expense is an overlay on this screen, not a destination: pushing it as a route
     // left the detail unrendered behind the sheet, so the sheet floated over a blank page.
@@ -664,6 +665,9 @@ fun ExpenseDetailRoute(
     val quickSplit = remember(groupId) { groups.observeGroup(GroupId(groupId)) }.collectAsStateWithLifecycle(null).value?.isQuick == true
     val billPick = rememberBillPick(eid, isItemized, userId)
     val unclaimedSubunits = if (isItemized) (e.amountSubunits - ews.shares.sumOf { it.owedSubunits }).coerceAtLeast(0L) else 0L
+    val paymentUi = payments.map { p -> proofs.decorate(paymentUi(p.record, userId, p.appliedHereSubunits, p.billCount) { nameOf(it) }) }
+    // Whose payments on this bill carry a screenshot, for the paperclip on their row.
+    val provedPayers = payments.zip(paymentUi).filter { (_, ui) -> ui.hasProof }.map { (p, _) -> p.record.fromUserId }.toSet()
     val rows =
         ews.shares.map { s ->
             DetailShareUi(
@@ -673,6 +677,7 @@ fun ExpenseDetailRoute(
                 remainingSubunits = s.remainingSubunits,
                 me = s.userId == userId,
                 payer = s.userId == e.payerUserId,
+                hasProof = s.userId in provedPayers,
             )
         } +
             if (unclaimedSubunits > 0L) {
@@ -711,7 +716,6 @@ fun ExpenseDetailRoute(
         }
     // On a bill's screen a payment shows (and edits) only what it put on this bill; a "Settle up"
     // payment's other bills are left alone (one-time-splits Part B).
-    val paymentUi = payments.map { p -> paymentUi(p.record, userId, p.appliedHereSubunits, p.billCount) { nameOf(it) } }
 
     ExpenseDetailScreen(
         state = ExpenseDetailState.Content,
@@ -748,6 +752,8 @@ fun ExpenseDetailRoute(
         previewPayment = { id, amount -> paymentPreview(settlements, id, amount, e.currency, scopeExpenseId = eid) },
         onSavePayment = { id, amount -> savePaymentEdit(settlements, id, amount, userId, scopeExpenseId = eid) },
         onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id), userId) } },
+        onAddProof = { p -> scope.launch { proofs.pickAndAttach(p.chainId) } },
+        onRemoveProof = { p -> p.proofId?.let { id -> scope.launch { proofs.remove(id) } } },
         // A plain expense edits via the percent/exact/even editor. An itemized bill splits two ways: the
         // summary-card "Edit bill" action opens the menu/items editor, and the prominent button below opens
         // the claim screen.

@@ -62,6 +62,7 @@ val dataModule: Module =
         single { get<EvenlyDatabase>().expenseEditConflictDao() }
         single { get<EvenlyDatabase>().commentDao() }
         single { get<EvenlyDatabase>().receiptDao() }
+        single { get<EvenlyDatabase>().paymentProofDao() }
         single { get<EvenlyDatabase>().receiptUploadDao() }
         single { get<EvenlyDatabase>().historyEventDao() }
         single { get<EvenlyDatabase>().categoryDao() }
@@ -169,5 +170,7 @@ val dataModule: Module =
         single<CategoryRepository> { CategoryRepositoryImpl(get()) }
         // Expense activity (F5): comments + receipts + history. ReceiptStorage is bound only when Supabase
         // is configured (it needs the client), so resolve it optionally and degrade gracefully if absent.
-        single<ActivityRepository> { ActivityRepositoryImpl(get(), get(), get(), get(), receiptStorage = getOrNull<ReceiptStorage>()) }
+        single<ActivityRepository> {
+            ActivityRepositoryImpl(get(), get(), get(), get(), receiptStorage = getOrNull<ReceiptStorage>(), proofDao = get())
+        }
     }

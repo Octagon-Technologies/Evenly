@@ -103,6 +103,13 @@ fun SettlePersonScreen(
     previewPayment: suspend (paymentId: String, newAmountSubunits: Long) -> PaymentPreviewUi = { _, _ -> PaymentPreviewUi() },
     onSavePayment: suspend (paymentId: String, newAmountSubunits: Long) -> String? = { _, _ -> null },
     onRemovePayment: (paymentId: String) -> Unit = {},
+    // Payment proof (docs/features/payment-proof.md): the screenshot staged for the payment being recorded,
+    // and the per-payment actions on the list below.
+    proofModel: String? = null,
+    onPickProof: () -> Unit = {},
+    onRemoveStagedProof: () -> Unit = {},
+    onAddProof: (PaymentUi) -> Unit = {},
+    onRemoveProof: (PaymentUi) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val clipboard = LocalClipboardManager.current
@@ -121,6 +128,7 @@ fun SettlePersonScreen(
     var confirmClosing by remember { mutableStateOf(false) }
     var actionPayment by remember { mutableStateOf<PaymentUi?>(null) }
     var editingPayment by remember { mutableStateOf<PaymentUi?>(null) }
+    var viewingProof by remember { mutableStateOf<PaymentUi?>(null) }
 
     val checkedSum = shares.filter { it.expenseId in checked }.sumOf { it.amountSubunits }
     val selectedIds = shares.filter { it.expenseId in checked }.map { it.expenseId }
@@ -146,7 +154,7 @@ fun SettlePersonScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text("Nothing to settle with $peerName.", color = c.ink2, fontSize = 14.sp)
-                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it })
+                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it }, onOpenProof = { viewingProof = it }, onAddProof = onAddProof)
                 }
             } else {
                 Column(
@@ -233,7 +241,8 @@ fun SettlePersonScreen(
                             },
                         )
                     }
-                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it })
+                    PaymentProofTile(peerName, proofModel, onPick = onPickProof, onRemove = onRemoveStagedProof)
+                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it }, onOpenProof = { viewingProof = it }, onAddProof = onAddProof)
                 }
             }
 
@@ -284,6 +293,16 @@ fun SettlePersonScreen(
                 onDismiss = { actionPayment = null },
                 onChangeAmount = { editingPayment = p },
                 onRemove = { onRemovePayment(p.id) },
+                onOpenProof = { viewingProof = p },
+                onAddProof = { onAddProof(p) },
+            )
+        }
+        viewingProof?.let { p ->
+            PaymentProofViewer(
+                payment = p,
+                currencyCode = currencyCode,
+                onClose = { viewingProof = null },
+                onRemove = if (p.proofMine) ({ onRemoveProof(p) }) else null,
             )
         }
         editingPayment?.let { p ->

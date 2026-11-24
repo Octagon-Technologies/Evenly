@@ -22,6 +22,7 @@ import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
 import app.splitevenly.data.db.entity.SettlementAllocationEntity
@@ -225,6 +226,7 @@ class SyncEngine(
                 it.id
             }, { upsertAll("expense_blocked_users", it) }),
             SyncTable("receipts", { db.receiptDao().allForSync() }, { it.id }, { upsertAll("receipts", it) }),
+            SyncTable("payment_proofs", { db.paymentProofDao().allForSync() }, { it.id }, { upsertAll("payment_proofs", it) }),
             SyncTable("categories", { db.categoryDao().allForSync() }, { it.id }, { upsertAll("categories", it) }),
             SyncTable("expense_history", { db.historyEventDao().allForSync() }, {
                 it.id
@@ -336,6 +338,7 @@ class SyncEngine(
                             )
                         }
                     val receipts = if (expenseIds.isEmpty()) emptyList() else selectIn<ReceiptEntity>("receipts", "expense_id", expenseIds)
+                    val paymentProofs = selectIn<PaymentProofEntity>("payment_proofs", "group_id", groupIds)
                     val history =
                         if (expenseIds.isEmpty()) {
                             emptyList()
@@ -467,6 +470,9 @@ class SyncEngine(
                         it.id
                     }, { it.updatedAt }) { db.expenseBlockedUserDao().upsertAll(it) }
                     land("receipts", receipts, db.receiptDao().allForSync(), { it.id }, { it.updatedAt }) { db.receiptDao().upsertAll(it) }
+                    land("payment_proofs", paymentProofs, db.paymentProofDao().allForSync(), { it.id }, {
+                        it.updatedAt
+                    }) { db.paymentProofDao().upsertAll(it) }
                     land(
                         "categories",
                         categories,
@@ -979,6 +985,7 @@ class SyncEngine(
                 "comments",
                 "expense_blocked_users",
                 "receipts",
+                "payment_proofs",
                 "categories",
                 "expense_history",
                 "expense_items",

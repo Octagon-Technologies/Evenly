@@ -173,6 +173,11 @@ Same shape as the bill-scoped guest RPCs below: all **service-role only**, all t
   stays keeps their share id and their payments. The log is `web_expense_edits` (RLS on, zero policies, not
   synced); the app sees an `EDITED` history row. Undo refuses once the money moved again (`CHANGED_SINCE`).
 - **`web_group_snapshot`** is the page's one read. `remaining` is derived like the client, 0 for the payer.
+  It also carries each bill's receipts and comments, and each payment's app, chain id, per-bill `applied`
+  amounts and current proof (`payment_proofs`, keyed by chain id).
+- **`payment_proofs`** (`docs/features/payment-proof.md`): a payment's screenshot, member-scoped like
+  `receipts`, same bucket. `notify_payment_proof_inserted` pushes the other party once per chain.
+  Proof: `supabase/tests/payment_proofs.sql`.
 
 Proof: `supabase/tests/web_group_page.sql` (rolls back; "WEB GROUP PAGE: ALL PASSED" is green).
 

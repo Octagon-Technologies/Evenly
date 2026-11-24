@@ -364,6 +364,11 @@ system back and swipe-back never reach `onBack` — cleanup hangs off `Disposabl
 calls `discardStagedDetached`, which runs on the manager's app-lifetime scope because the editor's own
 scope is already cancelled by then.
 
+**Payment proofs ride the same queue** (`docs/features/payment-proof.md`). An outbox row with a
+`settlement_id` is a payment screenshot: `attachProof` queues it, and on success the manager publishes a
+`payment_proofs` row instead of a `receipts` row, then soft-deletes the chain's older proof. A proof keys on
+the payment's chain id (`SettlementRecord.chainId`), never the row id, because an edit replaces the row.
+
 Receipt OCR is the `extract-receipt` edge function (Claude vision → structured draft) reached via the
 `ReceiptOcr` gateway. It accepts **multiple pages (images and/or PDFs) read as one bill** and only ever
 *pre-fills* the editable item list — a human verifies before any money is computed.

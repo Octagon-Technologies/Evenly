@@ -57,6 +57,7 @@ interface GroupPurgeDao {
         clearRowSyncStateFor("comments", groupId)
         clearRowSyncStateFor("expense_blocked_users", groupId)
         clearRowSyncStateFor("receipts", groupId)
+        clearRowSyncStateFor("payment_proofs", groupId)
         clearRowSyncStateFor("expense_history", groupId)
         clearRowSyncStateFor("expense_items", groupId)
         clearRowSyncStateFor("item_claims", groupId)
@@ -79,6 +80,7 @@ interface GroupPurgeDao {
         clearComments(groupId)
         clearExpenseBlockedUsers(groupId)
         clearReceipts(groupId)
+        clearPaymentProofs(groupId)
         clearExpenseHistory(groupId)
         clearConflicts(groupId)
         clearExpenseEditConflicts(groupId)
@@ -127,6 +129,7 @@ interface GroupPurgeDao {
             UNION ALL SELECT id FROM comments WHERE group_id = :groupId
             UNION ALL SELECT id FROM expense_blocked_users WHERE group_id = :groupId
             UNION ALL SELECT id FROM receipts WHERE group_id = :groupId
+            UNION ALL SELECT id FROM payment_proofs WHERE group_id = :groupId
             UNION ALL SELECT id FROM expense_history WHERE group_id = :groupId
             UNION ALL SELECT id FROM expense_items WHERE group_id = :groupId
             UNION ALL SELECT id FROM item_claims WHERE group_id = :groupId
@@ -194,6 +197,9 @@ interface GroupPurgeDao {
 
     @Query("DELETE FROM receipts WHERE group_id = :groupId")
     suspend fun clearReceipts(groupId: String)
+
+    @Query("DELETE FROM payment_proofs WHERE group_id = :groupId")
+    suspend fun clearPaymentProofs(groupId: String)
 
     @Query("DELETE FROM expense_history WHERE group_id = :groupId")
     suspend fun clearExpenseHistory(groupId: String)

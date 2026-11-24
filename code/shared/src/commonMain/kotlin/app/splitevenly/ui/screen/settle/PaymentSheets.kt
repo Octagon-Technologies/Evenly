@@ -1,5 +1,7 @@
 package app.splitevenly.ui.screen.settle
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -34,6 +36,9 @@ import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
+import androidx.compose.ui.draw.clip
+import app.splitevenly.ui.screen.expense.ReceiptViewerScreen
+import app.splitevenly.ui.screen.expense.ViewerReceipt
 import app.splitevenly.ui.screen.expense.format2dp
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
@@ -56,7 +61,16 @@ data class PaymentUi(
     val billCount: Int = 1,
     val dateTimeLabel: String = "",
     val recordedBy: String = "",
+    // Payment proof (docs/features/payment-proof.md). [chainId] is what a proof hangs off.
+    val chainId: String = id,
+    val proofId: String? = null,
+    val proofUrl: String? = null,
+    val proofMine: Boolean = false,
+    // The local copy while the screenshot is still uploading.
+    val proofUploadingModel: String? = null,
 ) {
+    val hasProof: Boolean get() = proofUrl != null || proofUploadingModel != null
+
     /** Only the two people in a payment may change it (`docs/features/one-time-splits.md` Part B). */
     val canEdit: Boolean get() = byMe || toMe
 
@@ -95,6 +109,8 @@ fun PaymentActionSheet(
     onDismiss: () -> Unit,
     onChangeAmount: () -> Unit,
     onRemove: () -> Unit,
+    onOpenProof: () -> Unit = {},
+    onAddProof: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var closing by remember { mutableStateOf(false) }
@@ -128,6 +144,7 @@ fun PaymentActionSheet(
                     if (payment.recordedBy.isNotBlank()) Text("recorded by ${payment.recordedBy}", color = c.ink3, fontSize = 13.sp)
                 }
             }
+            PaymentProofRow(payment, onOpen = onOpenProof, onAdd = onAddProof)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 EvButton("Change amount", {
                     next = onChangeAmount
@@ -299,6 +316,8 @@ fun PaymentListSection(
     payments: List<PaymentUi>,
     currencyCode: String,
     onOpen: (PaymentUi) -> Unit,
+    onOpenProof: (PaymentUi) -> Unit = {},
+    onAddProof: (PaymentUi) -> Unit = {},
 ) {
     if (payments.isEmpty()) return
     val c = EvenlyTheme.colors
@@ -315,6 +334,12 @@ fun PaymentListSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    PaymentProofThumb(
+                        url = p.proofUrl,
+                        uploadingModel = p.proofUploadingModel,
+                        onOpen = { onOpenProof(p) },
+                        onAdd = if (p.canEdit) ({ onAddProof(p) }) else null,
+                    )
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(p.title, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         val sub =
@@ -337,4 +362,79 @@ fun PaymentListSection(
             }
         }
     }
+}
+
+/**
+ * The proof line inside [PaymentActionSheet]: the screenshot (tap to open) or, for the two people in the
+ * payment, a way to add one. A payment recorded without one can always get it later from here.
+ */
+@Composable
+private fun PaymentProofRow(
+    payment: PaymentUi,
+    onOpen: () -> Unit,
+    onAdd: () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    if (!payment.hasProof && !payment.canEdit) return
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(c.page)
+            .clickable(onClick = if (payment.proofUrl != null) onOpen else onAdd)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PaymentProofThumb(payment.proofUrl, payment.proofUploadingModel, onOpen = onOpen, onAdd = onAdd, width = 36.dp, height = 48.dp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                when {
+                    payment.proofUploadingModel != null -> "Screenshot uploading"
+                    payment.proofUrl != null -> "Screenshot"
+                    else -> "Add a screenshot"
+                },
+                color = c.ink,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                when {
+                    payment.proofUploadingModel != null -> "It finishes in the background."
+                    payment.proofUrl != null -> "Tap to see it full size."
+                    else -> "Optional. Shows the payment went through."
+                },
+                color = c.ink2,
+                fontSize = 12.sp,
+            )
+        }
+        if (payment.proofUrl != null && payment.canEdit) {
+            Text("Replace", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onAdd))
+        }
+    }
+}
+
+/**
+ * A payment's screenshot full screen, captioned with the payment it belongs to. Only whoever added it may
+ * delete it ([onRemove] null otherwise).
+ */
+@Composable
+fun PaymentProofViewer(
+    payment: PaymentUi,
+    currencyCode: String,
+    onClose: () -> Unit,
+    onRemove: (() -> Unit)?,
+) {
+    val url = payment.proofUrl ?: return
+    ReceiptViewerScreen(
+        receipts = listOf(ViewerReceipt(payment.proofId ?: payment.id, url, isPdf = false)),
+        onClose = onClose,
+        onDeleteReceipt = onRemove?.let { remove -> { _ -> remove() } },
+        title = "Payment screenshot",
+        caption = listOfNotNull("${payment.title} ${moneySubunits(payment.totalSubunits, currencyCode)}", payment.app).joinToString(" · "),
+        captionDetail = listOfNotNull(payment.dateLabel.ifBlank { null }, payment.recordedBy.ifBlank { null }?.let { "recorded by $it" })
+            .joinToString(" · ")
+            .ifBlank { null },
+        noun = "screenshot",
+    )
 }

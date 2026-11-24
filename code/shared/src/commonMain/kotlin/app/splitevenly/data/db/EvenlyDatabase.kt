@@ -27,6 +27,7 @@ import app.splitevenly.data.db.dao.MemberDao
 import app.splitevenly.data.db.dao.PendingItemEditDao
 import app.splitevenly.data.db.dao.PlaceholderClaimAnswerDao
 import app.splitevenly.data.db.dao.PlaceholderMergeDao
+import app.splitevenly.data.db.dao.PaymentProofDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.dao.ReceiptUploadDao
 import app.splitevenly.data.db.dao.RowSyncStateDao
@@ -55,6 +56,7 @@ import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
@@ -99,6 +101,7 @@ import kotlinx.coroutines.Dispatchers
         CommentEntity::class,
         ExpenseBlockedUserEntity::class,
         ReceiptEntity::class,
+        PaymentProofEntity::class,
         ReceiptUploadEntity::class,
         HistoryEventEntity::class,
         CategoryEntity::class,
@@ -111,7 +114,7 @@ import kotlinx.coroutines.Dispatchers
         SupersededNoticeEntity::class,
         FeedbackOutboxEntity::class,
     ],
-    version = 34,
+    version = 35,
     exportSchema = true,
 )
 @ConstructedBy(EvenlyDatabaseConstructor::class)
@@ -149,6 +152,8 @@ abstract class EvenlyDatabase : RoomDatabase() {
     abstract fun expenseBlockedUserDao(): ExpenseBlockedUserDao
 
     abstract fun receiptDao(): ReceiptDao
+
+    abstract fun paymentProofDao(): PaymentProofDao
 
     abstract fun receiptUploadDao(): ReceiptUploadDao
 
