@@ -21,7 +21,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -232,7 +231,6 @@ fun ScanReceiptHero(
     Column(
         modifier
             .fillMaxWidth()
-            .shadow(elevation = 1.dp, shape = scanCardShape, clip = false)
             .clip(scanCardShape)
             .background(c.page)
             .border(1.dp, c.blue, scanCardShape)
@@ -247,7 +245,6 @@ fun ScanReceiptHero(
             Box(
                 Modifier
                     .size(46.dp)
-                    .shadow(elevation = 2.dp, shape = RoundedCornerShape(13.dp), clip = false)
                     .clip(RoundedCornerShape(13.dp))
                     .background(c.blue),
                 contentAlignment = Alignment.Center,

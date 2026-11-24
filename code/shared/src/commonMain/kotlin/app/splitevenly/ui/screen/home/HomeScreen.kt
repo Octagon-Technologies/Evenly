@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.BannerVariant
 import app.splitevenly.ui.components.ButtonVariant
@@ -363,9 +364,10 @@ fun HomeScreen(
 }
 
 /**
- * A full-width "Create or Join Group" pill anchored to the bottom of Home — the one primary action,
- * a solid blue fill (not the white-chip `ButtonVariant.Primary`) so it reads as a floating CTA over
- * the group list, matching the approved mockup.
+ * A full-width "Create or Join Group" pill anchored to the bottom of Home, the one primary action.
+ *
+ * It floats over the list, so Android gives it M3's neutral FAB shadow; iOS has no button shadows,
+ * so there it is a flat prominent fill (design/brainstorm/button-states.html).
  */
 @Composable
 private fun CreateOrJoinBar(
@@ -380,7 +382,7 @@ private fun CreateOrJoinBar(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(16.dp)
-            .shadow(elevation = 10.dp, shape = shape, ambientColor = c.blue.copy(alpha = 0.5f), spotColor = c.blue.copy(alpha = 0.5f))
+            .then(if (isIOS()) Modifier else Modifier.shadow(elevation = 6.dp, shape = shape))
             .clip(shape)
             .background(c.blue)
             .clickable(onClick = onClick)

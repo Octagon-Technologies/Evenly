@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Button platform styling</title>
+<style>
+:root{
+  --page:#fff;--surface:#F6F8FB;--border:#E6EAF0;--border-strong:#D6DCE6;
+  --ink:#0B1220;--ink2:#5B6577;--blue:#2563EB;--blue-tint:#EFF4FF;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#EEF1F6;color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5;padding:32px 16px 80px}
+.wrap{max-width:1080px;margin:0 auto}
+h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:19px;margin:44px 0 6px}
+.lede{color:var(--ink2);max-width:760px;margin:0}
+.bar{display:flex;gap:8px;margin:18px 0 0;flex-wrap:wrap}
+.bar button{font:inherit;font-size:14px;padding:6px 14px;border-radius:999px;border:1px solid var(--border-strong);background:#fff;cursor:pointer}
+.bar button[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-top:18px}
+.col h3{font-size:15px;margin:0 0 2px}
+.col .sub{font-size:13px;color:var(--ink2);margin:0 0 10px;min-height:60px}
+
+/* Phone */
+.phone{--p-page:#fff;--p-ink:#0B1220;--p-ink2:#5B6577;--p-tint:#EFF4FF;--p-field:#F6F8FB;--p-fieldb:#E6EAF0;--p-blue:#2563EB;--p-bluetext:#2563EB;
+  width:100%;max-width:300px;height:560px;border-radius:38px;background:var(--p-page);border:9px solid #111;position:relative;overflow:hidden;margin:0 auto;
+  display:flex;flex-direction:column;align-items:center;padding:52px 22px 20px;color:var(--p-ink)}
+.dark .phone{--p-page:#000;--p-ink:#E7ECF3;--p-ink2:#9AA4B5;--p-tint:rgba(122,166,255,.10);--p-field:rgba(122,166,255,.06);--p-fieldb:rgba(122,166,255,.18);--p-blue:#3A52D6;--p-bluetext:#7AA6FF;border-color:#333}
+.phone .back{position:absolute;top:44px;left:18px;font-size:22px;color:var(--p-ink)}
+.phone .ic{width:60px;height:60px;border-radius:17px;background:var(--p-tint);display:grid;place-items:center;margin-top:46px;color:var(--p-bluetext);font-size:26px}
+.phone .t{font-weight:700;font-size:19px;margin:14px 0 6px}
+.phone .d{font-size:12.5px;color:var(--p-ink2);text-align:center;line-height:1.45;max-width:230px}
+.phone .d b{color:var(--p-ink)}
+.phone .lbl{align-self:flex-start;font-size:12px;font-weight:600;margin:16px 0 6px}
+.phone .field{width:100%;height:44px;border-radius:10px;background:var(--p-field);border:1px solid var(--p-fieldb);display:flex;align-items:center;padding:0 14px;font-size:16px;letter-spacing:.25em;font-variant-numeric:tabular-nums}
+.phone .gap{height:16px}
+.phone .kb{position:absolute;left:0;right:0;bottom:0;height:0}
+
+/* Shared button reset */
+.b{width:100%;border:0;font:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;position:relative;user-select:none;-webkit-tap-highlight-color:transparent;transition:border-radius .15s ease,filter .12s ease,background .12s ease,transform .12s ease}
+.b + .b{margin-top:8px}
+
+/* 1. Current EvButton Primary (light): white chip, 1px border, shadow(1.dp), 8dp radius, 42dp.
+   The box-shadow reproduces how Compose's shadow() renders on iOS: a hard grey rim under the hairline. */
+.cur{height:42px;border-radius:8px;background:#fff;border:1px solid #D6DCE6;color:#2563EB;font-weight:700;font-size:16px;
+  box-shadow:0 0 0 .5px rgba(0,0,0,.10),0 1px 1.6px rgba(0,0,0,.30)}
+.dark .cur{background:var(--p-blue);color:#fff;border-color:transparent;box-shadow:0 0 0 .5px rgba(255,255,255,.08),0 1.5px 2.5px rgba(0,0,0,.9)}
+.cur:active{background:#F6F8FB}
+.cur-text{height:40px;background:none;color:var(--p-bluetext);font-weight:600;font-size:16px}
+
+/* 2. Android, M3 Filled, Small (40dp), round shape. Elevation 0. Pressed: 10% on-primary state layer + morph to 8dp. */
+.m3{height:40px;border-radius:999px;background:var(--p-blue);color:#fff;font-family:Roboto,system-ui,sans-serif;font-weight:500;font-size:14px;letter-spacing:.1px;overflow:hidden}
+.m3::after{content:"";position:absolute;inset:0;background:#fff;opacity:0;transition:opacity .12s}
+.m3:active{border-radius:8px}
+.m3:active::after{opacity:.10}
+.m3-text{height:40px;border-radius:999px;background:none;color:var(--p-bluetext);font-family:Roboto,system-ui,sans-serif;font-weight:500;font-size:14px;letter-spacing:.1px;width:auto;padding:0 16px;margin-left:auto;margin-right:auto}
+.m3-text:active{background:color-mix(in srgb,var(--p-bluetext) 10%,transparent);border-radius:8px}
+.m3-out{height:40px;border-radius:999px;background:none;border:1px solid #D6DCE6;color:var(--p-bluetext);font-family:Roboto,system-ui,sans-serif;font-weight:500;font-size:14px}
+.dark .m3-out{border-color:rgba(122,166,255,.30)}
+.m3-out:active{background:color-mix(in srgb,var(--p-bluetext) 10%,transparent);border-radius:8px}
+
+/* 3. iOS, borderedProminent / large, capsule. No shadow. Pressed: dims. */
+.ios{height:50px;border-radius:999px;background:var(--p-blue);color:#fff;font-family:-apple-system,"SF Pro Text",system-ui,sans-serif;font-weight:600;font-size:17px;letter-spacing:-.2px}
+.ios:active{filter:brightness(.82)}
+.ios-plain{height:44px;background:none;color:var(--p-bluetext);font-family:-apple-system,"SF Pro Text",system-ui,sans-serif;font-size:17px;letter-spacing:-.2px}
+.ios-plain:active{opacity:.4}
+.ios-gray{height:50px;border-radius:999px;background:rgba(120,120,128,.12);color:var(--p-bluetext);font-family:-apple-system,"SF Pro Text",system-ui,sans-serif;font-weight:600;font-size:17px;letter-spacing:-.2px}
+.dark .ios-gray{background:rgba(120,120,128,.24)}
+.ios-gray:active{filter:brightness(.88)}
+
+.zoom{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px}
+.zoom .z{flex:1 1 220px;background:#fff;border-radius:14px;padding:26px 22px;border:1px solid var(--border)}
+.dark .zoom .z{background:#000;border-color:#222}
+.zoom .z .b{max-width:none}
+.zoom .cap{font-size:12px;color:var(--ink2);margin-top:12px}
+.dark .zoom .cap{color:#9AA4B5}
+.zoom .z.big{transform-origin:top left}
+.zoom{--p-blue:#2563EB;--p-bluetext:#2563EB}
+.dark .zoom{--p-blue:#3A52D6;--p-bluetext:#7AA6FF}
+
+table{border-collapse:collapse;width:100%;margin-top:14px;background:#fff;border-radius:12px;overflow:hidden;font-size:13.5px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:var(--surface);font-weight:600}
+td:first-child{font-weight:600;white-space:nowrap}
+.tbl{overflow-x:auto}
+.note{background:#fff;border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:10px;padding:14px 16px;margin-top:16px;max-width:820px}
+.note p{margin:0 0 8px}.note p:last-child{margin:0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--surface);padding:1px 5px;border-radius:5px}
+pre{background:#0B1220;color:#E7ECF3;padding:14px 16px;border-radius:10px;overflow-x:auto;font-size:12.5px;line-height:1.5;margin-top:12px}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;margin-bottom:6px}
+.tag.now{background:#FEF3C7;color:#92400E}.tag.and{background:#DCFCE7;color:#166534}.tag.apl{background:#E0E7FF;color:#3730A3}
+</style>
+</head>
+<body>
+<div class="wrap" id="root">
+  <h1>Button styling: Android vs iOS</h1>
+  <p class="lede">The OTP screen's "Verify &amp; sign in" uses <code>EvButton</code>'s default <code>Primary</code>: a white chip with a 1px hairline <em>and</em> a 1dp <code>Modifier.shadow</code>. On iOS, Compose draws that shadow as a hard grey rim under the hairline, which is the odd elevation you noticed. Neither platform's guidelines put a shadow on a primary button. Press and hold any button below to see its pressed state.</p>
+  <div class="bar" role="group" aria-label="Theme">
+    <button id="tLight" aria-pressed="true">Light</button>
+    <button id="tDark" aria-pressed="false">Dark</button>
+  </div>
+
+  <h2>The OTP screen, three ways</h2>
+  <div class="row">
+    <div class="col">
+      <span class="tag now">Today</span>
+      <h3>Current EvButton (both OSes)</h3>
+      <p class="sub">White chip, hairline + 1dp shadow, 8dp corners, 42dp tall, bold 16sp blue.</p>
+      <div class="phone"><span class="back">‹</span>
+        <div class="ic">✉</div><div class="t">Check your email</div>
+        <div class="d">We sent a magic link and a sign-in code to <b>you@email.com</b>. Tap the link, or enter the code below.</div>
+        <div class="lbl">Sign-in code</div><div class="field">482 91</div><div class="gap"></div>
+        <button class="b cur">Verify &amp; sign in</button>
+        <button class="b cur-text">Resend code</button>
+      </div>
+    </div>
+    <div class="col">
+      <span class="tag and">Android</span>
+      <h3>Material 3 Filled button</h3>
+      <p class="sub">Primary fill, no shadow, fully round, 40dp (Small), Label Large 14sp Medium. Resend is a Text button.</p>
+      <div class="phone"><span class="back">←</span>
+        <div class="ic">✉</div><div class="t">Check your email</div>
+        <div class="d">We sent a magic link and a sign-in code to <b>you@email.com</b>. Tap the link, or enter the code below.</div>
+        <div class="lbl">Sign-in code</div><div class="field">482 91</div><div class="gap"></div>
+        <button class="b m3">Verify &amp; sign in</button>
+        <button class="b m3-text">Resend code</button>
+      </div>
+    </div>
+    <div class="col">
+      <span class="tag apl">iOS</span>
+      <h3>HIG prominent button</h3>
+      <p class="sub">Accent fill, no shadow, capsule, large control (about 50pt), 17pt Semibold. Resend is a plain button.</p>
+      <div class="phone"><span class="back">‹</span>
+        <div class="ic">✉</div><div class="t">Check your email</div>
+        <div class="d">We sent a magic link and a sign-in code to <b>you@email.com</b>. Tap the link, or enter the code below.</div>
+        <div class="lbl">Sign-in code</div><div class="field">482 91</div><div class="gap"></div>
+        <button class="b ios">Verify &amp; sign in</button>
+        <button class="b ios-plain">Resend code</button>
+      </div>
+    </div>
+  </div>
+
+  <h2>Close up</h2>
+  <div class="zoom">
+    <div class="z"><button class="b cur">Verify &amp; sign in</button><div class="cap">Today. The grey rim under the hairline is the 1dp shadow.</div></div>
+    <div class="z"><button class="b m3">Verify &amp; sign in</button><div class="cap">Android. Pressed: 10% white state layer, corners morph to 8dp.</div></div>
+    <div class="z"><button class="b ios">Verify &amp; sign in</button><div class="cap">iOS. Pressed: the fill darkens. No shadow at any state.</div></div>
+  </div>
+
+  <h2>If you want to keep the white chip</h2>
+  <p class="lede">The white chip is a deliberate <code>design/</code> choice. Each platform has an official lower-emphasis style that keeps that look without a shadow: Material's Outlined button and iOS's gray (bordered) button. Both guidelines reserve these for a secondary action, though, so a lone hero CTA usually takes the filled style.</p>
+  <div class="zoom">
+    <div class="z"><button class="b m3-out">Verify &amp; sign in</button><div class="cap">Android. M3 Outlined: hairline only, transparent fill, elevation 0.</div></div>
+    <div class="z"><button class="b ios-gray">Verify &amp; sign in</button><div class="cap">iOS. Bordered (gray): tinted fill, no border, no shadow.</div></div>
+  </div>
+
+  <h2>What the specs say</h2>
+  <div class="tbl"><table>
+    <tr><th></th><th>Material 3 (Android)</th><th>Apple HIG (iOS)</th></tr>
+    <tr><td>Primary style</td><td>Filled: <code>primary</code> container, <code>onPrimary</code> label</td><td>Prominent style: accent-colored background. Keep one or two prominent buttons per view.</td></tr>
+    <tr><td>Shadow</td><td>Only the Elevated style has one (level 1, 0 when disabled). Filled, tonal, outlined and text have none.</td><td>No button style has a drop shadow.</td></tr>
+    <tr><td>Shape</td><td>Round (fully rounded) by default. Square option: 12dp at S, 16dp at M.</td><td>Capsule for the large prominent style</td></tr>
+    <tr><td>Height</td><td>XS 32 · S 40 (default) · M 56 · L 96 · XL 136dp. Touch target at least 48dp.</td><td>Large control about 50pt. Hit region at least 44×44pt.</td></tr>
+    <tr><td>Label</td><td>Label Large, 14sp Medium (at S). Padding 16dp in M3 Expressive.</td><td>17pt Semibold, verb-first title case</td></tr>
+    <tr><td>Pressed</td><td>State layer (about 10%) plus a shape morph toward square (8dp at S)</td><td>A press state is required. The system dims or highlights the fill.</td></tr>
+    <tr><td>Waiting</td><td>Not specified for buttons</td><td>The HIG suggests an activity indicator inside the button with an "-ing" label, which fits Verify → "Verifying…"</td></tr>
+  </table></div>
+
+  <h2>What it would take in code</h2>
+  <div class="note">
+    <p><b>1. Drop every shadow from <code>EvButton</code>.</b> Delete <code>BtnStyle.elevation</code> and the <code>Modifier.shadow</code> line. That fixes the odd rim on its own, even before any restyle.</p>
+    <p><b>2. Make <code>Primary</code> the filled style on both OSes.</b> It already is in dark mode, so this only changes light mode.</p>
+    <p><b>3. Branch shape, height and label per platform</b> through the existing <code>isIOS()</code>, the same way <code>EvSheetChrome</code> already does for sheets.</p>
+  </div>
+<pre>private val ios = isIOS()
+val height = when { small -&gt; 36.dp; ios -&gt; 50.dp; else -&gt; 40.dp }
+val shape  = CircleShape                       // M3 round = iOS capsule
+val label  = if (ios) 17.sp to FontWeight.SemiBold else 14.sp to FontWeight.Medium
+// Android: InteractionSource -&gt; 10% onAccent overlay + corner morph to 8.dp
+// iOS:     pressed -&gt; darken fill (Color.Black 18% overlay)</pre>
+</div>
+<script>
+(function(){
+  var root=document.getElementById('root'),l=document.getElementById('tLight'),d=document.getElementById('tDark');
+  function set(dark){root.classList.toggle('dark',dark);l.setAttribute('aria-pressed',!dark);d.setAttribute('aria-pressed',dark);
+    document.body.style.background=dark?'#0B0D12':'#EEF1F6';document.body.style.color=dark?'#E7ECF3':'';}
+  l.onclick=function(){set(false)};d.onclick=function(){set(true)};
+})();
+</script>
+</body>
+</html>

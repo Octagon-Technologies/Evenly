@@ -339,6 +339,9 @@ fun GroupSettingsScreen(
                     enabled = draft.isNotBlank(),
                 )
             }
+            Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                EvButton("Cancel", { showRename = false }, variant = ButtonVariant.Dismiss)
+            }
         }
     }
 
@@ -378,6 +381,9 @@ fun GroupSettingsScreen(
                     onResetInvite()
                 }, variant = ButtonVariant.Danger)
             }
+            Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                EvButton("Cancel", { showResetLink = false }, variant = ButtonVariant.Dismiss)
+            }
         }
     }
 
@@ -394,6 +400,9 @@ fun GroupSettingsScreen(
                     onRemoveMember(target)
                     removeTarget = null
                 }, variant = ButtonVariant.Danger)
+            }
+            Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                EvButton("Cancel", { removeTarget = null }, variant = ButtonVariant.Dismiss)
             }
         }
     }
@@ -557,7 +566,7 @@ internal fun DeleteGroupSheet(
             )
         }
         Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-            EvButton("Cancel", onDismiss, variant = ButtonVariant.Secondary)
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Dismiss)
         }
     }
 }
@@ -586,7 +595,7 @@ internal fun LeaveGroupSheet(
             EvButton("Leave", onConfirm, variant = ButtonVariant.Danger)
         }
         Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-            EvButton("Cancel", onDismiss, variant = ButtonVariant.Secondary)
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Dismiss)
         }
     }
 }

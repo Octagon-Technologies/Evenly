@@ -129,7 +129,7 @@ internal fun PeoplePickerSheet(
                 isError = nameMissing,
                 modifier = Modifier.weight(1f),
             )
-            EvButton("Create", { create() }, variant = ButtonVariant.PrimarySolid, small = true, fillMaxWidth = false)
+            EvButton("Create", { create() }, variant = ButtonVariant.Primary, small = true, fillMaxWidth = false)
         }
         if (nameMissing) {
             Text("Type a name first", color = c.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
@@ -186,7 +186,7 @@ internal fun PeoplePickerSheet(
                         dismissRequested = true
                     }
                 },
-                variant = ButtonVariant.PrimarySolid,
+                variant = ButtonVariant.Primary,
                 fillMaxWidth = false,
             )
         }

@@ -1,7 +1,11 @@
 package app.splitevenly.ui.components
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,35 +17,62 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
 
-enum class ButtonVariant { Primary, Secondary, Tonal, Text, Danger, PrimarySolid }
+/**
+ * Button hierarchy, mapped to Material 3 on Android and the HIG on iOS
+ * (design/brainstorm/button-states.html, ios-secondary-buttons.html).
+ *
+ * - [Primary]: filled blue (M3 Filled / iOS prominent).
+ * - [Secondary]: hairline outline on both OSes. Use it for side-by-side rows and for stacked
+ *   choices that are equally valid ("Start a trip group" under "Split a one-time bill").
+ * - [Dismiss]: backs out of the action stacked directly above it ("Cancel", "Keep editing").
+ *   Plain text on iOS, which is Apple's own sheet and setup-screen pattern; outlined on Android.
+ *   In a side-by-side row use [Secondary] instead, or the row reads as one button and a stray label.
+ * - [Tonal], [Text], [Danger]: soft fill, label only, red outline.
+ *
+ * No variant casts a shadow. Neither guideline puts elevation on a button, and Compose's shadow
+ * on iOS draws as a hard grey rim rather than a lift.
+ */
+enum class ButtonVariant { Primary, Secondary, Dismiss, Tonal, Text, Danger }
+
+/** iOS dims a plain (shapeless) button's label to this while pressed. */
+private const val IOS_PLAIN_PRESSED_ALPHA = 0.35f
 
 private data class BtnStyle(
     val bg: Color,
     val fg: Color,
-    val border: Color,
-    val borderWidth: Float,
-    val elevation: Dp = 0.dp,
-)
+    val border: Color = Color.Transparent,
+    val borderWidth: Dp = 0.dp,
+    val filled: Boolean = false,
+) {
+    val plain: Boolean get() = bg == Color.Transparent && borderWidth == 0.dp
+}
 
-/** Slot-based `.sc-btn` — full control for buttons that hold a spinner/custom content. */
+/** Slot-based button for content beyond a label and icon (a spinner, a two-part label). */
 @Composable
 fun EvButton(
     onClick: () -> Unit,
@@ -53,98 +84,129 @@ fun EvButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     val c = EvenlyTheme.colors
+    val ios = remember { isIOS() }
+    val outline = BtnStyle(Color.Transparent, if (enabled) c.blueText else c.disabledInk, c.borderStrong, 1.dp)
     val style =
         when (variant) {
-            // Primary hero: a WHITE chip with bold blue text. The hairline does the edge definition, so the
-            // shadow only needs to *barely* whisper a lift — 1dp. Anything more reads as a hard grey halo on
-            // white and looks unrealistic; the border already separates it from the page. In dark mode `page`
-            // is the elevated near-ink surface, so it still reads as a lifted button.
             ButtonVariant.Primary -> {
-                when {
-                    !enabled -> BtnStyle(c.surface, c.disabledInk, c.border, 1f)
-
-                    // In dark mode the white chip becomes the elevated near-ink surface, and blue-on-near-ink
-                    // is the weakest contrast pair in the palette right where the app's most important tap is.
-                    // Go solid blue with white content instead, the same escape Secondary already takes.
-                    c.isDark -> BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
-
-                    else -> BtnStyle(c.page, c.blue, c.borderStrong, 1f, elevation = 1.dp)
-                }
-            }
-
-            // In dark mode a transparent bg + blue outline barely reads against the near-black page, so
-            // Secondary goes solid there (same treatment as PrimarySolid) instead of staying an outline.
-            ButtonVariant.Secondary -> {
-                if (c.isDark) {
-                    BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
-                } else {
-                    BtnStyle(Color.Transparent, c.bluePressed, c.blue, 1.2f)
-                }
-            }
-
-            // Tonal: a soft blue fill — a clearly-secondary full-width action that still reads as a button
-            // (distinct from the solid-blue Primary hero above it).
-            ButtonVariant.Tonal -> {
                 if (enabled) {
-                    // Deep CTA blue is tuned as a fill and sinks into the dark tonal surface. White keeps
-                    // both the label and optional icon readable there; light mode keeps the brand blue.
-                    BtnStyle(c.blueTint, if (c.isDark) c.onAccent else c.blue, Color.Transparent, 0f)
+                    BtnStyle(c.blue, c.onAccent, filled = true)
                 } else {
-                    BtnStyle(c.blueTint, c.disabledInk, Color.Transparent, 0f)
+                    BtnStyle(c.surface, c.disabledInk, c.border, 1.dp)
                 }
             }
 
+            ButtonVariant.Secondary -> {
+                outline
+            }
+
+            ButtonVariant.Dismiss -> {
+                if (ios) BtnStyle(Color.Transparent, if (enabled) c.blueText else c.disabledInk) else outline
+            }
+
+            // Deep CTA blue sinks into the dark tonal surface, so the label goes white there.
+            ButtonVariant.Tonal -> {
+                BtnStyle(
+                    c.blueTint,
+                    if (!enabled) {
+                        c.disabledInk
+                    } else if (c.isDark) {
+                        c.onAccent
+                    } else {
+                        c.blue
+                    },
+                )
+            }
+
+            // Foreground blue: c.blue is a fill and sinks into the dark page as text.
             ButtonVariant.Text -> {
-                // Foreground blue: c.blue is a fill and sinks into the dark page as text.
-                BtnStyle(Color.Transparent, c.blueText, Color.Transparent, 0f)
+                BtnStyle(Color.Transparent, c.blueText)
             }
 
             ButtonVariant.Danger -> {
-                BtnStyle(Color.Transparent, c.danger, c.danger.copy(alpha = 0.3f), 1f)
-            }
-
-            // Solid variants: for surfaces (like dark mode's near-black page) where the white-chip Primary
-            // and transparent Secondary don't read as buttons at all — a solid blue fill / blue hairline
-            // with white content instead.
-            ButtonVariant.PrimarySolid -> {
-                if (enabled) {
-                    BtnStyle(c.blue, c.onAccent, Color.Transparent, 0f, elevation = 2.dp)
-                } else {
-                    BtnStyle(c.surface, c.disabledInk, c.border, 1f)
-                }
+                BtnStyle(Color.Transparent, c.danger, c.danger.copy(alpha = 0.3f), 1.dp)
             }
         }
     val height =
         when {
             small -> 36.dp
 
-            // 40.dp
-            variant == ButtonVariant.Text -> 40.dp
+            ios && style.plain -> 44.dp
 
-            // 44.dp
-            else -> 42.dp // 52.dp
+            // HIG minimum hit region, with no shape drawn to pad it out
+            ios -> 50.dp
+
+            // large control size
+            else -> 40.dp // M3 small (default) button
         }
-    val shape = RoundedCornerShape(if (small) 6.dp else 8.dp)
+
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    // M3 Expressive: pressing morphs a round button toward square (8dp at the small size). iOS keeps the capsule.
+    val corner by animateDpAsState(if (pressed && !ios) 8.dp else height / 2, label = "buttonCorner")
+    val shape = RoundedCornerShape(corner)
+    // Pressed feedback per platform: M3 lays a 10% label-colored state layer over every style. iOS darkens a
+    // filled button, deepens a shaped one, and dims a plain label.
+    val pressLayer =
+        when {
+            !pressed -> Color.Transparent
+            ios && style.filled -> Color.Black.copy(alpha = 0.18f)
+            ios && style.plain -> Color.Transparent
+            else -> style.fg.copy(alpha = 0.10f)
+        }
+    val focusManager = LocalFocusManager.current
+    // Dismiss stays full width even when plain: the label centers under the button above and the whole
+    // row is the hit area.
     val autoWidth = small || variant == ButtonVariant.Text
     Row(
         modifier =
             modifier
                 .then(if (!autoWidth && fillMaxWidth) Modifier.fillMaxWidth() else Modifier)
                 .height(height)
-                .then(if (style.elevation > 0.dp) Modifier.shadow(style.elevation, shape, clip = false) else Modifier)
                 .clip(shape)
                 .background(style.bg)
-                .then(if (style.borderWidth > 0f) Modifier.border(style.borderWidth.dp, style.border, shape) else Modifier)
-                .clickableClearingFocus(enabled = enabled, onClick = onClick)
-                .padding(horizontal = if (small) 14.dp else 20.dp),
+                .background(pressLayer)
+                .then(
+                    if (style.borderWidth > 0.dp) Modifier.border(style.borderWidth, style.border, shape) else Modifier,
+                ).clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button) {
+                    focusManager.clearFocus()
+                    onClick()
+                }.then(if (ios && style.plain && pressed) Modifier.alpha(IOS_PLAIN_PRESSED_ALPHA) else Modifier)
+                .padding(
+                    horizontal =
+                        if (small) {
+                            14.dp
+                        } else if (ios) {
+                            20.dp
+                        } else {
+                            16.dp
+                        },
+                ),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CompositionLocalProvider(LocalContentColor provides style.fg) { content() }
+        // Slot content inherits the platform label style, so a custom label (spinner + "Saving…") matches
+        // the text overload instead of hardcoding its own size.
+        val t = EvenlyTheme.text
+        val plainOnIos = ios && (variant == ButtonVariant.Text || variant == ButtonVariant.Dismiss)
+        val label =
+            (if (small) t.buttonSmall else t.button).copy(
+                // iOS: 17pt Semibold (15pt for a small control), Regular for a plain button.
+                // Android: M3 Label Large, 14sp Medium.
+                fontSize = if (ios) (if (small) 15.sp else 17.sp) else 14.sp,
+                fontWeight =
+                    when {
+                        plainOnIos -> FontWeight.Normal
+                        ios -> FontWeight.SemiBold
+                        else -> FontWeight.Medium
+                    },
+                letterSpacing = if (ios) (-0.2).sp else 0.1.sp,
+            )
+        CompositionLocalProvider(LocalContentColor provides style.fg, LocalTextStyle provides label) { content() }
     }
 }
 
-/** Text `.sc-btn` with optional leading icon. */
+/** Text button with optional leading icon. */
 @Composable
 fun EvButton(
     text: String,
@@ -158,23 +220,7 @@ fun EvButton(
 ) {
     EvButton(onClick, modifier, variant, enabled, small, fillMaxWidth) {
         leadingIcon?.let { EvIcon(it, size = if (small) 16.dp else 20.dp, tint = LocalContentColor.current) }
-        val t = EvenlyTheme.text
-        Text(
-            text = text,
-            color = LocalContentColor.current,
-            fontSize = 16.sp,
-            style =
-                (if (small) t.buttonSmall else t.button).copy(
-                    // The white-chip Primary needs heavier weight so the blue label stays legible on white; the
-                    // solid variants go a step heavier still since white-on-blue/transparent needs it.
-                    fontWeight =
-                        when (variant) {
-                            ButtonVariant.Primary -> FontWeight.Bold
-                            ButtonVariant.PrimarySolid -> FontWeight.ExtraBold
-                            else -> FontWeight.SemiBold
-                        },
-                ),
-        )
+        Text(text = text, color = LocalContentColor.current)
     }
 }
 
@@ -270,7 +316,12 @@ fun EvAppleSignInButton(
     }
 }
 
-/** `.sc-fab` — blue floating action button with the design's colored drop shadow. Position via [modifier]. */
+/**
+ * Blue floating action button. Position via [modifier].
+ *
+ * Android keeps M3's neutral FAB shadow, the one button the spec lets float. iOS has no FAB idiom
+ * and no button shadows, so there it is a flat prominent fill.
+ */
 @Composable
 fun EvFab(
     onClick: () -> Unit,
@@ -280,13 +331,11 @@ fun EvFab(
 ) {
     val c = EvenlyTheme.colors
     val shape = RoundedCornerShape(16.dp)
+    val ios = remember { isIOS() }
     Row(
         modifier =
             modifier
-                // Natural lift, no coloured halo: a soft neutral 2dp shadow. The blue-tinted glow read as a
-                // slab hovering off the page; a plain shadow settles it in (and simply blends on the dark page,
-                // where the solid-blue fill against black is lift enough).
-                .shadow(elevation = 2.dp, shape = shape)
+                .then(if (ios) Modifier else Modifier.shadow(elevation = 6.dp, shape = shape))
                 .clip(shape)
                 .background(c.blue)
                 .clickableClearingFocus(onClick = onClick)

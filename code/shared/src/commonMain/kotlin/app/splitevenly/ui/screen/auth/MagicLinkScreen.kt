@@ -191,14 +191,12 @@ fun MagicLinkScreen(
                     ) {
                         if (state == MagicLinkState.Loading) {
                             EvSpinner(size = 18.dp)
-                            Text("Signing in…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Signing in…", color = LocalContentColor.current)
                         } else {
                             EvIcon(EvIcons.Send, size = 20.dp, tint = LocalContentColor.current)
                             Text(
                                 if (usePassword) "Sign in" else "Email me a code",
                                 color = LocalContentColor.current,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }

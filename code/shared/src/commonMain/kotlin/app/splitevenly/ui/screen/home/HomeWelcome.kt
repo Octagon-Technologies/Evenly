@@ -70,13 +70,11 @@ internal fun HomeWelcome(
         )
         Spacer(Modifier.height(28.dp))
         Column(Modifier.widthIn(max = 280.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // In dark mode the white-chip Primary reads as barely-there against the near-black page, so
-            // this hero action swaps to the solid-blue variant there; Secondary now handles its own
-            // light/dark treatment internally.
+            // Two equally valid starts, so the second keeps an outlined shape (Secondary) rather than
+            // going plain; the plain link below is the third, lighter level.
             EvButton(
                 "Split a one-time bill",
                 onSplitBill,
-                variant = if (c.isDark) ButtonVariant.PrimarySolid else ButtonVariant.Primary,
                 leadingIcon = EvIcons.Receipt,
             )
             EvButton(

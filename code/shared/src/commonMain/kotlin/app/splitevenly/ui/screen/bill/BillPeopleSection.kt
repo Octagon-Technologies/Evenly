@@ -125,7 +125,7 @@ internal fun RemoveParticipantSheet(removal: PendingRemoval, onConfirm: () -> Un
         )
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             EvButton("Take them off", onConfirm, variant = ButtonVariant.Danger)
-            EvButton("Keep them", onCancel, variant = ButtonVariant.Secondary)
+            EvButton("Keep them", onCancel, variant = ButtonVariant.Dismiss)
         }
     }
 }

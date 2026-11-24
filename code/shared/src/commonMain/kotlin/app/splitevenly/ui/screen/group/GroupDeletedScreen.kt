@@ -97,7 +97,7 @@ fun GroupDeletedScreen(
             Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Live even while restoring, so a double tap is a no-op rather than a dead control.
                 EvButton(if (restoring) "Restoring…" else "Restore for everyone", onRestore)
-                EvButton("Back to groups", onBackToGroups, variant = ButtonVariant.Secondary)
+                EvButton("Back to groups", onBackToGroups, variant = ButtonVariant.Dismiss)
             }
         }
     }

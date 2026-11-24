@@ -98,11 +98,21 @@ ShareCost-era and is fully retired; do not reintroduce it.
   consistency; do not revert these to blue.
 - **Sheets:** `EvDragSheet` is draggable; `EvSheetScaffold` is fixed-height. Both leave the page behind
   unchanged by default. Use `dimBackground = true` on `EvSheetScaffold` only when a dimmed backdrop is intended.
-  The sheet top is native per OS (`EvSheetChrome.kt`): iOS gets a grabber and a round glass ✕ top-left with
-  a centered title; Android gets the Material 3 drag handle, a left title and **no ✕** (owner call,
-  2026-11-19). Every bottom sheet closes on Back, a tap outside, and a swipe down **anywhere on it**
-  (`rememberSheetSwipe`: a scrolling body hands over its pull once at the top). A hand-rolled sheet
-  (`CameraPermissionSheet`) must use the same helper. Don't add a per-screen ✕.
+  The sheet top is native per OS (`EvSheetChrome.kt`): iOS gets a grabber and a centered title; Android
+  gets the Material 3 drag handle and a left title. **Neither draws a ✕**, and neither does
+  `EvModalScaffold` (owner call, 2026-11-24, `design/brainstorm/close-button-audit.html`). Every bottom
+  sheet closes on Back, a tap outside, and a swipe down **anywhere on it** (`rememberSheetSwipe`: a
+  scrolling body hands over its pull once at the top). A hand-rolled sheet (`CameraPermissionSheet`) must
+  use the same helper. A centered pop-up that is a confirm or a small form ends with a "Cancel"
+  (`ButtonVariant.Dismiss`); a picker that applies on tap needs none. Don't add a per-screen ✕.
+
+- **Buttons never cast a shadow** (`design/brainstorm/button-states.html`). Primary is filled blue,
+  Secondary a hairline outline, on both OSes; size, label and pressed feedback follow M3 on Android and the
+  HIG on iOS (`EvButton`). **Pick the secondary by layout:** a button that backs out of the action stacked
+  right above it ("Cancel", "Keep editing") is `Dismiss`, plain text on iOS and outlined on Android. A
+  side-by-side row or a stacked *equal* choice uses `Secondary`, because plain text there reads as one
+  button and a stray label (`design/brainstorm/ios-secondary-buttons.html`). Only Android's FAB and the
+  Home "New" bar keep a shadow, M3's neutral FAB elevation.
 
 - **The 3dp left strip on an expense row means "you're on this"** (payer or a share holder,
   `ExpenseItemUi.involved`), in `c.blueText` because the fill blue sinks into the black dark page. It is

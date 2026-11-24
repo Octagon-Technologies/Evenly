@@ -157,7 +157,7 @@ internal fun HomeGroupDeleteFlow(
                             modifier = Modifier.padding(top = 6.dp),
                         )
                         Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                            EvButton("Archive instead", onArchive, variant = ButtonVariant.PrimarySolid, leadingIcon = EvIcons.Archive)
+                            EvButton("Archive instead", onArchive, variant = ButtonVariant.Primary, leadingIcon = EvIcons.Archive)
                         }
                         if (g.members > 1) {
                             Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {

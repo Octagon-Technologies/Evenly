@@ -228,13 +228,13 @@ fun FeedbackScreen(
                             onSubmit(draft)
                         }
                     },
-                    variant = ButtonVariant.PrimarySolid,
+                    variant = ButtonVariant.Primary,
                 ) {
                     if (submitting) {
                         CircularProgressIndicator(Modifier.size(18.dp), color = c.onAccent, strokeWidth = 2.dp)
-                        Text("Sending", color = c.onAccent, fontSize = 16.sp)
+                        Text("Sending", color = c.onAccent)
                     } else {
-                        Text("Send feedback", color = c.onAccent, fontSize = 16.sp)
+                        Text("Send feedback", color = c.onAccent)
                     }
                 }
 

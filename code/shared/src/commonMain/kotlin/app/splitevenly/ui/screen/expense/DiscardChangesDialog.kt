@@ -39,7 +39,7 @@ internal fun DiscardChangesDialog(
         Spacer(Modifier.height(20.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             EvButton(if (editing) "Discard changes" else "Discard", onDiscard, variant = ButtonVariant.Danger)
-            EvButton("Keep editing", onDismiss, variant = ButtonVariant.Secondary)
+            EvButton("Keep editing", onDismiss, variant = ButtonVariant.Dismiss)
         }
     }
 }
