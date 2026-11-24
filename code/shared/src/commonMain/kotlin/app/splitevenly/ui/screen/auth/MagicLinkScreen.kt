@@ -24,10 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
@@ -124,7 +124,12 @@ fun MagicLinkScreen(
                                 val completed = next.length == OTP_LENGTH && code.length != OTP_LENGTH
                                 code = next
                                 shortCodeHint = false
-                                if (completed && !verifying) onVerify(next)
+                                if (completed && !verifying) {
+                                    // Drop the keyboard before the network call so the spinner shows at once
+                                    // instead of the keyboard lingering until the screen is replaced.
+                                    focusManager.clearFocus()
+                                    onVerify(next)
+                                }
                             },
                             // The OS reads this hint to offer the code from the notification or Mail.
                             modifier = Modifier.focusRequester(codeFocus).semantics { contentType = ContentType.SmsOtpCode },
@@ -140,7 +145,12 @@ fun MagicLinkScreen(
                         EvSpinner()
                     } else {
                         EvButton("Verify & sign in", {
-                            if (code.length == OTP_LENGTH) onVerify(code) else shortCodeHint = true
+                            if (code.length == OTP_LENGTH) {
+                                focusManager.clearFocus()
+                                onVerify(code)
+                            } else {
+                                shortCodeHint = true
+                            }
                         })
                     }
                     EvButton("Resend code", onResend, variant = ButtonVariant.Text)
