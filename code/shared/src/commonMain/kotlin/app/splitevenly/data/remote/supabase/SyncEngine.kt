@@ -21,6 +21,7 @@ import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
+import app.splitevenly.data.db.entity.PersonLinkEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
@@ -246,6 +247,9 @@ class SyncEngine(
             SyncTable("placeholder_claim_answers", { db.placeholderClaimAnswerDao().allForSync() }, {
                 it.id
             }, { upsertAll("placeholder_claim_answers", it) }),
+            // People tab name links: owner-scoped (RLS `owner_user_id = auth.uid()`), so only the owner's own
+            // rows ever exist locally and a plain upsert is enough.
+            SyncTable("person_links", { db.personLinkDao().allForSync() }, { it.id }, { upsertAll("person_links", it) }),
         )
 
     init {
@@ -321,6 +325,8 @@ class SyncEngine(
                     // "That name is not me" answers. Group-scoped rather than user-scoped on purpose: knowing that
                     // EVERY member ruled a name out is what makes it confirmed account-less.
                     val claimAnswers = selectIn<PlaceholderClaimAnswerEntity>("placeholder_claim_answers", "group_id", groupIds)
+                    // People tab links are the owner's own, never group-scoped.
+                    val personLinks = selectIn<PersonLinkEntity>("person_links", "owner_user_id", listOf(userId))
                     val editConflicts = selectIn<ExpenseEditConflictEntity>("expense_edit_conflicts", "group_id", groupIds)
                     // Expense activity (F5) hangs off the expenses, keyed by expense_id like shares.
                     val comments = if (expenseIds.isEmpty()) emptyList() else selectIn<CommentEntity>("comments", "expense_id", expenseIds)
@@ -512,6 +518,9 @@ class SyncEngine(
                     land("placeholder_claim_answers", claimAnswers, db.placeholderClaimAnswerDao().allForSync(), {
                         it.id
                     }, { it.updatedAt }) { db.placeholderClaimAnswerDao().upsertAll(it) }
+                    land("person_links", personLinks, db.personLinkDao().allForSync(), { it.id }, { it.updatedAt }) {
+                        db.personLinkDao().upsertAll(it)
+                    }
                     // Allocations are append-only ground truth (no updated_at); blind upsert is correct.
                     if (allocations.isNotEmpty()) {
                         db.settlementDao().upsertAllocations(allocations)
@@ -987,6 +996,7 @@ class SyncEngine(
                 "bill_participants",
                 "pending_item_edits",
                 "placeholder_claim_answers",
+                "person_links",
             )
     }
 }

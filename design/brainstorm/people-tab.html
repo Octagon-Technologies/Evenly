@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>People Tab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Brainstorm doc: three variations of the People tab (who owes you, across every group), then the screens all three share. App blue/light tokens; owed = green. */
+:root{
+  --page:#F4F6FB; --paper:#FFFFFF; --ink:#141A2E; --ink2:#5A6378; --ink3:#8A92A6; --line:#E3E7F0;
+  --blue:#3762E3; --blueText:#2B52C9; --blueTint:#EAF0FF;
+  --owe:#C77A12; --oweTint:#FFF4E2; --owed:#1E8A55; --owedTint:#E6F6EE;
+  --red:#D23B3B; --phone:#FFFFFF; --phoneBg:#F6F8FC; --frame:#1B2133; --scrim:rgba(20,26,46,.38);
+  --c1:#3762E3; --c2:#1E8A55; --c3:#C77A12; --c4:#8B5CF6;
+  --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --body:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blueText:#8FA9FF; --blueTint:#1D2747; --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --red:#F06B6B; --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55);
+  --c1:#6F8FF5; --c2:#4CCB8A; --c3:#F0A54A; --c4:#A78BFA; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blueText:#8FA9FF; --blueTint:#1D2747; --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --red:#F06B6B; --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55);
+  --c1:#6F8FF5; --c2:#4CCB8A; --c3:#F0A54A; --c4:#A78BFA; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;padding:40px 16px 80px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1{font-size:clamp(30px,5vw,42px);line-height:1.1}
+h2{font-size:25px}
+p{margin:0;max-width:70ch}
+.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--blueText);font-weight:600}
+.lede{color:var(--ink2);font-size:17px}
+header,.sec{display:flex;flex-direction:column;gap:14px}
+.note{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px 18px;max-width:760px}
+ul,ol{margin:0;padding-left:20px;max-width:70ch}
+li{margin:5px 0}
+.pros{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;max-width:760px}
+.pros div{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px}
+.pros b{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);margin-bottom:4px}
+.phones{display:flex;flex-wrap:wrap;gap:28px;margin-top:8px}
+.ph-col{display:flex;flex-direction:column;gap:10px;width:300px;max-width:100%}
+.cap{font-size:13px;color:var(--ink2)}
+.cap b{color:var(--ink)}
+
+/* phone shell */
+.phone{width:300px;max-width:100%;height:600px;border-radius:38px;border:8px solid var(--frame);background:var(--phoneBg);position:relative;overflow:hidden;display:flex;flex-direction:column}
+.bar{display:flex;align-items:center;padding:16px 16px 8px}
+.bar h4{flex:1;margin:0;font-family:var(--display);font-size:22px;font-weight:700}
+.top{display:flex;align-items:center;gap:8px;padding:16px 14px 6px}
+.top .back{font-size:20px;color:var(--blueText);line-height:1}
+.top h5{margin:0;font-family:var(--display);font-size:17px;flex:1}
+.top .more{color:var(--ink3);font-size:18px}
+.av{width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center;flex:none}
+.av.lg{width:52px;height:52px;font-size:18px}
+.av.p{background:#C2557A}.av.k{background:#2E8C88}.av.m{background:#8B5CF6}.av.d{background:#B8772A}
+.seg{margin:4px 14px 10px;display:flex;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:3px}
+.seg button{flex:1;border:0;background:none;font:600 12px var(--body);color:var(--ink2);padding:7px 0;border-radius:9px}
+.seg button.on{background:var(--blue);color:#fff}
+.seg .n{opacity:.7;font-weight:500;margin-left:3px}
+.list{flex:1;overflow:auto;padding:0 14px 20px;display:flex;flex-direction:column;gap:9px}
+.lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:6px 2px 0}
+.row{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:11px 12px;display:flex;gap:10px;align-items:center;flex:none}
+.meta{flex:1;min-width:0}
+.meta .t{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta .s{font-size:11.5px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.amt{font-size:13px;font-weight:700;color:var(--owed);text-align:right;white-space:nowrap}
+.amt small{display:block;font-size:10.5px;font-weight:500;color:var(--ink3)}
+.muted{color:var(--ink3)}
+.settled{opacity:.6}
+.tile{width:32px;height:32px;border-radius:10px;background:var(--blueTint);display:grid;place-items:center;font-size:16px;flex:none}
+.tile.ot{background:var(--oweTint)}
+.btn{height:42px;border-radius:21px;background:var(--blue);color:#fff;font-weight:700;font-size:13.5px;display:grid;place-items:center;flex:none}
+.btn.ghost{background:var(--blueTint);color:var(--blueText)}
+.hero{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;flex:none}
+.hero .k{font-size:11.5px;color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.hero .big{font-family:var(--display);font-size:30px;font-weight:700;color:var(--owed);line-height:1}
+.hero .sub{font-size:12px;color:var(--ink2)}
+.who{display:flex;align-items:center;gap:12px}
+.who .nm{font-family:var(--display);font-size:19px;font-weight:700}
+.who .aka{font-size:11.5px;color:var(--ink3)}
+.suggest{background:var(--blueTint);border-radius:14px;padding:11px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:8px;flex:none}
+.suggest .acts{display:flex;gap:8px}
+.suggest .acts span{font-size:12px;font-weight:700;padding:6px 12px;border-radius:99px;background:var(--blue);color:#fff}
+.suggest .acts span.no{background:transparent;color:var(--blueText)}
+.stack{display:flex;height:8px;border-radius:4px;overflow:hidden;gap:2px}
+.stack i{display:block}
+.legend{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--ink2)}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chip{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:99px;background:var(--phoneBg);border:1px solid var(--line);color:var(--ink2)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:9px;flex:none;cursor:pointer}
+.card .hd{display:flex;align-items:center;gap:10px}
+.card .body{display:none;flex-direction:column;gap:7px;border-top:1px solid var(--line);padding-top:9px}
+.card.open .body{display:flex}
+.card .cv{color:var(--ink3);transition:transform .2s}
+.card.open .cv{transform:rotate(90deg)}
+.line{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.line .dot{width:8px;height:8px;border-radius:2px;flex:none}
+.line .n{flex:1;min-width:0}
+.line .n small{color:var(--ink3);font-size:11px;margin-left:4px}
+.line b{font-weight:600}
+.tab{display:flex;border-top:1px solid var(--line);background:var(--paper);padding:8px 0 14px;flex:none}
+.tab div{flex:1;text-align:center;font-size:10.5px;color:var(--ink3);font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px}
+.tab div.on{color:var(--blueText)}
+.tab svg{width:20px;height:20px}
+.tl{display:flex;flex-direction:column;flex:none}
+.tl .m{font-size:11px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;margin:10px 2px 6px}
+.ex{display:flex;gap:10px;align-items:center;padding:9px 2px;border-bottom:1px solid var(--line)}
+.ex .meta .t{white-space:normal}
+.ex .d{width:30px;text-align:center;font-size:10.5px;color:var(--ink3);line-height:1.15;flex:none}
+.ex .d b{display:block;font-size:14px;color:var(--ink)}
+.ex .tag{font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;margin-left:4px}
+.pay{display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:12px;background:var(--owedTint);font-size:12px;margin:6px 0}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:4}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:5;background:var(--paper);border-radius:22px 22px 0 0;padding:10px 16px 18px;display:flex;flex-direction:column;gap:10px}
+.grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 4px}
+.sheet h6{margin:0;font-family:var(--display);font-size:17px}
+.field{display:flex;align-items:baseline;gap:4px;border:1.5px solid var(--blue);border-radius:12px;padding:8px 12px;font-family:var(--display);font-size:26px;font-weight:700}
+.field small{font-family:var(--body);font-size:11.5px;color:var(--ink3);font-weight:500;margin-left:auto}
+.alloc{display:flex;flex-direction:column;gap:6px;background:var(--phoneBg);border-radius:12px;padding:10px}
+.alloc .ah{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink3);font-weight:600}
+.alloc .ah a{color:var(--blueText);text-decoration:none}
+.al{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.al .n{flex:1}
+.al .n small{display:block;font-size:10.5px;color:var(--ink3)}
+.al .v{min-width:66px;text-align:right;font-weight:600;border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:3px 7px}
+.al .v.part{color:var(--owe)}
+.proof{display:flex;gap:10px;align-items:center;border:1px dashed var(--line);border-radius:12px;padding:8px 10px;font-size:12px}
+.shot{width:34px;height:46px;border-radius:6px;background:linear-gradient(160deg,#6C3FD1,#9B6BF0);flex:none;position:relative}
+.shot::after{content:"";position:absolute;left:6px;right:6px;top:16px;height:4px;border-radius:2px;background:rgba(255,255,255,.7);box-shadow:0 8px 0 rgba(255,255,255,.45),0 16px 0 rgba(255,255,255,.45)}
+.fine{font-size:11px;color:var(--ink3)}
+.grp{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:7px;flex:none}
+.grp .gh{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.grp .gh small{margin-left:auto;font-weight:600;font-size:10.5px;color:var(--owed);background:var(--owedTint);padding:2px 7px;border-radius:99px}
+.grp .gh small.q{color:var(--blueText);background:var(--blueTint)}
+.pick{display:flex;flex-wrap:wrap;gap:5px}
+.pick span{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:99px;border:1px solid var(--line);color:var(--ink2)}
+.pick span.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.decide{display:flex;flex-direction:column;gap:14px;max-width:760px}
+.decide .q{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.decide .q b{display:block;margin-bottom:4px}
+.decide .q .rec{margin-top:6px;font-size:13.5px;color:var(--blueText);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Brainstorm · People tab</div>
+  <h1>Who owes you, across every group</h1>
+  <p class="lede">One place that adds up what each person owes you from every group and one-time split. It shows the per-group breakdown, and you can record a payment with proof without opening each group. It only covers <b>people who owe you</b>. "Who you owe" waits until we can make it accurate.</p>
+  <div class="note">Same data in every variation: <b>Purity</b> owes you $150 from Boston ($70, where you saved her as "Pookie"), New York ($45), New Jersey ($15) and one Uber split ($20). Debts never cancel against what you owe her. That number isn't shown here at all. Tap the cards in variation B to expand them.</div>
+</header>
+
+<!-- ============ A ============ -->
+<section class="sec">
+  <div class="eyebrow">Variation A</div>
+  <h2>A list on Home, a page per person</h2>
+  <p>People becomes a third segment next to Groups and One-time on Home. Each row is one person and one green number. Tapping a person opens their page, which breaks the total down by group, oldest debt first. This is the closest match to how the app already works.</p>
+  <div class="phones">
+    <div class="ph-col">
+      <div class="phone">
+        <div class="bar"><h4>Evenly</h4><div class="av">A</div></div>
+        <div class="seg"><button>Groups<span class="n">5</span></button><button>One-time<span class="n">2</span></button><button class="on">People<span class="n">4</span></button></div>
+        <div class="list">
+          <div class="lbl">Owe you · $262.40</div>
+          <div class="row"><div class="av p">P</div><div class="meta"><div class="t">Purity</div><div class="s">3 groups · 1 split</div></div><div class="amt">$150.00</div></div>
+          <div class="row"><div class="av k">K</div><div class="meta"><div class="t">Kevin Otieno</div><div class="s">Apartment 4B</div></div><div class="amt">$62.40</div></div>
+          <div class="row"><div class="av m">M</div><div class="meta"><div class="t">Maya</div><div class="s">Boston · New York</div></div><div class="amt">$38.00</div></div>
+          <div class="row"><div class="av d">D</div><div class="meta"><div class="t">Dan</div><div class="s">1 split</div></div><div class="amt">$12.00</div></div>
+          <div class="lbl">All settled</div>
+          <div class="row settled"><div class="av">S</div><div class="meta"><div class="t">Sam</div><div class="s">Paid you back Oct 14</div></div><div class="amt muted">$0</div></div>
+        </div>
+      </div>
+      <div class="cap"><b>The list.</b> The total sits in the section label, not in a big header. Settled people sink to the bottom.</div>
+    </div>
+    <div class="ph-col">
+      <div class="phone">
+        <div class="top"><span class="back">‹</span><h5></h5><span class="more">⋯</span></div>
+        <div class="list">
+          <div class="who"><div class="av lg p">P</div><div><div class="nm">Purity</div><div class="aka">Also "Pookie" in Boston</div></div></div>
+          <div class="hero"><div class="k">Owes you</div><div class="big">$150.00</div><div class="sub">From 3 groups and 1 split</div><div class="btn">Record a payment</div></div>
+          <div class="suggest"><div><b>"Purity" is also in Ski Weekend.</b> Same person?</div><div class="acts"><span>Yes, add it</span><span class="no">Not her</span></div></div>
+          <div class="lbl">Oldest first</div>
+          <div class="row"><div class="tile">🗽</div><div class="meta"><div class="t">New Jersey</div><div class="s">Since Mar 2</div></div><div class="amt">$15.00</div></div>
+          <div class="row"><div class="tile">🍕</div><div class="meta"><div class="t">New York</div><div class="s">Since Jun 18</div></div><div class="amt">$45.00</div></div>
+          <div class="row"><div class="tile">🦞</div><div class="meta"><div class="t">Boston</div><div class="s">As Pookie · since Sep 6</div></div><div class="amt">$70.00</div></div>
+          <div class="row"><div class="tile ot">🚕</div><div class="meta"><div class="t">Uber to JFK</div><div class="s">One-time · Nov 2</div></div><div class="amt">$20.00</div></div>
+        </div>
+      </div>
+      <div class="cap"><b>Her page.</b> Read-only. Tapping a row opens that group, where editing already lives. The ⋯ menu holds "Linked names".</div>
+    </div>
+  </div>
+  <div class="pros"><div><b>Good</b>Familiar list, then detail. Room on her page for a payment history and the name suggestion.</div><div><b>Costs</b>Two taps to see any breakdown. A third segment on Home, next to the Groups / One-time tabs still being decided.</div></div>
+</section>
+
+<!-- ============ B ============ -->
+<section class="sec">
+  <div class="eyebrow">Variation B</div>
+  <h2>Cards that open in place</h2>
+  <p>Same entry point on Home, but there's no separate page. Each person is a card with a colored bar showing which groups their total comes from, so you can see the mix at a glance. Tap to expand the breakdown and record a payment right there.</p>
+  <div class="phones">
+    <div class="ph-col">
+      <div class="phone">
+        <div class="bar"><h4>Evenly</h4><div class="av">A</div></div>
+        <div class="seg"><button>Groups<span class="n">5</span></button><button>One-time<span class="n">2</span></button><button class="on">People<span class="n">4</span></button></div>
+        <div class="list">
+          <div class="card open" onclick="this.classList.toggle('open')">
+            <div class="hd"><div class="av p">P</div><div class="meta"><div class="t">Purity</div><div class="s">Owes you</div></div><div class="amt">$150.00</div><span class="cv">›</span></div>
+            <div class="stack"><i style="flex:15;background:var(--c1)"></i><i style="flex:45;background:var(--c2)"></i><i style="flex:70;background:var(--c3)"></i><i style="flex:20;background:var(--c4)"></i></div>
+            <div class="body">
+              <div class="line"><span class="dot" style="background:var(--c1)"></span><span class="n">New Jersey<small>Mar</small></span><b>$15.00</b></div>
+              <div class="line"><span class="dot" style="background:var(--c2)"></span><span class="n">New York<small>Jun</small></span><b>$45.00</b></div>
+              <div class="line"><span class="dot" style="background:var(--c3)"></span><span class="n">Boston<small>as Pookie</small></span><b>$70.00</b></div>
+              <div class="line"><span class="dot" style="background:var(--c4)"></span><span class="n">Uber to JFK<small>one-time</small></span><b>$20.00</b></div>
+              <div class="btn" style="height:36px;font-size:12.5px;margin-top:2px">Record a payment</div>
+            </div>
+          </div>
+          <div class="card" onclick="this.classList.toggle('open')">
+            <div class="hd"><div class="av k">K</div><div class="meta"><div class="t">Kevin Otieno</div><div class="s">Owes you</div></div><div class="amt">$62.40</div><span class="cv">›</span></div>
+            <div class="stack"><i style="flex:1;background:var(--c1)"></i></div>
+            <div class="body"><div class="line"><span class="dot" style="background:var(--c1)"></span><span class="n">Apartment 4B</span><b>$62.40</b></div><div class="btn" style="height:36px;font-size:12.5px">Record a payment</div></div>
+          </div>
+          <div class="card" onclick="this.classList.toggle('open')">
+            <div class="hd"><div class="av m">M</div><div class="meta"><div class="t">Maya</div><div class="s">Owes you</div></div><div class="amt">$38.00</div><span class="cv">›</span></div>
+            <div class="stack"><i style="flex:30;background:var(--c3)"></i><i style="flex:8;background:var(--c2)"></i></div>
+            <div class="body"><div class="line"><span class="dot" style="background:var(--c3)"></span><span class="n">Boston</span><b>$30.00</b></div><div class="line"><span class="dot" style="background:var(--c2)"></span><span class="n">New York</span><b>$8.00</b></div><div class="btn" style="height:36px;font-size:12.5px">Record a payment</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>One screen does it all.</b> Purity is expanded. A group keeps the same color on every card.</div>
+    </div>
+    <div class="ph-col">
+      <div class="phone">
+        <div class="bar"><h4>Evenly</h4><div class="av">A</div></div>
+        <div class="seg"><button>Groups<span class="n">5</span></button><button>One-time<span class="n">2</span></button><button class="on">People<span class="n">4</span></button></div>
+        <div class="list">
+          <div class="suggest"><div><b>Is "Pookie" in Boston the same as Purity?</b> They're both in New York with you.</div><div class="acts"><span>Same person</span><span class="no">Different</span></div></div>
+          <div class="card"><div class="hd"><div class="av p">P</div><div class="meta"><div class="t">Purity</div><div class="s">Owes you</div></div><div class="amt">$80.00</div><span class="cv">›</span></div><div class="stack"><i style="flex:15;background:var(--c1)"></i><i style="flex:45;background:var(--c2)"></i><i style="flex:20;background:var(--c4)"></i></div></div>
+          <div class="card"><div class="hd"><div class="av p">P</div><div class="meta"><div class="t">Pookie</div><div class="s">Owes you</div></div><div class="amt">$70.00</div><span class="cv">›</span></div><div class="stack"><i style="flex:1;background:var(--c3)"></i></div></div>
+          <div class="card"><div class="hd"><div class="av k">K</div><div class="meta"><div class="t">Kevin Otieno</div><div class="s">Owes you</div></div><div class="amt">$62.40</div><span class="cv">›</span></div><div class="stack"><i style="flex:1;background:var(--c1)"></i></div></div>
+        </div>
+      </div>
+      <div class="cap"><b>Before linking.</b> With no person page, suggestions sit at the top of the list. Until you answer, Pookie shows as a separate person.</div>
+    </div>
+  </div>
+  <div class="pros"><div><b>Good</b>Fastest. You see the breakdown and pay without leaving the list. The colored bar answers "where is this from?" at a glance.</div><div><b>Costs</b>No home for payment history or proof per person. The list gets long when several cards are open.</div></div>
+</section>
+
+<!-- ============ C ============ -->
+<section class="sec">
+  <div class="eyebrow">Variation C</div>
+  <h2>Its own tab, with a timeline per person</h2>
+  <p>People gets a bottom tab next to Groups instead of a Home segment. The top shows one total owed to you. Each person's page is a timeline of every expense they owe you for, grouped by month and tagged with the group, with past payments mixed in. Best for "wait, what is this $150 for?"</p>
+  <div class="phones">
+    <div class="ph-col">
+      <div class="phone">
+        <div class="bar"><h4>People</h4><div class="av">A</div></div>
+        <div class="list">
+          <div class="hero"><div class="k">Owed to you</div><div class="big">$262.40</div><div class="sub">4 people · 6 groups and splits</div></div>
+          <div class="row"><div class="av p">P</div><div class="meta"><div class="t">Purity</div><div class="chips"><span class="chip">Boston</span><span class="chip">New York</span><span class="chip">+2</span></div></div><div class="amt">$150.00</div></div>
+          <div class="row"><div class="av k">K</div><div class="meta"><div class="t">Kevin Otieno</div><div class="chips"><span class="chip">Apartment 4B</span></div></div><div class="amt">$62.40</div></div>
+          <div class="row"><div class="av m">M</div><div class="meta"><div class="t">Maya</div><div class="chips"><span class="chip">Boston</span><span class="chip">New York</span></div></div><div class="amt">$38.00</div></div>
+          <div class="row"><div class="av d">D</div><div class="meta"><div class="t">Dan</div><div class="chips"><span class="chip">Pizza night</span></div></div><div class="amt">$12.00</div></div>
+        </div>
+        <div class="tab">
+          <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18"/></svg>Groups</div>
+          <div class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.8-3.2 3.2-5 6-5s5.2 1.8 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14c2.4 0 4.3 1.4 5 4"/></svg>People</div>
+          <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>Activity</div>
+        </div>
+      </div>
+      <div class="cap"><b>A tab of its own.</b> One total up top. Chips show which groups each person's balance comes from.</div>
+    </div>
+    <div class="ph-col">
+      <div class="phone">
+        <div class="top"><span class="back">‹</span><div class="av p" style="width:26px;height:26px;font-size:11px">P</div><h5>Purity</h5><span class="more">⋯</span></div>
+        <div class="list">
+          <div class="hero" style="flex-direction:row;align-items:center"><div style="flex:1"><div class="k">Owes you</div><div class="big" style="font-size:24px">$150.00</div></div><div class="btn" style="padding:0 16px">Record payment</div></div>
+          <div class="tl">
+            <div class="m">November</div>
+            <div class="ex"><div class="d"><b>2</b>Nov</div><div class="meta"><div class="t">Uber to JFK<span class="tag" style="background:var(--oweTint);color:var(--owe)">One-time</span></div><div class="s">You paid $40 · her half</div></div><div class="amt">$20.00</div></div>
+            <div class="m">September</div>
+            <div class="ex"><div class="d"><b>7</b>Sep</div><div class="meta"><div class="t">Lobster roll dinner<span class="tag" style="background:var(--blueTint);color:var(--blueText)">Boston</span></div><div class="s">As Pookie · her items</div></div><div class="amt">$48.00</div></div>
+            <div class="ex"><div class="d"><b>6</b>Sep</div><div class="meta"><div class="t">Airbnb<span class="tag" style="background:var(--blueTint);color:var(--blueText)">Boston</span></div><div class="s">1 of 4 shares</div></div><div class="amt">$22.00</div></div>
+            <div class="pay"><span>✓</span><span style="flex:1">She paid $30 · Zelle · Aug 20</span><span class="shot" style="width:22px;height:30px"></span></div>
+            <div class="m">June</div>
+            <div class="ex"><div class="d"><b>18</b>Jun</div><div class="meta"><div class="t">Broadway tickets<span class="tag" style="background:var(--blueTint);color:var(--blueText)">New York</span></div><div class="s">Split evenly</div></div><div class="amt">$45.00</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>Her timeline.</b> Every expense behind the number, newest first, with past payments and their proof in line.</div>
+    </div>
+  </div>
+  <div class="pros"><div><b>Good</b>The most transparent option. Every dollar traces to an expense, which helps when the number gets questioned. Payment history and proof fit naturally.</div><div><b>Costs</b>Adds a bottom bar, and Home currently has none. The most work to build, since it needs per-expense shares across groups, not just group balances.</div></div>
+</section>
+
+<!-- ============ shared ============ -->
+<section class="sec">
+  <div class="eyebrow">Shared by all three</div>
+  <h2>Recording a payment, and linking names</h2>
+  <p>Whichever layout you pick, these two screens work the same. The payment is applied to her oldest debts first, and you can change the split before saving. The proof screenshot is attached to the payment and it counts right away, with no approval step.</p>
+  <div class="phones">
+    <div class="ph-col">
+      <div class="phone">
+        <div class="top"><span class="back">‹</span><h5>Purity</h5></div>
+        <div class="list" style="filter:blur(1.5px)"><div class="hero"><div class="k">Owes you</div><div class="big">$150.00</div></div></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <h6>Purity paid you</h6>
+          <div class="field">$100.00<small>of $150.00</small></div>
+          <div class="alloc">
+            <div class="ah"><span>Applied oldest first</span><a href="#">Change</a></div>
+            <div class="al"><span class="n">New Jersey<small>Clears it</small></span><span class="v">$15.00</span></div>
+            <div class="al"><span class="n">New York<small>Clears it</small></span><span class="v">$45.00</span></div>
+            <div class="al"><span class="n">Boston<small>$30 left</small></span><span class="v part">$40.00</span></div>
+          </div>
+          <div class="proof"><span class="shot"></span><div style="flex:1"><b>Zelle screenshot</b><div class="fine">Added · tap to view</div></div><span class="muted">✕</span></div>
+          <div class="btn">Save payment</div>
+          <div class="fine" style="text-align:center">Shows as paid in each group right away. Purity gets a notification.</div>
+        </div>
+      </div>
+      <div class="cap"><b>Record a payment.</b> One amount becomes one payment in each group it covers. The proof goes with all of them.</div>
+    </div>
+    <div class="ph-col">
+      <div class="phone">
+        <div class="top"><span class="back">‹</span><h5>Who is Purity?</h5></div>
+        <div class="list">
+          <p class="fine" style="font-size:12px;padding:0 2px">Pick her name in each group. Amounts update as you tap.</p>
+          <div class="grp"><div class="gh"><span class="tile" style="width:26px;height:26px;font-size:13px">🗽</span>New Jersey<small>$15 · linked</small></div><div class="pick"><span class="on">Purity</span><span>Kevin</span><span>Sam</span></div></div>
+          <div class="grp"><div class="gh"><span class="tile" style="width:26px;height:26px;font-size:13px">🍕</span>New York<small>$45 · linked</small></div><div class="pick"><span class="on">Purity</span><span>Maya</span></div></div>
+          <div class="grp"><div class="gh"><span class="tile" style="width:26px;height:26px;font-size:13px">🦞</span>Boston<small>$70 · linked</small></div><div class="pick"><span class="on">Pookie</span><span>Maya</span><span>Jordan</span></div></div>
+          <div class="grp"><div class="gh"><span class="tile" style="width:26px;height:26px;font-size:13px">⛷️</span>Ski Weekend<small class="q">Same name</small></div><div class="pick"><span>Purity?</span><span>Leo</span><span>Not in this group</span></div></div>
+          <div class="grp" style="opacity:.6"><div class="gh"><span class="tile" style="width:26px;height:26px;font-size:13px">🏠</span>Apartment 4B</div><div class="pick"><span>Kevin</span><span>Sam</span><span class="on">Not in this group</span></div></div>
+        </div>
+      </div>
+      <div class="cap"><b>Linked names.</b> Same name: suggested, one tap to confirm. Different names ("Pookie"): you pick. Members who joined with her account are linked already and locked.</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="eyebrow">Your call</div>
+  <h2>What I'd pick, and one gap to decide</h2>
+  <div class="decide">
+    <div class="q"><b>Which layout?</b>A is the safest to build and fits Home today. C answers "what is this for?" best. B is fastest to use but has nowhere to keep payment history.<div class="rec">My pick: A's list with C's timeline as her page. Group view and timeline as a toggle on her page.</div></div>
+    <div class="q"><b>Who records the payment?</b>With only "who owes you" in v1, Purity won't see a People tab entry for you, so she can't pay all her groups at once from her phone. You record "Purity paid you" and attach the Zelle screenshot, so she still has to send it to you first. That's the WhatsApp step you wanted to cut.<div class="rec">My suggestion: also show "You owe" in v1, but only for people linked by their account (they joined or claimed the name). Those links come from the server, not one phone, so the totals are accurate. Typed-in names stay owed-to-you only until they're claimed.</div></div>
+    <div class="q"><b>Where does Pay land in each group?</b>A $100 payment that covers three groups becomes three payments, one per group, all sharing one proof screenshot and marked as one batch. Undoing it removes all three.<div class="rec">My suggestion: yes, undo them together.</div></div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

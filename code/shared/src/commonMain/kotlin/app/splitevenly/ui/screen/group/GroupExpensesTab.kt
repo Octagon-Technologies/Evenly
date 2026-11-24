@@ -1,5 +1,6 @@
 package app.splitevenly.ui.screen.group
 
+import app.splitevenly.ui.screen.people.KnownPersonUi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -147,6 +148,8 @@ fun GroupExpensesTab(
     // The roster for the members strip (T2). Empty until the members load, which hides the strip.
     members: List<MemberRowUi> = emptyList(),
     onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
+    knownPeople: List<KnownPersonUi> = emptyList(),
+    onAddKnown: (KnownPersonUi, addToPast: Boolean) -> Unit = { _, _ -> },
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
     // "Is this you?" (identity claim). Rendered here because this is where people actually look; the
@@ -404,7 +407,7 @@ fun GroupExpensesTab(
             )
         }
         if (showAddMember) {
-            AddMemberSheet(onAdd = onAddMember, onDismiss = { showAddMember = false })
+            AddMemberSheet(onAdd = onAddMember, onDismiss = { showAddMember = false }, known = knownPeople, onAddKnown = onAddKnown)
         }
     }
 }

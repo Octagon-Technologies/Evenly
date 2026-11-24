@@ -36,6 +36,7 @@ interface SignOutWipeDao {
         clearGroups()
         clearMembers()
         clearPlaceholderClaimAnswers()
+        clearPersonLinks()
         clearExpenses()
         clearShares()
         clearSettlements()
@@ -78,6 +79,9 @@ interface SignOutWipeDao {
 
     @Query("DELETE FROM placeholder_claim_answers")
     suspend fun clearPlaceholderClaimAnswers()
+
+    @Query("DELETE FROM person_links")
+    suspend fun clearPersonLinks()
 
     @Query("DELETE FROM expenses")
     suspend fun clearExpenses()
@@ -162,6 +166,7 @@ internal val WIPED_TABLES: List<String> =
         "groups",
         "members",
         "placeholder_claim_answers",
+        "person_links",
         "expenses",
         "shares",
         "settlements",
