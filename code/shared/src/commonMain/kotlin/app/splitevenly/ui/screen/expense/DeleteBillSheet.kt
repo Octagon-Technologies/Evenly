@@ -84,7 +84,7 @@ internal fun DeleteBillSheet(
     }
 }
 
-private object WindowOrigin : PopupPositionProvider {
+internal object WindowOrigin : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
         windowSize: IntSize,

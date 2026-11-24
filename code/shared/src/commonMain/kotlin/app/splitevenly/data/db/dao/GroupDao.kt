@@ -87,7 +87,7 @@ interface GroupDao {
     @Query(
         """
         SELECT g.id AS id, g.name AS name, g.emoji AS emoji,
-               g.deleted_at AS deleted_at, g.deleted_by AS deleted_by,
+               g.deleted_at AS deleted_at, g.deleted_by AS deleted_by, g.kind AS kind,
                du.display_name AS deleted_by_name,
                (SELECT COUNT(*) FROM members m2 WHERE m2.group_id = g.id AND m2.status = 'ACTIVE') AS member_count
         FROM groups g

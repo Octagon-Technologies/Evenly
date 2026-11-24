@@ -52,6 +52,12 @@ group (`Group.isQuick`); `Route.GroupHome` is wrapped in `QuickSplitGuard`, whic
 a group (Home, a notification, finishing a join) to `Route.QuickSplit`, which lands on the bill or resumes the
 editor. Don't add a group-only route without the same guard, and don't word quick-split copy as "group".
 
+**Home's tabs say what kind of thing it is, never where it is in its life** (`design/brainstorm/home-tabs-and-put-away.html`).
+All · Groups · One-time is the whole tab bar (`HomeFilter`); archived, deleted and settled one-time bills sit
+behind the single "Put away" row (`Route.PutAway`, an accordion with exactly one card open). Don't add a fourth
+tab for a lifecycle state. Every Home card archives or deletes by long press *and* left swipe
+(`EvSwipeActions`); archive answers with Undo, not a dialog, and a group's Delete leads with "Archive instead".
+
 **A push disposes the destination underneath, so `remember` in a Route wrapper does not survive Back.**
 Anything a wrapper must keep across a push (a one-shot gate's answer, a completed check) belongs in a
 ViewModel scoped to that back-stack entry, which lives until the entry is popped. `HomeGateRoute`'s

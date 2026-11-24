@@ -13,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import app.splitevenly.ui.components.StatusBarScrim
+import app.splitevenly.ui.screen.home.HomeFilter
 import app.splitevenly.ui.theme.EvMotion
 import app.splitevenly.ui.theme.EvenlyTheme
 
@@ -48,9 +49,7 @@ fun MainShell(
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
     onSplitBill: () -> Unit = {},
-    onOpenHistory: () -> Unit = {},
-    onOpenArchived: () -> Unit = {},
-    onOpenRecentlyDeleted: () -> Unit = {},
+    onOpenPutAway: (filter: HomeFilter, showDeleted: Boolean) -> Unit = { _, _ -> },
     onSignedOut: () -> Unit = {},
     onSignIn: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
@@ -72,9 +71,7 @@ fun MainShell(
                             onNewGroup = onNewGroup,
                             onJoin = onJoin,
                             onSplitBill = onSplitBill,
-                            onOpenHistory = onOpenHistory,
-                            onOpenArchived = onOpenArchived,
-                            onOpenRecentlyDeleted = onOpenRecentlyDeleted,
+                            onOpenPutAway = onOpenPutAway,
                             onOpenSettings = { tab = RootTab.Settings },
                             onEditExpense = onEditExpense,
                         )

@@ -35,9 +35,14 @@ sealed interface Route {
 
     @Serializable data object NewGroup : Route // full-screen
 
-    @Serializable data object Archived : Route
-
-    @Serializable data object RecentlyDeleted : Route
+    /**
+     * Archived + Recently deleted on one screen. [filter] is a `HomeFilter.key` (a String, never the
+     * enum: an enum nav arg crashes the NavHost on Kotlin/Native). [showDeleted] opens that card first.
+     */
+    @Serializable data class PutAway(
+        val filter: String = "all",
+        val showDeleted: Boolean = false,
+    ) : Route
 
     @Serializable data object JoinByLink : Route // sheet — paste an invite manually
 
@@ -50,8 +55,6 @@ sealed interface Route {
         val groupId: String,
         val justCreated: Boolean = false,
     ) : Route
-
-    @Serializable data object QuickSplitHistory : Route
 
     @Serializable data class Join(
         val token: String,

@@ -1,8 +1,8 @@
 package app.splitevenly.ui.screen.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,12 +31,13 @@ import app.splitevenly.domain.balance.Debt
 import app.splitevenly.domain.expense.ExpenseWithShares
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.group.Group
-import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.platform.isIOS
+import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvContextMenu
 import app.splitevenly.ui.components.EvMenuAction
+import app.splitevenly.ui.components.EvSwipeActions
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.money
@@ -130,6 +131,7 @@ internal fun quickSplitCard(
  * A quick split's Home card with its long-press menu. Delete removes the whole one-time split (its
  * hidden group), since deleting only the bill would leave an empty "Not finished yet" card behind.
  * Edit is offered only once the bill has been saved; before that, Open already resumes the editor.
+ * Archive and Delete are also on a left swipe ([homeSwipeActions]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -138,6 +140,9 @@ internal fun QuickSplitCardWithMenu(
     onOpen: () -> Unit,
     onEdit: (expenseId: String, itemized: Boolean) -> Unit,
     onDelete: () -> Unit,
+    onArchive: () -> Unit = {},
+    swipeOpen: Boolean = false,
+    onSwipeOpenChange: (Boolean) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val quick = g.quick ?: return
@@ -145,12 +150,18 @@ internal fun QuickSplitCardWithMenu(
     var confirmDelete by remember { mutableStateOf(false) }
     val highlight = menuOpen && !isIOS()
     Box {
-        EvCard(
-            modifier = if (highlight) Modifier.border(1.5.dp, c.blueText, RoundedCornerShape(16.dp)) else Modifier,
-            fill = true,
-            bordered = true,
+        EvSwipeActions(
+            open = swipeOpen,
+            onOpenChange = onSwipeOpenChange,
+            actions = homeSwipeActions(onArchive = onArchive, onDelete = { confirmDelete = true }),
         ) {
-            QuickSplitRow(g, onClick = onOpen, onLongClick = { menuOpen = true })
+            EvCard(
+                modifier = if (highlight) Modifier.border(1.5.dp, c.blueText, RoundedCornerShape(16.dp)) else Modifier,
+                fill = true,
+                bordered = true,
+            ) {
+                QuickSplitRow(g, onClick = onOpen, onLongClick = { menuOpen = true })
+            }
         }
         EvContextMenu(
             expanded = menuOpen,
@@ -161,6 +172,7 @@ internal fun QuickSplitCardWithMenu(
                     quick.expenseId?.let { id ->
                         add(EvMenuAction(if (quick.itemized) "Edit bill" else "Edit expense", EvIcons.Edit) { onEdit(id, quick.itemized) })
                     }
+                    add(EvMenuAction("Archive", EvIcons.Archive, onClick = onArchive))
                     add(EvMenuAction("Delete", EvIcons.Trash, destructive = true) { confirmDelete = true })
                 },
         )
@@ -189,7 +201,12 @@ internal fun QuickSplitRow(
     val t = EvenlyTheme.text
     val quick = g.quick ?: return
     Row(
-        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

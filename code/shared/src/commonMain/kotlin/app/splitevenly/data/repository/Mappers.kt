@@ -50,6 +50,7 @@ internal fun DeletedGroupRow.toDomain(): DeletedGroup =
         deletedBy = deletedBy?.let(::UserId),
         deletedByName = deletedByName,
         memberCount = memberCount,
+        isQuick = kind == GroupEntity.KIND_QUICK,
     )
 
 internal fun MemberWithUserRow.toDomain(): Member =

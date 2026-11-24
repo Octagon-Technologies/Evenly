@@ -1,6 +1,5 @@
 package app.splitevenly.ui.navigation
 
-import app.splitevenly.ui.screen.bill.BillNext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,12 +16,14 @@ import androidx.navigation.toRoute
 import app.splitevenly.platform.PlaceholderClaimSources
 import app.splitevenly.ui.screen.auth.MagicLinkScreen
 import app.splitevenly.ui.screen.auth.OnboardingScreen
+import app.splitevenly.ui.screen.bill.BillNext
 import app.splitevenly.ui.screen.expense.AddExpenseScreen
 import app.splitevenly.ui.screen.expense.ExpenseDetailScreen
 import app.splitevenly.ui.screen.group.FilterRoute
 import app.splitevenly.ui.screen.group.GroupHomeScreen
 import app.splitevenly.ui.screen.group.IncludeMemberRoute
 import app.splitevenly.ui.screen.group.SearchRoute
+import app.splitevenly.ui.screen.home.HomeFilter
 import app.splitevenly.ui.screen.home.HomeScreen
 import app.splitevenly.ui.screen.home.NewGroupSheet
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
@@ -79,9 +80,7 @@ fun EvenlyNavHost(
                 onNewGroup = { navController.navigate(Route.NewGroup) },
                 onJoin = { navController.navigate(Route.JoinByLink) },
                 onSplitBill = { navController.navigate(Route.QuickSplitNew) },
-                onOpenHistory = { navController.navigate(Route.QuickSplitHistory) },
-                onOpenArchived = { navController.navigate(Route.Archived) },
-                onOpenRecentlyDeleted = { navController.navigate(Route.RecentlyDeleted) },
+                onOpenPutAway = { filter, showDeleted -> navController.navigate(Route.PutAway(filter.key, showDeleted)) },
                 onSignedOut = { navController.navigate(Route.SignIn) { popUpTo(Route.Home) { inclusive = true } } },
                 onSignIn = { navController.navigate(Route.SignIn) },
                 onEditPaymentApps = { navController.navigate(Route.PaymentHandles) },
@@ -107,14 +106,16 @@ fun EvenlyNavHost(
             val r = entry.toRoute<Route.QuickSplit>()
             QuickSplitRoute(groupId = r.groupId, justCreated = r.justCreated, navController = navController)
         }
-        composable<Route.QuickSplitHistory> {
-            QuickSplitHistoryRoute(
+        composable<Route.PutAway> { entry ->
+            val r = entry.toRoute<Route.PutAway>()
+            PutAwayRoute(
+                filter = HomeFilter.fromKey(r.filter),
+                startOnDeleted = r.showDeleted,
                 onBack = { navController.popBackStack() },
-                onOpen = { groupId, expenseId -> navController.openQuickSplit(groupId, expenseId) },
+                onOpenGroup = { navController.navigate(Route.GroupHome(it)) },
+                onOpenQuickSplit = { groupId, expenseId -> navController.openQuickSplit(groupId, expenseId) },
             )
         }
-        composable<Route.Archived> { ArchivedRoute(onBack = { navController.popBackStack() }) }
-        composable<Route.RecentlyDeleted> { RecentlyDeletedRoute(onBack = { navController.popBackStack() }) }
         composable<Route.JoinByLink> {
             JoinByLinkRoute(
                 onDismiss = { navController.popBackStack() },

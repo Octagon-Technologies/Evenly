@@ -52,7 +52,14 @@ class HomeViewModel(
                         groups.observeDeletedGroups(uid),
                         hydration.observeUserReadiness(uid.value),
                     ) { active, archived, deleted, readiness ->
-                        homeState(active, archived, deleted.size, readiness, now = Clock.System.nowEpochMillis())
+                        homeState(
+                            active,
+                            archived,
+                            deleted.size,
+                            readiness,
+                            now = Clock.System.nowEpochMillis(),
+                            deletedOneTimeCount = deleted.count { it.isQuick },
+                        )
                     }
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState.Loading)
@@ -205,11 +212,18 @@ internal fun homeState(
     deletedCount: Int,
     readiness: ListReadiness,
     now: Long = 0L,
+    deletedOneTimeCount: Int = 0,
 ): HomeUiState =
     when {
         active.isNotEmpty() || archived.isNotEmpty() -> {
             val (history, live) = active.partition { it.quick?.inHistory(now) == true }
-            HomeUiState.Content(active = live, archived = archived, deletedCount = deletedCount, history = history)
+            HomeUiState.Content(
+                active = live,
+                archived = archived,
+                deletedCount = deletedCount,
+                history = history,
+                deletedOneTimeCount = deletedOneTimeCount,
+            )
         }
 
         else -> {

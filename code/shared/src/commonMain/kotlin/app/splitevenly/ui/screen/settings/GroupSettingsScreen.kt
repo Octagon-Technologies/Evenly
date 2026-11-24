@@ -3,7 +3,6 @@ package app.splitevenly.ui.screen.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -459,7 +459,7 @@ data class GroupDeleteImpactUi(
  * cannot be passed by muscle memory.
  */
 @Composable
-private fun DeleteGroupSheet(
+internal fun DeleteGroupSheet(
     groupName: String,
     impact: GroupDeleteImpactUi,
     onDismiss: () -> Unit,
@@ -569,7 +569,7 @@ private fun DeleteGroupSheet(
  * so a plain confirm is enough to stop a stray tap on the row without the type-the-name gate.
  */
 @Composable
-private fun LeaveGroupSheet(
+internal fun LeaveGroupSheet(
     groupName: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
