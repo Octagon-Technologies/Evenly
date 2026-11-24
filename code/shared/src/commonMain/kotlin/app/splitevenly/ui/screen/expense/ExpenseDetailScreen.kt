@@ -1,5 +1,6 @@
 package app.splitevenly.ui.screen.expense
 
+import app.splitevenly.core.time.localIsoDate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -68,8 +69,6 @@ import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
-import app.splitevenly.ui.screen.settle.PaymentActionSheet
-import app.splitevenly.ui.screen.settle.PaymentEditSheet
 import app.splitevenly.ui.screen.settle.PaymentPreviewUi
 import app.splitevenly.ui.screen.settle.PaymentUi
 import app.splitevenly.ui.theme.EvenlyTheme
@@ -84,6 +83,9 @@ data class DetailShareUi(
     val remainingSubunits: Long,
     val me: Boolean = false,
     val payer: Boolean = false,
+    val userId: String = "",
+    /** The viewer can record or edit this person's payments: the bill's payer on every row, anyone on their own. */
+    val canRecord: Boolean = false,
 )
 
 /** A receipt thumbnail (F5). [url] null = still uploading / unavailable; [isPdf] renders a file tile. */
@@ -150,9 +152,15 @@ fun ExpenseDetailScreen(
     loadPdfPageCount: suspend (url: String) -> Int = { 0 },
     renderPdfPage: suspend (url: String, page: Int, widthPx: Int) -> ImageBitmap? = { _, _, _ -> null },
     onBack: () -> Unit = {},
-    onSettleThis: () -> Unit = {},
-    // Change a recorded payment's amount on this bill. Returns the reason it was refused, or null once saved.
-    onSavePayment: suspend (paymentId: String, newAmountSubunits: Long) -> String? = { _, _ -> null },
+    // Who the bill's debts are owed to, for the payment sheet's "You paid Andrew".
+    paymentPayeeName: String = "",
+    today: String = "",
+    // The method this device used last, pre-picked in the payment sheet.
+    defaultPaymentMethod: String? = null,
+    // Record a payment from a row's person to the bill's payer. Returns the refusal, or null once saved.
+    onRecordPayment: suspend (userId: String, entry: PaymentEntry) -> String? = { _, _ -> null },
+    // Change a recorded payment's amount, method or date on this bill. Returns the refusal, or null once saved.
+    onSavePayment: suspend (paymentId: String, entry: PaymentEntry) -> String? = { _, _ -> null },
     // The per-bill result of an entered amount, for the edit sheet's preview and ceiling hint.
     previewPayment: suspend (paymentId: String, newAmountSubunits: Long) -> PaymentPreviewUi = { _, _ -> PaymentPreviewUi() },
     // Remove a recorded payment entirely (void it); its balance is restored.
@@ -179,8 +187,8 @@ fun ExpenseDetailScreen(
 ) {
     val c = EvenlyTheme.colors
     var confirmDelete by remember { mutableStateOf(false) }
-    // The payment whose action sheet (Edit amount / Remove) is open, then the one being amount-edited.
-    var actionPayment by remember { mutableStateOf<PaymentUi?>(null) }
+    // The row whose payment sheet is open, then the payment being edited from its History.
+    var recordFor by remember { mutableStateOf<DetailShareUi?>(null) }
     var editingPayment by remember { mutableStateOf<PaymentUi?>(null) }
     // Index of the receipt the in-app viewer is showing, or null when it's closed.
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
@@ -341,49 +349,6 @@ fun ExpenseDetailScreen(
                             }
                         }
 
-                        // payments — the recorded settlements against this expense. Each is tappable to correct or
-                        // remove it (the only way to fix a wrong amount or clear an overpayment after a split edit).
-                        if (payments.isNotEmpty()) {
-                            Column {
-                                EvSectionLabel("Payments")
-                                EvCard {
-                                    payments.forEachIndexed { i, p ->
-                                        val divider = if (i > 0) Modifier.topHairline(c.border) else Modifier
-                                        Row(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .then(divider)
-                                                .then(if (p.canEdit) Modifier.clickable { actionPayment = p } else Modifier)
-                                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        ) {
-                                            EvAvatar(p.payerName, me = p.byMe, size = AvatarSize.Sm)
-                                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                Text(
-                                                    p.title,
-                                                    color = c.ink,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                )
-                                                val sub = listOfNotNull(p.app, p.dateLabel.ifBlank { null }).joinToString(" · ")
-                                                if (sub.isNotEmpty()) Text(sub, color = c.ink2, fontSize = 12.sp)
-                                            }
-                                            Text(
-                                                moneySubunits(p.amountSubunits, currencyCode),
-                                                color = c.ink,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontFamily = EvenlyTheme.monoFamily,
-                                            )
-                                            // Only the two people in the payment get the chevron (mockup 8).
-                                            if (p.canEdit) EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink3)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
                         // split breakdown
                         Column {
                             EvSectionLabel(splitLabel)
@@ -438,7 +403,6 @@ fun ExpenseDetailScreen(
                                     } else {
                                         // A participant who actually owes: name + what's left, a progress bar, and
                                         // (for your own share) an inline settle action. Green once fully settled.
-                                        val canSettle = s.me && s.remainingSubunits > 0
                                         val cleared = s.remainingSubunits == 0L
                                         // Overpaid (a split edited *down* after payment): show it as an in-credit
                                         // "you're owed back" row — orange outline + orange number, calm not alarming.
@@ -487,23 +451,29 @@ fun ExpenseDetailScreen(
                                                         fontSize = 15.sp,
                                                         modifier = Modifier.weight(1f),
                                                     )
-                                                    Text(
+                                                    val balance =
                                                         when {
                                                             overpaid -> moneySubunits(-s.remainingSubunits, currencyCode) + " back"
                                                             cleared -> "settled"
                                                             else -> moneySubunits(s.remainingSubunits, currencyCode) + " left"
-                                                        },
-                                                        color =
-                                                            when {
-                                                                overpaid -> c.credit
-                                                                cleared -> c.settled
-                                                                s.me -> c.blueText
-                                                                else -> c.ink
-                                                            },
-                                                        fontSize = 14.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        fontFamily = EvenlyTheme.monoFamily,
-                                                    )
+                                                        }
+                                                    if (s.canRecord) {
+                                                        BalanceChip(balance, cleared = cleared, overpaid = overpaid) { recordFor = s }
+                                                    } else {
+                                                        Text(
+                                                            balance,
+                                                            color =
+                                                                when {
+                                                                    overpaid -> c.credit
+                                                                    cleared -> c.settled
+                                                                    s.me -> c.blueText
+                                                                    else -> c.ink
+                                                                },
+                                                            fontSize = 14.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            fontFamily = EvenlyTheme.monoFamily,
+                                                        )
+                                                    }
                                                 }
                                                 EvProgress(
                                                     if (s.owedSubunits >
@@ -546,15 +516,6 @@ fun ExpenseDetailScreen(
                                                         fontFamily = EvenlyTheme.monoFamily,
                                                         modifier = Modifier.weight(1f),
                                                     )
-                                                    if (canSettle) {
-                                                        EvButton(
-                                                            "Settle this",
-                                                            onSettleThis,
-                                                            variant = ButtonVariant.Secondary,
-                                                            small = true,
-                                                            fillMaxWidth = false,
-                                                        )
-                                                    }
                                                 }
                                             }
                                         }
@@ -679,7 +640,7 @@ fun ExpenseDetailScreen(
         EvKeyboardDoneBar(
             onDone = { focusManager.clearFocus() },
             modifier = Modifier.align(Alignment.BottomCenter),
-            visible = viewerIndex == null && !confirmDelete && actionPayment == null && editingPayment == null,
+            visible = viewerIndex == null && !confirmDelete && recordFor == null && editingPayment == null,
         )
         viewerIndex?.let { idx ->
             ReceiptViewerScreen(
@@ -727,24 +688,37 @@ fun ExpenseDetailScreen(
         }
     }
 
-    // Tap a payment you're part of → change or remove it (one-time-splits mockups 8-9).
-    actionPayment?.let { p ->
-        PaymentActionSheet(
-            payment = p,
+    // "210 left ›" on a row: record a payment and see that person's History in one sheet.
+    // Read the row live, not the snapshot taken on tap: a payment edited or cancelled from History moves
+    // what's left while this sheet is still open underneath.
+    recordFor?.let { tapped ->
+        val row = split.firstOrNull { it.userId == tapped.userId } ?: tapped
+        RecordPaymentSheet(
+            person = BillPaymentPersonUi(row.userId, row.name, row.me, row.owedSubunits, row.remainingSubunits),
+            payeeName = paymentPayeeName,
             currencyCode = currencyCode,
-            onDismiss = { actionPayment = null },
-            onChangeAmount = { editingPayment = p },
-            onRemove = { onRemovePayment(p.id) },
+            history = payments.filter { it.fromUserId == row.userId },
+            defaultMethod = defaultPaymentMethod,
+            today = today,
+            onRecord = { entry -> onRecordPayment(row.userId, entry) },
+            onEditPayment = { editingPayment = it },
+            onDismiss = { recordFor = null },
         )
     }
 
     editingPayment?.let { p ->
-        PaymentEditSheet(
+        val row = split.firstOrNull { it.userId == p.fromUserId }
+        EditBillPaymentSheet(
             payment = p,
+            shareSubunits = row?.owedSubunits ?: 0L,
+            leftBeforeSubunits = row?.remainingSubunits ?: 0L,
             currencyCode = currencyCode,
-            onDismiss = { editingPayment = null },
+            today = today,
+            paymentDate = localIsoDate(p.settledAt),
             preview = { amount -> previewPayment(p.id, amount) },
-            onSave = { amount -> onSavePayment(p.id, amount) },
+            onSave = { entry -> onSavePayment(p.id, entry) },
+            onCancelPayment = { onRemovePayment(p.id) },
+            onDismiss = { editingPayment = null },
         )
     }
 }
@@ -1158,3 +1132,4 @@ private fun ExpenseDetailPreview() {
 private fun ExpenseDetailPreviewDarkMode() {
     EvenlyTheme(darkTheme = true) { ExpenseDetailScreen() }
 }
+

@@ -1,5 +1,9 @@
 package app.splitevenly.ui.navigation
 
+import app.splitevenly.domain.expense.expenseDateChipLabel
+import app.splitevenly.core.time.localNoonEpochMillis
+import app.splitevenly.core.time.localIsoDate
+import app.splitevenly.platform.SecureStorage
 import app.splitevenly.ui.screen.bill.BillNext
 import app.splitevenly.domain.expense.trustedReceiptDate
 import androidx.compose.runtime.Composable
@@ -634,9 +638,12 @@ fun ExpenseDetailRoute(
     }.collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
-    // Settling one expense is an overlay on this screen, not a destination: pushing it as a route
-    // left the detail unrendered behind the sheet, so the sheet floated over a blank page.
-    var settleSheetOpen by remember { mutableStateOf(false) }
+    // The method last used on this device, pre-picked next time. Device-local: it's a convenience, and a
+    // wrong guess costs one tap.
+    val storage = koinInject<SecureStorage>()
+    var lastMethod by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { lastMethod = storage.getString(LAST_PAYMENT_METHOD_KEY) }
+    val today = remember { Clock.System.localToday() }
 
     val ews = detail
     if (ews == null) {
@@ -668,6 +675,9 @@ fun ExpenseDetailRoute(
                 remainingSubunits = s.remainingSubunits,
                 me = s.userId == userId,
                 payer = s.userId == e.payerUserId,
+                userId = s.userId.value,
+                // Only an in-app payer can be paid back here; the payer records for anyone, others for themselves.
+                canRecord = e.payerUserId != null && s.userId != e.payerUserId && (userId == e.payerUserId || s.userId == userId),
             )
         } +
             if (unclaimedSubunits > 0L) {
@@ -713,7 +723,7 @@ fun ExpenseDetailRoute(
         title = e.title,
         category = "",
         payerName = e.payerUserId?.let { nameOf(it) } ?: "Someone",
-        dateLabel = e.expenseDate,
+        dateLabel = expenseDateChipLabel(e.expenseDate, today),
         amountSubunits = e.amountSubunits,
         remainingSubunits = ews.shares.sumOf { it.remainingSubunits } + unclaimedSubunits,
         currencyCode = e.currency,
@@ -739,9 +749,35 @@ fun ExpenseDetailRoute(
         loadPdfPageCount = { url -> getPdfBytes(url)?.let { rasterizer.pageCount(it) } ?: 0 },
         renderPdfPage = { url, page, w -> getPdfBytes(url)?.let { rasterizer.renderPage(it, page, w) } },
         onBack = onBack,
-        onSettleThis = { settleSheetOpen = true },
+        paymentPayeeName = nameOf(e.payerUserId),
+        today = today,
+        defaultPaymentMethod = lastMethod,
+        onRecordPayment = { debtor, entry ->
+            val payer = e.payerUserId
+            if (payer == null) {
+                "This bill was paid by someone outside the group."
+            } else {
+                recordBillPayment(
+                    settlements, gid, eid, e.currency, from = UserId(debtor), to = payer, actor = userId,
+                    amountSubunits = entry.amountSubunits, method = entry.method, date = entry.date, today = today,
+                ).also { refused ->
+                    if (refused == null && entry.method != null) {
+                        lastMethod = entry.method
+                        storage.putString(LAST_PAYMENT_METHOD_KEY, entry.method)
+                    }
+                }
+            }
+        },
         previewPayment = { id, amount -> paymentPreview(settlements, id, amount, e.currency, scopeExpenseId = eid) },
-        onSavePayment = { id, amount -> savePaymentEdit(settlements, id, amount, userId, scopeExpenseId = eid) },
+        onSavePayment = { id, entry ->
+            val old = payments.firstOrNull { it.record.id.value == id }?.record
+            val dateChanged = old == null || localIsoDate(old.settledAt) != entry.date
+            savePaymentEdit(
+                settlements, id, entry.amountSubunits, userId, scopeExpenseId = eid,
+                paymentApp = entry.method,
+                settledAt = if (dateChanged) localNoonEpochMillis(entry.date) else null,
+            )
+        },
         onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id), userId) } },
         // A plain expense edits via the percent/exact/even editor. An itemized bill splits two ways: the
         // summary-card "Edit bill" action opens the menu/items editor, and the prominent button below opens
@@ -756,13 +792,7 @@ fun ExpenseDetailRoute(
         onDismissSupersededNotice = { scope.launch { expenses.dismissSupersededNotice(eid) } },
         onDelete = { scope.launch { if (expenses.deleteExpense(eid) is AppResult.Ok) onDeleted() } },
     )
-
-    if (settleSheetOpen) {
-        SettleSingleRoute(
-            groupId = groupId,
-            expenseId = expenseId,
-            onBack = { settleSheetOpen = false },
-            onSettled = { settleSheetOpen = false },
-        )
-    }
 }
+
+/** SecureStorage key for the payment method this device used last. */
+private const val LAST_PAYMENT_METHOD_KEY = "last_payment_method"

@@ -181,6 +181,11 @@ day before. A receipt's date fills the chip only through `trustedReceiptDate` an
 one by hand. The scan review ends in two buttons, "Assign items" and "Share link" (`BillNext`), which land
 over the bill's details and skip the chooser.
 
+**Payments live on the bill row, not in a section of their own.** Each debtor row ends in a balance chip
+("210 left ›", `BalanceChip`) for the bill's payer on every row and for each person on their own; it opens
+`RecordPaymentSheet`, whose History card is where a payment is edited or cancelled
+(`expense/BillPaymentSheets.kt`). "Edit bill" never edits a payment.
+
 **The participant picker scales with group size.** ≤6 members render as inline select-all/deselect toggle
 chips; larger groups collapse to a summary row that opens a searchable member-picker sheet. Same underlying
 selection state either way.
@@ -255,15 +260,15 @@ filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer`
 
 **600 lines per file.** New surface goes in a new file.
 
-**Known offenders, quarantined** (counts re-verified 2026-08-25 with `wc -l`; every one of them had
+**Known offenders, quarantined** (counts re-verified 2026-11-22 with `wc -l`; every one of them had
 drifted since the last check, which is the usual way a ceiling stops being one):
 
 | File                                        | Lines |
 | ------------------------------------------- | ----- |
-| `ui/screen/expense/ExpenseDetailScreen.kt`  | 1227  |
-| `ui/navigation/LedgerRoutes.kt`             | 929   |
-| `ui/screen/bill/BillEditScreen.kt`          | 813   |
-| `ui/screen/auth/WelcomeScreen.kt`           | 799   |
+| `ui/screen/bill/BillEditScreen.kt`          | 1238  |
+| `ui/screen/expense/ExpenseDetailScreen.kt`  | 1132  |
+| `ui/navigation/LedgerRoutes.kt`             | 802   |
+| `ui/screen/auth/WelcomeScreen.kt`           | 740   |
 
 **The add-expense editor is split by feature** (2026-08-02, was 1116 lines): `AddExpenseScreen.kt` keeps
 the shell — state, the shared header, the picker sheets. `SplitApproachChooser.kt` is the up-front

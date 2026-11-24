@@ -262,4 +262,69 @@ class PaymentEditRepositoryTest {
             // A preview writes nothing.
             assertEquals(listOf(paid.id.value), liveSettlements().map { it.id })
         }
+
+    @Test
+    fun billPayment_recordedByThePayee_carriesItsDateAndMethod() =
+        runTest {
+            val groceries = bill("Groceries", "2026-11-12", 900)
+            val dayBefore = clockAt("2026-11-19").now().toEpochMilliseconds()
+
+            // Bob (owed) records that Alice paid him, dated the day before, by M-Pesa.
+            val r =
+                settlements.applySettlement(
+                    NewSettlement(
+                        GroupId("g1"), alice, bob, "USD", 400, createdBy = bob,
+                        expenseId = groceries.id, paymentApp = "MPESA", settledAt = dayBefore,
+                    ),
+                )
+
+            assertTrue(r is AppResult.Ok)
+            assertEquals(dayBefore, r.value.settledAt)
+            assertEquals("MPESA", r.value.paymentApp)
+        }
+
+    @Test
+    fun futureSettledAt_isClampedToNow() =
+        runTest {
+            val groceries = bill("Groceries", "2026-11-12", 900)
+            val now = clockAt("2026-11-20").now().toEpochMilliseconds()
+            val r =
+                settlements.applySettlement(
+                    NewSettlement(GroupId("g1"), alice, bob, "USD", 400, createdBy = alice, expenseId = groceries.id, settledAt = now + 86_400_000),
+                )
+            assertTrue(r is AppResult.Ok)
+            assertEquals(now, r.value.settledAt)
+        }
+
+    @Test
+    fun amountOnlyEdit_keepsDateAndMethod_andMethodDateEditChangesThem() =
+        runTest {
+            val groceries = bill("Groceries", "2026-11-12", 900)
+            val dayBefore = clockAt("2026-11-19").now().toEpochMilliseconds()
+            val paid =
+                (
+                    settlements.applySettlement(
+                        NewSettlement(
+                            GroupId("g1"), alice, bob, "USD", 400, createdBy = alice,
+                            expenseId = groceries.id, paymentApp = "CASH", settledAt = dayBefore,
+                        ),
+                    ) as AppResult.Ok
+                ).value
+
+            val amountOnly = settlements.editSettlement(paid.id, 500, actor = alice, scopeExpenseId = groceries.id)
+            assertTrue(amountOnly is AppResult.Ok)
+            assertEquals(dayBefore, amountOnly.value.settledAt)
+            assertEquals("CASH", amountOnly.value.paymentApp)
+
+            val twoDaysBefore = clockAt("2026-11-18").now().toEpochMilliseconds()
+            val moved =
+                settlements.editSettlement(
+                    amountOnly.value.id, 500, actor = bob, scopeExpenseId = groceries.id,
+                    paymentApp = "MPESA", settledAt = twoDaysBefore,
+                )
+            assertTrue(moved is AppResult.Ok)
+            assertEquals(twoDaysBefore, moved.value.settledAt)
+            assertEquals("MPESA", moved.value.paymentApp)
+            assertEquals(listOf(moved.value.id.value), liveSettlements().map { it.id })
+        }
 }

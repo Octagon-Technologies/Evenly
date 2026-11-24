@@ -60,12 +60,17 @@ interface SettlementRepository {
      * [app.splitevenly.domain.settlement.respreadPayment]: a cut comes off the newest covered bill first,
      * an increase fills the oldest unpaid one. With it set, it is that bill's portion and no other bill
      * changes. Never above what is owed. Writes one SETTLEMENT_EDITED history row per affected bill.
+     *
+     * [paymentApp] and [settledAt] change how and when it was paid; null keeps what's recorded. The date
+     * is kept across an amount-only edit, because fixing a typo doesn't move when the money was sent.
      */
     suspend fun editSettlement(
         settlementId: SettlementId,
         newAmountSubunits: Long,
         actor: UserId? = null,
         scopeExpenseId: ExpenseId? = null,
+        paymentApp: String? = null,
+        settledAt: Long? = null,
     ): AppResult<SettlementRecord>
 
     /**

@@ -56,6 +56,12 @@ data class PaymentUi(
     val billCount: Int = 1,
     val dateTimeLabel: String = "",
     val recordedBy: String = "",
+    /** Who paid, so a bill can list each person's own payments under their row. */
+    val fromUserId: String = "",
+    /** The method as stored (`MPESA`), for an editor to pre-select; [app] is its label. */
+    val storedMethod: String? = null,
+    /** When it was paid, epoch millis. */
+    val settledAt: Long = 0L,
 ) {
     /** Only the two people in a payment may change it (`docs/features/one-time-splits.md` Part B). */
     val canEdit: Boolean get() = byMe || toMe
