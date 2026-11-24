@@ -150,7 +150,6 @@ internal fun MembersSheet(
     EvSheetScaffold(
         onDismiss = onDismiss,
         title = "Members",
-        sub = "",
     ) {
         EvButton("Invite with link", onInviteWithLink, leadingIcon = EvIcons.Share)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
@@ -264,6 +263,9 @@ internal fun AddMemberSheet(
                     onDismiss()
                 }
             })
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Dismiss)
         }
     }
 }

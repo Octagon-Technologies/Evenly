@@ -3,6 +3,7 @@ package app.splitevenly.ui.components
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
@@ -52,9 +53,9 @@ private val FocusedFieldMargin = 8.dp
  * [WindowInsets.isImeVisible] is Android-only in this Compose Multiplatform version (unresolved on
  * Kotlin/Native), so visibility is read from the ime inset height directly, which resolves on both.
  *
- * Mount it only on full screens, and hide it while a dialog or sheet is open over the screen: those
- * close on their own ✕, Back or a tap outside, so a bar peeking out behind them is noise (pass
- * `visible = false`). Single-line text fields don't need it either; their return key is "Done".
+ * Full screens mount it themselves and hide it while a dialog or sheet is open over them (pass
+ * `visible = false`), because [EvSheetScaffold] mounts its own above the sheet. Single-line text fields
+ * on a full screen don't need it; their return key is "Done".
  *
  * The fill is `page`, not `surface`: in dark mode `surface` is a 6%-alpha blue tint meant to sit *on*
  * the page, so using it here let the scrolled content read straight through the bar.
@@ -74,6 +75,8 @@ fun EvKeyboardDoneBar(
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.ime)
             .height(EvKeyboardDoneBarHeight)
+            // Swallows taps on the bar's empty part, which in a sheet would otherwise reach the dismiss backdrop.
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {})
             .background(c.page)
             .topHairline(c.border),
         contentAlignment = Alignment.CenterEnd,
