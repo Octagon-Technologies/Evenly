@@ -22,7 +22,6 @@ class ExpenseSettledTest {
             currency = "USD",
             expenseDate = "2026-10-03",
             payerUserId = me,
-            payerOutsideName = null,
             splitMode = "ITEMIZED",
             status = "ACTIVE",
             notes = null,

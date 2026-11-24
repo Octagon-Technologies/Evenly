@@ -854,7 +854,6 @@
     <ID>MaxLineLength:AddExpenseSheets.kt$Text("Category", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))</ID>
     <ID>MaxLineLength:AddExpenseSheets.kt$Text("Expense currency", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))</ID>
     <ID>MaxLineLength:AddExpenseSheets.kt$Text("Scan the bill", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))</ID>
-    <ID>MaxLineLength:AddExpenseSheets.kt$Text("Someone outside the group", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))</ID>
     <ID>MaxLineLength:AddExpenseSheets.kt$Text("Who paid?", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))</ID>
     <ID>MaxLineLength:AddExpenseSheets.kt$Text(cat.label, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)</ID>
     <ID>MaxLineLength:AddExpenseSheets.kt$Text(code, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = EvenlyTheme.monoFamily, modifier = Modifier.width(48.dp))</ID>

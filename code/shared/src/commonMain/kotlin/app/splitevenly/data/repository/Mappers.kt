@@ -89,7 +89,6 @@ internal fun ExpenseEntity.toDomain(): Expense =
         currency = currency,
         expenseDate = expenseDate,
         payerUserId = payerUserId?.let(::UserId),
-        payerOutsideName = payerOutsideName,
         splitMode = splitMode,
         status = status,
         notes = notes,

@@ -169,8 +169,6 @@ data class EditBillSubmit(
     // Who paid. Either the add-expense editor's shared header or the bill editor's own "Paid by" row sets
     // it; null only if neither ran, in which case the wrapper keeps the existing payer.
     val payerUserId: String? = null,
-    /** Non-blank when someone outside the group paid. They are not part of the split. */
-    val payerOutsideName: String? = null,
     /** The bill's calendar date, ISO-8601. Null keeps the saved date (or today for a new bill). */
     val expenseDate: String? = null,
     /** Where a new bill goes once saved: the review screen's two buttons pick it, the editor leaves it to the chooser. */
@@ -209,7 +207,6 @@ fun BillEditScreen(
     participants: List<ParticipantChipUi> = emptyList(),
     initialSelectedIds: Set<String> = emptySet(),
     initialPayerId: String = "",
-    initialOutsidePayerName: String? = null,
     // How many lines each person currently holds. Only used to decide whether taking them off the bill
     // needs confirming, since that discards their claims.
     claimedItemsByUser: Map<String, Int> = emptyMap(),
@@ -259,7 +256,10 @@ fun BillEditScreen(
     var pickerQuery by remember { mutableStateOf("") }
     var showPayerSheet by remember { mutableStateOf(false) }
     var payerId by remember { mutableStateOf(initialPayerId) }
-    var outsidePayerName by remember { mutableStateOf(initialOutsidePayerName) }
+    // Set when "Add someone new" came from the payer picker: the payer is claimed once the new
+    // placeholder member shows up in [participants].
+    var pendingPayerName by remember { mutableStateOf<String?>(null) }
+    var addingPayer by remember { mutableStateOf(false) }
     // Set while a removal that would discard someone's claims waits on the confirm sheet.
     var pendingRemoval by remember { mutableStateOf<PendingRemoval?>(null) }
 
@@ -285,6 +285,12 @@ fun BillEditScreen(
         if (fresh.isNotEmpty()) {
             selected = selected?.plus(fresh)
             memberBaseline = ids
+            pendingPayerName?.let { name ->
+                participants.firstOrNull { it.userId in fresh && it.name.equals(name, ignoreCase = true) }?.let {
+                    payerId = it.userId
+                    pendingPayerName = null
+                }
+            }
         }
     }
 
@@ -359,7 +365,6 @@ fun BillEditScreen(
             discountSubunits = priceToSubunits(discountText),
             participantIds = effectiveSelected,
             payerUserId = payerId.takeIf { it.isNotBlank() },
-            payerOutsideName = outsidePayerName?.takeIf { it.isNotBlank() },
             expenseDate = expenseDate,
         )
     // The last snapshot written. For an existing bill it is captured once members have loaded, so opening
@@ -532,8 +537,7 @@ fun BillEditScreen(
                     BillPaidByRow(
                         participants = participants,
                         selected = effectiveSelected,
-                        payerUserId = if (outsidePayerName.isNullOrBlank()) payerId else "",
-                        outsidePayerName = outsidePayerName,
+                        payerUserId = payerId,
                         onOpenSheet = { showPayerSheet = true },
                     )
                 }
@@ -766,23 +770,25 @@ fun BillEditScreen(
         if (showPayerSheet) {
             BillPayerSheet(
                 participants = participants,
-                payerUserId = if (outsidePayerName.isNullOrBlank()) payerId else "",
-                outsidePayerName = outsidePayerName,
-                onPickMember = { id ->
-                    payerId = id
-                    outsidePayerName = null
+                payerUserId = payerId,
+                onPickMember = { id -> payerId = id },
+                onAddSomeoneNew = {
+                    addingPayer = true
+                    showAddDialog = true
                 },
-                onPickOutside = { name -> outsidePayerName = name },
-                onAddSomeoneNew = { showAddDialog = true },
                 onDismiss = { showPayerSheet = false },
             )
         }
 
         if (showAddDialog) {
             var newName by remember { mutableStateOf("") }
-            EvModalScaffold(onDismiss = { showAddDialog = false }) {
+            val closeAdd = {
+                showAddDialog = false
+                addingPayer = false
+            }
+            EvModalScaffold(onDismiss = closeAdd) {
                 Text(
-                    "Add a person",
+                    if (addingPayer) "Who paid?" else "Add a person",
                     color = c.ink,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(bottom = 4.dp),
@@ -797,8 +803,9 @@ fun BillEditScreen(
                 Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                     EvButton("Add", {
                         if (newName.isNotBlank()) {
+                            if (addingPayer) pendingPayerName = newName.trim()
                             onAddPerson(newName.trim())
-                            showAddDialog = false
+                            closeAdd()
                         }
                     }, enabled = newName.isNotBlank())
                 }

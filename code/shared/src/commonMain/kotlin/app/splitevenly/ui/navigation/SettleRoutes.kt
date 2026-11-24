@@ -144,7 +144,7 @@ fun SettlePersonRoute(
  * Settle a single expense, wired: settles the current user's remaining share of one expense to its
  * payer via [SettlementRepository.applySettlement] (oldest-first allocation pays this balance down).
  * "Open in <app>" fires the deep link then the sheet's in-place confirm records on "Yes"; "Mark paid"
- * records directly. No-ops cleanly when the expense has an outside payer or nothing is owed.
+ * records directly. No-ops cleanly when the expense has no payer or nothing is owed.
  */
 @Composable
 fun SettleSingleRoute(
@@ -175,7 +175,7 @@ fun SettleSingleRoute(
     val payerId = e.payerUserId
     val myRemaining = ews.shares.firstOrNull { it.userId == userId }?.remainingSubunits ?: 0L
     val payer = members.firstOrNull { it.userId == payerId }
-    val payeeName = payer?.displayName ?: e.payerOutsideName ?: "Someone"
+    val payeeName = payer?.displayName ?: "Someone"
     val handles =
         PaymentApp.entries.mapNotNull { app ->
             payer?.paymentHandles?.get(app)?.let { PeerPaymentHandle(app, app.appLabel, it) }

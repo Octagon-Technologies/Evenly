@@ -342,7 +342,6 @@ fun AddExpenseRoute(
                                 shareExactSubunits = s.exactSubunits,
                             )
                         }
-                    val outside = submit.payerOutsideName?.takeIf { it.isNotBlank() }
                     val input =
                         NewExpense(
                             groupId = gid,
@@ -350,8 +349,7 @@ fun AddExpenseRoute(
                             amountSubunits = submit.amountSubunits,
                             currency = submit.currency,
                             expenseDate = submit.expenseDate,
-                            payerUserId = if (outside != null) null else UserId(submit.payerUserId),
-                            payerOutsideName = outside,
+                            payerUserId = UserId(submit.payerUserId),
                             splitMode = submit.mode.wire,
                             createdBy = me,
                             shares = shares,
@@ -399,7 +397,7 @@ fun AddExpenseRoute(
                             title = submit.title,
                             currency = currency,
                             expenseDate = submit.expenseDate ?: Clock.System.localToday(),
-                            // The shared header's "Paid by" carries over; fall back to me if it's blank/outside.
+                            // The shared header's "Paid by" carries over; fall back to me if it's blank.
                             payerUserId = submit.payerUserId?.takeIf { it.isNotBlank() }?.let { UserId(it) } ?: me,
                             createdBy = me,
                             items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
@@ -507,7 +505,6 @@ fun EditExpenseRoute(
                 percentText = ews.shares.mapNotNull { s -> s.sharePercentage?.let { s.userId.value to format2dp(it) } }.toMap(),
                 exactText = ews.shares.mapNotNull { s -> s.shareExactSubunits?.let { s.userId.value to format2dp(it / 100.0) } }.toMap(),
                 categoryId = e.categoryId,
-                payerOutsideName = e.payerOutsideName,
                 expenseDate = e.expenseDate,
             )
         }
@@ -543,17 +540,15 @@ fun EditExpenseRoute(
                                 shareExactSubunits = s.exactSubunits,
                             )
                         }
-                    val outside = submit.payerOutsideName?.takeIf { it.isNotBlank() }
                     val input =
                         EditExpense(
                             title = submit.title,
                             amountSubunits = submit.amountSubunits,
                             currency = submit.currency,
                             expenseDate = submit.expenseDate,
-                            payerUserId = if (outside != null) null else UserId(submit.payerUserId),
+                            payerUserId = UserId(submit.payerUserId),
                             splitMode = submit.mode.wire,
                             shares = shares,
-                            payerOutsideName = outside,
                             notes = e.notes,
                             categoryId = submit.categoryId,
                             editedBy = userId,
@@ -717,7 +712,7 @@ fun ExpenseDetailRoute(
         state = ExpenseDetailState.Content,
         title = e.title,
         category = "",
-        payerName = if (e.payerUserId == null) (e.payerOutsideName ?: "Someone") else nameOf(e.payerUserId),
+        payerName = e.payerUserId?.let { nameOf(it) } ?: "Someone",
         dateLabel = e.expenseDate,
         amountSubunits = e.amountSubunits,
         remainingSubunits = ews.shares.sumOf { it.remainingSubunits } + unclaimedSubunits,

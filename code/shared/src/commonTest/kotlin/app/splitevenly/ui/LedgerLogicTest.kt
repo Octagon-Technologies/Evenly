@@ -101,7 +101,6 @@ class LedgerLogicTest {
         currency = "USD",
         expenseDate = date,
         payerUserId = payer,
-        payerOutsideName = null,
         splitMode = "EVEN",
         status = "ACTIVE",
         notes = null,

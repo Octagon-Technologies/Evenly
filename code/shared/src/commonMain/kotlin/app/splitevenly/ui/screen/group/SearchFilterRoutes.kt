@@ -33,7 +33,7 @@ fun SearchRoute(groupId: String, onBack: () -> Unit, onOpenExpense: (String) -> 
     val q = query.trim()
     val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
     fun payerName(e: Expense): String = when {
-        e.payerUserId == null -> e.payerOutsideName ?: "Someone"
+        e.payerUserId == null -> "Someone"
         e.payerUserId == userId -> "You"
         else -> nameByUser[e.payerUserId.value] ?: "Someone"
     }

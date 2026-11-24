@@ -260,7 +260,7 @@ If this expense has refunds linked to it: list them with a distinct refund-icon 
 2. **Title** — single-line text field.
 3. **Paid by** — defaults to current user. Tap to open picker:
    - List of active members (selectable as payer).
-   - Tap "Someone outside the group" to enter a free-text name (sets `payer_outside_name`).
+   - "Add someone new" creates a placeholder member, makes them the payer, and adds them to the split.
 4. **Participants** — chip list. Default = last-used participants (smart default). Tap a member chip to toggle. "+ Add" allows:
    - Add an existing member from the group.
    - Add a placeholder participant (free-text name; calls `add_placeholder_participant`).

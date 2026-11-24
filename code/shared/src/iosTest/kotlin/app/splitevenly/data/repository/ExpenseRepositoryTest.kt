@@ -126,23 +126,6 @@ class ExpenseRepositoryTest {
         }
 
     @Test
-    fun addExpense_outsidePayer_resolvesNoShare() =
-        runTest {
-            // An outside payer (payerUserId == null) is not a participant, so no self-share resolution
-            // applies: every share stays unpaid and the expense is ACTIVE.
-            val expense =
-                add(
-                    newExpense().copy(payerUserId = null, payerOutsideName = "Hotel"),
-                )
-
-            val detail = repo.observeExpense(expense.id).first()
-            assertNotNull(detail)
-            assertTrue(detail.shares.all { it.remainingSubunits == it.owedSubunits }, "no share is pre-resolved")
-            assertEquals(3000, detail.shares.sumOf { it.remainingSubunits })
-            assertEquals(ExpenseStatus.ACTIVE, detail.expense.status)
-        }
-
-    @Test
     fun editExpense_payerIsParticipant_resolvesPayerShare() =
         runTest {
             val created = add() // status starts with u1 resolved

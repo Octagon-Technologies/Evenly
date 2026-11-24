@@ -37,8 +37,6 @@ data class AddExpensePrefill(
     val percentText: Map<String, String> = emptyMap(),
     val exactText: Map<String, String> = emptyMap(),
     val categoryId: String? = null,
-    /** Non-null when the expense was paid by someone outside the group (no [payerUserId]). */
-    val payerOutsideName: String? = null,
     /** The bill's calendar date, ISO-8601. */
     val expenseDate: String? = null,
 )
@@ -87,11 +85,7 @@ data class SplitShareInput(
     val exactSubunits: Long? = null,
 )
 
-/**
- * Everything the add-expense screen emits on Save; the route maps it straight onto `NewExpense`.
- * When [payerOutsideName] is non-null the expense was paid by someone outside the group: the route
- * persists `payerUserId = null` + that name, and the outside payer is not part of the split.
- */
+/** Everything the add-expense screen emits on Save; the route maps it straight onto `NewExpense`. */
 data class AddExpenseSubmit(
     val amountSubunits: Long,
     val title: String,
@@ -100,7 +94,6 @@ data class AddExpenseSubmit(
     val shares: List<SplitShareInput>,
     val currency: String,
     val categoryId: String? = null,
-    val payerOutsideName: String? = null,
     /** ISO-8601 calendar date; the editor defaults it to today. */
     val expenseDate: String,
 )

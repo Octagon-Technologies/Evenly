@@ -170,30 +170,16 @@ internal fun ParticipantsField(
     }
 }
 
-/** "Paid by": the payer as a picker row. An outside payer (no group member) gets a generic person icon. */
+/** "Paid by": the payer as a picker row. */
 @Composable
 internal fun PaidByField(
     name: String,
-    isOutsidePayer: Boolean,
     isMe: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val c = EvenlyTheme.colors
     EvField("Paid by", modifier = modifier) {
-        EvSelectField(
-            name,
-            onClick,
-            leading = {
-                if (isOutsidePayer) {
-                    Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                        EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
-                    }
-                } else {
-                    EvAvatar(name, me = isMe, size = AvatarSize.Sm)
-                }
-            },
-        )
+        EvSelectField(name, onClick, leading = { EvAvatar(name, me = isMe, size = AvatarSize.Sm) })
     }
 }
 

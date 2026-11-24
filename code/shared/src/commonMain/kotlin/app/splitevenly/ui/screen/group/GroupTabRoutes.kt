@@ -479,7 +479,7 @@ fun GroupConflictsRoute(
 
             fun possessive(name: String) = if (name == "You") "yours" else "$name's"
 
-            fun payerLabel(side: ConflictSide) = side.payerUserId?.let { nameOf(it) } ?: side.payerOutsideName ?: "—"
+            fun payerLabel(side: ConflictSide) = side.payerUserId?.let { nameOf(it) } ?: "—"
 
             // Only surface fields that actually differ between the two versions — that's the decision surface.
             val rows =
@@ -496,7 +496,7 @@ fun GroupConflictsRoute(
                     if (cur.splitMode != rej.splitMode) {
                         add(ConflictRowUi("Split", humanizeSplitMode(cur.splitMode), humanizeSplitMode(rej.splitMode)))
                     }
-                    if (cur.payerUserId != rej.payerUserId || cur.payerOutsideName != rej.payerOutsideName) {
+                    if (cur.payerUserId != rej.payerUserId) {
                         add(ConflictRowUi("Paid by", payerLabel(cur), payerLabel(rej)))
                     }
                     if (cur.title != rej.title) {

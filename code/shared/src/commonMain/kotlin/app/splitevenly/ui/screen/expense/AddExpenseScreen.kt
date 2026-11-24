@@ -166,9 +166,11 @@ fun AddExpenseScreen(
     }
     var known by remember { mutableStateOf(participants.map { it.userId }.toSet()) }
     var showAddDialog by remember { mutableStateOf(false) }
+    // Set when "Add someone new" came from the payer picker: the person is created async, so the payer is
+    // claimed once their placeholder member shows up in [participants].
+    var pendingPayerName by remember { mutableStateOf<String?>(null) }
+    var addingPayer by remember { mutableStateOf(false) }
     var payerId by remember { mutableStateOf(prefill?.payerUserId ?: "") }
-    // Non-blank when an outside party paid (no group member). Such a payer is not part of the split.
-    var outsidePayerName by remember { mutableStateOf(prefill?.payerOutsideName) }
     var showPayerDialog by remember { mutableStateOf(false) }
     var showScanSource by remember { mutableStateOf(false) }
     var showPeoplePicker by remember { mutableStateOf(false) }
@@ -202,14 +204,19 @@ fun AddExpenseScreen(
             ?: participants.firstOrNull()?.userId
             ?: ""
     val payer = participants.firstOrNull { it.userId == effectivePayerId }
-    val isOutsidePayer = !outsidePayerName.isNullOrBlank()
-    val payerDisplayName = if (isOutsidePayer) outsidePayerName!! else (payer?.name ?: "You")
+    val payerDisplayName = payer?.name ?: "You"
     // Auto-select members that appear after a placeholder is added, without re-selecting ones the user deselected.
     LaunchedEffect(participants) {
         val fresh = participants.map { it.userId }.toSet() - known
         if (fresh.isNotEmpty()) {
             selected = selected + fresh
             known = known + fresh
+            pendingPayerName?.let { name ->
+                participants.firstOrNull { it.userId in fresh && it.name.equals(name, ignoreCase = true) }?.let {
+                    payerId = it.userId
+                    pendingPayerName = null
+                }
+            }
         }
     }
 
@@ -260,7 +267,7 @@ fun AddExpenseScreen(
                     tipSubunits = priceToSubunits(itemized.tipText),
                     discountSubunits = priceToSubunits(itemized.discountText),
                     participantIds = selected,
-                    payerUserId = if (isOutsidePayer) null else effectivePayerId,
+                    payerUserId = effectivePayerId,
                     expenseDate = expenseDate,
                     next = next,
                 ),
@@ -270,8 +277,7 @@ fun AddExpenseScreen(
                 AddExpenseSubmit(
                     amountSubunits = divide.amountSubunits,
                     title = title.trim(),
-                    payerUserId = if (isOutsidePayer) "" else effectivePayerId,
-                    payerOutsideName = if (isOutsidePayer) outsidePayerName else null,
+                    payerUserId = effectivePayerId,
                     mode = divide.mode,
                     currency = currency,
                     categoryId = categoryId,
@@ -287,7 +293,7 @@ fun AddExpenseScreen(
     // committed on its own, not on Save. The first composition's value is the baseline.
     val entered =
         listOf(
-            title.trim(), expenseDate.takeIf { datePicked }, selected, effectivePayerId, outsidePayerName,
+            title.trim(), expenseDate.takeIf { datePicked }, selected, effectivePayerId,
             categoryId.takeIf { categoryPicked }, currency, divide.amountSubunits, divide.mode,
             if (divide.amountSubunits > 0) divide.shares(ids) else null,
             receipts.filter { it.remoteUrl == null }.map { it.id }, attachedReceipts.map { it.id },
@@ -350,7 +356,7 @@ fun AddExpenseScreen(
                     showErrors = showErrors,
                     people = selectedList.map { PickerPersonUi(it.userId, it.name, it.isMe) },
                     payerName = payerDisplayName,
-                    payerIsMe = !isOutsidePayer && payer?.isMe == true,
+                    payerIsMe = payer?.isMe == true,
                     onEditPeople = { showPeoplePicker = true },
                     onChangePayer = { showPayerDialog = true },
                     saving = saving,
@@ -445,7 +451,6 @@ fun AddExpenseScreen(
                         }
                         PaidByField(
                             payerDisplayName,
-                            isOutsidePayer,
                             isMe = payer?.isMe == true,
                             onClick = { showPayerDialog = true },
                             modifier = Modifier.weight(1f),
@@ -521,7 +526,17 @@ fun AddExpenseScreen(
     }
 
     if (showAddDialog) {
-        AddParticipantSheet(onAdd = onAddPlaceholder, onDismiss = { showAddDialog = false })
+        AddParticipantSheet(
+            title = if (addingPayer) "Who paid?" else "Add a participant",
+            onAdd = { name ->
+                if (addingPayer) pendingPayerName = name
+                onAddPlaceholder(name)
+            },
+            onDismiss = {
+                showAddDialog = false
+                addingPayer = false
+            },
+        )
     }
 
     if (showReceiptSource) {
@@ -561,20 +576,16 @@ fun AddExpenseScreen(
         PayerSheet(
             participants = participants,
             effectivePayerId = effectivePayerId,
-            isOutsidePayer = isOutsidePayer,
-            outsidePayerName = outsidePayerName,
             onPickMember = { id ->
                 payerId = id
-                outsidePayerName = null
                 // A member who paid is part of the split by default — add them (still removable below).
                 selected = selected + id
                 known = known + id
             },
-            onPickOutside = { name ->
-                outsidePayerName = name
-                payerId = ""
+            onAddSomeoneNew = {
+                addingPayer = true
+                showAddDialog = true
             },
-            onAddSomeoneNew = { showAddDialog = true },
             onDismiss = { showPayerDialog = false },
         )
     }

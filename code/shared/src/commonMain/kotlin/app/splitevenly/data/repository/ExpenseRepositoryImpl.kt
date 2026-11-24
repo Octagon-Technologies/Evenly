@@ -260,7 +260,6 @@ class ExpenseRepositoryImpl(
                 currency = input.currency,
                 expenseDate = input.expenseDate,
                 payerUserId = input.payerUserId?.value,
-                payerOutsideName = input.payerOutsideName,
                 splitMode = input.splitMode,
                 categoryId = input.categoryId,
                 status = status,
@@ -334,7 +333,6 @@ class ExpenseRepositoryImpl(
                 input.currency != existing.currency ||
                 input.splitMode != existing.splitMode ||
                 input.payerUserId?.value != existing.payerUserId ||
-                input.payerOutsideName != existing.payerOutsideName ||
                 oldSplit != newSplit
         val updated =
             existing.copy(
@@ -344,7 +342,6 @@ class ExpenseRepositoryImpl(
                 currency = input.currency,
                 expenseDate = input.expenseDate,
                 payerUserId = input.payerUserId?.value,
-                payerOutsideName = input.payerOutsideName,
                 splitMode = input.splitMode,
                 categoryId = input.categoryId,
                 status = ExpenseStatus.ACTIVE,
@@ -419,7 +416,6 @@ class ExpenseRepositoryImpl(
                             amountSubunits = current?.amountSubunits ?: rejectedExpense.amountSubunits,
                             splitMode = current?.splitMode ?: rejectedExpense.splitMode,
                             payerUserId = (current?.payerUserId ?: rejectedExpense.payerUserId)?.let { UserId(it) },
-                            payerOutsideName = current?.payerOutsideName ?: rejectedExpense.payerOutsideName,
                             shares = currentShareMap,
                         ),
                     rejected =
@@ -428,7 +424,6 @@ class ExpenseRepositoryImpl(
                             amountSubunits = rejectedExpense.amountSubunits,
                             splitMode = rejectedExpense.splitMode,
                             payerUserId = rejectedExpense.payerUserId?.let { UserId(it) },
-                            payerOutsideName = rejectedExpense.payerOutsideName,
                             shares =
                                 rejectedShares
                                     .filter { it.deletedAt == null }
@@ -485,7 +480,6 @@ class ExpenseRepositoryImpl(
                 currency = rejectedExpense.currency,
                 expenseDate = rejectedExpense.expenseDate,
                 payerUserId = rejectedExpense.payerUserId,
-                payerOutsideName = rejectedExpense.payerOutsideName,
                 splitMode = rejectedExpense.splitMode,
                 categoryId = rejectedExpense.categoryId,
                 status = ExpenseStatus.ACTIVE,

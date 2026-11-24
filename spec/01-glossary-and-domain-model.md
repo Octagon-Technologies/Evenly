@@ -114,14 +114,12 @@ The action opens the same reconcile screen with fresh data. Tyler can claim plac
 
 **Self-rename propagation.** When a User edits their display name, the change applies globally to that User — the `display_name` lives on the `users` row, not duplicated per group. There is therefore no per-expense rewrite needed for self-renames; all reads JOIN to `users.display_name`. The same applies when a placeholder is claimed: existing expense rows reference `users.id`, and the displayed name follows that join.
 
-### 3.3 Outside party (non-member payer or recipient)
+### 3.3 Outside party (removed)
 
-Distinct from placeholders. Specified at the per-expense level only:
-
-- `payer_outside_name: String?` — when set, `payer_user_id` is NULL and this string is shown as the payer.
-- The amount counted as paid does NOT contribute to any group balance; this expense only adjusts what the participants owe **each other** (the outside party absorbs the cost from outside the group's ledger).
-
-Difference from a placeholder: a placeholder accrues balances over time and can be claimed. An outside party is per-expense, ephemeral, and never balance-bearing.
+There is no outside payer. An expense nobody in the group has to repay isn't worth logging, so the payer
+is always a group member: an existing one, or a placeholder created on the spot. The
+`expenses.payer_outside_name` column survives only because dropping it is not allowed; nothing writes or
+reads it (removed 2026-11-24).
 
 ### 3.4 Self-as-payer-only
 
