@@ -12,7 +12,9 @@ import {
   groupApi,
   type ExpenseEdit,
   type GroupExpense,
+  type GroupPayment,
   type GroupView,
+  type ProofFile,
   type GroupWriteResult,
   type NewExpense,
 } from './api.ts';
@@ -101,6 +103,21 @@ export class GroupStore {
     return (this.view?.edits ?? []).filter((x) => x.expenseId === expenseId);
   }
 
+  /** The payments that put money on [expenseId], with what each put there, newest first. */
+  paymentsOn(expenseId: string): Array<{ payment: GroupPayment; here: number }> {
+    const out: Array<{ payment: GroupPayment; here: number }> = [];
+    for (const p of this.view?.payments ?? []) {
+      const here = (p.applied ?? []).filter((a) => a.expenseId === expenseId).reduce((t, a) => t + a.subunits, 0);
+      if (here > 0) out.push({ payment: p, here });
+    }
+    return out;
+  }
+
+  /** Only the two people in a payment may attach or change its screenshot (same rule as the app). */
+  inPayment(p: GroupPayment): boolean {
+    return !this.view?.readOnly && (p.fromUserId === this.me || p.toUserId === this.me);
+  }
+
   async load(): Promise<void> {
     if (!this.view) this.phase = 'loading';
     try {
@@ -113,11 +130,38 @@ export class GroupStore {
   }
 
   /** "I paid Joe", across bills or for one ([expenseId]). Returns null when it landed, or what to tell the guest. */
-  async pay(debt: Debt, amountSubunits: number, expenseId: string | null = null): Promise<string | null> {
+  async pay(debt: Debt, amountSubunits: number, expenseId: string | null = null, proof: ProofFile | null = null): Promise<string | null> {
     return this.#write(async () => {
       const res = await groupApi.pay(this.token, this.sessionToken, debt.creditorUserId, debt.currency, amountSubunits, expenseId);
       if (!res.ok) return refusal(res);
-      capture('group_web_paid', {});
+      capture('group_web_paid', { proof: !!proof });
+      if (proof && res.settlementId) {
+        // The payment already counts; a screenshot that fails to upload must not read as a failed payment.
+        try {
+          await groupApi.paymentProof(this.token, this.sessionToken, res.settlementId, proof);
+        } catch {
+          return 'Payment recorded, but the screenshot did not upload. Open the bill to add it again.';
+        }
+      }
+      return null;
+    });
+  }
+
+  /** Attach (replace) or, with [file] null, remove a payment's screenshot. */
+  async setProof(settlementId: string, file: ProofFile | null): Promise<string | null> {
+    return this.#write(async () => {
+      const res = await groupApi.paymentProof(this.token, this.sessionToken, settlementId, file);
+      if (!res.ok) return "That didn't go through. Try again.";
+      if (file) capture('group_web_proof_added', {});
+      return null;
+    });
+  }
+
+  async comment(expenseId: string, body: string): Promise<string | null> {
+    return this.#write(async () => {
+      const res = await groupApi.comment(this.token, this.sessionToken, expenseId, body);
+      if (!res.ok) return "That didn't go through. Try again.";
+      capture('group_web_commented', {});
       return null;
     });
   }

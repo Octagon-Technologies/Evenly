@@ -88,6 +88,7 @@ object EvIcons {
     val Undo: ImageVector by lazy { lineIcon("M4 10h10a5 5 0 010 10h-4M4 10l4-4M4 10l4 4") }
     val Copy: ImageVector by lazy { lineIcon("M11 9h7a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-7a2 2 0 0 1 -2 -2v-7a2 2 0 0 1 2 -2Z M5 15V5a2 2 0 012-2h8") }
     val Camera: ImageVector by lazy { lineIcon("M5.5 7h13a2.5 2.5 0 0 1 2.5 2.5v8a2.5 2.5 0 0 1 -2.5 2.5h-13a2.5 2.5 0 0 1 -2.5 -2.5v-8a2.5 2.5 0 0 1 2.5 -2.5Z M8.5 13.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0Z M8 7l1.5-3h5L16 7") }
+    val Paperclip: ImageVector by lazy { lineIcon("M20 11.5l-8.2 8.2a5 5 0 0 1 -7.1 -7.1l8.6 -8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1 -2.4 -2.4l7.9 -7.9") }
     val Image: ImageVector by lazy { lineIcon("M5.5 5h13a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1 -2.5 2.5h-13a2.5 2.5 0 0 1 -2.5 -2.5v-9a2.5 2.5 0 0 1 2.5 -2.5Z M6.7 10a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0 -3.6 0Z M21 16l-5-5L5 19") }
     val Comment: ImageVector by lazy { lineIcon("M4 6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H9l-5 4V6z") }
     val Clock: ImageVector by lazy { lineIcon("M3.5 12a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0Z M12 7.5V12l3 2") }

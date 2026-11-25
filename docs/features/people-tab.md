@@ -111,4 +111,4 @@ box when the payment covers a single group.
 - "People you know" is in the group's Add a member sheet (group page and Group settings) only, not the
   add-expense participant sheet or the bill flow.
 - A cross-group payment is N ordinary payments; undoing it means removing each one in its group.
-- `DB version 35` will collide with `feat/payment-proof` if that branch also bumps; renumber at merge.
+- DB version: People took 35; `feat/payment-proof` was renumbered to 36 when it merged.

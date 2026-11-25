@@ -469,6 +469,31 @@ create table if not exists public.receipts (
 create index if not exists receipts_expense_idx on public.receipts (expense_id);
 create index if not exists receipts_group_idx on public.receipts (group_id);
 
+-- Proof of payment (docs/features/payment-proof.md): a screenshot attached to a payment, so the person who
+-- was paid can check it in one tap. Same shape and bucket as `receipts` (path `<group_id>/payments/<chain
+-- id>/<id>.<ext>`, so the receipts bucket policies and the group purge's prefix delete already cover it).
+-- A separate table, not a nullable `receipts.settlement_id`: every installed app assumes a receipt has an
+-- expense. `settlement_id` is the payment's CHAIN id (`original_settlement_id ?? id`): editing a payment
+-- voids it and writes a replacement, and the screenshot must survive that. One live proof per chain; a
+-- replacement soft-deletes the old row (client- and web-enforced, not a constraint, because tombstones of
+-- the old row and the new row can sync in either order).
+create table if not exists public.payment_proofs (
+  id text primary key,
+  settlement_id text not null,
+  group_id text not null,
+  uploaded_by text not null,
+  storage_path text not null,
+  url text,
+  mime_type text not null,
+  size_bytes bigint not null,
+  created_at bigint not null,
+  updated_at bigint not null,
+  deleted_at bigint,
+  row_version bigint not null default 1
+);
+create index if not exists payment_proofs_settlement_idx on public.payment_proofs (settlement_id);
+create index if not exists payment_proofs_group_idx on public.payment_proofs (group_id);
+
 -- ── Categories (per-group, copy-on-write defaults) ───────────────────────────────────────────────
 -- A group has ZERO rows here until it first customizes; until then the client uses its built-in default
 -- categories. The first edit materializes the full default set (is_default=true) then mutates. `key` is
@@ -735,7 +760,7 @@ begin
     'users','groups','members','expenses','shares','settlements','settlement_allocations',
     'conflicts','expense_edit_conflicts','comments','expense_blocked_users','receipts','categories',
     'expense_history','device_tokens','expense_items','item_claims','item_shares',
-    'bill_participants'
+    'bill_participants','payment_proofs'
   ]
   loop
     execute format('alter table public.%I enable row level security;', t);
@@ -752,7 +777,7 @@ begin
   foreach t in array array[
     'expenses','settlements','settlement_allocations','conflicts','expense_edit_conflicts',
     'comments','expense_blocked_users','receipts','categories','expense_history',
-    'expense_items','item_claims','item_shares','bill_participants'
+    'expense_items','item_claims','item_shares','bill_participants','payment_proofs'
   ]
   loop
     execute format('drop policy if exists %I on public.%I;', t || '_member_rw', t);
@@ -993,7 +1018,7 @@ begin
   foreach t in array array[
     'members','expenses','settlements','settlement_allocations','conflicts',
     'expense_edit_conflicts','comments','receipts','categories','expense_history',
-    'expense_items','item_claims','item_shares','bill_participants'
+    'expense_items','item_claims','item_shares','bill_participants','payment_proofs'
   ]
   loop
     execute format('drop trigger if exists bump_activity_ins on public.%I;', t);
@@ -3416,6 +3441,7 @@ begin
       delete from public.comments               where group_id = target_id;
       delete from public.expense_blocked_users  where group_id = target_id;
       delete from public.receipts               where group_id = target_id;
+      delete from public.payment_proofs         where group_id = target_id;
       delete from public.expense_history        where group_id = target_id;
       delete from public.conflicts              where group_id = target_id;
       delete from public.expense_edit_conflicts where group_id = target_id;
@@ -3876,6 +3902,67 @@ revoke execute on function public.notify_settlement_inserted() from public, anon
 drop trigger if exists settlements_push_notify on public.settlements;
 create trigger settlements_push_notify after insert on public.settlements
   for each row execute function public.notify_settlement_inserted();
+
+-- A screenshot attached to a payment tells the OTHER party, worded from their side. It is its own push,
+-- not part of the payment's: the bytes upload after the payment row lands (often seconds, sometimes
+-- after a reconnect), so the payment's push cannot know a screenshot is coming. A replacement proof on a
+-- chain that already had one stays quiet. `settlement_id` is the chain id; the live row of the chain is
+-- what has the current amount.
+create or replace function public.notify_payment_proof_inserted()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_st      record;
+  v_group   text;
+  v_by      text;
+  v_other   text;
+  v_title   text;
+begin
+  if new.deleted_at is not null then
+    return new;
+  end if;
+  if exists (select 1 from payment_proofs p where p.settlement_id = new.settlement_id and p.id <> new.id) then
+    return new;
+  end if;
+  select * into v_st from settlements s
+   where (s.id = new.settlement_id or s.original_settlement_id = new.settlement_id) and s.deleted_at is null
+   order by s.created_at desc limit 1;
+  if v_st.id is null then
+    return new;
+  end if;
+  select name into v_group from groups where id = new.group_id and deleted_at is null;
+  if v_group is null then
+    return new;
+  end if;
+  select coalesce(nullif(display_name, ''), 'Someone') into v_by from users where id = new.uploaded_by;
+  if new.uploaded_by = v_st.from_user_id then
+    v_other := v_st.to_user_id;
+    v_title := v_by || ' added a screenshot of the ' || push_money(v_st.payment_amount_subunits, v_st.payment_currency)
+               || ' they paid you';
+  elsif new.uploaded_by = v_st.to_user_id then
+    v_other := v_st.from_user_id;
+    v_title := v_by || ' added a screenshot of your ' || push_money(v_st.payment_amount_subunits, v_st.payment_currency)
+               || ' payment';
+  else
+    return new;
+  end if;
+  perform push_dispatch(jsonb_build_object(
+    'groupId',     new.group_id,
+    'title',       v_title,
+    'body',        'In ' || v_group,
+    'onlyUserIds', jsonb_build_array(v_other),
+    'pref',        'payments',
+    'data',        jsonb_build_object('route', 'group', 'groupId', new.group_id, 'settlementId', v_st.id)
+  ));
+  return new;
+exception when others then
+  raise warning 'notify_payment_proof_inserted: %', sqlerrm;
+  return new;
+end $$;
+revoke execute on function public.notify_payment_proof_inserted() from public, anon, authenticated;
+
+drop trigger if exists payment_proofs_push_notify on public.payment_proofs;
+create trigger payment_proofs_push_notify after insert on public.payment_proofs
+  for each row execute function public.notify_payment_proof_inserted();
 
 -- ── Quick splits (docs/features/one-time-splits.md, Part A) ────────────────────────────────────────
 -- A quick split is a hidden group holding one bill: members, typed-in names, web claim, settlements and
@@ -4486,14 +4573,33 @@ as $$
         'iClaimed', exists (select 1 from public.item_claims c where c.expense_id = e.id and c.user_id = p_user_id and c.deleted_at is null)
                  or exists (select 1 from public.item_shares c where c.expense_id = e.id and c.user_id = p_user_id and c.deleted_at is null),
         'iAmDone', exists (select 1 from public.bill_participants bp where bp.expense_id = e.id and bp.user_id = p_user_id
-                             and bp.deleted_at is null and bp.done_at is not null)
+                             and bp.deleted_at is null and bp.done_at is not null),
+        'receipts', coalesce((
+          select jsonb_agg(jsonb_build_object('id', r.id, 'url', r.url, 'mimeType', r.mime_type) order by r.created_at)
+            from public.receipts r where r.expense_id = e.id and r.deleted_at is null), '[]'::jsonb),
+        'comments', coalesce((
+          select jsonb_agg(jsonb_build_object('id', c.id, 'userId', c.user_id, 'body', c.body, 'createdAt', c.created_at)
+                   order by c.created_at)
+            from public.comments c where c.expense_id = e.id and c.deleted_at is null), '[]'::jsonb)
       ) order by e.expense_date desc, e.created_at desc) from ex e), '[]'::jsonb),
     'payments', coalesce((
       select jsonb_agg(jsonb_build_object('id', st.id, 'fromUserId', st.from_user_id, 'toUserId', st.to_user_id,
-               'amountSubunits', st.payment_amount_subunits, 'currency', st.payment_currency, 'settledAt', st.settled_at)
+               'amountSubunits', st.payment_amount_subunits, 'currency', st.payment_currency, 'settledAt', st.settled_at,
+               'paymentApp', st.payment_app, 'createdBy', st.created_by,
+               'chainId', coalesce(st.original_settlement_id, st.id),
+               -- What this payment put on each bill, for a bill's per-person payment history.
+               'applied', coalesce((
+                 select jsonb_agg(jsonb_build_object('expenseId', sh.expense_id, 'subunits', sa.applied_amount_subunits))
+                   from public.settlement_allocations sa join public.shares sh on sh.id = sa.share_id
+                  where sa.settlement_id = st.id), '[]'::jsonb),
+               'proof', (
+                 select jsonb_build_object('id', pp.id, 'url', pp.url, 'uploadedBy', pp.uploaded_by)
+                   from public.payment_proofs pp
+                  where pp.settlement_id = coalesce(st.original_settlement_id, st.id) and pp.deleted_at is null
+                  order by pp.created_at desc limit 1))
                order by st.settled_at desc)
         from (select * from public.settlements where group_id = p_group_id and deleted_at is null
-               order by settled_at desc limit 100) st), '[]'::jsonb),
+               order by settled_at desc limit 300) st), '[]'::jsonb),
     'edits', coalesce((
       select jsonb_agg(jsonb_build_object('id', w.id, 'expenseId', w.expense_id, 'actorUserId', w.actor_user_id,
                'before', w.before, 'after', w.after, 'createdAt', w.created_at, 'undone', w.undone_at is not null)

@@ -134,4 +134,5 @@ internal fun SettlementEntity.toDomain(): SettlementRecord =
         notes = notes,
         paymentApp = paymentApp,
         createdBy = UserId(createdBy),
+        originalSettlementId = originalSettlementId?.let { SettlementId(it) },
     )

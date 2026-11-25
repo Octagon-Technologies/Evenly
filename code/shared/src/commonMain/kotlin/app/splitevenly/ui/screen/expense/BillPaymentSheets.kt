@@ -39,6 +39,7 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.settle.PaymentPreviewUi
+import app.splitevenly.ui.screen.settle.PaymentProofThumb
 import app.splitevenly.ui.screen.settle.PaymentUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
@@ -91,6 +92,8 @@ fun RecordPaymentSheet(
     onRecord: suspend (PaymentEntry) -> String?,
     onEditPayment: (PaymentUi) -> Unit,
     onDismiss: () -> Unit,
+    onOpenProof: (PaymentUi) -> Unit = {},
+    onAddProof: (PaymentUi) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val scope = rememberCoroutineScope()
@@ -126,7 +129,7 @@ fun RecordPaymentSheet(
                     fontSize = 14.sp,
                 )
             }
-            if (history.isNotEmpty()) PaymentHistoryCard(history, currencyCode, onEditPayment)
+            if (history.isNotEmpty()) PaymentHistoryCard(history, currencyCode, onEditPayment, onOpenProof, onAddProof)
             if (left > 0) {
                 EvButton(if (saving) "Saving…" else "Record payment", {
                     when {
@@ -198,6 +201,8 @@ private fun PaymentHistoryCard(
     history: List<PaymentUi>,
     currencyCode: String,
     onEdit: (PaymentUi) -> Unit,
+    onOpenProof: (PaymentUi) -> Unit,
+    onAddProof: (PaymentUi) -> Unit,
 ) {
     val c = EvenlyTheme.colors
     var open by remember { mutableStateOf(false) }
@@ -224,7 +229,7 @@ private fun PaymentHistoryCard(
         }
         if (open) {
             Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
-                history.forEach { p -> HistoryLine(p, currencyCode, onEdit) }
+                history.forEach { p -> HistoryLine(p, currencyCode, onEdit, onOpenProof, onAddProof) }
             }
         }
     }
@@ -235,6 +240,8 @@ private fun HistoryLine(
     p: PaymentUi,
     currencyCode: String,
     onEdit: (PaymentUi) -> Unit,
+    onOpenProof: (PaymentUi) -> Unit,
+    onAddProof: (PaymentUi) -> Unit,
 ) {
     val c = EvenlyTheme.colors
     Row(
@@ -245,6 +252,13 @@ private fun HistoryLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // The payment's screenshot, or a "+" slot for the two people in it (docs/features/payment-proof.md).
+        PaymentProofThumb(
+            url = p.proofUrl,
+            uploadingModel = p.proofUploadingModel,
+            onOpen = { onOpenProof(p) },
+            onAdd = if (p.canEdit) ({ onAddProof(p) }) else null,
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(

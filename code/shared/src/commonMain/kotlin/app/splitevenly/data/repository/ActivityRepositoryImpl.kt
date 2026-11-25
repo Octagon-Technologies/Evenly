@@ -12,20 +12,24 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.dao.CommentDao
 import app.splitevenly.data.db.dao.HistoryEventDao
+import app.splitevenly.data.db.dao.PaymentProofDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.entity.CommentEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.remote.supabase.ReceiptStorage
 import app.splitevenly.domain.activity.Comment
 import app.splitevenly.domain.activity.HistoryEvent
 import app.splitevenly.domain.activity.HistoryEventType
+import app.splitevenly.domain.activity.PaymentProof
 import app.splitevenly.domain.activity.Receipt
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.newId
 import app.splitevenly.platform.extensionForMime
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -45,6 +49,7 @@ class ActivityRepositoryImpl(
     private val auth: AuthSession,
     private val receiptStorage: ReceiptStorage? = null,
     private val clock: Clock = Clock.System,
+    private val proofDao: PaymentProofDao? = null,
 ) : ActivityRepository {
 
     // ── Comments ────────────────────────────────────────────────────────────
@@ -124,6 +129,21 @@ class ActivityRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
+    // ── Payment proofs ──────────────────────────────────────────────────────
+    override fun observePaymentProofs(groupId: GroupId): Flow<Map<String, PaymentProof>> =
+        proofDao?.observeByGroup(groupId.value)?.map { rows ->
+            // Newest first from the DAO, so the first row per chain is the current screenshot.
+            rows.groupBy { it.settlementId }.mapValues { (_, list) -> list.first().toDomain() }
+        } ?: flowOf(emptyMap())
+
+    override suspend fun removePaymentProof(proofId: String): AppResult<Unit> {
+        val dao = proofDao ?: return AppResult.Ok(Unit)
+        val existing = dao.getById(proofId)
+        dao.softDelete(proofId, clock.nowEpochMillis())
+        if (existing != null) receiptStorage?.delete(existing.storagePath)
+        return AppResult.Ok(Unit)
+    }
+
     // ── History ─────────────────────────────────────────────────────────────
     override fun observeHistory(expenseId: ExpenseId): Flow<List<HistoryEvent>> =
         historyDao.observeByExpense(expenseId.value).map { rows -> rows.mapNotNull { it.toDomainOrNull() } }
@@ -163,3 +183,5 @@ private fun HistoryEventEntity.toDomainOrNull(): HistoryEvent? {
     val parsed = HistoryEventType.entries.firstOrNull { it.name == type } ?: return null
     return HistoryEvent(id, ExpenseId(expenseId), actorUserId?.let { UserId(it) }, parsed, detail, createdAt)
 }
+
+private fun PaymentProofEntity.toDomain(): PaymentProof = PaymentProof(id, settlementId, UserId(uploadedBy), url, createdAt)

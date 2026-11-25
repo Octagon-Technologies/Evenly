@@ -25,8 +25,17 @@ data class ReceiptUploadEntity(
     @ColumnInfo(name = "id")
     val id: String,
 
+    /** The bill a receipt belongs to; empty for a payment proof (then [settlementId] is set). */
     @ColumnInfo(name = "expense_id")
     val expenseId: String,
+
+    /**
+     * Set when this upload is a payment proof (docs/features/payment-proof.md): the payment's chain id. On
+     * success the uploader publishes a `payment_proofs` row instead of a `receipts` row. The bytes, retries
+     * and platform transfer are identical, which is why proofs share this queue rather than a second one.
+     */
+    @ColumnInfo(name = "settlement_id")
+    val settlementId: String? = null,
 
     @ColumnInfo(name = "group_id")
     val groupId: String,

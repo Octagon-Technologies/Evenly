@@ -98,7 +98,9 @@ ShareCost-era and is fully retired; do not reintroduce it.
   a centered title; Android gets the Material 3 drag handle, a left title and **no ✕** (owner call,
   2026-11-19). Every bottom sheet closes on Back, a tap outside, and a swipe down **anywhere on it**
   (`rememberSheetSwipe`: a scrolling body hands over its pull once at the top). A hand-rolled sheet
-  (`CameraPermissionSheet`) must use the same helper. Don't add a per-screen ✕.
+  (`CameraPermissionSheet`) must use the same helper. Don't add a per-screen ✕. With the keyboard up,
+  `EvSheetSurface` grows to sit above it and ends in a Done row, so a sheet never needs its own
+  keyboard handling (and must not mount `EvKeyboardDoneBar`).
 
 - **The 3dp left strip on an expense row means "you're on this"** (payer or a share holder,
   `ExpenseItemUi.involved`), in `c.blueText` because the fill blue sinks into the black dark page. It is

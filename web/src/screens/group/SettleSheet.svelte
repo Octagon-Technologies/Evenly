@@ -9,6 +9,8 @@
   import { amount, money, parseAmount } from '../../lib/format.ts';
   import type { GroupStore } from '../../lib/group.svelte.ts';
   import type { Debt } from '../../lib/money/balances.ts';
+  import type { ProofFile } from '../../lib/api.ts';
+  import ProofPicker from '../../components/ProofPicker.svelte';
 
   interface Props {
     store: GroupStore;
@@ -28,6 +30,7 @@
   let picked = $state<Debt | null>(first);
   let text = $state(first ? amount(first.amountSubunits, first.currency) : '');
   let problem = $state<string | null>(null);
+  let proof = $state<ProofFile | null>(null);
 
   function pick(d: Debt) {
     picked = d;
@@ -50,7 +53,7 @@
       return;
     }
     const to = store.name(picked.creditorUserId);
-    const res = await store.pay(picked, subunits, forExpense?.id ?? null);
+    const res = await store.pay(picked, subunits, forExpense?.id ?? null, proof);
     if (res) problem = res;
     else ondone(`Recorded. ${to} will see it.`);
   }
@@ -77,6 +80,9 @@
       <div class="flbl">Amount</div>
       <input class="inp mono" type="text" inputmode="decimal" aria-label="What you paid" bind:value={text} />
     </div>
+  {/if}
+  {#if picked}
+    <ProofPicker otherName={store.name(picked.creditorUserId)} value={proof} onchange={(f) => (proof = f)} />
   {/if}
   {#if problem}<div class="note note--amber" role="alert">{problem}</div>{/if}
   <button type="button" class="btn" disabled={store.busy} onclick={save}>

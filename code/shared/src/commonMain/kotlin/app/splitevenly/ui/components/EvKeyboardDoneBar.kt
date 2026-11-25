@@ -52,9 +52,10 @@ private val FocusedFieldMargin = 8.dp
  * [WindowInsets.isImeVisible] is Android-only in this Compose Multiplatform version (unresolved on
  * Kotlin/Native), so visibility is read from the ime inset height directly, which resolves on both.
  *
- * Mount it only on full screens, and hide it while a dialog or sheet is open over the screen: those
- * close on their own ✕, Back or a tap outside, so a bar peeking out behind them is noise (pass
- * `visible = false`). Single-line text fields don't need it either; their return key is "Done".
+ * Mount it only on full screens, and hide it while a dialog or sheet is open over the screen (pass
+ * `visible = false`): a bottom sheet draws its own Done row (`EvSheetSurface`) and rises above the
+ * keyboard, so a second bar behind it is noise. Single-line text fields don't need it either; their
+ * return key is "Done".
  *
  * The fill is `page`, not `surface`: in dark mode `surface` is a 6%-alpha blue tint meant to sit *on*
  * the page, so using it here let the scrolled content read straight through the bar.

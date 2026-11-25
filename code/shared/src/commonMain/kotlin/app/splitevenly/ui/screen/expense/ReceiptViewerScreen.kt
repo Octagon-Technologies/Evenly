@@ -91,6 +91,12 @@ fun ReceiptViewerScreen(
     // Null for staged/local-only viewers. A saved expense supplies this callback so only published
     // receipts expose the destructive action.
     onDeleteReceipt: ((receiptId: String) -> Unit)? = null,
+    // A payment screenshot opens here too (docs/features/payment-proof.md): [title] replaces "1 of 1", and
+    // [caption]/[captionDetail] tie the image to its payment so a screenshot never floats free of its amount.
+    title: String? = null,
+    caption: String? = null,
+    captionDetail: String? = null,
+    noun: String = "receipt",
 ) {
     if (receipts.isEmpty()) {
         onClose()
@@ -122,7 +128,7 @@ fun ReceiptViewerScreen(
                 contentAlignment = Alignment.Center,
             ) { EvIcon(EvIcons.Close, size = 18.dp, tint = Color.White) }
             Text(
-                "${pagerState.currentPage + 1} of ${receipts.size}",
+                title ?: "${pagerState.currentPage + 1} of ${receipts.size}",
                 color = Color.White,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
@@ -134,7 +140,7 @@ fun ReceiptViewerScreen(
                         .clip(RoundedCornerShape(50))
                         .background(ViewerChrome)
                         .semantics {
-                            contentDescription = "Delete receipt"
+                            contentDescription = "Delete $noun"
                             role = Role.Button
                         }.clickable { confirmDelete = true },
                     contentAlignment = Alignment.Center,
@@ -158,8 +164,15 @@ fun ReceiptViewerScreen(
             }
         }
 
-        // Filmstrip.
-        LazyRow(
+        if (caption != null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
+                Text(caption, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                captionDetail?.let { Text(it, color = Color(0xFFA7AFC2), fontSize = 13.sp, modifier = Modifier.padding(top = 3.dp)) }
+            }
+        }
+
+        // Filmstrip. A single captioned item (a payment screenshot) has nothing to jump between.
+        if (receipts.size > 1 || caption == null) LazyRow(
             Modifier.fillMaxWidth().background(Color(0x40000000)),
             contentPadding = PaddingValues(12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -190,9 +203,9 @@ fun ReceiptViewerScreen(
                     EvIcon(EvIcons.Trash, size = 25.dp, tint = c.danger)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Delete this receipt?", color = c.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text("Delete this $noun?", color = c.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "This removes the receipt from the bill for everyone.",
+                        if (noun == "receipt") "This removes the receipt from the bill for everyone." else "This removes the $noun for everyone.",
                         color = c.ink2,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,
@@ -201,7 +214,7 @@ fun ReceiptViewerScreen(
                 }
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     EvButton(
-                        "Delete receipt",
+                        "Delete $noun",
                         {
                             current?.let { onDeleteReceipt(it.id) }
                             confirmDelete = false

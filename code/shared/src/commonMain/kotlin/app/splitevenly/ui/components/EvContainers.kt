@@ -1,6 +1,11 @@
 package app.splitevenly.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
@@ -136,17 +141,23 @@ fun EvSheetSurface(
     val c = EvenlyTheme.colors
     val shape = evSheetShape()
     val ios = isIOS()
+    // With the keyboard up the sheet grows to sit on top of it, ending in a Done bar: a decimal pad has
+    // no return key, and without this the sheet's own button (Save, Record) stayed under the keyboard.
+    // The ime inset already covers the home indicator, so it replaces the navigation-bar padding.
+    val keyboardUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val focus = LocalFocusManager.current
     Column(
         modifier =
             modifier
                 .fillMaxWidth()
-                .then(if (ios) Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp) else Modifier)
+                .then(if (ios && !keyboardUp) Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp) else Modifier)
+                .then(if (ios && keyboardUp) Modifier.padding(start = 8.dp, end = 8.dp) else Modifier)
                 .clip(shape)
                 .background(c.page)
                 .then(if (ios) Modifier.border(1.dp, c.border, shape) else Modifier)
                 .padding(horizontal = 16.dp)
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
+                .then(if (keyboardUp) Modifier.windowInsetsPadding(WindowInsets.ime) else Modifier.navigationBarsPadding())
+                .padding(bottom = if (keyboardUp) 0.dp else 16.dp),
     ) {
         EvSheetHeader(title = title, onClose = onClose)
         sub?.let {
@@ -159,6 +170,24 @@ fun EvSheetSurface(
             )
         }
         content()
+        if (keyboardUp) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .height(EvKeyboardDoneBarHeight)
+                    .topHairline(c.border),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Text(
+                    "Done",
+                    color = c.blueText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { focus.clearFocus() }.padding(horizontal = 4.dp, vertical = 10.dp),
+                )
+            }
+        }
     }
 }
 

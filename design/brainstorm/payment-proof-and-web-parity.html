@@ -1,0 +1,534 @@
+<title>Evenly Payment Proof</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: a brainstorm doc. Prose column on top of each section, then a row of phone mockups drawn in the app's own blue/light tokens. */
+:root{
+  --page:#F4F6FB; --paper:#FFFFFF; --ink:#141A2E; --ink2:#5A6378; --ink3:#8A92A6; --line:#E3E7F0;
+  --blue:#3762E3; --blueText:#2B52C9; --blueTint:#EAF0FF;
+  --owe:#C77A12; --oweTint:#FFF4E2; --owed:#1E8A55; --owedTint:#E6F6EE;
+  --phone:#FFFFFF; --phoneBg:#F6F8FC; --frame:#1B2133; --scrim:rgba(20,26,46,.38);
+  --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --body:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blue:#3762E3; --blueText:#8FA9FF; --blueTint:#1D2747;
+  --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blue:#3762E3; --blueText:#8FA9FF; --blueTint:#1D2747;
+  --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--page);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 80px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(30px,5vw,44px);line-height:1.1}
+h2{font-size:26px}
+h3{font-size:17px}
+p{margin:0;max-width:68ch}
+.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--blueText);font-weight:600}
+.lede{color:var(--ink2);font-size:17px}
+header{display:flex;flex-direction:column;gap:14px}
+.sec{display:flex;flex-direction:column;gap:22px}
+.sec-head{display:flex;flex-direction:column;gap:8px}
+.status{display:inline-flex;gap:8px;align-items:center;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;width:fit-content}
+.status.now{background:var(--blueTint);color:var(--blueText)}
+.status.later{background:var(--oweTint);color:var(--owe)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.note{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.note ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--ink2)}
+.note b{color:var(--ink)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;background:var(--blueTint);color:var(--blueText);padding:1px 5px;border-radius:4px}
+
+/* phones */
+.phones{display:flex;gap:22px;overflow-x:auto;padding:6px 2px 14px;scroll-snap-type:x mandatory}
+.ph-wrap{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;scroll-snap-align:start;width:272px}
+.ph-cap{font-size:13px;color:var(--ink2)}
+.ph-cap b{color:var(--ink);display:block;font-size:14px}
+.phone{position:relative;width:272px;height:560px;border-radius:34px;border:7px solid var(--frame);background:var(--phoneBg);overflow:hidden;font-size:12px;display:flex;flex-direction:column}
+.sb{height:26px;display:flex;justify-content:space-between;align-items:center;padding:0 18px;font-size:11px;font-weight:600;color:var(--ink)}
+.bar{display:flex;align-items:center;gap:8px;padding:6px 14px 10px}
+.bar .t{font-weight:700;font-size:15px;flex:1;font-family:var(--display)}
+.ic{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--ink2);font-size:14px}
+.body{padding:0 12px;display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden}
+.card{background:var(--phone);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--line)}
+.hero{font-family:var(--display);font-size:26px;font-weight:700}
+.muted{color:var(--ink2)} .faint{color:var(--ink3);font-size:11px}
+.row{display:flex;align-items:center;gap:9px}
+.row .grow{flex:1;min-width:0}
+.av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
+.av.a{background:#3762E3}.av.p{background:#B24C8C}.av.k{background:#2D8F86}.av.j{background:#7A5BD6}
+.amt{font-weight:700;font-variant-numeric:tabular-nums}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;font-weight:600;font-size:11.5px;border:1px solid var(--line);background:var(--phone);color:var(--ink);width:fit-content}
+.chip.blue{background:var(--blueTint);color:var(--blueText);border-color:transparent}
+.chip.sel{background:var(--blue);color:#fff;border-color:var(--blue)}
+.chip.ghost{border-style:dashed;color:var(--ink2)}
+.btn{background:var(--blue);color:#fff;text-align:center;font-weight:700;padding:11px;border-radius:12px;font-size:13px}
+.btn.sec{background:var(--blueTint);color:var(--blueText)}
+.btn.sm{padding:6px 10px;font-size:11.5px;border-radius:9px;display:inline-block}
+.btn.out{background:transparent;color:var(--blueText);border:1px solid var(--blue)}
+.field{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--phone);display:flex;flex-direction:column;gap:2px}
+.field .l{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.field .v{font-size:13px;font-weight:600}
+.hl{outline:2px solid var(--blue);outline-offset:2px;border-radius:10px;position:relative}
+.tag{position:absolute;right:-4px;top:-10px;background:var(--blue);color:#fff;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
+.sheet{position:absolute;inset:auto 0 0 0;background:var(--phone);border-radius:20px 20px 0 0;padding:10px 14px 18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 -6px 24px rgba(0,0,0,.18)}
+.grab{width:36px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 2px}
+.scrim{position:absolute;inset:0;background:var(--scrim)}
+.dim{opacity:.55}
+.seg{display:flex;background:var(--phoneBg);border-radius:10px;padding:3px;gap:3px}
+.seg div{flex:1;text-align:center;padding:7px 4px;border-radius:8px;font-weight:600;font-size:11.5px;color:var(--ink2)}
+.seg .on{background:var(--phone);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.big{font-family:var(--display);font-size:30px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.owe{color:var(--owe)} .owed{color:var(--owed)}
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px}
+.pill.owe{background:var(--oweTint)} .pill.owed{background:var(--owedTint)}
+.sub{margin-left:35px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink2);padding:5px 8px;background:var(--phoneBg);border-radius:8px}
+.sub .e{margin-left:auto;color:var(--blueText);font-weight:600}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;font-size:10.5px}
+.cal span{padding:5px 0;border-radius:7px;font-variant-numeric:tabular-nums}
+.cal .h{color:var(--ink3);font-weight:600}
+.cal .x{color:var(--ink3);opacity:.45}
+.cal .s{background:var(--blue);color:#fff;font-weight:700}
+.cal .td{outline:1px solid var(--blue)}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:600}
+.toast{background:var(--ink);color:var(--page);border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;font-size:11.5px}
+.toast .u{margin-left:auto;font-weight:700;color:var(--blueText);filter:brightness(1.4)}
+.warnbox{background:var(--oweTint);color:var(--ink);border-radius:10px;padding:9px 10px;font-size:11.5px;display:flex;flex-direction:column;gap:4px}
+.stack{position:relative;height:150px}
+.stack .card{position:absolute;left:0;right:0}
+.dec{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.q{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.q .rec{font-size:13px;color:var(--owed);font-weight:600}
+hr{border:none;border-top:1px solid var(--line);margin:0}
+@media (prefers-reduced-motion:no-preference){.phones{scroll-behavior:smooth}}
+</style>
+
+<style>
+.titlerow{display:flex;gap:10px;align-items:center}
+.titlerow .field{flex:1;min-width:0}
+.datecol{display:flex;flex-direction:column;gap:3px;align-items:center;flex:none}
+.dlab{font-size:9.5px;color:var(--ink3);font-weight:600;letter-spacing:.02em}
+.dchip{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border-radius:999px;font-size:11px;font-weight:600;background:var(--blueTint);color:var(--blueText)}
+.cur{display:inline-block;font-size:15px;font-weight:600;padding:3px 7px;border-radius:7px;background:var(--phoneBg);color:var(--ink2);vertical-align:middle;margin-right:6px;font-family:var(--body);border:1px solid var(--line)}
+.amtedit{display:flex;justify-content:center;align-items:center;gap:2px;padding:6px 0;border-bottom:2px solid var(--blue);margin:0 34px}
+.amtedit .n{font-family:var(--display);font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.caret{width:2px;height:28px;background:var(--blue);margin-left:2px}
+.exp{margin-left:35px;font-size:11px;color:var(--blueText);font-weight:600;display:flex;align-items:center;gap:4px}
+.subs{margin-left:35px;display:flex;flex-direction:column;gap:4px}
+.subs .sub{margin-left:0}
+.thumb{width:40px;height:52px;border-radius:7px;flex:none;border:1px solid var(--line);background:repeating-linear-gradient(180deg,var(--phone) 0 5px,var(--line) 5px 6px);position:relative}
+.thumb::after{content:"⤢";position:absolute;right:2px;bottom:1px;font-size:10px;color:var(--ink2)}
+.bigthumb{height:110px;border-radius:10px;border:1px solid var(--line);background:repeating-linear-gradient(180deg,var(--phone) 0 7px,var(--line) 7px 8px);display:flex;align-items:flex-end;justify-content:flex-end;padding:6px}
+.ck{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--ink3);flex:none;display:grid;place-items:center;font-size:10px;color:#fff}
+.ck.on{background:var(--blue);border-color:var(--blue)}
+.pen{color:var(--ink3);font-size:11px}
+.vtag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--blueTint);color:var(--blueText);width:fit-content}
+.plain{font-size:11.5px;color:var(--ink2);padding:2px 2px;display:flex;gap:6px}
+.plain b{color:var(--blueText)}
+.changes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px 22px;margin:0;padding:0;list-style:none}
+.changes li{font-size:13.5px;color:var(--ink2);display:flex;gap:8px;min-width:0}
+.changes li::before{content:"→";color:var(--blueText);font-weight:700}
+.changes b{color:var(--ink)}
+.labels{display:flex;gap:8px;flex-wrap:wrap}
+.lchip{display:inline-flex;align-items:center;gap:3px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:700;background:var(--blueTint);color:var(--blueText);white-space:nowrap}
+.hist{background:var(--phoneBg);border-radius:12px;padding:9px 11px;display:flex;flex-direction:column;gap:7px}
+.hist .hh{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700}
+.hist .hh .c{margin-left:auto;color:var(--ink3);font-weight:600;font-size:11px}
+.hist .hl{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0;font-size:11.5px;color:var(--ink2);padding-top:7px;border-top:1px solid var(--line)}
+.hist .hl b{color:var(--ink);font-variant-numeric:tabular-nums;margin-right:2px;white-space:nowrap}
+.hist .hl .e{margin-left:auto;color:var(--blueText);font-weight:600;flex:none}
+.hist .hm{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.hist .ht{display:flex;align-items:center;gap:6px}
+.hist .hs{font-size:10.5px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:600;border:1px solid transparent;white-space:nowrap}
+.mc.g{background:var(--phoneBg);color:var(--ink2);border-color:var(--line)}
+.mc.w{background:var(--blueTint);color:var(--blueText)}
+.mc.s{background:var(--owedTint);color:var(--owed)}
+.mc.chg{border-color:currentColor}
+.mcs{display:flex;gap:4px;flex-wrap:wrap}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.opt{background:var(--phone);border:1px solid var(--line);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.opt .why{font-size:12px;color:var(--ink2)}
+.opt.pick{border:2px solid var(--blue)}
+.qr{width:120px;height:120px;margin:4px auto;border-radius:10px;background:conic-gradient(var(--ink) 25%,transparent 0 50%,var(--ink) 0 75%,transparent 0) 0 0/16px 16px;border:8px solid var(--phone);outline:1px solid var(--line)}
+.link{font-size:11.5px;color:var(--blueText);font-weight:600;text-align:center}
+.chosen{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--owedTint);color:var(--owed);width:fit-content}
+</style>
+<style>
+.hist .hl{outline:none}
+.shot{border-radius:8px;border:1px solid var(--line);background:var(--phone);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;position:relative;flex:none;overflow:hidden}
+.shot.sm{width:40px;height:56px}
+.shot.md{width:58px;height:78px}
+.shot .tk{width:14px;height:14px;border-radius:50%;background:var(--owed);color:#fff;display:grid;place-items:center;font-size:9px;font-weight:700}
+.shot.md .tk{width:18px;height:18px;font-size:11px}
+.shot .sa{font-size:8px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.shot.md .sa{font-size:10px}
+.shot .sl{width:60%;height:3px;border-radius:2px;background:var(--line)}
+.shot .x{position:absolute;top:3px;right:3px;width:14px;height:14px;border-radius:50%;background:var(--ink);color:var(--page);font-size:8px;display:grid;place-items:center}
+.shot .who{position:absolute;left:0;right:0;bottom:0;background:rgba(20,26,46,.72);color:#fff;font-size:8px;font-weight:600;text-align:center;padding:2px 0}
+.addproof{border:1.5px dashed var(--line);border-radius:12px;padding:10px 11px;display:flex;align-items:center;gap:9px;color:var(--ink2);font-size:11.5px}
+.addproof .pi{width:30px;height:30px;border-radius:9px;background:var(--blueTint);color:var(--blueText);display:grid;place-items:center;font-size:15px;flex:none}
+.addproof b{color:var(--ink);display:block;font-size:12px}
+.addproof.has{border-style:solid;background:var(--phoneBg)}
+.clip{font-size:10px;font-weight:700;color:var(--blueText);background:var(--blueTint);padding:1px 6px;border-radius:999px;white-space:nowrap}
+.noproof{font-size:10px;font-weight:600;color:var(--ink3);white-space:nowrap}
+.ask{font-size:10.5px;font-weight:700;color:var(--blueText);white-space:nowrap}
+.viewer{position:absolute;inset:0;background:#0B0F1A;color:#fff;display:flex;flex-direction:column}
+.viewer .vt{display:flex;align-items:center;gap:8px;padding:30px 14px 10px;font-size:12px}
+.viewer .big{flex:1;margin:4px 22px;border-radius:14px;background:#F6F8FC;color:#141A2E;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.viewer .cap{padding:12px 16px 20px;display:flex;flex-direction:column;gap:3px;font-size:11.5px}
+.viewer .cap .m{color:#A7AFC2}
+.browser{width:320px}
+.browser .phone{width:320px;border-radius:14px;border-width:6px}
+.urlbar{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--line);background:var(--phone);font-size:10.5px;color:var(--ink2)}
+.urlbar .u{flex:1;background:var(--phoneBg);border-radius:7px;padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmt{display:flex;gap:7px;align-items:flex-start;font-size:11.5px}
+.cmt .bub{background:var(--phoneBg);border-radius:10px;padding:6px 9px;flex:1;min-width:0}
+.cmt .bub b{font-size:11px}
+.inp{border:1px solid var(--line);border-radius:999px;padding:7px 11px;color:var(--ink3);font-size:11.5px;display:flex;align-items:center;gap:6px;background:var(--phone)}
+.inp .s{margin-left:auto;color:var(--blueText);font-weight:700}
+.gap{font-size:12.5px}
+.gap td,.gap th{padding:7px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+.gap th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);border-top:none}
+.gap .y{color:var(--owed);font-weight:700}.gap .n{color:var(--owe);font-weight:700}
+.tblwrap{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+.gap{width:100%;border-collapse:collapse;min-width:520px}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Evenly brainstorm · Nov 23, 2026 · revision 1</div>
+  <h1>Proof of payment, and a web page that shows everything</h1>
+  <p class="lede">Someone says "I paid you $24 for the Uber." Today you have to take their word for it, or ask for a screenshot over text and then go record it yourself. This lets the person who paid attach the screenshot right where they record the payment, so the other person can check it in one tap. Section C brings the web bill up to the app: receipts, payment proof, payment history and comments.</p>
+  <div class="note">
+    <h3>The rule in one line</h3>
+    <ul>
+      <li><b>Attach where you record, see it where you check.</b> The screenshot is added in the "You paid Andrew" sheet. It shows up in three places people already look: the bill's Receipt card, the person's row on the bill, and the History inside that same sheet.</li>
+      <li><b>Optional, never in the way.</b> Recording a payment still takes one tap. Cash payments don't ask for anything.</li>
+    </ul>
+  </div>
+</header>
+
+<!-- ============ A. RECORDING ============ -->
+<section class="sec">
+  <div class="sec-head">
+    <span class="status now">Mobile</span>
+    <h2>A. Attaching proof when you record a payment</h2>
+    <p class="muted">The existing sheet gets one new row between "Via / On" and History. It's a big, labelled tile, not an icon, so nobody misses it. It disappears when "Via" is Cash.</p>
+  </div>
+
+  <div class="phones">
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>1 · Maya pays Andrew back</b>Maya taps "24 left ›" on the Uber bill. Below Via / On there's a dashed tile: "Add a screenshot". It's optional; "Record payment" works without it.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Uber to Disney Springs</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><div class="av a">A</div><h3 style="font-size:15px" class="grow">You paid Andrew</h3></div>
+          <div class="amtedit"><span class="cur">$</span><span class="n">24.00</span><span class="caret"></span></div>
+          <div class="faint" style="text-align:center">$24.00 left of your $24.00</div>
+          <div class="row" style="gap:6px;flex-wrap:nowrap"><span class="faint">Via</span><span class="chip">Zelle ▾</span><span class="faint" style="margin-left:6px">On</span><span class="chip">Today ▾</span></div>
+          <div class="addproof hl"><span class="tag">NEW</span><span class="pi">＋</span><span><b>Add a screenshot</b>So Andrew can see it went through</span></div>
+          <div class="btn">Record payment</div>
+          <div class="faint" style="text-align:center">Andrew gets a notification and can edit it.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>2 · Screenshot picked</b>The tile opens the photo picker (Recent first, since the Zelle screenshot is the newest photo). The tile becomes the thumbnail with ✕ to remove it. Nothing uploads until "Record payment".</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Uber to Disney Springs</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><div class="av a">A</div><h3 style="font-size:15px" class="grow">You paid Andrew</h3></div>
+          <div class="amtedit"><span class="cur">$</span><span class="n">24.00</span><span class="caret"></span></div>
+          <div class="faint" style="text-align:center">$24.00 left of your $24.00</div>
+          <div class="row" style="gap:6px;flex-wrap:nowrap"><span class="faint">Via</span><span class="chip">Zelle ▾</span><span class="faint" style="margin-left:6px">On</span><span class="chip">Today ▾</span></div>
+          <div class="addproof has"><div class="shot sm"><span class="tk">✓</span><span class="sa">$24.00</span><span class="sl"></span><span class="x">✕</span></div><span><b>Screenshot attached</b>Andrew will see it with the payment</span></div>
+          <div class="btn">Record payment</div>
+          <div class="faint" style="text-align:center">Andrew gets a notification and can edit it.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>3 · Via: Cash</b>The tile is gone. There's nothing to screenshot, so asking would just be noise. If someone does want to add a photo later, History has "Add proof" on every payment.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Uber to Disney Springs</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><div class="av a">A</div><h3 style="font-size:15px" class="grow">You paid Andrew</h3></div>
+          <div class="amtedit"><span class="cur">$</span><span class="n">24.00</span><span class="caret"></span></div>
+          <div class="faint" style="text-align:center">$24.00 left of your $24.00</div>
+          <div class="row" style="gap:6px;flex-wrap:nowrap"><span class="faint">Via</span><span class="chip">Cash ▾</span><span class="faint" style="margin-left:6px">On</span><span class="chip">Today ▾</span></div>
+          <div class="btn">Record payment</div>
+          <div class="faint" style="text-align:center">Andrew gets a notification and can edit it.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>4 · Andrew's notification</b>The push says a screenshot came with it, and opens straight to the screenshot. A payment without one says nothing extra.</div>
+      <div class="phone" style="background:linear-gradient(160deg,#3762E3,#1B2133)">
+        <div class="sb" style="color:#fff"><span>9:41</span><span>●●● ▮</span></div>
+        <div style="text-align:center;color:#fff;font-family:var(--display);font-size:44px;font-weight:600;margin-top:24px">9:41</div>
+        <div style="margin:22px 10px 0;background:rgba(255,255,255,.88);border-radius:16px;padding:10px 12px;display:flex;gap:9px;color:#141A2E">
+          <div style="width:26px;height:26px;border-radius:7px;background:#3762E3;flex:none"></div>
+          <div style="flex:1;min-width:0;font-size:11.5px"><b>Maya paid you $24.00</b><div>Uber to Disney Springs · Zelle · with a screenshot</div></div>
+          <div class="shot sm" style="width:30px;height:40px"><span class="tk" style="width:11px;height:11px;font-size:7px">✓</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B. SEEING ============ -->
+<section class="sec">
+  <div class="sec-head">
+    <span class="status now">Mobile</span>
+    <h2>B. Where Andrew sees it</h2>
+    <p class="muted">Your two ideas, both kept, because they answer different questions. The Receipt card answers "what's attached to this bill?" History answers "what did Maya actually pay me?"</p>
+  </div>
+
+  <div class="phones">
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>5 · On the bill</b>The Receipt card becomes "Receipt & payments": the receipt first, then each screenshot labelled with who and how much. Maya's row gets a small 📎 so you can tell at a glance whose payments have proof.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar"><span class="ic">‹</span><span class="t">Uber to Disney Springs</span><span class="chip" style="font-size:10.5px">Edit</span></div>
+        <div class="body">
+          <div class="card">
+            <span class="hero">$48.00</span>
+            <span class="faint">Nov 18 · You paid</span>
+            <div class="row"><span class="pill owed owed">Everyone paid you back</span></div>
+          </div>
+          <span class="lbl">Who owes you</span>
+          <div class="card" style="gap:9px">
+            <div class="row"><div class="av p">M</div><div class="grow"><b>Maya</b> <span class="clip">📎</span><div class="faint">paid 24 of 24</div></div><span class="pill owed owed">✓ Paid ›</span></div>
+          </div>
+          <div class="card hl" style="gap:8px"><span class="tag">RENAMED</span>
+            <b style="font-size:13px">Receipt &amp; payments</b>
+            <div class="row" style="gap:10px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:3px;align-items:center"><div class="thumb" style="width:46px;height:62px"></div><span class="faint" style="font-size:9.5px">Receipt</span></div>
+              <div style="width:1px;align-self:stretch;background:var(--line)"></div>
+              <div style="display:flex;flex-direction:column;gap:3px;align-items:center"><div class="shot md" style="width:46px;height:62px"><span class="tk">✓</span><span class="sa">$24.00</span><span class="sl"></span></div><span class="faint" style="font-size:9.5px">Maya · $24</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>6 · In History</b>Tap "✓ Paid ›" and open History. A payment with proof shows its thumbnail on the left; tap it to open full screen. One without shows "No screenshot" and, for the person who received it, "Ask for one".</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Groceries at Publix</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><div class="av p">M</div><h3 style="font-size:15px" class="grow">Maya paid you</h3></div>
+          <div class="amtedit"><span class="cur">$</span><span class="n">16.00</span><span class="caret"></span></div>
+          <div class="faint" style="text-align:center">$16.00 left of her $56.00</div>
+          <div class="hist">
+            <div class="hh">History<span class="c">⌃</span></div>
+            <div class="hl"><div class="shot sm" style="width:30px;height:40px"><span class="tk" style="width:11px;height:11px;font-size:7px">✓</span><span class="sa" style="font-size:6.5px">$30.00</span></div><div class="hm"><div class="ht"><b>$30.00</b><span class="mc s">Zelle</span></div><span class="hs">Nov 19 · by Maya</span></div><span class="e">Edit</span></div>
+            <div class="hl"><div style="width:30px;height:40px;border-radius:7px;border:1.5px dashed var(--line);flex:none;display:grid;place-items:center;color:var(--ink3);font-size:12px">？</div><div class="hm"><div class="ht"><b>$10.00</b><span class="mc s">Venmo</span></div><span class="hs">Nov 20 · by Maya</span><span class="noproof">No screenshot</span></div><span class="ask">Ask for one</span></div>
+          </div>
+          <div class="btn">Record payment</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>7 · Full screen</b>The same viewer as receipts, captioned with the payment it belongs to so a screenshot never floats free of its amount. Pinch to zoom. "Replace" and "Remove" only for the person who added it.</div>
+      <div class="phone">
+        <div class="viewer">
+          <div class="vt"><span>✕</span><span style="flex:1;text-align:center;font-weight:600">Payment proof</span><span>⋯</span></div>
+          <div class="big">
+            <div style="width:44px;height:44px;border-radius:50%;background:#1E8A55;color:#fff;display:grid;place-items:center;font-size:22px">✓</div>
+            <div style="font-family:var(--display);font-size:24px;font-weight:700">$24.00</div>
+            <div style="font-size:11px;color:#5A6378">Sent to Andrew C.</div>
+            <div style="width:60%;height:4px;border-radius:2px;background:#E3E7F0"></div>
+            <div style="width:45%;height:4px;border-radius:2px;background:#E3E7F0"></div>
+          </div>
+          <div class="cap"><b>Maya paid you $24.00 · Zelle</b><span class="m">Nov 21 · Uber to Disney Springs · added by Maya</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap">
+      <div class="ph-cap"><b>8 · Your own payment, no proof yet</b>Maya opens her own History and sees "Add proof" on the payment she recorded without one. That's how a cash photo, or a screenshot found later, gets attached.</div>
+      <div class="phone">
+        <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+        <div class="bar dim"><span class="ic">‹</span><span class="t">Groceries at Publix</span></div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <div class="row"><div class="av a">A</div><h3 style="font-size:15px" class="grow">You paid Andrew</h3></div>
+          <div class="amtedit"><span class="cur">$</span><span class="n">16.00</span><span class="caret"></span></div>
+          <div class="faint" style="text-align:center">$16.00 left of your $56.00</div>
+          <div class="hist">
+            <div class="hh">History<span class="c">⌃</span></div>
+            <div class="hl"><div class="shot sm" style="width:30px;height:40px"><span class="tk" style="width:11px;height:11px;font-size:7px">✓</span></div><div class="hm"><div class="ht"><b>$30.00</b><span class="mc s">Zelle</span></div><span class="hs">Nov 19 · by you</span></div><span class="e">Edit</span></div>
+            <div class="hl"><div style="width:30px;height:40px;border-radius:7px;border:1.5px dashed var(--blue);flex:none;display:grid;place-items:center;color:var(--blueText);font-size:14px;font-weight:700">＋</div><div class="hm"><div class="ht"><b>$10.00</b><span class="mc s">Venmo</span></div><span class="hs">Nov 20 · by you</span></div><span class="e">Add proof</span></div>
+          </div>
+          <div class="btn">Record payment</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="note">
+      <h3>Settle up (across bills) gets the same tile</h3>
+      <ul>
+        <li>The pairwise "Settle up" sheet on the group page gets the identical "Add a screenshot" tile. One Zelle transfer often covers several bills, so one screenshot attaches to the one payment, and each bill it covered shows it in its Receipt &amp; payments card.</li>
+        <li>The group's payment list (Balances) shows 📎 on payments that have proof.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>"Ask for one"</h3>
+      <ul>
+        <li>Sends Maya a push: "Andrew asked for a screenshot of your $10.00 Venmo payment." Tapping it opens her History with "Add proof" ready.</li>
+        <li>Only the person who received the money sees it, and once per payment, so it can't become nagging.</li>
+        <li>This is the girlfriend case exactly: she says she paid, you don't remember, you ask in one tap instead of a text thread.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C. WEB ============ -->
+<section class="sec">
+  <div class="sec-head">
+    <span class="status now">Web</span>
+    <h2>C. The web bill, caught up with the app</h2>
+    <p class="muted">Today the web bill sheet shows the split and the change log, and nothing else. It can't show the receipt, any payment, or a comment. Here is what's missing, then the same bill on the web with the app's order: money, people, Receipt &amp; payments, comments.</p>
+  </div>
+
+  <div class="tblwrap">
+    <table class="gap">
+      <tr><th>On a bill</th><th>App</th><th>Web today</th><th>Web after this</th></tr>
+      <tr><td>Receipt photo</td><td class="y">View, add</td><td class="n">Not shown</td><td>View (add stays app-only for now)</td></tr>
+      <tr><td>Payment proof</td><td class="y">New</td><td class="n">n/a</td><td>View and add when paying back</td></tr>
+      <tr><td>Payments on this bill</td><td class="y">History per person, edit</td><td class="n">Only "x left" per row</td><td>History per person, with proof</td></tr>
+      <tr><td>Comments</td><td class="y">Read, write</td><td class="n">Not shown</td><td>Read, write as your group name</td></tr>
+      <tr><td>Change log + Undo</td><td>Expense history</td><td class="y">Yes</td><td>Unchanged</td></tr>
+      <tr><td>Bill date</td><td class="y">Chip</td><td>Text</td><td>Unchanged</td></tr>
+    </table>
+  </div>
+
+  <div class="phones">
+    <div class="ph-wrap browser">
+      <div class="ph-cap"><b>9 · Web bill, top</b>Same row chips as the app ("24 left ›" / "✓ Paid ›"), the 📎 on rows with proof, and the Receipt &amp; payments strip. Tap any thumbnail for a full-screen viewer.</div>
+      <div class="phone">
+        <div class="urlbar"><span>🔒</span><span class="u">split-evenly.app/g/orlando-trip</span></div>
+        <div class="bar"><span class="ic">✕</span><span class="t">Uber to Disney Springs</span></div>
+        <div class="body">
+          <div class="card">
+            <span class="hero">$48.00</span>
+            <span class="faint">Nov 18 · Andrew paid</span>
+          </div>
+          <span class="lbl">Everyone on this bill</span>
+          <div class="card" style="gap:9px">
+            <div class="row"><div class="av p">M</div><div class="grow"><b>You</b> <span class="clip">📎</span><div class="faint">paid 24 of 24</div></div><span class="pill owed owed">✓ Paid ›</span></div>
+            <hr>
+            <div class="row"><div class="av a">A</div><div class="grow"><b>Andrew</b><div class="faint">paid the bill</div></div></div>
+          </div>
+          <div class="card" style="gap:8px">
+            <b style="font-size:13px">Receipt &amp; payments</b>
+            <div class="row" style="gap:10px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:3px;align-items:center"><div class="thumb" style="width:46px;height:62px"></div><span class="faint" style="font-size:9.5px">Receipt</span></div>
+              <div style="width:1px;align-self:stretch;background:var(--line)"></div>
+              <div style="display:flex;flex-direction:column;gap:3px;align-items:center"><div class="shot md" style="width:46px;height:62px"><span class="tk">✓</span><span class="sa">$24.00</span></div><span class="faint" style="font-size:9.5px">You · $24</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap browser">
+      <div class="ph-cap"><b>10 · Web bill, scrolled</b>Comments under the money, same as the app, posted under the name you picked when you joined. The existing "Changes" log with Undo stays at the bottom.</div>
+      <div class="phone">
+        <div class="urlbar"><span>🔒</span><span class="u">split-evenly.app/g/orlando-trip</span></div>
+        <div class="bar"><span class="ic">✕</span><span class="t">Uber to Disney Springs</span></div>
+        <div class="body">
+          <span class="lbl">Comments</span>
+          <div class="card" style="gap:9px">
+            <div class="cmt"><div class="av a">A</div><div class="bub"><b>Andrew</b><div>Surge pricing, sorry 😅</div></div></div>
+            <div class="cmt"><div class="av p">M</div><div class="bub"><b>You</b><div>Sent on Zelle, screenshot's attached</div></div></div>
+            <div class="inp">Add a comment…<span class="s">Send</span></div>
+          </div>
+          <span class="lbl">Changes</span>
+          <div class="card" style="gap:6px">
+            <div class="row"><span class="grow faint" style="font-size:11px">Andrew changed the total from $42.00 to $48.00</span><span class="ask">Undo</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ph-wrap browser">
+      <div class="ph-cap"><b>11 · Paying back on the web</b>The web "Pay back" sheet gets the same tile. On a phone browser it opens the photo library; on a laptop it's a file picker that also takes a pasted screenshot.</div>
+      <div class="phone">
+        <div class="urlbar"><span>🔒</span><span class="u">split-evenly.app/g/orlando-trip</span></div>
+        <div class="bar dim"><span class="ic">✕</span><span class="t">Uber to Disney Springs</span></div>
+        <div class="scrim" style="top:30px"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <h3 style="font-size:15px">Pay Andrew back for Uber to Disney Springs</h3>
+          <div class="field"><span class="l">Amount</span><span class="v" style="font-variant-numeric:tabular-nums">24.00</span></div>
+          <div class="row" style="gap:6px"><span class="faint">Via</span><span class="chip">Zelle ▾</span></div>
+          <div class="addproof"><span class="pi">＋</span><span><b>Add a screenshot</b>Optional. Andrew can see it with the payment.</span></div>
+          <div class="btn">I paid Andrew</div>
+          <div class="faint" style="text-align:center">Andrew gets a notification and can say if it didn't arrive.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D. UNDER THE HOOD ============ -->
+<section class="sec">
+  <div class="sec-head"><h2>D. How it would be stored</h2></div>
+  <div class="cols">
+    <div class="note">
+      <h3>New table, same shape as receipts</h3>
+      <ul>
+        <li><code>payment_proofs</code>: id, settlement_id, group_id, uploaded_by, storage_path, mime_type, size_bytes, timestamps, soft delete. Not a nullable column on <code>receipts</code>, because older apps assume every receipt has an expense.</li>
+        <li><b>Keyed to the payment's chain, not the row.</b> Editing a payment voids it and writes a replacement. Proof hangs off <code>original_settlement_id ?? id</code>, so a screenshot survives "change amount".</li>
+        <li>Uploads reuse the receipt outbox (resumable, survives the app closing). Server side first, per the sync rule.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Web and privacy</h3>
+      <ul>
+        <li>The web still ships no Supabase client: <code>web-claim</code> returns short-lived signed URLs for receipts and proof, and gets new actions for comments and proof upload.</li>
+        <li>Payment screenshots can show account numbers and balances. Proof is visible to the group only (same as receipts). Worth a one-line hint on the tile later if testers attach full banking screens.</li>
+        <li>Images only (PNG, JPEG, HEIC), one per payment, compressed on device like receipts.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="sec-head"><h2>Decisions for you</h2></div>
+  <div class="dec">
+    <div class="q"><b>1. One screenshot per payment, or several?</b><span class="muted">One covers Zelle/Venmo/M-Pesa. A bank transfer sometimes needs two pages.</span><span class="rec">Recommend: one, replaceable. Easy to widen later.</span></div>
+    <div class="q"><b>2. Who can attach?</b><span class="muted">The person who paid, or either of the two people in the payment (the receiver might screenshot their bank alert).</span><span class="rec">Recommend: either of the two, same as who can edit a payment.</span></div>
+    <div class="q"><b>3. "Ask for one" in v1?</b><span class="muted">It's the button that solves your Orlando case, but it's another notification type.</span><span class="rec">Recommend: yes, once per payment.</span></div>
+    <div class="q"><b>4. Web order</b><span class="muted">Viewing (receipts, proof, payment history, comments) is one release; adding proof and writing comments from the web is the second.</span><span class="rec">Recommend: ship both together; adding proof is the point of the web half.</span></div>
+  </div>
+</section>
+</div>

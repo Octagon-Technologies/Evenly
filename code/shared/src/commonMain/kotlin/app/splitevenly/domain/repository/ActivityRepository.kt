@@ -7,6 +7,7 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.domain.activity.Comment
 import app.splitevenly.domain.activity.HistoryEvent
+import app.splitevenly.domain.activity.PaymentProof
 import app.splitevenly.domain.activity.Receipt
 import kotlinx.coroutines.flow.Flow
 
@@ -45,4 +46,10 @@ interface ActivityRepository {
 
     // ── History ─────────────────────────────────────────────────────────────
     fun observeHistory(expenseId: ExpenseId): Flow<List<HistoryEvent>>
+
+    /** A group's live payment proofs, keyed by payment chain id (the newest per chain). */
+    fun observePaymentProofs(groupId: GroupId): Flow<Map<String, PaymentProof>>
+
+    /** Take a payment's screenshot off (soft delete; the Storage object is freed best-effort). */
+    suspend fun removePaymentProof(proofId: String): AppResult<Unit>
 }
