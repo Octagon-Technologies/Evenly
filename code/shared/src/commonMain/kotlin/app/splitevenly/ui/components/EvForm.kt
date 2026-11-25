@@ -111,7 +111,11 @@ fun EvTextField(
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth().bringIntoViewOnFocus(),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .bringIntoViewOnFocus()
+                .claimsReturnKey(singleLine && keyboardType in ReturnKeyKeyboards),
         singleLine = singleLine,
         textStyle = TextStyle(color = c.ink, fontSize = 16.sp, fontFamily = if (mono) EvenlyTheme.monoFamily else null),
         cursorBrush = SolidColor(c.blue),
@@ -257,3 +261,7 @@ fun EvCheck(
         if (checked) EvIcon(EvIcons.Check, size = 16.dp, tint = c.onAccent)
     }
 }
+
+/** Keyboards that carry a return key on both platforms; the iOS number and phone pads have none. */
+private val ReturnKeyKeyboards =
+    setOf(KeyboardType.Text, KeyboardType.Email, KeyboardType.Uri, KeyboardType.Password, KeyboardType.Ascii)

@@ -36,4 +36,11 @@ class InviteLinkParseTest {
         assertNull(InviteLink.tokenFrom("splitevenly://login-callback#access_token=abc"))
         assertNull(InviteLink.tokenFrom(""))
     }
+
+    @Test
+    fun shareMessageEndsOnNoAppNeededAndStillParses() {
+        val msg = InviteLink.shareMessage("Orlando", token)
+        assertTrue(msg.endsWith("settle up for Orlando on the web. No app needed."), msg)
+        assertEquals(token, InviteLink.tokenFrom(msg))
+    }
 }

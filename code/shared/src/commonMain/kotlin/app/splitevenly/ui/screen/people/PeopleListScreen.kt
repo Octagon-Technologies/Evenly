@@ -66,14 +66,19 @@ fun PeopleListScreen(
             EvAvatar(userName, me = true, size = AvatarSize.Md, onClick = onOpenSettings)
         }
         when {
-            summary == null -> Unit
-            summary.owing.isEmpty() && summary.settled.isEmpty() ->
+            summary == null -> {
+                Unit
+            }
+
+            summary.owing.isEmpty() && summary.settled.isEmpty() -> {
                 EvEmptyState(
                     title = "Nobody owes you",
                     text = "When someone owes you in any group, they show up here with the total.",
                     icon = EvIcons.Users,
                 )
-            else ->
+            }
+
+            else -> {
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
@@ -87,7 +92,11 @@ fun PeopleListScreen(
                     }
                     if (summary.owing.isNotEmpty()) {
                         item(key = "owe-label") {
-                            Text("OWE YOU", style = t.sectionLabel.copy(color = c.ink3), modifier = Modifier.padding(top = 6.dp, start = 4.dp))
+                            Text(
+                                "OWE YOU",
+                                style = t.sectionLabel.copy(color = c.ink3),
+                                modifier = Modifier.padding(top = 6.dp, start = 4.dp),
+                            )
                         }
                     }
                     items(summary.owing, key = { it.key }) { person -> PersonRow(person) { onOpenPerson(person.key) } }
@@ -100,6 +109,7 @@ fun PeopleListScreen(
                         }
                     }
                 }
+            }
         }
     }
 }
@@ -115,7 +125,11 @@ private fun TotalCard(summary: PeopleSummary) {
             if (summary.totals.isEmpty()) moneySubunits(0, "USD") else totalsText(summary.totals),
             style = t.pageTitle.copy(color = c.settled, fontWeight = FontWeight.ExtraBold),
         )
-        val groups = summary.owing.flatMap { p -> p.groups.map { it.groupId } }.toSet().size
+        val groups =
+            summary.owing
+                .flatMap { p -> p.groups.map { it.groupId } }
+                .toSet()
+                .size
         val people = summary.owing.size
         Text(
             "$people ${if (people == 1) "person" else "people"} · $groups ${if (groups == 1) "group or split" else "groups and splits"}",
@@ -141,7 +155,13 @@ private fun PersonRow(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(person.name, style = t.rowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Text(
+                        person.name,
+                        style = t.rowTitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
                     if (person.sameNameMatches.isNotEmpty()) {
                         Spacer(Modifier.width(6.dp))
                         Box(Modifier.size(7.dp).background(c.blueText, CircleShape))
@@ -184,7 +204,13 @@ internal fun GroupLine(g: PersonGroup) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("${g.groupEmoji}  ${g.groupName}", style = t.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        Text(
+            "${g.groupEmoji}  ${g.groupName}",
+            style = t.body,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
         g.alias?.let { Text("  as $it", style = t.caption.copy(color = c.ink3), maxLines = 1) }
         Spacer(Modifier.weight(1f))
         Text(moneySubunits(g.amountSubunits, g.currency), style = t.rowValue.copy(fontWeight = FontWeight.SemiBold))

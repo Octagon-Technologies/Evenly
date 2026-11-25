@@ -191,7 +191,7 @@ fun ReceiptReviewScreen(
                     if (saving) "Saving…" else "Share link",
                     { onSave(BillNext.Share) },
                     modifier = Modifier.weight(1f),
-                    variant = ButtonVariant.PrimarySolid,
+                    variant = ButtonVariant.Primary,
                     enabled = !saving,
                     leadingIcon = EvIcons.Share,
                 )

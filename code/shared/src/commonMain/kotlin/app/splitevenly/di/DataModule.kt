@@ -20,8 +20,8 @@ import app.splitevenly.data.repository.CategoryRepositoryImpl
 import app.splitevenly.data.repository.ExpenseRepositoryImpl
 import app.splitevenly.data.repository.FxRepositoryImpl
 import app.splitevenly.data.repository.GroupRepositoryImpl
-import app.splitevenly.data.repository.ProfileRepositoryImpl
 import app.splitevenly.data.repository.PeopleRepositoryImpl
+import app.splitevenly.data.repository.ProfileRepositoryImpl
 import app.splitevenly.data.repository.SettlementRepositoryImpl
 import app.splitevenly.data.repository.WebBillLinkRepositoryImpl
 import app.splitevenly.data.upload.ReceiptUploadHttp
@@ -33,8 +33,8 @@ import app.splitevenly.domain.repository.CategoryRepository
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.FxRepository
 import app.splitevenly.domain.repository.GroupRepository
-import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.repository.PeopleRepository
+import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.repository.WebBillLinkRepository
 import app.splitevenly.platform.AppForeground
@@ -60,7 +60,6 @@ val dataModule: Module =
         single { get<EvenlyDatabase>().settlementDao() }
         single { get<EvenlyDatabase>().fxRateDao() }
         single { get<EvenlyDatabase>().fxCurrencyDao() }
-        single { get<EvenlyDatabase>().conflictDao() }
         single { get<EvenlyDatabase>().expenseEditConflictDao() }
         single { get<EvenlyDatabase>().commentDao() }
         single { get<EvenlyDatabase>().receiptDao() }
@@ -93,8 +92,6 @@ val dataModule: Module =
         // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).
         single<GroupRepository> {
             GroupRepositoryImpl(
-                get(),
-                get(),
                 get(),
                 get(),
                 get(),

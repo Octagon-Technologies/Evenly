@@ -54,6 +54,12 @@ group (`Group.isQuick`); `Route.GroupHome` is wrapped in `QuickSplitGuard`, whic
 a group (Home, a notification, finishing a join) to `Route.QuickSplit`, which lands on the bill or resumes the
 editor. Don't add a group-only route without the same guard, and don't word quick-split copy as "group".
 
+**Home's tabs say what kind of thing it is, never where it is in its life** (`design/brainstorm/home-tabs-and-put-away.html`).
+All · Groups · One-time is the whole tab bar (`HomeFilter`); archived, deleted and settled one-time bills sit
+behind the single "Put away" row (`Route.PutAway`, an accordion with exactly one card open). Don't add a fourth
+tab for a lifecycle state. Every Home card archives or deletes by long press *and* left swipe
+(`EvSwipeActions`); archive answers with Undo, not a dialog, and a group's Delete leads with "Archive instead".
+
 **A push disposes the destination underneath, so `remember` in a Route wrapper does not survive Back.**
 Anything a wrapper must keep across a push (a one-shot gate's answer, a completed check) belongs in a
 ViewModel scoped to that back-stack entry, which lives until the entry is popped. `HomeGateRoute`'s
@@ -94,13 +100,24 @@ ShareCost-era and is fully retired; do not reintroduce it.
   consistency; do not revert these to blue.
 - **Sheets:** `EvDragSheet` is draggable; `EvSheetScaffold` is fixed-height. Both leave the page behind
   unchanged by default. Use `dimBackground = true` on `EvSheetScaffold` only when a dimmed backdrop is intended.
-  The sheet top is native per OS (`EvSheetChrome.kt`): iOS gets a grabber and a round glass ✕ top-left with
-  a centered title; Android gets the Material 3 drag handle, a left title and **no ✕** (owner call,
-  2026-11-19). Every bottom sheet closes on Back, a tap outside, and a swipe down **anywhere on it**
-  (`rememberSheetSwipe`: a scrolling body hands over its pull once at the top). A hand-rolled sheet
-  (`CameraPermissionSheet`) must use the same helper. Don't add a per-screen ✕. With the keyboard up,
-  `EvSheetSurface` grows to sit above it and ends in a Done row, so a sheet never needs its own
-  keyboard handling (and must not mount `EvKeyboardDoneBar`).
+  The sheet top is native per OS (`EvSheetChrome.kt`): iOS gets a grabber and a centered title; Android
+  gets the Material 3 drag handle and a left title. **Neither draws a ✕**, and neither does
+  `EvModalScaffold` (owner call, 2026-11-24, `design/brainstorm/close-button-audit.html`). Every bottom
+  sheet closes on Back, a tap outside, and a swipe down **anywhere on it** (`rememberSheetSwipe`: a
+  scrolling body hands over its pull once at the top). A hand-rolled sheet (`CameraPermissionSheet`) must
+  use the same helper. With the keyboard up, a sheet sits right on it: `imeAndDoneBarPadding` pads only
+  the part of the keyboard that overlaps the container (a group-page sheet already ends above the tab bar).
+  The keyboard "Done" bar (`EvKeyboardDoneBar`) shows only for a keyboard with no return key (number pad,
+  multi-line). A single-line `EvTextField` hides it (`claimsReturnKey`), and its return key does the action. A centered pop-up that is a confirm or a small form ends with a "Cancel"
+  (`ButtonVariant.Dismiss`); a picker that applies on tap needs none. Don't add a per-screen ✕.
+
+- **Buttons never cast a shadow** (`design/brainstorm/button-states.html`). Primary is filled blue,
+  Secondary a hairline outline, on both OSes; size, label and pressed feedback follow M3 on Android and the
+  HIG on iOS (`EvButton`). **Pick the secondary by layout:** a button that backs out of the action stacked
+  right above it ("Cancel", "Keep editing") is `Dismiss`, plain text on iOS and outlined on Android. A
+  side-by-side row or a stacked *equal* choice uses `Secondary`, because plain text there reads as one
+  button and a stray label (`design/brainstorm/ios-secondary-buttons.html`). Only Android's FAB and the
+  Home "New" bar keep a shadow, M3's neutral FAB elevation.
 
 - **The 3dp left strip on an expense row means "you're on this"** (payer or a share holder,
   `ExpenseItemUi.involved`), in `c.blueText` because the fill blue sinks into the black dark page. It is
@@ -189,6 +206,13 @@ over the bill's details and skip the chooser.
 ("210 left ›", `BalanceChip`) for the bill's payer on every row and for each person on their own; it opens
 `RecordPaymentSheet`, whose History card is where a payment is edited or cancelled
 (`expense/BillPaymentSheets.kt`). "Edit bill" never edits a payment.
+
+**The Members sheet is a stack of pages, not a stack of sheets** (`screen/group/MembersSheet.kt`,
+`design/brainstorm/add-member-pages.html`). "Add by name" and "Show QR code" slide in inside the same sheet with
+a back arrow; never close the sheet to open another one out of view. Adding by name lives only there (Group
+settings has no add row). The add page keeps the keyboard up after each add and hands focus back to the field,
+because `EvButton` clears focus on every tap. Don't prewarm the iOS share sheet on a likely tap: it blocks the
+main thread for about a second and freezes whatever the person taps next.
 
 **The participant picker scales with group size.** ≤6 members render as inline select-all/deselect toggle
 chips; larger groups collapse to a summary row that opens a searchable member-picker sheet. Same underlying

@@ -108,7 +108,8 @@ box when the payment covers a single group.
 **Known gaps / unverified:**
 - That account has one bill, so "+N more", same-name matches, linking, a multi-group split and "People you
   know" have only unit-test coverage, not a run with real data.
-- "People you know" is in the group's Add a member sheet (group page and Group settings) only, not the
-  add-expense participant sheet or the bill flow.
+- "People you know" is on the Members sheet's Add new member page (`MembersSheet.kt`) only, under the name
+  field as you type, not the add-expense participant sheet or the bill flow. Group settings no longer adds
+  members (2026-11-24).
 - A cross-group payment is N ordinary payments; undoing it means removing each one in its group.
 - DB version: People took 35; `feat/payment-proof` was renumbered to 36 when it merged.

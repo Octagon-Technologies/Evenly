@@ -29,5 +29,8 @@ interface PersonLinkDao {
         "UPDATE person_links SET deleted_at = :ts, updated_at = :ts, row_version = row_version + 1 " +
             "WHERE id IN (:ids) AND deleted_at IS NULL",
     )
-    suspend fun softDelete(ids: List<String>, ts: Long)
+    suspend fun softDelete(
+        ids: List<String>,
+        ts: Long,
+    )
 }

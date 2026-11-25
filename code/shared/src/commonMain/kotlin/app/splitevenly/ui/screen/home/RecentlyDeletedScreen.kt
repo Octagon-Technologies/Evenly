@@ -51,80 +51,12 @@ data class DeletedGroupCardUi(
     val deletedByLabel: String,
     val daysLeft: Int,
     val urgent: Boolean = false,
+    val isQuick: Boolean = false,
 )
 
-/**
- * Recently deleted: groups deleted for everyone in the last 30 days, and the one tap that brings one
- * back.
- *
- * **Who deleted it** leads every row, because a group vanishing with no explanation is the failure
- * mode of letting any member delete one.
- *
- * **Tapping the row restores**, exactly as tapping an Archived row unarchives, with the chip as the
- * affordance rather than a separate target. A row that opened some read-only view of a group that no
- * longer exists for anybody would be the more obvious design and a worse one, and a chip that is the
- * only live thing in a row makes the other 90% of that row a dead control.
- *
- * Restoring has no confirmation step. It is not destructive, it is undone by deleting again, and an
- * "are you sure you want to un-delete this" dialog would be friction on the safe direction.
- */
+/** A Recently deleted row in Put away. Tapping anywhere restores; the chip is the affordance. */
 @Composable
-fun RecentlyDeletedScreen(
-    onBack: () -> Unit = {},
-    groups: List<DeletedGroupCardUi> = RecentlyDeletedSamples.groups,
-    onRestore: (String) -> Unit = {},
-    restoredMessage: String? = null,
-) {
-    val c = EvenlyTheme.colors
-    Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
-        EvTopBar(
-            "Recently deleted",
-            subtitle = if (groups.isEmpty()) null else "${groups.size} ${if (groups.size == 1) "group" else "groups"}",
-            navIcon = { EvIconButton(EvIcons.Back, onBack) },
-        )
-        Box(Modifier.fillMaxSize()) {
-            if (groups.isEmpty()) {
-                // Also the state the day after a purge. There is deliberately no "permanently deleted"
-                // tombstone row: by then there is genuinely nothing left to show.
-                EvEmptyState(
-                    title = "Nothing deleted",
-                    text = "Deleted groups wait here for 30 days so anyone in the group can bring them back.",
-                    icon = EvIcons.Trash,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            } else {
-                Column(
-                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    EvCard {
-                        groups.forEachIndexed { i, g ->
-                            Box(if (i > 0) Modifier.topHairline(c.border) else Modifier) {
-                                DeletedGroupCardRow(g, onRestore = { onRestore(g.id) })
-                            }
-                        }
-                    }
-                    Text(
-                        "Groups here are deleted for everyone. Anyone who was a member can bring one back. " +
-                            "After 30 days they are permanently deleted, including from our servers.",
-                        Modifier.fillMaxWidth(),
-                        color = c.ink2,
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp,
-                        textAlign = TextAlign.Center,
-                    )
-                    Spacer(Modifier.height(48.dp))
-                }
-            }
-            restoredMessage?.let {
-                EvToast(it, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeletedGroupCardRow(
+internal fun DeletedGroupCardRow(
     g: DeletedGroupCardUi,
     onRestore: () -> Unit,
 ) {
@@ -177,16 +109,4 @@ internal object RecentlyDeletedSamples {
             DeletedGroupCardUi("1", "🏝️", "Tulum Trip", "Deleted by Andrew", 27),
             DeletedGroupCardUi("2", "⛷️", "Tahoe 2025", "Deleted by you", 2, urgent = true),
         )
-}
-
-@Preview
-@Composable
-private fun RecentlyDeletedPreview() {
-    EvenlyTheme { RecentlyDeletedScreen() }
-}
-
-@Preview
-@Composable
-private fun RecentlyDeletedEmptyPreview() {
-    EvenlyTheme { RecentlyDeletedScreen(groups = emptyList()) }
 }

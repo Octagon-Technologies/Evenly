@@ -64,7 +64,12 @@ fun RecordPaymentSheet(
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
-    val currencies = remember(person) { person.totals.entries.sortedByDescending { it.value }.map { it.key } }
+    val currencies =
+        remember(person) {
+            person.totals.entries
+                .sortedByDescending { it.value }
+                .map { it.key }
+        }
     var currency by remember { mutableStateOf(currencies.firstOrNull() ?: "USD") }
     val targets =
         remember(person, currency) {
@@ -107,59 +112,71 @@ fun RecordPaymentSheet(
                 helper = "They owe you ${moneySubunits(owed, currency)} in all.",
             )
             // One group has nothing to split: the amount is the payment. The box only earns its place at two.
-            if (targets.size > 1) Column(
-                Modifier.fillMaxWidth().background(c.surface, RoundedCornerShape(12.dp)).padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row {
-                    Text(if (editing) "Your split" else "Oldest first", style = t.caption.copy(color = c.ink3), modifier = Modifier.weight(1f))
-                    Text(
-                        if (editing) "Oldest first" else "Change",
-                        style = t.caption.copy(color = c.blueText, fontWeight = FontWeight.SemiBold),
-                        modifier =
-                            Modifier.clickable {
-                                if (!editing) {
-                                    split.forEach { (g, v) -> edits[g] = plain(v) }
-                                } else {
-                                    edits.clear()
-                                }
-                                editing = !editing
-                                showProblems = false
-                            },
-                    )
-                }
-                targets.sortedBy { it.oldestDate }.forEach { target ->
-                    val group = person.groups.first { it.groupId == target.groupId && it.currency == currency }
-                    val value = split[target.groupId] ?: 0L
-                    val bad = showProblems && target.groupId in check.overBalance
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("${group.groupEmoji} ${group.groupName}", style = t.body)
-                            val left = target.balanceSubunits - value
-                            Text(
-                                if (left <= 0) "Clears it" else "${moneySubunits(left, currency)} left of ${moneySubunits(target.balanceSubunits, currency)}",
-                                style = t.caption.copy(color = c.ink3),
-                            )
-                        }
-                        val shape = RoundedCornerShape(8.dp)
-                        val boxMod =
-                            Modifier
-                                .widthIn(min = 84.dp)
-                                .background(c.page, shape)
-                                .border(1.5.dp, if (bad) c.danger else c.border, shape)
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        if (editing) {
-                            BasicTextField(
-                                value = edits[target.groupId] ?: "",
-                                onValueChange = { edits[target.groupId] = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                textStyle = t.rowValue.copy(color = if (bad) c.danger else c.ink, textAlign = TextAlign.End),
-                                cursorBrush = SolidColor(c.blue),
-                                modifier = boxMod.width(84.dp),
-                            )
-                        } else {
-                            Text(moneySubunits(value, currency), style = t.rowValue.copy(textAlign = TextAlign.End), modifier = boxMod)
+            if (targets.size > 1) {
+                Column(
+                    Modifier.fillMaxWidth().background(c.surface, RoundedCornerShape(12.dp)).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row {
+                        Text(
+                            if (editing) "Your split" else "Oldest first",
+                            style = t.caption.copy(color = c.ink3),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            if (editing) "Oldest first" else "Change",
+                            style = t.caption.copy(color = c.blueText, fontWeight = FontWeight.SemiBold),
+                            modifier =
+                                Modifier.clickable {
+                                    if (!editing) {
+                                        split.forEach { (g, v) -> edits[g] = plain(v) }
+                                    } else {
+                                        edits.clear()
+                                    }
+                                    editing = !editing
+                                    showProblems = false
+                                },
+                        )
+                    }
+                    targets.sortedBy { it.oldestDate }.forEach { target ->
+                        val group = person.groups.first { it.groupId == target.groupId && it.currency == currency }
+                        val value = split[target.groupId] ?: 0L
+                        val bad = showProblems && target.groupId in check.overBalance
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${group.groupEmoji} ${group.groupName}", style = t.body)
+                                val left = target.balanceSubunits - value
+                                Text(
+                                    if (left <=
+                                        0
+                                    ) {
+                                        "Clears it"
+                                    } else {
+                                        "${moneySubunits(left, currency)} left of ${moneySubunits(target.balanceSubunits, currency)}"
+                                    },
+                                    style = t.caption.copy(color = c.ink3),
+                                )
+                            }
+                            val shape = RoundedCornerShape(8.dp)
+                            val boxMod =
+                                Modifier
+                                    .widthIn(min = 84.dp)
+                                    .background(c.page, shape)
+                                    .border(1.5.dp, if (bad) c.danger else c.border, shape)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            if (editing) {
+                                BasicTextField(
+                                    value = edits[target.groupId] ?: "",
+                                    onValueChange = { edits[target.groupId] = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    textStyle = t.rowValue.copy(color = if (bad) c.danger else c.ink, textAlign = TextAlign.End),
+                                    cursorBrush = SolidColor(c.blue),
+                                    modifier = boxMod.width(84.dp),
+                                )
+                            } else {
+                                Text(moneySubunits(value, currency), style = t.rowValue.copy(textAlign = TextAlign.End), modifier = boxMod)
+                            }
                         }
                     }
                 }
@@ -191,7 +208,7 @@ fun RecordPaymentSheet(
                 )
             }
             EvButton(
-                variant = ButtonVariant.PrimarySolid,
+                variant = ButtonVariant.Primary,
                 onClick = {
                     if (check.addsUp) {
                         onSave(currency, split.filterValues { it > 0 })

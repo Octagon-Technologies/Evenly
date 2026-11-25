@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Home Tabs and Put Away</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Brainstorm doc: prose per section, then a row of phone mockups in the app's blue/light tokens. Phones are live: tabs, swipe, and the accordion all respond. */
+:root{
+  --page:#F4F6FB; --paper:#FFFFFF; --ink:#141A2E; --ink2:#5A6378; --ink3:#8A92A6; --line:#E3E7F0;
+  --blue:#3762E3; --blueText:#2B52C9; --blueTint:#EAF0FF;
+  --owe:#C77A12; --oweTint:#FFF4E2; --owed:#1E8A55; --owedTint:#E6F6EE;
+  --red:#D23B3B; --redTint:#FDECEC; --slate:#5E6B85;
+  --phone:#FFFFFF; --phoneBg:#F6F8FC; --frame:#1B2133; --scrim:rgba(20,26,46,.38);
+  --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --body:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blueText:#8FA9FF; --blueTint:#1D2747;
+  --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --red:#F06B6B; --redTint:#3A1A1C; --slate:#56627C;
+  --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#0E1220; --paper:#161B2C; --ink:#EEF1F8; --ink2:#A7AFC2; --ink3:#78809A; --line:#2A3148;
+  --blueText:#8FA9FF; --blueTint:#1D2747;
+  --owe:#F0A54A; --oweTint:#33280F; --owed:#4CCB8A; --owedTint:#11301F;
+  --red:#F06B6B; --redTint:#3A1A1C; --slate:#56627C;
+  --phone:#121726; --phoneBg:#0B0F1A; --frame:#3A4360; --scrim:rgba(0,0,0,.55); color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;padding:40px 16px 80px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1{font-size:clamp(30px,5vw,42px);line-height:1.1}
+h2{font-size:25px}
+p{margin:0;max-width:70ch}
+.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--blueText);font-weight:600}
+.lede{color:var(--ink2);font-size:17px}
+header,.sec{display:flex;flex-direction:column;gap:14px}
+.note{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px 18px;max-width:760px}
+.note b{color:var(--ink)}
+ul{margin:0;padding-left:20px;max-width:70ch}
+li{margin:4px 0}
+.phones{display:flex;flex-wrap:wrap;gap:28px;margin-top:8px}
+.ph-col{display:flex;flex-direction:column;gap:10px;width:300px;max-width:100%}
+.cap{font-size:13px;color:var(--ink2)}
+.cap b{color:var(--ink)}
+
+/* phone */
+.phone{width:300px;max-width:100%;height:600px;border-radius:38px;border:8px solid var(--frame);background:var(--phoneBg);position:relative;overflow:hidden;display:flex;flex-direction:column}
+.bar{display:flex;align-items:center;padding:16px 16px 8px}
+.bar h4{flex:1;margin:0;font-family:var(--display);font-size:22px;font-weight:700}
+.me{width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;font-size:12px;font-weight:600;display:grid;place-items:center}
+.seg{margin:4px 14px 10px;display:flex;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:3px}
+.seg button{flex:1;border:0;background:none;font:600 12.5px var(--body);color:var(--ink2);padding:7px 0;border-radius:9px;cursor:pointer}
+.seg button.on{background:var(--blue);color:#fff}
+.seg .n{opacity:.7;font-weight:500;margin-left:3px}
+.list{flex:1;overflow:auto;padding:0 14px 90px;display:flex;flex-direction:column;gap:9px}
+.lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:4px 2px 0}
+.card{position:relative;border-radius:14px;overflow:hidden;flex:none}
+.card .face{position:relative;z-index:1;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:11px 12px;display:flex;gap:10px;align-items:center;transition:transform .25s ease;cursor:grab;user-select:none}
+.tile{width:36px;height:36px;border-radius:11px;background:var(--blueTint);display:grid;place-items:center;font-size:18px;flex:none}
+.tile.rc{background:var(--oweTint)}
+.meta{flex:1;min-width:0}
+.meta .t{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta .s{font-size:11.5px;color:var(--ink3)}
+.amt{font-size:12px;font-weight:600;text-align:right;max-width:78px;line-height:1.3}
+.amt.owe{color:var(--owe)} .amt.owed{color:var(--owed)} .amt.ok{color:var(--ink3);font-weight:500}
+.acts{position:absolute;inset:0;visibility:hidden;display:flex;justify-content:flex-end;border-radius:14px;overflow:hidden}
+.acts span{width:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:#fff;font-size:11px;font-weight:600}
+.acts .ar{background:var(--slate)} .acts .de{background:var(--red)}
+.acts svg{width:18px;height:18px}
+.card.open .face{transform:translateX(-148px)}
+.card.open .acts,.card.drag .acts{visibility:visible}
+.shelf{flex:none;margin-top:6px;background:var(--paper);border:1px dashed var(--line);border-radius:14px;padding:11px 12px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink2);cursor:pointer}
+.shelf svg{width:18px;height:18px;color:var(--ink3)}
+.shelf .dot{color:var(--ink3)}
+.shelf .chev{margin-left:auto;color:var(--ink3)}
+.cta{position:absolute;left:14px;right:14px;bottom:16px;height:46px;border-radius:23px;background:var(--blue);color:#fff;font-weight:700;font-size:14px;display:grid;place-items:center;z-index:3}
+.empty{font-size:12.5px;color:var(--ink3);text-align:center;padding:20px 8px}
+
+/* long-press menu */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:4}
+.lift{position:absolute;left:14px;right:14px;z-index:5}
+.menu{position:absolute;right:20px;z-index:5;width:210px;background:var(--paper);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden}
+.menu div{padding:11px 14px;font-size:13.5px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line)}
+.menu div:first-child{border-top:0}
+.menu .d{color:var(--red)}
+.menu small{color:var(--ink3);font-size:11px;display:block}
+
+/* snackbar */
+.snack{position:absolute;left:14px;right:14px;bottom:72px;z-index:4;background:#1B2133;color:#fff;border-radius:12px;padding:11px 14px;font-size:12.5px;display:flex;align-items:center}
+.snack b{margin-left:auto;color:#8FA9FF}
+
+/* put-away screen */
+.top{display:flex;align-items:center;gap:8px;padding:16px 14px 10px}
+.top .back{font-size:20px;color:var(--blueText)}
+.top h5{margin:0;font-family:var(--display);font-size:18px}
+.pa{flex:1;display:flex;flex-direction:column;gap:10px;padding:0 14px 14px;min-height:0}
+.acc{background:var(--paper);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;min-height:0;flex:none;transition:flex-grow .3s ease}
+.acc.open{flex:1 1 0}
+.acc-h{display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer;flex:none}
+.acc-h svg{width:18px;height:18px;color:var(--ink2)}
+.acc-h .ti{font-weight:600;font-size:14px}
+.acc-h .ct{font-size:12px;color:var(--ink3);margin-left:auto}
+.acc-h .cv{color:var(--ink3);transition:transform .25s}
+.acc.open .cv{transform:rotate(90deg)}
+.acc-b{overflow:auto;min-height:0;display:none;padding:0 10px 10px;flex-direction:column;gap:8px}
+.acc.open .acc-b{display:flex}
+.acc-b .hint{font-size:11.5px;color:var(--ink3);padding:0 4px 2px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:11px;background:var(--phoneBg)}
+.row .pill{font-size:11px;font-weight:600;color:var(--blueText);background:var(--blueTint);padding:4px 9px;border-radius:99px}
+.row .left{font-size:11px;color:var(--owe)}
+.badge{font-size:10px;font-weight:700;color:#fff;background:var(--blue);border-radius:99px;padding:1px 6px;margin-left:6px}
+
+/* delete sheet */
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:5;background:var(--paper);border-radius:22px 22px 0 0;padding:10px 18px 22px}
+.grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 14px}
+.sheet h6{margin:0 0 6px;font-family:var(--display);font-size:18px}
+.sheet p{font-size:12.5px;color:var(--ink2);margin-bottom:12px}
+.btn{height:44px;border-radius:12px;display:grid;place-items:center;font-weight:600;font-size:14px;margin-top:8px}
+.btn.p{background:var(--blue);color:#fff}
+.btn.g{border:1px solid var(--line);color:var(--ink)}
+.btn.r{background:var(--redTint);color:var(--red)}
+.opt{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px;font-size:13px}
+.opt small{display:block;color:var(--ink3);font-size:11.5px}
+.opt.sel{border-color:var(--blue);background:var(--blueTint)}
+table{border-collapse:collapse;font-size:14px;max-width:760px;width:100%}
+td,th{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
+th{font-size:12px;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">Brainstorm · Home organization</span>
+  <h1>Three tabs for what it is, one shelf for where it went</h1>
+  <p class="lede">The five buckets you listed are really two different questions. <b>All / Groups / One-time</b> is <i>what kind of thing</i> it is. <b>Archived / Recently deleted</b> is <i>where it is in its life</i>. Mixing them into one tab bar is why it kept growing to five. Split the axes and both fit.</p>
+</header>
+
+<section class="note">
+  <ul>
+    <li><b>Tabs (max 3):</b> All · Groups · One-time. Default All, and the choice is remembered per device.</li>
+    <li><b>Lifecycle lives at the bottom of whichever tab you're on</b>, as one quiet "Put away" row. Its counts follow the tab, so on One-time it only counts one-time bills.</li>
+    <li><b>Tapping it opens your two-card accordion</b> as a full screen, where the height rule you described works cleanly (the screen is the container).</li>
+    <li><b>History folds into Archived.</b> Today Home already has three shelves: History (settled quick splits), Archived, Recently deleted. A settled one-time bill can just auto-archive after a day, which leaves exactly your two cards.</li>
+  </ul>
+</section>
+
+<!-- ── 1. Tabs ─────────────────────────── -->
+<section class="sec">
+  <span class="eyebrow">1 · Home</span>
+  <h2>Tabs at the top, shelf at the bottom</h2>
+  <p>Tap the tabs. The shelf row only appears when something is put away (same rule as today's "Recently deleted (0)" never showing). Swipe a card left, or press and hold it.</p>
+  <div class="phones">
+    <div class="ph-col">
+      <div class="phone" id="home">
+        <div class="bar"><h4>Evenly</h4><div class="me">AC</div></div>
+        <div class="seg" id="seg">
+          <button class="on" data-f="all">All<span class="n">5</span></button>
+          <button data-f="group">Groups<span class="n">3</span></button>
+          <button data-f="one">One-time<span class="n">2</span></button>
+        </div>
+        <div class="list" id="list"></div>
+        <div class="cta">+ New</div>
+      </div>
+      <div class="cap"><b>Live.</b> Drag a card left to reveal Archive and Delete; tap elsewhere to close.</div>
+    </div>
+
+    <div class="ph-col">
+      <div class="phone">
+        <div class="bar"><h4>Evenly</h4><div class="me">AC</div></div>
+        <div class="seg"><button class="on">All<span class="n">5</span></button><button>Groups<span class="n">3</span></button><button>One-time<span class="n">2</span></button></div>
+        <div class="list" style="filter:blur(1.5px)">
+          <div class="card"><div class="face"><div class="tile">🏠</div><div class="meta"><div class="t">Apartment 4B</div><div class="s">4 people</div></div><div class="amt owe">You owe $42.10</div></div></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="lift" style="top:178px"><div class="card"><div class="face" style="box-shadow:0 8px 24px rgba(0,0,0,.25)"><div class="tile">🏔️</div><div class="meta"><div class="t">Tahoe ski trip</div><div class="s">6 people · settled</div></div><div class="amt ok">All settled</div></div></div></div>
+        <div class="menu" style="top:244px">
+          <div>Open</div>
+          <div>Archive<small>Only hides it for you</small></div>
+          <div class="d">Delete…<small style="color:var(--red);opacity:.8">For everyone</small></div>
+        </div>
+      </div>
+      <div class="cap"><b>Long press.</b> Same menu quick splits already have, now on groups too. The sublabel says who it affects, matching Group Settings' danger zone.</div>
+    </div>
+
+    <div class="ph-col">
+      <div class="phone">
+        <div class="bar"><h4>Evenly</h4><div class="me">AC</div></div>
+        <div class="seg"><button class="on">All<span class="n">4</span></button><button>Groups<span class="n">2</span></button><button>One-time<span class="n">2</span></button></div>
+        <div class="list">
+          <div class="card"><div class="face"><div class="tile">🏠</div><div class="meta"><div class="t">Apartment 4B</div><div class="s">4 people</div></div><div class="amt owe">You owe $42.10</div></div></div>
+          <div class="card"><div class="face"><div class="tile rc">🧾</div><div class="meta"><div class="t">Nobu dinner</div><div class="s">2 of 3 paid</div></div><div class="amt owed">You're owed $64</div></div></div>
+          <div class="shelf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14v4H5zM6 9v10h12V9M10 13h4"/></svg>Archived 4 <span class="dot">·</span> Deleted 1<span class="chev">›</span></div>
+        </div>
+        <div class="snack">Tahoe ski trip archived<b>Undo</b></div>
+        <div class="cta">+ New</div>
+      </div>
+      <div class="cap"><b>Archive confirms with Undo, not a dialog.</b> It's per-person and one tap to reverse, so a dialog is friction with nothing to protect.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 2. Put away ─────────────────────── -->
+<section class="sec">
+  <span class="eyebrow">2 · Put away</span>
+  <h2>Your accordion, with the height rule</h2>
+  <p>Exactly one card open at a time. The open card takes the screen height minus the closed card's header, and scrolls inside itself. Opening one closes the other. Tap the headers.</p>
+  <div class="phones">
+    <div class="ph-col">
+      <div class="phone">
+        <div class="top"><span class="back">‹</span><h5>Put away</h5></div>
+        <div class="pa" id="pa">
+          <div class="acc open" data-k="a">
+            <div class="acc-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14v4H5zM6 9v10h12V9M10 13h4"/></svg><span class="ti">Archived</span><span class="ct">8</span><span class="cv">›</span></div>
+            <div class="acc-b">
+              <div class="hint">Hidden from your list only. You still get notified.</div>
+              <div class="row"><div class="tile">🏔️</div><div class="meta"><div class="t">Tahoe ski trip<span class="badge">New</span></div><div class="s">Maya added "Gas" · 2h</div></div><span class="pill">Restore</span></div>
+              <div class="row"><div class="tile">🎓</div><div class="meta"><div class="t">Senior year house</div><div class="s">Settled · May</div></div><span class="pill">Restore</span></div>
+              <div class="row"><div class="tile rc">🧾</div><div class="meta"><div class="t">Sushi Roku</div><div class="s">One-time · settled</div></div><span class="pill">Restore</span></div>
+              <div class="row"><div class="tile">⚽</div><div class="meta"><div class="t">Sunday league</div><div class="s">Settled · Mar</div></div><span class="pill">Restore</span></div>
+              <div class="row"><div class="tile rc">🧾</div><div class="meta"><div class="t">Uber to JFK</div><div class="s">One-time · settled</div></div><span class="pill">Restore</span></div>
+              <div class="row"><div class="tile">🎉</div><div class="meta"><div class="t">Jay's birthday</div><div class="s">Settled · Feb</div></div><span class="pill">Restore</span></div>
+              <div class="row"><div class="tile rc">🧾</div><div class="meta"><div class="t">Costco run</div><div class="s">One-time · settled</div></div><span class="pill">Restore</span></div>
+              <div class="row"><div class="tile">🏖️</div><div class="meta"><div class="t">Miami spring break</div><div class="s">Settled · Jan</div></div><span class="pill">Restore</span></div>
+            </div>
+          </div>
+          <div class="acc" data-k="d">
+            <div class="acc-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg><span class="ti">Recently deleted</span><span class="ct">1</span><span class="cv">›</span></div>
+            <div class="acc-b">
+              <div class="hint">Restorable for 30 days, then gone for everyone.</div>
+              <div class="row"><div class="tile">🍕</div><div class="meta"><div class="t">Pizza Fridays</div><div class="s">Deleted by you</div></div><div style="text-align:right"><span class="pill">Restore</span><div class="left">23 days left</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>Live.</b> Archived scrolls inside its card; the Recently deleted header stays pinned in view. A "New" badge marks archived groups with fresh activity.</div>
+    </div>
+
+    <div class="ph-col">
+      <div class="phone">
+        <div class="bar"><h4>Evenly</h4><div class="me">AC</div></div>
+        <div class="seg"><button class="on">All<span class="n">4</span></button><button>Groups<span class="n">2</span></button><button>One-time<span class="n">2</span></button></div>
+        <div class="list">
+          <div class="card"><div class="face"><div class="tile">🏠</div><div class="meta"><div class="t">Apartment 4B</div><div class="s">4 people</div></div><div class="amt owe">You owe $42.10</div></div></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <h6>Delete "Tahoe ski trip"?</h6>
+          <p>This deletes it for all 6 people. You'll have 30 days to restore it from Put away.</p>
+          <div class="opt sel">Archive instead<small>Hide it for you, keep it for everyone</small></div>
+          <div class="opt">Leave the group<small>You go, the group stays</small></div>
+          <div class="btn r" style="margin-top:14px">Type the name to delete…</div>
+          <div class="btn g">Cancel</div>
+        </div>
+      </div>
+      <div class="cap"><b>Swipe-Delete on a group.</b> Reuses today's typed-name gate, but leads with the gentler options, since most people swiping "delete" mean "get this off my screen".</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 3. Open questions ─────────────────────── -->
+<section class="sec">
+  <span class="eyebrow">3 · Decisions</span>
+  <h2>What I'd lock in, and what's yours to call</h2>
+  <table>
+    <tr><th>Question</th><th>Recommendation</th></tr>
+    <tr><td>Archive confirmation</td><td>Undo snackbar, no dialog. You asked for confirmations on both; I'd keep the dialog only for Delete.</td></tr>
+    <tr><td>Delete one-time bill</td><td>Plain confirm (already exists on the quick-split menu). No typed name, it's small.</td></tr>
+    <tr><td>New activity in an archived group</td><td>Notify as usual, add a "New" badge in Put away, do <b>not</b> auto-unarchive. Tapping the notification opens the group directly.</td></tr>
+    <tr><td>History shelf</td><td>Retire it: settled one-time bills auto-archive after a day. Removes a third shelf.</td></tr>
+    <tr><td>Swipe on Android</td><td>Ship it on both; long-press stays the discoverable path on Android.</td></tr>
+    <tr><td>Tab counts</td><td>Show them (small, muted). Optional; drop them if the bar feels busy.</td></tr>
+  </table>
+</section>
+
+</div>
+
+<script>
+const items=[
+  {e:'🏠',t:'Apartment 4B',s:'4 people',a:'You owe $42.10',c:'owe',k:'group'},
+  {e:'🧾',t:'Nobu dinner',s:'2 of 3 paid',a:"You're owed $64",c:'owed',k:'one'},
+  {e:'🏔️',t:'Tahoe ski trip',s:'6 people · settled',a:'All settled',c:'ok',k:'group'},
+  {e:'🧾',t:'Tacos at Chela',s:'1 of 4 paid',a:'You owe $18',c:'owe',k:'one'},
+  {e:'💼',t:'Work lunches',s:'5 people',a:"You're owed $9.50",c:'owed',k:'group'},
+];
+const shelf={all:[4,1],group:[2,1],one:[2,0]};
+const arch='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14v4H5zM6 9v10h12V9M10 13h4"/></svg>';
+const trash='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
+function render(f){
+  const L=document.getElementById('list');
+  const rows=items.filter(i=>f==='all'||i.k===f);
+  let h=rows.map(i=>`<div class="card"><div class="acts"><span class="ar">${arch}Archive</span><span class="de">${trash}Delete</span></div><div class="face"><div class="tile ${i.k==='one'?'rc':''}">${i.e}</div><div class="meta"><div class="t">${i.t}</div><div class="s">${i.s}</div></div><div class="amt ${i.c}">${i.a}</div></div></div>`).join('');
+  const [a,d]=shelf[f];
+  if(a+d>0){const parts=[];if(a)parts.push('Archived '+a);if(d)parts.push('Deleted '+d);h+=`<div class="shelf">${arch}${parts.join(' <span class="dot">·</span> ')}<span class="chev">›</span></div>`;}
+  L.innerHTML=h;
+  L.querySelectorAll('.card').forEach(bindSwipe);
+}
+function closeAll(except){document.querySelectorAll('#list .card.open').forEach(c=>{if(c!==except)c.classList.remove('open')});}
+function bindSwipe(card){
+  const face=card.querySelector('.face');let x0=null,dx=0;
+  face.addEventListener('pointerdown',e=>{x0=e.clientX;dx=0;face.style.transition='none';card.classList.add('drag');face.setPointerCapture(e.pointerId);closeAll(card);});
+  face.addEventListener('pointermove',e=>{if(x0===null)return;dx=e.clientX-x0;const base=card.classList.contains('open')?-148:0;face.style.transform=`translateX(${Math.min(0,Math.max(-170,base+dx))}px)`;});
+  const end=()=>{if(x0===null)return;face.style.transition='';face.style.transform='';const wasOpen=card.classList.contains('open');
+    if(Math.abs(dx)<5){card.classList.toggle('open',false);if(!wasOpen)card.classList.add('open');}
+    else if(dx<-40)card.classList.add('open');else if(dx>30)card.classList.remove('open');x0=null;setTimeout(()=>card.classList.remove('drag'),260);};
+  face.addEventListener('pointerup',end);face.addEventListener('pointercancel',end);
+}
+document.getElementById('seg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#seg button').forEach(x=>x.classList.toggle('on',x===b));render(b.dataset.f);});
+render('all');
+document.querySelectorAll('#pa .acc-h').forEach(h=>h.addEventListener('click',()=>{
+  const me=h.parentElement;document.querySelectorAll('#pa .acc').forEach(a=>a.classList.toggle('open',a===me&&!me.classList.contains('open')));
+  if(!document.querySelector('#pa .acc.open'))me.classList.add('open');
+}));
+</script>
+</body>
+</html>

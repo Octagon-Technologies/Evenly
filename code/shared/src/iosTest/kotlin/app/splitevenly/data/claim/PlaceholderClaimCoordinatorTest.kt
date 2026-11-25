@@ -59,8 +59,6 @@ class PlaceholderClaimCoordinatorTest {
                 db.memberDao(),
                 db.userDao(),
                 db.expenseDao(),
-                db.shareDao(),
-                db.conflictDao(),
                 db.placeholderMergeDao(),
                 db.placeholderClaimAnswerDao(),
                 clockAt("2026-08-01"),

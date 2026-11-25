@@ -224,6 +224,9 @@ private fun CategoryEditorModal(
         Box(Modifier.fillMaxWidth().padding(top = 20.dp)) {
             EvButton("Save", { if (label.isNotBlank()) onSave(label.trim(), iconToken, colorHex) }, enabled = label.isNotBlank())
         }
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Dismiss)
+        }
 
         if (onDelete != null) {
             Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {

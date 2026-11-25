@@ -1,11 +1,6 @@
 package app.splitevenly.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
@@ -39,7 +34,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -56,13 +51,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.splitevenly.platform.isIOS
-import app.splitevenly.ui.components.icon.EvIcon
-import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvMotion
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
@@ -127,6 +121,12 @@ fun <T> EvListCard(
 }
 
 /**
+ * True inside a screen whose sheets open above its own bottom nav (the group tabs). The nav already clears
+ * the home indicator, so the sheet drops its inset and bottom margin and sits directly on the nav.
+ */
+val LocalSheetDockedAboveNav = staticCompositionLocalOf { false }
+
+/**
  * Visual of `.sc-sheet` without the scrim: the platform's own sheet top ([EvSheetHeader]), then [sub] and
  * [content]. On iOS the sheet is a card inset from the screen edges; on Android it meets them.
  */
@@ -141,23 +141,19 @@ fun EvSheetSurface(
     val c = EvenlyTheme.colors
     val shape = evSheetShape()
     val ios = isIOS()
-    // With the keyboard up the sheet grows to sit on top of it, ending in a Done bar: a decimal pad has
-    // no return key, and without this the sheet's own button (Save, Record) stayed under the keyboard.
-    // The ime inset already covers the home indicator, so it replaces the navigation-bar padding.
-    val keyboardUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val focus = LocalFocusManager.current
+    val docked = LocalSheetDockedAboveNav.current
     Column(
         modifier =
             modifier
                 .fillMaxWidth()
-                .then(if (ios && !keyboardUp) Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp) else Modifier)
-                .then(if (ios && keyboardUp) Modifier.padding(start = 8.dp, end = 8.dp) else Modifier)
+                .then(if (ios) Modifier.padding(start = 8.dp, end = 8.dp, bottom = if (docked) 0.dp else 8.dp) else Modifier)
+                .then(if (ios && docked) Modifier.offset(y = IosNavIslandTopGap) else Modifier)
                 .clip(shape)
                 .background(c.page)
                 .then(if (ios) Modifier.border(1.dp, c.border, shape) else Modifier)
                 .padding(horizontal = 16.dp)
-                .then(if (keyboardUp) Modifier.windowInsetsPadding(WindowInsets.ime) else Modifier.navigationBarsPadding())
-                .padding(bottom = if (keyboardUp) 0.dp else 16.dp),
+                .then(if (docked) Modifier else Modifier.navigationBarsPadding())
+                .padding(bottom = 16.dp),
     ) {
         EvSheetHeader(title = title, onClose = onClose)
         sub?.let {
@@ -170,51 +166,12 @@ fun EvSheetSurface(
             )
         }
         content()
-        if (keyboardUp) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp)
-                    .height(EvKeyboardDoneBarHeight)
-                    .topHairline(c.border),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Text(
-                    "Done",
-                    color = c.blueText,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { focus.clearFocus() }.padding(horizontal = 4.dp, vertical = 10.dp),
-                )
-            }
-        }
-    }
-}
-
-/** The centered modal's explicit close: the glass button on iOS, a plain round ✕ on Android. A tap on the
- *  dimmed backdrop alone isn't something a first-time user reliably finds. */
-@Composable
-private fun EvSheetCloseButton(onClose: () -> Unit) {
-    if (isIOS()) {
-        EvGlassCloseButton(onClose)
-        return
-    }
-    val c = EvenlyTheme.colors
-    Box(
-        Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(c.surface)
-            .clickable(onClick = onClose),
-        contentAlignment = Alignment.Center,
-    ) {
-        EvIcon(EvIcons.Close, size = 14.dp, tint = c.ink, contentDescription = "Close")
     }
 }
 
 /** Bottom-aligned [EvSheetSurface] over a transparent, tappable backdrop by default.
- *  Callers may opt into a dimmed backdrop when the page behind should recede. A tap outside dismisses,
- *  same as an explicit close button in the sheet's top-left — belt and suspenders, not either/or.
+ *  Callers may opt into a dimmed backdrop when the page behind should recede. It closes on a tap outside,
+ *  a swipe down, or Back; there is no close button ([EvSheetHeader] says why).
  *  Slides up + fades in on entry, and reverses on dismiss before actually leaving composition, so
  *  opening/closing reads as one continuous motion instead of a hard cut. */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -225,7 +182,7 @@ fun EvSheetScaffold(
     title: String? = null,
     sub: String? = null,
     dimBackground: Boolean = false,
-    // Closes the sheet through the same slide-out the ✕ uses, instead of the caller yanking it out of
+    // Closes the sheet through the same slide-out a swipe uses, instead of the caller yanking it out of
     // composition. Flip it once the caller's own work is done (e.g. the payment is recorded); [onDismiss]
     // then fires when the exit animation ends, which is the caller's cue to drop the sheet.
     dismissRequested: Boolean = false,
@@ -242,6 +199,7 @@ fun EvSheetScaffold(
     BackHandler(enabled = visibleState.targetState) { dismiss() }
     // Swipe down anywhere on the sheet to close; a scrolling body hands over its pull once it is at the top.
     val swipe = rememberSheetSwipe(onDismiss = dismiss)
+    val focusManager = LocalFocusManager.current
 
     AnimatedVisibility(
         visibleState = visibleState,
@@ -257,9 +215,11 @@ fun EvSheetScaffold(
                     onClick = dismiss,
                 ),
         ) {
+            // While the keyboard is up the sheet rides above it and the Done bar: the iOS number pad has
+            // no return key, so a sheet's amount field would otherwise trap the keyboard.
             AnimatedVisibility(
                 visibleState = visibleState,
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier.align(Alignment.BottomCenter).imeAndDoneBarPadding(),
                 enter = slideInVertically(EvMotion.standard()) { it } + fadeIn(EvMotion.standard()),
                 exit = slideOutVertically(EvMotion.standard()) { it } + fadeOut(EvMotion.quick()),
             ) {
@@ -268,7 +228,8 @@ fun EvSheetScaffold(
                         swipe.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = {},
+                            // A tap on the sheet's blank space puts the keyboard away rather than doing nothing.
+                            onClick = { focusManager.clearFocus() },
                         ),
                     title = title,
                     sub = sub,
@@ -276,13 +237,17 @@ fun EvSheetScaffold(
                     content = content,
                 )
             }
+            EvKeyboardDoneBar(onDone = { focusManager.clearFocus() }, modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
 }
 
-/** `.sc-scrim--center` + `.sc-modal` (centered dialog card, max 320dp) — with an explicit close
- *  button pinned top-left of the card, for the same reason [EvSheetScaffold] has one. Fades + scales
- *  in/out in step with the scrim, mirroring [EvSheetScaffold]'s coordinated-dismiss pattern. */
+/** `.sc-scrim--center` + `.sc-modal` (centered dialog card, max 320dp). Fades + scales in/out in step with
+ *  the scrim, mirroring [EvSheetScaffold]'s coordinated-dismiss pattern.
+ *
+ *  No close button, as in an iOS alert or a Material dialog: the content carries its own way out. A confirm
+ *  or a small form ends with a "Cancel" (`ButtonVariant.Dismiss`); a picker that applies on tap needs none,
+ *  since a tap outside or Back closes it. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun EvModalScaffold(
@@ -342,8 +307,6 @@ fun EvModalScaffold(
                                 onClick = {},
                             ).padding(24.dp),
                 ) {
-                    // The close button stays pinned outside the scroll region so it is always reachable.
-                    Box(Modifier.padding(bottom = 12.dp)) { EvSheetCloseButton(dismiss) }
                     Column(Modifier.verticalScroll(rememberScrollState())) { content() }
                 }
             }

@@ -11,13 +11,24 @@ interface PeopleRepository {
     fun observePeople(me: UserId): Flow<PeopleSummary>
 
     /** Attach each of [userIds] (names typed by hand) to the person whose key is [personKey]. */
-    suspend fun link(me: UserId, userIds: List<String>, personKey: String)
+    suspend fun link(
+        me: UserId,
+        userIds: List<String>,
+        personKey: String,
+    )
 
     /** "No": [userIds] are not the person [personKey]; the same-name suggestion stops appearing. */
-    suspend fun ruleOut(me: UserId, userIds: List<String>, personKey: String)
+    suspend fun ruleOut(
+        me: UserId,
+        userIds: List<String>,
+        personKey: String,
+    )
 
     /** Detach [userId] from whoever it was linked to. Soft-deletes its links. */
-    suspend fun unlink(me: UserId, userId: String)
+    suspend fun unlink(
+        me: UserId,
+        userId: String,
+    )
 
     /**
      * Records that [person] paid the viewer, as one ordinary payment per group in [split] (group id to

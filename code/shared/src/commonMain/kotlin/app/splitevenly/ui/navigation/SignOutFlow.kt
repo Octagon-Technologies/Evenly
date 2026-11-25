@@ -155,13 +155,11 @@ class SignOutFlow internal constructor(
                     EvButton(onClick = { if (!busy) saveAndSignOut() }, variant = ButtonVariant.Primary) {
                         if (busy) {
                             EvSpinner(color = LocalContentColor.current)
-                            Text("Saving…", color = LocalContentColor.current, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Saving…", color = LocalContentColor.current)
                         } else {
                             Text(
                                 if (saveFailed) "Try again" else "Save and sign out",
                                 color = LocalContentColor.current,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
@@ -181,7 +179,7 @@ class SignOutFlow internal constructor(
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                     variant = ButtonVariant.Text,
                 ) {
-                    Text("Sign out without saving", color = c.danger, fontSize = 15.sp)
+                    Text("Sign out without saving", color = c.danger)
                 }
             }
         }

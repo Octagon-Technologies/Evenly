@@ -164,10 +164,15 @@ Same shape as the bill-scoped guest RPCs below: all **service-role only**, all t
 
 - **`record_web_group_payment`** mirrors the app's `writeSettlement`: gross, never netted, oldest bill
   first, ceiling = what `from` owes `to` in that currency. An advisory lock per pair keeps two taps from
-  both passing the ceiling.
+  both passing the ceiling. `p_actor` (default `from`) is `created_by`: a guest recording "Bob paid me" passes
+  themselves as actor and `to`, so `notify_settlement_inserted` tells Bob. A guest is always one side.
 - **`create_web_expense`** writes EVEN/EXACT shares (EVEN through `_web_even_split`, which matches Kotlin's
   `allocate`: leftover pennies to the lowest ids in `collate "C"` order). ITEMIZED writes lines and
-  `bill_participants` and **no shares**: the app re-derives an itemized bill's shares on every pull.
+  `bill_participants` and **no shares**: the app re-derives an itemized bill's shares on every pull. A scanned
+  itemized bill passes `p_extras` (tax/tip/gratuity/discount/other) into the expense's own columns, so they
+  split proportionally like an app-made bill.
+- **Guest receipt scans** log to `receipt_scan_log` with `web_session_id` and a null `user_id` (exactly one
+  is set). `extract-receipt` trusts `webGuest` only from a service-role bearer, i.e. from `web-claim`.
 - **`apply_web_expense_edit` / `undo_web_expense_edit`**: EVEN/EXACT only. Money changes need the
   `split_version` the page read (STALE otherwise) and always advance it; shares are merged so a person who
   stays keeps their share id and their payments. The log is `web_expense_edits` (RLS on, zero policies, not

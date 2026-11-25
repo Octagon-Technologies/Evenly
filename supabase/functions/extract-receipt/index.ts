@@ -28,6 +28,8 @@
 // Auth: send the signed-in user's access token as the Bearer (the client does), with the anon key in the
 // `apikey` header. The function REQUIRES a resolvable user (401 otherwise) so the per-user rate limit on
 // this paid endpoint actually engages — an anon-key-only caller used to bypass it entirely (P1 #11).
+// The one other caller is `web-claim`'s `group-receipt-scan`, for a web group-page guest: it sends the
+// service role key and a `webGuest` it has already resolved, and gets tighter guest limits.
 //
 // ONE primary pass with a single optional escalation (Sonnet 5 -> Opus 5). The primary runs with thinking
 // OFF so the whole token budget goes to the tool JSON and the round trip stays short; the escalation runs
@@ -58,7 +60,7 @@
 // schema field defined as the sum of its own siblings, which turned the validation gate into a check of
 // the model against itself. See contract.ts and billMath.ts.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   EXTRACT_PROMPT,
   normalizeReceipt,
@@ -94,6 +96,22 @@ interface ExtractRequest {
   groupId?: string | null;
   /** "summary" = the quick read for "Split one amount" (payee, kind, total). Absent = the itemized scan. */
   mode?: "summary";
+  /**
+   * A web group-page guest, already resolved by `web-claim` from their invite token + browser session.
+   * Trusted ONLY when the caller's bearer is the service role key (see `isServiceCaller`): a browser can
+   * put anything in a body, and naming a session here must never buy a paid scan on its own.
+   */
+  webGuest?: { sessionId: string; userId: string };
+}
+
+/** Per-guest and per-group caps for web guests: tighter than the app's 20/hour because the link is public. */
+const GUEST_SCANS_PER_HOUR = 5;
+const GROUP_GUEST_SCANS_PER_DAY = 30;
+
+/** True when the request comes from another of our edge functions, holding the service role key. */
+function isServiceCaller(req: Request): boolean {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  return !!key && req.headers.get("Authorization") === `Bearer ${key}`;
 }
 
 /** One model pass. `truncated` means the response stopped on max_tokens, so `receipt` may be a partial object. */
@@ -305,21 +323,6 @@ Deno.serve(async (req) => {
   }
   if (pages.length === 0) return json({ error: "files, imageBase64, or storagePath required" }, 400);
 
-  // Per-user rate limit: at most 20 scans/hour on this paid, Claude-vision-backed endpoint. The caller
-  // authenticates with their OWN user JWT (P1 #11 — the client now sends its access token, not the anon
-  // key), so `auth.uid()` and this RLS-scoped query resolve to them.
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const callerClient = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data: userData } = await callerClient.auth.getUser();
-  const callerId = userData?.user?.id;
-  // Require a real user. An anon-key-only caller (the old client) resolves no user; without this the whole
-  // rate limit was skipped, so anyone with the shipped anon key got unlimited paid calls (P1 #11).
-  if (!callerId) return json({ error: "unauthorized" }, 401);
-
   // groupId is REQUIRED as of Evenly Pro (PRO_PASS_SPEC.md §7). It began as an optional analytics
   // attribution field, but it is now the quota key: a nullable quota key is simply a bypass, since
   // omitting one field would buy unlimited scans. Both in-app call sites already send a real group id
@@ -327,34 +330,78 @@ Deno.serve(async (req) => {
   const groupId = payload.groupId ?? null;
   if (!groupId) return json({ error: "groupId required" }, 400);
 
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count, error: countError } = await callerClient
-    .from("receipt_scan_log")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", callerId)
-    .gt("created_at", oneHourAgo)
-    // Exclude rows logged for a REJECTED (rate_limited) attempt from the count itself — otherwise a
-    // blocked request would consume a slot of the very limit that blocked it. `.or` (not `.neq`) because
-    // a bare `outcome <> 'rate_limited'` also drops still-in-flight rows, whose outcome is null.
-    .or("outcome.is.null,outcome.neq.rate_limited");
-  // Fail CLOSED: if we can't read the window we don't know if the caller is over the limit, so refuse
-  // rather than let an error open the floodgates on a paid endpoint.
-  if (countError) return json({ error: "rate check unavailable — try again shortly." }, 503);
-  if ((count ?? 0) >= 20) {
-    // Blocked scans are otherwise invisible: we're turning users away and had no record of how often.
-    // Best-effort only (a logging hiccup must not change the 429 the caller already earned).
-    await logImmediateOutcome(callerClient, callerId, groupId, pages.length, "rate_limited");
-    return json({ error: "Too many scans — try again in a bit." }, 429);
-  }
-
-  // Authorize the group before making the paid vision call.
   const serviceClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // Two kinds of caller. An app user authenticates with their OWN user JWT (P1 #11), so `auth.uid()` and
+  // the RLS-scoped log queries resolve to them. A web guest has no auth user: `web-claim` resolves them
+  // and calls here with the service role, and their ledger rows carry `web_session_id` instead.
+  const guest = payload.webGuest && isServiceCaller(req) ? payload.webGuest : null;
+  let callerId: string;
+  let logClient: SupabaseClient;
+  let principal: ScanPrincipal;
+  if (guest) {
+    callerId = guest.userId;
+    logClient = serviceClient;
+    principal = { web_session_id: guest.sessionId };
+  } else {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const callerClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: userData } = await callerClient.auth.getUser();
+    // Require a real user. An anon-key-only caller (the old client) resolves no user; without this the whole
+    // rate limit was skipped, so anyone with the shipped anon key got unlimited paid calls (P1 #11).
+    if (!userData?.user?.id) return json({ error: "unauthorized" }, 401);
+    callerId = userData.user.id;
+    logClient = callerClient;
+    principal = { user_id: callerId };
+  }
+
+  // Per-caller rate limit on this paid, Claude-vision-backed endpoint: 20 scans/hour for an app user, and
+  // for a web guest 5/hour each plus 30/day across every guest in the group, since anyone holding the link
+  // can make a new guest.
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  // Exclude rows logged for a REJECTED (rate_limited) attempt from the count itself — otherwise a blocked
+  // request would consume a slot of the very limit that blocked it. `.or` (not `.neq`) because a bare
+  // `outcome <> 'rate_limited'` also drops still-in-flight rows, whose outcome is null.
+  const notRejected = "outcome.is.null,outcome.neq.rate_limited";
+  let overLimit: boolean;
+  if (guest) {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [mine, group] = await Promise.all([
+      serviceClient.from("receipt_scan_log").select("id", { count: "exact", head: true })
+        .eq("web_session_id", guest.sessionId).gt("created_at", oneHourAgo).or(notRejected),
+      serviceClient.from("receipt_scan_log").select("id", { count: "exact", head: true })
+        .eq("group_id", groupId).not("web_session_id", "is", null).gt("created_at", oneDayAgo).or(notRejected),
+    ]);
+    // Fail CLOSED: if we can't read the window we don't know if the caller is over the limit, so refuse
+    // rather than let an error open the floodgates on a paid endpoint.
+    if (mine.error || group.error) return json({ error: "rate check unavailable — try again shortly." }, 503);
+    overLimit = (mine.count ?? 0) >= GUEST_SCANS_PER_HOUR || (group.count ?? 0) >= GROUP_GUEST_SCANS_PER_DAY;
+  } else {
+    const { count, error: countError } = await logClient
+      .from("receipt_scan_log")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", callerId)
+      .gt("created_at", oneHourAgo)
+      .or(notRejected);
+    if (countError) return json({ error: "rate check unavailable — try again shortly." }, 503);
+    overLimit = (count ?? 0) >= 20;
+  }
+  if (overLimit) {
+    // Blocked scans are otherwise invisible: we're turning users away and had no record of how often.
+    // Best-effort only (a logging hiccup must not change the 429 the caller already earned).
+    await logImmediateOutcome(logClient, principal, groupId, pages.length, "rate_limited");
+    return json({ error: "Too many scans — try again in a bit." }, 429);
+  }
+
   // The caller must actually be in the group. Without this, anyone could charge OCR usage to a group
-  // they cannot access.
+  // they cannot access. A guest's placeholder is an ACTIVE member like anyone else.
   const { data: membership, error: memberError } = await serviceClient
     .from("members")
     .select("id")
@@ -372,9 +419,9 @@ Deno.serve(async (req) => {
   // whole scan even when the escalation below runs too, so a hard photo isn't two slots.
   // `.select("id").single()` captures the row so it can be completed with cost/outcome below and returned
   // to the caller as `scanId`.
-  const { data: insertedRow, error: logError } = await callerClient
+  const { data: insertedRow, error: logError } = await logClient
     .from("receipt_scan_log")
-    .insert({ user_id: callerId, group_id: groupId, page_count: pages.length })
+    .insert({ ...principal, group_id: groupId, page_count: pages.length })
     .select("id")
     .single();
   if (logError || !insertedRow) return json({ error: "rate log unavailable — try again shortly." }, 503);
@@ -402,7 +449,7 @@ Deno.serve(async (req) => {
     status: number,
     ledger?: { rawDraft?: unknown; residual?: number; verified?: boolean },
   ): Promise<Response> {
-    const { error } = await callerClient
+    const { error } = await logClient
       .from("receipt_scan_log")
       .update({
         group_id: groupId,
@@ -423,7 +470,7 @@ Deno.serve(async (req) => {
     // and fallback rate are visible in PostHog's LLM observability dashboards without a Supabase query.
     // Best-effort and inert with no POSTHOG_API_KEY set, same as the ledger write above it — written right
     // beside it so the two can't drift apart from a partial edit.
-    await captureServerEvent(callerId, "scan_model_completed", {
+    await captureServerEvent(guest ? `web:${guest.sessionId}` : callerId, "scan_model_completed", {
       scan_id: scanId,
       group_id: groupId,
       outcome,
@@ -529,7 +576,7 @@ Deno.serve(async (req) => {
     if (tier.name === "escalation") {
       // Log the escalation AFTER a successful call, since the breaker check above already gated
       // whether we're allowed to spend here. This just records that we did, for the next check.
-      await logEscalation(callerId);
+      await logEscalation(guest ? null : callerId);
     }
 
     // A `max_tokens` stop means the tool JSON was cut off mid-object, so the fields that didn't make it
@@ -698,7 +745,8 @@ async function checkEscalationBreaker(): Promise<boolean> {
   return (count ?? 0) >= ESCALATION_DAILY_CAP;
 }
 
-async function logEscalation(userId: string): Promise<void> {
+/** [userId] is null for a web guest, who has no auth user to point at; the row still counts for the breaker. */
+async function logEscalation(userId: string | null): Promise<void> {
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   await supabase.from("receipt_opus_escalations").insert({ user_id: userId });
 }
@@ -851,15 +899,18 @@ async function summarizeWithModel(
  * Written directly with `outcome` and `completed_at` already set, since there's no in-flight paid call
  * to complete later. Best-effort: a failure here must never change the response already decided above.
  */
+/** Who a ledger row belongs to: exactly one of an app user or a web guest's session. */
+type ScanPrincipal = { user_id: string } | { web_session_id: string };
+
 async function logImmediateOutcome(
-  client: ReturnType<typeof createClient>,
-  userId: string,
+  client: SupabaseClient,
+  principal: ScanPrincipal,
   groupId: string | null,
   pageCount: number,
   outcome: string,
 ): Promise<void> {
   const { error } = await client.from("receipt_scan_log").insert({
-    user_id: userId,
+    ...principal,
     group_id: groupId,
     page_count: pageCount,
     outcome,

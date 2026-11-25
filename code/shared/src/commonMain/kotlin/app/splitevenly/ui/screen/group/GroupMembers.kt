@@ -1,9 +1,5 @@
 package app.splitevenly.ui.screen.group
 
-import app.splitevenly.domain.repository.PeopleRepository
-import app.splitevenly.ui.screen.people.KnownPeopleList
-import app.splitevenly.ui.screen.people.KnownPersonUi
-import app.splitevenly.ui.screen.people.matchKnown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,8 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,21 +27,13 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.domain.repository.PeopleRepository
 import app.splitevenly.ui.components.AvatarSize
-import app.splitevenly.ui.components.ButtonVariant
-import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.ui.components.EvAvatar
-import app.splitevenly.ui.components.EvButton
-import app.splitevenly.ui.components.EvCard
-import app.splitevenly.ui.components.EvChip
-import app.splitevenly.ui.components.EvField
-import app.splitevenly.ui.components.EvModalScaffold
-import app.splitevenly.ui.components.EvSheetScaffold
-import app.splitevenly.ui.components.EvTextField
-import app.splitevenly.ui.components.EvToggle
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
+import app.splitevenly.ui.screen.people.KnownPersonUi
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvenlyTheme
 
@@ -70,31 +56,30 @@ internal fun List<Member>.toMemberRows(me: UserId?): List<MemberRowUi> =
     }
 
 /**
+ * Adds [name] as a placeholder member. They join from now on only: past expenses are never re-split to
+ * include them, because someone who shared a cost is put on it when it is logged.
+ */
+internal suspend fun GroupRepository.addMemberByName(
+    groupId: GroupId,
+    name: String,
+    me: UserId?,
+): String? = (addPlaceholder(groupId, name, createdBy = me) as? AppResult.Ok)?.value?.userId?.value
+
+/**
  * Adds someone the viewer already knows from other groups: a placeholder under their name, linked to that
- * person so the People tab counts them as one (docs/features/people-tab.md, "People you know").
+ * person so the People tab counts them as one (docs/features/people-tab.md, "People you know"). Returns the
+ * new member id, or null when the save failed.
  */
 internal suspend fun GroupRepository.addKnownPerson(
     groupId: GroupId,
     person: KnownPersonUi,
-    addToPast: Boolean,
     me: UserId?,
     people: PeopleRepository,
-) {
+): String? {
     val added = addPlaceholder(groupId, person.name, createdBy = me)
-    if (added !is AppResult.Ok || me == null) return
-    people.link(me, listOf(added.value.userId.value), person.key)
-    if (addToPast) addMemberToPastExpenses(groupId, added.value.userId, me)
-}
-
-/** Adds [name] as a placeholder member; "all past" also sweeps them into existing expenses (03 §8.1). */
-internal suspend fun GroupRepository.addMemberByName(
-    groupId: GroupId,
-    name: String,
-    addToPast: Boolean,
-    me: UserId?,
-) {
-    val added = addPlaceholder(groupId, name, createdBy = me)
-    if (added is AppResult.Ok && addToPast && me != null) addMemberToPastExpenses(groupId, added.value.userId, me)
+    if (added !is AppResult.Ok) return null
+    if (me != null) people.link(me, listOf(added.value.userId.value), person.key)
+    return added.value.userId.value
 }
 
 /** Members strip copy: "Just you" when solo, else "N members". */
@@ -155,45 +140,19 @@ internal fun MembersStrip(
     }
 }
 
-/**
- * Who is in the group, with the two ways in at the top. "Invite with link" goes straight to the native
- * share sheet so a link is two taps from the group page; the QR stays one tap further for in-person use.
- */
+/** A quiet tag on a roster line: tinted at half strength so it's findable without pulling the eye. */
 @Composable
-internal fun MembersSheet(
-    members: List<MemberRowUi>,
-    onInviteWithLink: () -> Unit,
-    onShowQr: () -> Unit,
-    onAddByName: () -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun RosterTag(text: String) {
     val c = EvenlyTheme.colors
-    EvSheetScaffold(
-        onDismiss = onDismiss,
-        title = "Members",
-        sub = "",
-    ) {
-        EvButton("Invite with link", onInviteWithLink, leadingIcon = EvIcons.Share)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-            EvButton(
-                "Show QR code",
-                onShowQr,
-                modifier = Modifier.weight(1f),
-                variant = ButtonVariant.Tonal,
-                leadingIcon = EvIcons.Qr,
-            )
-            EvButton(
-                "Add by name",
-                onAddByName,
-                modifier = Modifier.weight(1f),
-                variant = ButtonVariant.Tonal,
-                leadingIcon = EvIcons.Plus,
-            )
-        }
-        EvCard(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            members.forEachIndexed { i, m -> MemberRow(m, showDivider = i > 0) }
-        }
-    }
+    val t = EvenlyTheme.text
+    Text(
+        text,
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(c.blueTint.copy(alpha = 0.5f))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        style = t.caption.copy(color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.Medium),
+    )
 }
 
 /** One roster line, shared by the Members sheet and Group settings so the two never drift. */
@@ -216,81 +175,16 @@ internal fun MemberRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         EvAvatar(m.name, me = m.isMe, size = AvatarSize.Sm)
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(m.name, style = t.itemTitle)
-            if (m.isMe) Text(" · you", style = t.itemTitle.copy(color = c.ink2, fontWeight = FontWeight.Medium))
+            if (m.isMe) RosterTag("You")
+            if (m.role == "Admin") RosterTag("Admin")
         }
-        if (m.role.isNotEmpty()) {
-            EvChip(
-                m.role,
-                variant =
-                    when (m.role) {
-                        "Admin" -> ChipVariant.Blue
-                        "Left" -> ChipVariant.Red
-                        else -> ChipVariant.Amber
-                    },
-            )
+        // Status is plain trailing text, not a pill: a pill on every row turned the roster into a wall of badges.
+        when (m.role) {
+            "No account" -> Text("Not joined", style = t.caption.copy(color = c.ink3, fontSize = 13.sp))
+            "Left" -> Text("Left", style = t.caption.copy(color = c.danger, fontSize = 13.sp))
         }
         if (onClick != null) EvIcon(EvIcons.ChevR, size = 15.dp, tint = c.ink3)
-    }
-}
-
-/**
- * Add someone by name as a placeholder member, shared by the group page and Group settings. The Add button
- * stays live: tapping it with no name says what is missing instead of sitting greyed out.
- */
-@Composable
-internal fun AddMemberSheet(
-    onAdd: (name: String, addToPast: Boolean) -> Unit,
-    onDismiss: () -> Unit,
-    known: List<KnownPersonUi> = emptyList(),
-    onAddKnown: (KnownPersonUi, addToPast: Boolean) -> Unit = { _, _ -> },
-) {
-    val c = EvenlyTheme.colors
-    val t = EvenlyTheme.text
-    var name by remember { mutableStateOf("") }
-    var addToPast by remember { mutableStateOf(false) }
-    var missingName by remember { mutableStateOf(false) }
-    EvModalScaffold(onDismiss = onDismiss) {
-        Text("Add a member", style = t.sheetTitle, modifier = Modifier.padding(bottom = 12.dp))
-        EvField("Name") {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                EvTextField(
-                    name,
-                    {
-                        name = it
-                        if (it.isNotBlank()) missingName = false
-                    },
-                    placeholder = "e.g. Tyler",
-                    isError = missingName,
-                )
-                if (missingName) Text("Type their name first", color = c.danger, fontSize = 12.sp)
-            }
-        }
-        KnownPeopleList(matchKnown(known, name)) { k ->
-            onAddKnown(k, addToPast)
-            onDismiss()
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(top = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Add to all past expenses", style = t.itemTitle)
-                Text("Even splits update automatically; others become conflicts to resolve.", style = t.caption)
-            }
-            EvToggle(addToPast, { addToPast = it })
-        }
-        Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-            EvButton("Add", {
-                if (name.isBlank()) {
-                    missingName = true
-                } else {
-                    onAdd(name.trim(), addToPast)
-                    onDismiss()
-                }
-            })
-        }
     }
 }

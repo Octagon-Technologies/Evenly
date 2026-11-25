@@ -3,6 +3,9 @@
    * "Settle up" from the group page: pick who, confirm how much, record it. The money moves however the
    * two of them usually pay; this only records it, oldest bill first, never more than is owed
    * (`record_web_group_payment`). The person paid gets a push and can remove it from the app.
+   *
+   * Opened with a debt owed TO the guest, it records the other direction: "Bob paid me $20" against one
+   * bill the guest paid for. Any amount up to what is left is fine, so a partial payment is just a number.
    */
   import { untrack } from 'svelte';
   import Sheet from '../../components/Sheet.svelte';
@@ -16,7 +19,7 @@
     store: GroupStore;
     onclose: () => void;
     ondone: (message: string) => void;
-    /** Paying back one expense instead of the whole balance: the debt is that bill's remainder. */
+    /** One expense instead of the whole balance: the debt is that bill's remainder, either direction. */
     forExpense?: { id: string; title: string; debt: Debt };
   }
 
@@ -31,6 +34,9 @@
   let text = $state(first ? amount(first.amountSubunits, first.currency) : '');
   let problem = $state<string | null>(null);
   let proof = $state<ProofFile | null>(null);
+  // "They paid me": the guest is the one owed, so the other person is the debtor.
+  const received = $derived(!!picked && picked.creditorUserId === store.me);
+  const other = $derived(picked ? store.name(received ? picked.debtorUserId : picked.creditorUserId) : '');
 
   function pick(d: Debt) {
     picked = d;
@@ -45,23 +51,27 @@
     }
     const subunits = parseAmount(text, picked.currency);
     if (subunits === null || subunits <= 0) {
-      problem = 'Enter what you paid.';
+      problem = received ? `Enter what ${other} paid you.` : 'Enter what you paid.';
       return;
     }
     if (subunits > picked.amountSubunits) {
-      problem = `That's more than you owe ${store.name(picked.creditorUserId)} (${money(picked.amountSubunits, picked.currency)}).`;
+      problem = received
+        ? `That's more than ${other} owes you here (${money(picked.amountSubunits, picked.currency)}).`
+        : `That's more than you owe ${other} (${money(picked.amountSubunits, picked.currency)}).`;
       return;
     }
-    const to = store.name(picked.creditorUserId);
+    const who = other;
     const res = await store.pay(picked, subunits, forExpense?.id ?? null, proof);
     if (res) problem = res;
-    else ondone(`Recorded. ${to} will see it.`);
+    else ondone(`Recorded. ${who} will see it.`);
   }
 </script>
 
-<Sheet title="Pay back" {onclose}>
-  {#if picked && debts.length === 1}
-    <div class="h2">Pay {store.name(picked.creditorUserId)} back{forExpense ? ` for ${forExpense.title}` : ''}</div>
+<Sheet title={received ? 'Record a payment' : 'Pay back'} {onclose}>
+  {#if picked && debts.length === 1 && received}
+    <div class="h2">What did {other} pay you{forExpense ? ` for ${forExpense.title}` : ''}?</div>
+  {:else if picked && debts.length === 1}
+    <div class="h2">Pay {other} back{forExpense ? ` for ${forExpense.title}` : ''}</div>
   {:else}
     <div class="h2">Who did you pay?</div>
     <div class="chips" style="margin-bottom:12px">
@@ -73,22 +83,30 @@
     </div>
   {/if}
   <div class="sub" style="margin-bottom:14px">
-    Send it however you two usually do, then record it here so everyone's numbers update.
+    {#if received}
+      {money(picked?.amountSubunits ?? 0, picked?.currency ?? 'USD')} is left. Paid part of it? Enter just what you got.
+    {:else}
+      Send it however you two usually do, then record it here so everyone's numbers update.
+    {/if}
   </div>
   {#if picked}
     <div class="field">
       <div class="flbl">Amount</div>
-      <input class="inp mono" type="text" inputmode="decimal" aria-label="What you paid" bind:value={text} />
+      <input class="inp mono" type="text" inputmode="decimal" aria-label={received ? `What ${other} paid you` : 'What you paid'} bind:value={text} />
     </div>
   {/if}
   {#if picked}
-    <ProofPicker otherName={store.name(picked.creditorUserId)} value={proof} onchange={(f) => (proof = f)} />
+    <ProofPicker otherName={other} value={proof} onchange={(f) => (proof = f)} />
   {/if}
   {#if problem}<div class="note note--amber" role="alert">{problem}</div>{/if}
   <button type="button" class="btn" disabled={store.busy} onclick={save}>
-    {picked ? `I paid ${store.name(picked.creditorUserId)}` : 'Record payment'}
+    {picked ? (received ? `${other} paid me` : `I paid ${other}`) : 'Record payment'}
   </button>
   <p class="sub center" style="margin-top:10px">
-    {picked ? `${store.name(picked.creditorUserId)} gets` : 'They get'} a notification and can say if it didn't arrive.
+    {#if received}
+      {other} gets a notification if they use the app.
+    {:else}
+      {picked ? `${other} gets` : 'They get'} a notification and can say if it didn't arrive.
+    {/if}
   </p>
 </Sheet>

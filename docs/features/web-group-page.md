@@ -29,7 +29,9 @@ a placeholder member (§2.1), identity is group-scoped and durable (§2.2), reco
 write goes through the `web-claim` edge function, and the Kotlin split math is the authority.
 
 **Non-goals.**
-- Receipt scanning or OCR on the web. OCR costs money per call and the link is public.
+- ~~Receipt scanning or OCR on the web.~~ Reversed by the owner 2026-11-23: guests can scan when adding
+  (both the total-only read and the itemized read), bounded by guest limits in `extract-receipt`
+  (5/hour per web session, 30/day across a group's guests) because the link is public.
 - Web accounts, passwords, OTP or email. The browser token stays the whole session model.
 - Editing group settings, other people's profiles, or removing members from the web.
 - Offline web.
@@ -49,10 +51,10 @@ derivable from `ExpenseItemUi`.
 | 1 | What does a guest see? | **Everything in the group**, same as an app member. "All" is the default with a **Mine** filter one tap away. Hiding expenses would look broken to someone sitting next to an app user who sees them all. |
 | 2 | Editing (scenario 2) | Anyone may edit any expense. Changes apply instantly, are logged under the expense, can be undone by anyone, and the payer is notified in the app. **No approval queue**, same as the bill-line rule (`web/AGENTS.md`). Concurrent edits go through the existing field-level `merge_expense`. |
 | 3 | Someone picking another person's name | No lock in v1. If a name is opened from a second browser, that person and the payer see a "used on another device" note. |
-| 4 | Settling | "I paid Joe $42" counts immediately. Joe is notified and can dispute or remove it. |
-| 5 | Creating expenses on the web | Split evenly, exact amounts, or itemized by typing the lines. No receipt scan. |
+| 4 | Settling | "I paid Joe $42" counts immediately. Joe is notified and can dispute or remove it. The payer of an expense can also record "Bob paid me $20" against it (partial is fine); Bob is notified. |
+| 5 | Creating expenses on the web | Split evenly, exact amounts, or itemized, typed or scanned from a receipt (scan added 2026-11-23). |
 | 6 | Adding new people while creating | Allowed, with the same duplicate-name blocking as the claim flow. |
-| 7 | A forwarded link | "Reset link" comes back inside Group settings (not on the group page). The repository `rotate` capability from T9 is still there. |
+| 7 | A forwarded link | **Deferred (owner, 2026-11-24).** "Reset link" shipped in Group settings, then was removed along with `GroupRepository.rotateInviteToken` and `GroupDao.updateInviteToken`: users need to understand what the group link grants first. See "Future: Reset link" below. |
 | 8 | Order | Three releases: **A** view + claim + settle + new top bar + involved strip; **B** editing; **C** creating. A alone covers scenarios 1 and 4. |
 
 **One group link.** The group link opens the app if it's installed (existing universal link /
@@ -145,14 +147,22 @@ an `involved` flag; how push-notify is triggered for guest writes.
 - [ ] B1 Web edit with log + undo + payer push
 - [ ] C1 Web create: even + exact
 - [ ] C2 Web create: typed itemized lines, new-name placeholders
-- [ ] Reset link in Group settings
+- [ ] ~~Reset link in Group settings~~ deferred, see "Future: Reset link"
+
+### Future: Reset link
+
+Bring back once users understand that the group link grants web access to the whole group. Shape when
+it returns: a "Reset link" action in Group settings' Share group card (not on the group page), a confirm
+sheet ("The current link stops working. Everyone already in the group stays in."), and a repository call
+that issues a new `invite_token`. Kept for it: the `invite_token_rotated_at` column (no schema change was
+made). Original implementation: commit 8601f4b.
 
 ---
 
 ## 7. Completion report
 
 **Built:** all three releases. App: Share in the group top bar, 3dp involved strip (`c.blueText`), Reset
-link in Group settings, new share copy. Server: the RPCs in `supabase/AGENTS.md` "Web group page" plus five
+link in Group settings (since removed, see §6 "Future: Reset link"), new share copy. Server: the RPCs in `supabase/AGENTS.md` "Web group page" plus five
 `web-claim` actions (`group-view`, `group-pay`, `group-expense-create`, `-edit`, `-undo`). Web: the group
 page, settle, expense detail with change log + undo, add/edit form, a balances port with tests.
 

@@ -464,6 +464,8 @@ export interface NewExpense {
   splitMode: 'EVEN' | 'EXACT' | 'ITEMIZED';
   people: PersonIn[];
   items?: Array<{ label: string; quantity: number; lineTotalSubunits: number }>;
+  /** Itemized only, from a scanned receipt. */
+  extras?: { tax: number; tip: number; gratuity: number; discount: number; other: number };
 }
 
 export interface ExpenseEdit {
@@ -476,10 +478,56 @@ export interface ExpenseEdit {
   people?: PersonIn[];
 }
 
+/** One receipt page as the scan sends it: base64 bytes, no data-URL prefix. */
+export interface ScanPage {
+  data: string;
+  mediaType: string;
+}
+
+/** "Split one amount" read: enough to fill an even or exact expense. */
+export interface ScanSummary {
+  merchant_name: string | null;
+  short_title: string | null;
+  /** 0 when no total could be read. */
+  total_subunits: number;
+  currency: string | null;
+}
+
+/** Itemized read: lines plus the extras that split in proportion, like an app-made bill. */
+export interface ScanReceipt {
+  currency: string;
+  items: Array<{ label: string; quantity: number; line_total_subunits: number }>;
+  tax_subunits: number;
+  gratuity_subunits: number;
+  tip_subunits: number;
+  discount_subunits: number;
+  other_charges_subunits: number;
+  merchant_name: string | null;
+}
+
+/** `extract-receipt`'s answer, passed through `web-claim` unchanged. */
+export interface ScanResponse {
+  configured?: boolean;
+  noReceipt?: boolean;
+  summary?: ScanSummary;
+  receipt?: ScanReceipt;
+  verified?: boolean;
+}
+
 export const groupApi = {
+  /** `mode: 'summary'` reads the total for an even or exact split; no mode reads the lines. */
+  scan: (token: string, sessionToken: string, files: ScanPage[], mode: 'summary' | null) =>
+    post<ScanResponse>('group-receipt-scan', { token, sessionToken, files, mode }),
   view: (token: string, sessionToken: string) => post<GroupView>('group-view', { token, sessionToken }),
-  pay: (token: string, sessionToken: string, toUserId: string, currency: string, amountSubunits: number, expenseId: string | null) =>
-    post<GroupWriteResult>('group-pay', { token, sessionToken, toUserId, currency, amountSubunits, expenseId }),
+  /** Exactly one of `to` ("I paid them") or `from` ("they paid me"); the guest is the other side. */
+  pay: (
+    token: string,
+    sessionToken: string,
+    party: { toUserId: string } | { fromUserId: string },
+    currency: string,
+    amountSubunits: number,
+    expenseId: string | null,
+  ) => post<GroupWriteResult>('group-pay', { token, sessionToken, ...party, currency, amountSubunits, expenseId }),
   create: (token: string, sessionToken: string, expense: NewExpense) =>
     post<GroupWriteResult>('group-expense-create', { token, sessionToken, ...expense }),
   edit: (token: string, sessionToken: string, edit: ExpenseEdit) =>

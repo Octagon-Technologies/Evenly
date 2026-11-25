@@ -15,8 +15,10 @@ second *claim* screen that is not in `design/web-claim-mockup.html`, stop and re
 everyone else uses the link. A guest sees every expense in the group (All is the default, Mine one tap
 away), their bilateral balances, a "Waiting on you" card for itemized bills that list them, and can
 settle up, edit an EVEN/EXACT expense (applies at once, logged, anyone may undo) and add an expense
-(even, exact, or typed items). Still out of scope: receipt scan/OCR (per-call cost on a public link),
-group settings, other people's profiles, offline. Do not "fix" the group page back out on the strength of
+(even, exact, or typed items). As of 2026-11-23 adding can also start from a receipt photo
+(`group-receipt-scan`, which proxies to `extract-receipt` under the service role with guest-only limits:
+5/hour per guest, 30/day per group), and the payer of an expense can record a partial payment they
+received on it. Still out of scope: group settings, other people's profiles, offline. Do not "fix" the group page back out on the strength of
 the older spec text. That constraint does not extend to `src/marketing/`, which has its own approved
 mockup (the "Finy-inspired" home/privacy/terms artifact).
 

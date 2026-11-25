@@ -16,12 +16,29 @@ class PeopleTest {
         date: Int = 1,
         currency: String = "USD",
         expense: String = "$group-$debtor-$creditor-$date",
-    ) = PeopleLine(group, group.replaceFirstChar { it.uppercase() }, "💸", false, expense, expense, "2026-01-" + date.toString().padStart(2, '0'), currency, debtor, creditor, amount)
+    ) = PeopleLine(
+        group,
+        group.replaceFirstChar { it.uppercase() },
+        "💸",
+        false,
+        expense,
+        expense,
+        "2026-01-" + date.toString().padStart(2, '0'),
+        currency,
+        debtor,
+        creditor,
+        amount,
+    )
 
-    private fun member(group: String, id: String, name: String, placeholder: Boolean = true) =
-        RosterEntry(group, group.replaceFirstChar { it.uppercase() }, "💸", id, name, placeholder)
+    private fun member(
+        group: String,
+        id: String,
+        name: String,
+        placeholder: Boolean = true,
+    ) = RosterEntry(group, group.replaceFirstChar { it.uppercase() }, "💸", id, name, placeholder)
 
-    private fun roster(vararg entries: RosterEntry) = entries.toList() + entries.map { it.groupId }.distinct().map { member(it, me, "Me", false) }
+    private fun roster(vararg entries: RosterEntry) =
+        entries.toList() + entries.map { it.groupId }.distinct().map { member(it, me, "Me", false) }
 
     @Test
     fun amountInAGroupIsThatGroupsNetAndOweThemGroupsAreLeftOut() {
@@ -32,7 +49,8 @@ class PeopleTest {
                 line("nyc", "p", me, 4500),
                 line("nyc", me, "p", 9000),
             )
-        val people = buildPeople(me, lines, roster(member("boston", "p", "Purity", false), member("nyc", "p", "Purity", false)), emptyList())
+        val people =
+            buildPeople(me, lines, roster(member("boston", "p", "Purity", false), member("nyc", "p", "Purity", false)), emptyList())
         val purity = people.owing.single()
         assertEquals(listOf("boston" to 6000L), purity.groups.map { it.groupId to it.amountSubunits })
         assertEquals(mapOf("USD" to 6000L), purity.totals)
@@ -75,7 +93,12 @@ class PeopleTest {
         assertEquals(listOf("p2"), purity.sameNameMatches.map { it.userId })
 
         val ruledOut = buildPeople(me, lines, r, listOf(NameLink("n1", "p2", "p1", LinkKind.NOT_SAME)))
-        assertTrue(ruledOut.owing.single { it.key == "p1" }.sameNameMatches.isEmpty())
+        assertTrue(
+            ruledOut.owing
+                .single { it.key == "p1" }
+                .sameNameMatches
+                .isEmpty(),
+        )
 
         val sameGroup = roster(member("nyc", "p1", "Purity"), member("nyc", "p2", "Purity"))
         val two = buildPeople(me, listOf(line("nyc", "p1", me, 1), line("nyc", "p2", me, 1)), sameGroup, emptyList())
@@ -99,7 +122,13 @@ class PeopleTest {
                 line("nyc", "maya", me, 800),
                 line("ski", "gf", me, 1200),
             )
-        val r = roster(member("nyc", "pur", "Purity"), member("boston", "pookie", "Pookie"), member("nyc", "maya", "Maya"), member("ski", "gf", "GF"))
+        val r =
+            roster(
+                member("nyc", "pur", "Purity"),
+                member("boston", "pookie", "Pookie"),
+                member("nyc", "maya", "Maya"),
+                member("ski", "gf", "GF"),
+            )
         val people = buildPeople(me, lines, r, emptyList())
         val purity = people.owing.single { it.key == "pur" }
         assertEquals(setOf("pookie", "gf"), linkPool(purity, people).map { it.userId }.toSet())
@@ -118,13 +147,15 @@ class PeopleTest {
 
     @Test
     fun oldestFirstClearsOldGroupsThenStops() {
-        val targets = listOf(SplitTarget("boston", 7000, "2026-09-06"), SplitTarget("nj", 1500, "2026-03-02"), SplitTarget("nyc", 4500, "2026-06-18"))
+        val targets =
+            listOf(SplitTarget("boston", 7000, "2026-09-06"), SplitTarget("nj", 1500, "2026-03-02"), SplitTarget("nyc", 4500, "2026-06-18"))
         assertEquals(mapOf("nj" to 1500L, "nyc" to 4500L, "boston" to 4000L), oldestFirst(10000, targets))
     }
 
     @Test
     fun aSplitOnlyAddsUpWhenTheTotalMatchesAndNoGroupIsOverItsBalance() {
-        val targets = listOf(SplitTarget("nj", 1500, "2026-03-02"), SplitTarget("nyc", 4500, "2026-06-18"), SplitTarget("boston", 7000, "2026-09-06"))
+        val targets =
+            listOf(SplitTarget("nj", 1500, "2026-03-02"), SplitTarget("nyc", 4500, "2026-06-18"), SplitTarget("boston", 7000, "2026-09-06"))
         val short = checkSplit(10000, mapOf("nj" to 1500, "nyc" to 3000, "boston" to 4000), targets)
         assertEquals(1500L, short.leftSubunits)
         assertFalse(short.addsUp)

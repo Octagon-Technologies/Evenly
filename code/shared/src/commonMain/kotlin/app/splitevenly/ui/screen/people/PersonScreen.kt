@@ -81,7 +81,11 @@ fun PersonScreen(
             item(key = "names") { NamesCard(person, onLinkMatch, onRuleOut, onUnlink, onLinkOtherNames) }
             byMonth.forEach { (month, expenses) ->
                 item(key = "m-$month") {
-                    Text(month.uppercase(), style = t.sectionLabel.copy(color = c.ink3), modifier = Modifier.padding(top = 10.dp, start = 4.dp))
+                    Text(
+                        month.uppercase(),
+                        style = t.sectionLabel.copy(color = c.ink3),
+                        modifier = Modifier.padding(top = 10.dp, start = 4.dp),
+                    )
                 }
                 items(expenses, key = { "e-" + it.groupId + it.expenseId }) { e -> ExpenseRow(e) { onOpenExpense(e) } }
             }
@@ -90,7 +94,10 @@ fun PersonScreen(
                     Column(Modifier.padding(top = 10.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         person.offsets.forEach { o ->
                             Text(
-                                "You owe ${person.name} ${moneySubunits(o.amountSubunits, o.currency)} in ${o.groupName}, so that group's total is lower.",
+                                "You owe ${person.name} ${moneySubunits(
+                                    o.amountSubunits,
+                                    o.currency,
+                                )} in ${o.groupName}, so that group's total is lower.",
                                 style = t.caption.copy(color = c.ink3),
                             )
                         }
@@ -122,7 +129,7 @@ private fun Hero(
         }
         if (person.owesYou) {
             Spacer(Modifier.height(12.dp))
-            EvButton(onClick = onRecordPayment, variant = ButtonVariant.PrimarySolid) { Text("Record payment") }
+            EvButton(onClick = onRecordPayment, variant = ButtonVariant.Primary) { Text("Record payment") }
         }
     }
 }
@@ -156,10 +163,20 @@ private fun NamesCard(
             matches.forEach { m ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("\"${m.name}\" in ${m.groupEmoji} ${m.groupName}", style = t.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "\"${m.name}\" in ${m.groupEmoji} ${m.groupName}",
+                            style = t.body,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         Text("Owes you ${totalsText(m.owedByCurrency)}", style = t.caption.copy(color = c.ink3))
                     }
-                    EvButton(onClick = { onLinkMatch(m) }, small = true, fillMaxWidth = false, variant = ButtonVariant.PrimarySolid) { Text("Link") }
+                    EvButton(
+                        onClick = { onLinkMatch(m) },
+                        small = true,
+                        fillMaxWidth = false,
+                        variant = ButtonVariant.Primary,
+                    ) { Text("Link") }
                     Spacer(Modifier.width(4.dp))
                     EvButton(onClick = { onRuleOut(m) }, small = true, fillMaxWidth = false, variant = ButtonVariant.Text) { Text("No") }
                 }
@@ -167,7 +184,12 @@ private fun NamesCard(
             person.otherNames.forEach { n ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("\"${n.name}\" in ${n.groupEmoji} ${n.groupName}", style = t.body, modifier = Modifier.weight(1f), maxLines = 2)
-                    EvButton(onClick = { onUnlink(n.userId) }, small = true, fillMaxWidth = false, variant = ButtonVariant.Text) { Text("Unlink") }
+                    EvButton(
+                        onClick = { onUnlink(n.userId) },
+                        small = true,
+                        fillMaxWidth = false,
+                        variant = ButtonVariant.Text,
+                    ) { Text("Unlink") }
                 }
             }
             LinkOtherNamesButton(onLinkOtherNames)
@@ -232,4 +254,11 @@ internal fun monthLabel(iso: String): String {
 
 internal fun monthShort(iso: String): String = monthName(iso)?.take(3) ?: ""
 
-private fun monthName(iso: String): String? = if (iso.length < 7) null else iso.substring(5, 7).toIntOrNull()?.let { MONTHS.getOrNull(it - 1) }
+private fun monthName(iso: String): String? =
+    if (iso.length <
+        7
+    ) {
+        null
+    } else {
+        iso.substring(5, 7).toIntOrNull()?.let { MONTHS.getOrNull(it - 1) }
+    }

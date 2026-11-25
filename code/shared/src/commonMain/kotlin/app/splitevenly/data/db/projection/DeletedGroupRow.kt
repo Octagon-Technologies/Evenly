@@ -1,6 +1,7 @@
 package app.splitevenly.data.db.projection
 
 import androidx.room.ColumnInfo
+import app.splitevenly.data.db.entity.GroupEntity
 
 /**
  * Read-only projection for Recently deleted: the tombstoned group joined to whoever deleted it.
@@ -18,4 +19,5 @@ data class DeletedGroupRow(
     @ColumnInfo(name = "deleted_by") val deletedBy: String?,
     @ColumnInfo(name = "deleted_by_name") val deletedByName: String?,
     @ColumnInfo(name = "member_count") val memberCount: Int,
+    @ColumnInfo(name = "kind") val kind: String = GroupEntity.KIND_GROUP,
 )

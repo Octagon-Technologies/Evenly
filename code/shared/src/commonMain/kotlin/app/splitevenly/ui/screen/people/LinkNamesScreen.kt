@@ -76,7 +76,9 @@ fun LinkNamesScreen(
             if (leftOut.isNotEmpty()) {
                 item(key = "left-out") {
                     Text(
-                        "Leaving out ${leftOut.joinToString(", ")}. $personName is already in ${if (leftOut.size == 1) "that group" else "those"}.",
+                        "Leaving out ${leftOut.joinToString(
+                            ", ",
+                        )}. $personName is already in ${if (leftOut.size == 1) "that group" else "those"}.",
                         style = t.caption.copy(color = c.ink2),
                         modifier = Modifier.fillMaxWidth().background(c.blueTint, RoundedCornerShape(12.dp)).padding(12.dp),
                     )
@@ -117,7 +119,7 @@ fun LinkNamesScreen(
                 Text("Tap a name to pick it first.", style = t.caption.copy(color = c.danger), modifier = Modifier.padding(bottom = 8.dp))
             }
             EvButton(
-                variant = ButtonVariant.PrimarySolid,
+                variant = ButtonVariant.Primary,
                 onClick = {
                     tried = true
                     if (picked.isNotEmpty()) onSave(picked.toList())

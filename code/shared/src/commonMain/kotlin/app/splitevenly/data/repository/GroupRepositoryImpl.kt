@@ -1,6 +1,5 @@
 package app.splitevenly.data.repository
 
-import app.splitevenly.allocate
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.error.asErr
@@ -8,8 +7,6 @@ import app.splitevenly.core.error.asOk
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
-import app.splitevenly.data.db.ExpenseStatus
-import app.splitevenly.data.db.dao.ConflictDao
 import app.splitevenly.data.db.dao.ExpenseDao
 import app.splitevenly.data.db.dao.GroupDao
 import app.splitevenly.data.db.dao.GroupPurgeDao
@@ -17,21 +14,15 @@ import app.splitevenly.data.db.dao.MemberDao
 import app.splitevenly.data.db.dao.PlaceholderClaimAnswerDao
 import app.splitevenly.data.db.dao.PlaceholderMergeDao
 import app.splitevenly.data.db.dao.ReceiptDao
-import app.splitevenly.data.db.dao.RetroactiveResplit
-import app.splitevenly.data.db.dao.ShareDao
 import app.splitevenly.data.db.dao.UserDao
-import app.splitevenly.data.db.entity.ConflictEntity
 import app.splitevenly.data.db.entity.GroupEntity
 import app.splitevenly.data.db.entity.MemberEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
-import app.splitevenly.data.db.entity.ShareEntity
 import app.splitevenly.data.db.entity.UserEntity
 import app.splitevenly.data.remote.supabase.HydrationTracker
 import app.splitevenly.data.remote.supabase.RemoteGroupGateway
-import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.group.ClaimLine
 import app.splitevenly.domain.group.ClaimPreview
-import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.GroupDeleteImpact
@@ -68,8 +59,6 @@ class GroupRepositoryImpl(
     private val memberDao: MemberDao,
     private val userDao: UserDao,
     private val expenseDao: ExpenseDao,
-    private val shareDao: ShareDao,
-    private val conflictDao: ConflictDao,
     // NOT an optional ctor dep: the placeholder merge is a money-correctness path, and a null-defaulted
     // "legacy behaviour" fallback here would be the blind reassignment this replaced.
     private val placeholderMergeDao: PlaceholderMergeDao,
@@ -453,14 +442,6 @@ class GroupRepositoryImpl(
         return AppResult.Ok(Unit)
     }
 
-    override suspend fun rotateInviteToken(groupId: GroupId): AppResult<Group> {
-        groupDao.updateInviteToken(groupId.value, newId(), clock.nowEpochMillis())
-        val updated =
-            groupDao.getById(groupId.value)
-                ?: return validationErr("group", AppError.Validation.Reason.Required)
-        return updated.toDomain().asOk()
-    }
-
     override suspend fun reconcilePlaceholder(
         groupId: GroupId,
         placeholderUserId: UserId,
@@ -546,135 +527,6 @@ class GroupRepositoryImpl(
             // One total only makes sense in one currency; across several there is no number to print.
             currency = currencies.singleOrNull(),
         )
-    }
-
-    override fun observeConflicts(groupId: GroupId): Flow<List<Conflict>> =
-        conflictDao.observeUnresolved(groupId.value).map { rows -> rows.map { it.toDomain() } }
-
-    override suspend fun addMemberToPastExpenses(
-        groupId: GroupId,
-        memberUserId: UserId,
-        triggeredBy: UserId,
-    ): AppResult<Unit> {
-        val now = clock.nowEpochMillis()
-        val resplits = mutableListOf<RetroactiveResplit>()
-        val conflicts = mutableListOf<ConflictEntity>()
-        for (e in expenseDao.getActiveByGroup(groupId.value)) {
-            val shares = shareDao.getByExpense(e.id)
-            // An ITEMIZED bill is skipped because its shares are a DERIVED materialization of its items
-            // and claims, and every pull re-derives them (`SyncEngine` → `rematerializeGroups`). Raising a
-            // conflict for one asks the user a question whose only answer is a hand-written split that the
-            // next pull erases, by which point the card is closed and nothing is left to tap. Adding
-            // someone to a past bill means a `bill_participants` row and a claim, which is not this path's
-            // job (R7).
-            val skip =
-                shares.isEmpty() ||
-                    shares.any { it.userId == memberUserId.value } ||
-                    e.splitMode == SPLIT_MODE_ITEMIZED
-            if (skip) continue
-            if (e.splitMode == "EVEN") {
-                // Silently re-split evenly across the existing participants + the new member (03 §8.1).
-                // The merge preserves each existing participant's share id, so their settlement
-                // allocations survive and remaining re-derives — only the new member's share is added.
-                val ids = shares.map { it.userId } + memberUserId.value
-                val owed = allocate(e.amountSubunits, ids.map { UserId(it) to 1L })
-                val desired = ids.map { uid -> DesiredShare(uid, owed.getValue(UserId(uid))) }
-                val (merged, removed) = mergeShares(shares, desired, e.id, now)
-                // Re-splitting IS a Zone-2 change: advance the causal split_version so merge_expense
-                // applies the new split instead of reverting it as metadata-only (P0 #1).
-                resplits +=
-                    RetroactiveResplit(
-                        expense =
-                            e.copy(
-                                status = ExpenseStatus.ACTIVE,
-                                updatedAt = now,
-                                rowVersion = e.rowVersion + 1,
-                                splitVersion = e.splitVersion + 1,
-                                splitUpdatedBy = triggeredBy.value,
-                            ),
-                        shares = merged,
-                        removedShareIds = removed,
-                    )
-            } else if (!conflictDao.exists(e.id, memberUserId.value)) {
-                conflicts +=
-                    ConflictEntity(
-                        id = newId(),
-                        groupId = groupId.value,
-                        expenseId = e.id,
-                        addedUserId = memberUserId.value,
-                        triggeredByUserId = triggeredBy.value,
-                        createdAt = now,
-                    )
-            }
-        }
-        // Every row computed, none written. One transaction, and `NonCancellable` so leaving the settings
-        // screen mid-sweep cannot abandon it either: half a group's history re-split is silently wrong in
-        // a way nothing re-runs, because the only trigger is adding a member who is already there (R12).
-        // The work is bounded by the group's expense count and touches nothing but Room.
-        withContext(NonCancellable) {
-            expenseDao.applyRetroactiveMember(resplits, conflicts, now)
-        }
-        return AppResult.Ok(Unit)
-    }
-
-    override suspend fun resolveConflict(
-        conflictId: String,
-        include: Boolean,
-        newShareSubunits: Long?,
-    ): AppResult<Unit> {
-        val conflict =
-            conflictDao.getById(conflictId)
-                ?: return validationErr("conflict", AppError.Validation.Reason.Required)
-        if (conflict.resolvedAt != null) return AppResult.Ok(Unit) // already resolved — idempotent
-        val now = clock.nowEpochMillis()
-
-        if (!include) {
-            conflictDao.resolve(conflictId, "DISMISS", now)
-            return AppResult.Ok(Unit)
-        }
-
-        val share = newShareSubunits ?: return validationErr("share", AppError.Validation.Reason.Required)
-        val expense =
-            expenseDao.getById(conflict.expenseId)
-                ?: return validationErr("expense", AppError.Validation.Reason.Required)
-        // The sweep no longer raises one of these for a bill, but a card parked before that fix must not
-        // write shares either: an itemized bill's shares are re-derived from its items and claims on every
-        // pull, so the hand-written split would be erased and the card would already be closed (R7). Fail
-        // loudly rather than accepting a decision that quietly evaporates.
-        if (expense.splitMode == SPLIT_MODE_ITEMIZED) {
-            return validationErr("expense", AppError.Validation.Reason.OutOfRange)
-        }
-        if (share <= 0L || share >= expense.amountSubunits) {
-            return validationErr("share", AppError.Validation.Reason.OutOfRange)
-        }
-        val existing = shareDao.getByExpense(conflict.expenseId)
-        if (existing.any { it.userId == conflict.addedUserId }) { // already a participant — just close it
-            conflictDao.resolve(conflictId, "INCLUDE", now)
-            return AppResult.Ok(Unit)
-        }
-        // Shrink the existing participants proportionally to free up the new member's share (03 §8.4).
-        // mergeShares keeps each existing participant's id (allocations survive) and adds the new member.
-        val reallocated = allocate(expense.amountSubunits - share, existing.map { UserId(it.userId) to it.shareOwedSubunits })
-        val desired =
-            existing.map { s -> DesiredShare(s.userId, reallocated.getValue(UserId(s.userId))) } +
-                DesiredShare(conflict.addedUserId, share)
-        val (merged, removed) = mergeShares(existing, desired, conflict.expenseId, now)
-        // Including the member reshapes every share — a Zone-2 change — so advance the causal split_version
-        // (attributed to whoever added them); otherwise merge_expense reverts it as metadata-only (P0 #1).
-        expenseDao.replaceWithShares(
-            expense.copy(
-                status = ExpenseStatus.ACTIVE,
-                updatedAt = now,
-                rowVersion = expense.rowVersion + 1,
-                splitVersion = expense.splitVersion + 1,
-                splitUpdatedBy = conflict.triggeredByUserId,
-            ),
-            merged,
-            removed,
-            now,
-        )
-        conflictDao.resolve(conflictId, "INCLUDE", now)
-        return AppResult.Ok(Unit)
     }
 
     private fun validationErr(

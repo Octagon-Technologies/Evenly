@@ -1,7 +1,9 @@
 package app.splitevenly.ui.screen.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,9 +22,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.BannerVariant
 import app.splitevenly.ui.components.ButtonVariant
@@ -48,13 +54,16 @@ import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvDivider
 import app.splitevenly.ui.components.EvDot
 import app.splitevenly.ui.components.EvEmptyState
-import app.splitevenly.ui.components.EvSectionLabel
+import app.splitevenly.ui.components.EvSegmented
 import app.splitevenly.ui.components.EvSheetScaffold
+import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.groupIconLabel
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.money
+import app.splitevenly.ui.screen.settings.GroupDeleteImpactUi
 import app.splitevenly.ui.theme.EvenlyTheme
+import kotlinx.coroutines.delay
 
 /** A group as shown on the Home list (Phase B maps domain Group → this). */
 data class GroupCardUi(
@@ -91,9 +100,21 @@ sealed interface HomeUiState {
         val active: List<GroupCardUi>,
         val archived: List<GroupCardUi>,
         val deletedCount: Int = 0,
-        /** Quick splits settled more than a day ago. Off the main list, still reachable. */
+        /** Quick splits settled more than a day ago. Off the main list, filed under Archived in Put away. */
         val history: List<GroupCardUi> = emptyList(),
-    ) : HomeUiState
+        /** How many of [deletedCount] are one-time bills, so the Put away row's count follows the tab. */
+        val deletedOneTimeCount: Int = 0,
+    ) : HomeUiState {
+        /** Archived for the Put away row: what you archived plus the settled bills that moved off Home. */
+        fun archivedCount(filter: HomeFilter): Int = (archived + history).count { filter.matches(it) }
+
+        fun deletedCount(filter: HomeFilter): Int =
+            when (filter) {
+                HomeFilter.All -> deletedCount
+                HomeFilter.Groups -> deletedCount - deletedOneTimeCount
+                HomeFilter.OneTime -> deletedOneTimeCount
+            }
+    }
 }
 
 /** 4 · Home / group list (design/src/screens-home.jsx). */
@@ -110,9 +131,8 @@ fun HomeScreen(
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
     onSplitBill: () -> Unit = {},
-    onOpenHistory: () -> Unit = {},
-    onOpenArchived: () -> Unit = {},
-    onOpenRecentlyDeleted: () -> Unit = {},
+    /** Put away, opened on the current tab. [showDeleted] opens its Recently deleted card first. */
+    onOpenPutAway: (filter: HomeFilter, showDeleted: Boolean) -> Unit = { _, _ -> },
     /**
      * "Andrew deleted Tulum Trip." Shown until the person opens Recently deleted.
      *
@@ -126,10 +146,33 @@ fun HomeScreen(
     onRetry: () -> Unit = {},
     onEditQuickSplit: (groupId: String, expenseId: String, itemized: Boolean) -> Unit = { _, _, _ -> },
     onDeleteQuickSplit: (groupId: String) -> Unit = {},
+    onArchive: (groupId: String) -> Unit = {},
+    onUnarchive: (groupId: String) -> Unit = {},
+    onLeaveGroup: (groupId: String) -> Unit = {},
+    onDeleteGroup: (groupId: String) -> Unit = {},
+    /** Undo for a delete made from Home; the same restore Put away offers for 30 days. */
+    onRestoreGroup: (groupId: String) -> Unit = {},
+    loadDeleteImpact: suspend (groupId: String) -> GroupDeleteImpactUi = { GroupDeleteImpactUi() },
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
     var showActions by remember { mutableStateOf(false) }
+    // Saved as its String key: enum saving is not guaranteed on every Compose target.
+    var filterKey by rememberSaveable { mutableStateOf(HomeFilter.All.key) }
+    val filter = HomeFilter.fromKey(filterKey)
+    var swipedId by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf<GroupCardUi?>(null) }
+    var undo by remember { mutableStateOf<HomeUndo?>(null) }
+    undo?.let { u ->
+        LaunchedEffect(u) {
+            delay(UNDO_WINDOW_MS)
+            if (undo == u) undo = null
+        }
+    }
+    val archive: (GroupCardUi) -> Unit = { g ->
+        onArchive(g.id)
+        undo = HomeUndo("${g.name} archived") { onUnarchive(g.id) }
+    }
     val isContent = state is HomeUiState.Content || state is HomeUiState.Loading
 
     // No systemBarsPadding/StatusBarScrim here: the root MainShell paints the status-bar scrim above
@@ -174,6 +217,9 @@ fun HomeScreen(
                 }
 
                 is HomeUiState.Content -> {
+                    val shown = state.active.filter { filter.matches(it) }
+                    val archivedCount = state.archivedCount(filter)
+                    val deletedCount = state.deletedCount(filter)
                     Column(
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -183,60 +229,81 @@ fun HomeScreen(
                                 it,
                                 variant = BannerVariant.Amber,
                                 leadingIcon = EvIcons.Trash,
-                                modifier = Modifier.clickable(onClick = onOpenRecentlyDeleted),
+                                modifier = Modifier.clickable { onOpenPutAway(HomeFilter.All, true) },
                             )
                         }
-                        // One list: quick splits sit with groups (docs/features/one-time-splits.md), told
-                        // apart by the receipt tile and "2 of 3 paid", never by a separate section.
-                        if (state.active.isNotEmpty()) {
-                            Column {
-                                EvSectionLabel("Active")
-                                Spacer(Modifier.height(4.dp))
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    state.active.forEach { g ->
+                        EvSegmented(
+                            options = HomeFilter.entries.map { it.label },
+                            selected = filter.label,
+                            onSelect = { label ->
+                                filterKey = HomeFilter.entries.first { it.label == label }.key
+                                swipedId = null
+                            },
+                        )
+                        if (shown.isEmpty()) {
+                            HomeTabEmpty(filter, onSplitBill = onSplitBill, onNewGroup = onNewGroup)
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                shown.forEach { g ->
+                                    key(g.id) {
                                         if (g.quick != null) {
                                             QuickSplitCardWithMenu(
                                                 g,
                                                 onOpen = { onOpenQuickSplit(g.id, g.quick.expenseId) },
                                                 onEdit = { expenseId, itemized -> onEditQuickSplit(g.id, expenseId, itemized) },
-                                                onDelete = { onDeleteQuickSplit(g.id) },
+                                                onDelete = {
+                                                    onDeleteQuickSplit(g.id)
+                                                    undo = HomeUndo("${g.name} deleted") { onRestoreGroup(g.id) }
+                                                },
+                                                onArchive = { archive(g) },
+                                                swipeOpen = swipedId == g.id,
+                                                onSwipeOpenChange = { open -> swipedId = if (open) g.id else null },
                                             )
                                         } else {
-                                            EvCard(fill = true, bordered = true) {
-                                                GroupRow(g, onClick = { onOpenGroup(g.id) })
-                                            }
+                                            GroupCardWithActions(
+                                                g,
+                                                onOpen = { onOpenGroup(g.id) },
+                                                onArchive = { archive(g) },
+                                                onDelete = { deleting = g },
+                                                swipeOpen = swipedId == g.id,
+                                                onSwipeOpenChange = { open -> swipedId = if (open) g.id else null },
+                                            )
                                         }
                                     }
                                 }
                             }
                         }
-                        if (state.history.isNotEmpty()) {
-                            ShelfRow(
-                                icon = EvIcons.History,
-                                label = "History (${state.history.size})",
-                                onClick = onOpenHistory,
-                            )
-                        }
-                        if (state.archived.isNotEmpty()) {
+                        // Only when something is actually put away: nobody should carry a permanent trash
+                        // can around, and "Recently deleted (0)" invites the question of what was deleted.
+                        if (archivedCount + deletedCount > 0) {
                             ShelfRow(
                                 icon = EvIcons.Archive,
-                                label = "Archived (${state.archived.size})",
-                                onClick = onOpenArchived,
-                            )
-                        }
-                        // Only when something is actually in there: nobody should carry a permanent trash
-                        // can around, and an always-present "Recently deleted (0)" invites the question of
-                        // what was deleted when the honest answer is "nothing".
-                        if (state.deletedCount > 0) {
-                            ShelfRow(
-                                icon = EvIcons.Trash,
-                                label = "Recently deleted (${state.deletedCount})",
-                                onClick = onOpenRecentlyDeleted,
+                                label =
+                                    listOfNotNull(
+                                        archivedCount.takeIf { it > 0 }?.let { "Archived $it" },
+                                        deletedCount.takeIf { it > 0 }?.let { "Recently deleted $it" },
+                                    ).joinToString("  ·  "),
+                                onClick = { onOpenPutAway(filter, archivedCount == 0) },
                             )
                         }
                         Spacer(Modifier.height(88.dp))
                     }
                 }
+            }
+            undo?.let { u ->
+                EvUndoToast(
+                    u.text,
+                    onUndo = {
+                        u.undo()
+                        undo = null
+                    },
+                    modifier =
+                        Modifier
+                            .align(
+                                Alignment.BottomCenter,
+                            ).navigationBarsPadding()
+                            .padding(start = 16.dp, end = 16.dp, bottom = 84.dp),
+                )
             }
             if (state is HomeUiState.Content) {
                 // A single home-level action — you create or join a *group* here; expenses are only
@@ -245,6 +312,27 @@ fun HomeScreen(
                 CreateOrJoinBar(onClick = { showActions = true }, modifier = Modifier.align(Alignment.BottomCenter))
             }
         }
+    }
+
+    deleting?.let { g ->
+        HomeGroupDeleteFlow(
+            g,
+            loadImpact = loadDeleteImpact,
+            onArchive = {
+                deleting = null
+                archive(g)
+            },
+            onLeave = {
+                deleting = null
+                onLeaveGroup(g.id)
+            },
+            onDelete = {
+                deleting = null
+                onDeleteGroup(g.id)
+                undo = HomeUndo("${g.name} deleted for everyone") { onRestoreGroup(g.id) }
+            },
+            onDismiss = { deleting = null },
+        )
     }
 
     if (showActions) {
@@ -276,115 +364,10 @@ fun HomeScreen(
 }
 
 /**
- * First-run welcome — no template chips, no numbered primer. One hero, one headline, one job: get
- * the first bill split, with "Start a trip group" and "Join a friend's group" under it. The quick split leads
- * because it needs no decision about who counts as a group (docs/features/one-time-splits.md).
- */
-@Composable
-private fun HomeWelcome(
-    onSplitBill: () -> Unit,
-    onNewGroup: () -> Unit,
-    onJoin: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    val t = EvenlyTheme.text
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(
-            Modifier
-                .size(96.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Brush.linearGradient(listOf(c.blue, c.bluePressed))),
-            contentAlignment = Alignment.Center,
-        ) {
-            EvIcon(EvIcons.Users, size = 44.dp, tint = c.onAccent)
-        }
-        Spacer(Modifier.height(24.dp))
-        Text("Split your first bill", style = t.screenTitle, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Split costs and settle up with friends, no spreadsheets.",
-            style = t.description,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(max = 260.dp),
-        )
-        Spacer(Modifier.height(28.dp))
-        Column(Modifier.widthIn(max = 280.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // In dark mode the white-chip Primary reads as barely-there against the near-black page, so
-            // this hero action swaps to the solid-blue variant there; Secondary now handles its own
-            // light/dark treatment internally.
-            EvButton(
-                "Split a one-time bill",
-                onSplitBill,
-                variant = if (c.isDark) ButtonVariant.PrimarySolid else ButtonVariant.Primary,
-                leadingIcon = EvIcons.Receipt,
-            )
-            EvButton(
-                "Start a trip group",
-                onNewGroup,
-                variant = ButtonVariant.Secondary,
-                leadingIcon = EvIcons.Users,
-            )
-            EvButton(
-                "Join a friend's group",
-                onJoin,
-                variant = ButtonVariant.Text,
-                leadingIcon = EvIcons.Link,
-            )
-        }
-    }
-}
-
-/** The tinted rounded panel that holds one or more [ActionRow]s in the home Create sheet. */
-@Composable
-private fun ActionPanel(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(EvenlyTheme.colors.surface)
-            .padding(horizontal = 14.dp, vertical = 4.dp),
-        content = content,
-    )
-}
-
-/** A tappable "icon tile + title + subtitle" row used in the home Create sheet. */
-@Composable
-private fun ActionRow(
-    icon: ImageVector,
-    title: String,
-    sub: String,
-    onClick: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    val t = EvenlyTheme.text
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-            EvIcon(icon, size = 22.dp, tint = c.blueText)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = t.itemTitle)
-            Text(sub, style = t.description)
-        }
-        EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink3)
-    }
-}
-
-/**
- * A full-width "Create or Join Group" pill anchored to the bottom of Home — the one primary action,
- * a solid blue fill (not the white-chip `ButtonVariant.Primary`) so it reads as a floating CTA over
- * the group list, matching the approved mockup.
+ * A full-width "Create or Join Group" pill anchored to the bottom of Home, the one primary action.
+ *
+ * It floats over the list, so Android gives it M3's neutral FAB shadow; iOS has no button shadows,
+ * so there it is a flat prominent fill (design/brainstorm/button-states.html).
  */
 @Composable
 private fun CreateOrJoinBar(
@@ -399,7 +382,7 @@ private fun CreateOrJoinBar(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(16.dp)
-            .shadow(elevation = 10.dp, shape = shape, ambientColor = c.blue.copy(alpha = 0.5f), spotColor = c.blue.copy(alpha = 0.5f))
+            .then(if (isIOS()) Modifier else Modifier.shadow(elevation = 6.dp, shape = shape))
             .clip(shape)
             .background(c.blue)
             .clickable(onClick = onClick)
@@ -436,17 +419,25 @@ private fun ShelfRow(
 }
 
 /** A group row (Home + Archived). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GroupRow(
     g: GroupCardUi,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
     archived: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
     Row(
-        modifier = modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

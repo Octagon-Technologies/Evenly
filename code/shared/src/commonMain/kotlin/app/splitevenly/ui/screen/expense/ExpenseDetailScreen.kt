@@ -730,7 +730,7 @@ fun ExpenseDetailScreen(
                 }
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     EvButton("Delete bill", onDelete, variant = ButtonVariant.Danger, leadingIcon = EvIcons.Trash)
-                    EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Secondary)
+                    EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Dismiss)
                 }
             }
         }
