@@ -62,6 +62,10 @@ fun SettleSingleSheet(
     onOpenApp: (amountSubunits: Long, PaymentApp, String) -> Unit = { _, _, _ -> },
     onConfirmPaid: (amountSubunits: Long, PaymentApp) -> Unit = { _, _ -> },
     onMarkPaid: (amountSubunits: Long) -> Unit = {},
+    // The screenshot staged for this payment (docs/features/payment-proof.md); uploads once it is recorded.
+    proofModel: String? = null,
+    onPickProof: () -> Unit = {},
+    onRemoveProof: () -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     var selected by remember(handles) { mutableStateOf(handles.firstOrNull()) }
@@ -133,6 +137,7 @@ fun SettleSingleSheet(
                     selected?.let { Text(it.handle, color = c.ink2, fontSize = 12.sp) }
                 }
             }
+            PaymentProofTile(payee, proofModel, onPick = onPickProof, onRemove = onRemoveProof)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val sel = selected
                 if (awaitingConfirm && sel != null) {

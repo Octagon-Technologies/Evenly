@@ -4,6 +4,7 @@ import app.splitevenly.data.db.EvenlyDatabase
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
 import app.splitevenly.data.db.inMemoryTestDatabase
 import app.splitevenly.domain.activity.ReceiptUploadStatus
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -74,5 +75,22 @@ class ReceiptUploadDaoTest {
             assertEquals(ReceiptUploadStatus.FAILED.name, after.status)
             assertEquals(2, after.retryCount)
             assertEquals("HTTP 413", after.lastError)
+        }
+
+    /** A payment proof rides the same queue; only rows carrying a settlement id are proofs. */
+    @Test
+    fun observeProofsByGroup_onlyProofRows() =
+        runTest {
+            dao.upsert(row(ReceiptUploadStatus.PENDING))
+            dao.upsert(
+                row(
+                    ReceiptUploadStatus.PENDING,
+                ).copy(id = "p1", expenseId = "", settlementId = "s1", storagePath = "g1/payments/s1/p1.jpg"),
+            )
+
+            val proofs = dao.observeProofsByGroup("g1").first()
+
+            assertEquals(listOf("p1"), proofs.map { it.id })
+            assertEquals("s1", proofs.single().settlementId)
         }
 }

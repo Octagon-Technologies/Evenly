@@ -12,20 +12,24 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.dao.CommentDao
 import app.splitevenly.data.db.dao.HistoryEventDao
+import app.splitevenly.data.db.dao.PaymentProofDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.entity.CommentEntity
 import app.splitevenly.data.db.entity.HistoryEventEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.remote.supabase.ReceiptStorage
 import app.splitevenly.domain.activity.Comment
 import app.splitevenly.domain.activity.HistoryEvent
 import app.splitevenly.domain.activity.HistoryEventType
+import app.splitevenly.domain.activity.PaymentProof
 import app.splitevenly.domain.activity.Receipt
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.repository.ActivityRepository
 import app.splitevenly.newId
 import app.splitevenly.platform.extensionForMime
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -45,26 +49,31 @@ class ActivityRepositoryImpl(
     private val auth: AuthSession,
     private val receiptStorage: ReceiptStorage? = null,
     private val clock: Clock = Clock.System,
+    private val proofDao: PaymentProofDao? = null,
 ) : ActivityRepository {
-
     // ── Comments ────────────────────────────────────────────────────────────
     override fun observeComments(expenseId: ExpenseId): Flow<List<Comment>> =
         commentDao.observeByExpense(expenseId.value).map { rows -> rows.map { it.toDomain() } }
 
-    override suspend fun postComment(expenseId: ExpenseId, groupId: GroupId, body: String): AppResult<Comment> {
+    override suspend fun postComment(
+        expenseId: ExpenseId,
+        groupId: GroupId,
+        body: String,
+    ): AppResult<Comment> {
         val text = body.trim()
         if (text.isEmpty()) return AppError.Validation(mapOf("body" to AppError.Validation.Reason.Required)).asErr()
         val uid = auth.currentUserId.value ?: return notSignedIn()
         val now = clock.nowEpochMillis()
-        val entity = CommentEntity(
-            id = newId(),
-            expenseId = expenseId.value,
-            groupId = groupId.value,
-            userId = uid.value,
-            body = text,
-            createdAt = now,
-            updatedAt = now,
-        )
+        val entity =
+            CommentEntity(
+                id = newId(),
+                expenseId = expenseId.value,
+                groupId = groupId.value,
+                userId = uid.value,
+                body = text,
+                createdAt = now,
+                updatedAt = now,
+            )
         commentDao.upsert(entity)
         recordHistory(expenseId.value, groupId.value, HistoryEventType.COMMENTED, uid.value, null, now)
         return entity.toDomain().asOk()
@@ -86,8 +95,9 @@ class ActivityRepositoryImpl(
         mimeType: String,
         bytes: ByteArray,
     ): AppResult<Receipt> {
-        val storage = receiptStorage
-            ?: return AppError.Network(AppError.Network.Kind.Offline).asErr()
+        val storage =
+            receiptStorage
+                ?: return AppError.Network(AppError.Network.Kind.Offline).asErr()
         val uid = auth.currentUserId.value ?: return notSignedIn()
         if (bytes.isEmpty()) return AppError.Validation(mapOf("file" to AppError.Validation.Reason.Malformed)).asErr()
 
@@ -95,22 +105,24 @@ class ActivityRepositoryImpl(
         val receiptId = newId()
         // Object key groups objects by group/expense so a future per-group storage policy is trivial.
         val path = "${groupId.value}/${expenseId.value}/$receiptId.${extensionForMime(mimeType)}"
-        val url = when (val uploaded = storage.upload(path, bytes, mimeType)) {
-            is AppResult.Ok -> uploaded.value
-            is AppResult.Err -> return uploaded
-        }
-        val entity = ReceiptEntity(
-            id = receiptId,
-            expenseId = expenseId.value,
-            groupId = groupId.value,
-            uploadedBy = uid.value,
-            storagePath = path,
-            url = url,
-            mimeType = mimeType,
-            sizeBytes = bytes.size.toLong(),
-            createdAt = now,
-            updatedAt = now,
-        )
+        val url =
+            when (val uploaded = storage.upload(path, bytes, mimeType)) {
+                is AppResult.Ok -> uploaded.value
+                is AppResult.Err -> return uploaded
+            }
+        val entity =
+            ReceiptEntity(
+                id = receiptId,
+                expenseId = expenseId.value,
+                groupId = groupId.value,
+                uploadedBy = uid.value,
+                storagePath = path,
+                url = url,
+                mimeType = mimeType,
+                sizeBytes = bytes.size.toLong(),
+                createdAt = now,
+                updatedAt = now,
+            )
         receiptDao.upsert(entity)
         recordHistory(expenseId.value, groupId.value, HistoryEventType.RECEIPT_ADDED, uid.value, null, now)
         return entity.toDomain().asOk()
@@ -120,6 +132,21 @@ class ActivityRepositoryImpl(
         val existing = receiptDao.getById(receiptId.value)
         receiptDao.softDelete(receiptId.value, clock.nowEpochMillis())
         // Best-effort: free the Storage object too, but a failure here doesn't fail the local delete.
+        if (existing != null) receiptStorage?.delete(existing.storagePath)
+        return AppResult.Ok(Unit)
+    }
+
+    // ── Payment proofs ──────────────────────────────────────────────────────
+    override fun observePaymentProofs(groupId: GroupId): Flow<Map<String, PaymentProof>> =
+        proofDao?.observeByGroup(groupId.value)?.map { rows ->
+            // Newest first from the DAO, so the first row per chain is the current screenshot.
+            rows.groupBy { it.settlementId }.mapValues { (_, list) -> list.first().toDomain() }
+        } ?: flowOf(emptyMap())
+
+    override suspend fun removePaymentProof(proofId: String): AppResult<Unit> {
+        val dao = proofDao ?: return AppResult.Ok(Unit)
+        val existing = dao.getById(proofId)
+        dao.softDelete(proofId, clock.nowEpochMillis())
         if (existing != null) receiptStorage?.delete(existing.storagePath)
         return AppResult.Ok(Unit)
     }
@@ -149,12 +176,10 @@ class ActivityRepositoryImpl(
         )
     }
 
-    private fun notSignedIn(): AppResult<Nothing> =
-        AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
+    private fun notSignedIn(): AppResult<Nothing> = AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
 }
 
-private fun CommentEntity.toDomain(): Comment =
-    Comment(CommentId(id), ExpenseId(expenseId), UserId(userId), body, createdAt)
+private fun CommentEntity.toDomain(): Comment = Comment(CommentId(id), ExpenseId(expenseId), UserId(userId), body, createdAt)
 
 private fun ReceiptEntity.toDomain(): Receipt =
     Receipt(ReceiptId(id), ExpenseId(expenseId), UserId(uploadedBy), storagePath, url, mimeType, sizeBytes, createdAt)
@@ -163,3 +188,5 @@ private fun HistoryEventEntity.toDomainOrNull(): HistoryEvent? {
     val parsed = HistoryEventType.entries.firstOrNull { it.name == type } ?: return null
     return HistoryEvent(id, ExpenseId(expenseId), actorUserId?.let { UserId(it) }, parsed, detail, createdAt)
 }
+
+private fun PaymentProofEntity.toDomain(): PaymentProof = PaymentProof(id, settlementId, UserId(uploadedBy), url, createdAt)

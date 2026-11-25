@@ -364,6 +364,23 @@ export interface GroupExpense {
   lineCount: number;
   iClaimed: boolean;
   iAmDone: boolean;
+  /** Receipt photos the app attached. Public URLs, same as the app renders. */
+  receipts: Array<{ id: string; url: string | null; mimeType: string }>;
+  comments: GroupComment[];
+}
+
+export interface GroupComment {
+  id: string;
+  userId: string;
+  body: string;
+  createdAt: number;
+}
+
+/** A payment's screenshot (docs/features/payment-proof.md). One per payment, kept across edits. */
+export interface PaymentProof {
+  id: string;
+  url: string | null;
+  uploadedBy: string;
 }
 
 export interface GroupPayment {
@@ -373,6 +390,13 @@ export interface GroupPayment {
   amountSubunits: number;
   currency: string;
   settledAt: number;
+  paymentApp: string | null;
+  createdBy: string;
+  /** The first payment of its edit chain: what a screenshot hangs off. */
+  chainId: string;
+  /** What this payment put on each bill. */
+  applied: Array<{ expenseId: string; subunits: number }>;
+  proof: PaymentProof | null;
 }
 
 export interface ExpenseState {
@@ -422,6 +446,13 @@ export interface GroupWriteResult {
   editId?: string | null;
   expenseId?: string;
   billToken?: string | null;
+  settlementId?: string | null;
+}
+
+/** An image as `group-payment-proof` takes it: base64 bytes, no data-URL prefix. */
+export interface ProofFile {
+  data: string;
+  mimeType: string;
 }
 
 export interface NewExpense {
@@ -503,4 +534,9 @@ export const groupApi = {
     post<GroupWriteResult>('group-expense-edit', { token, sessionToken, ...edit }),
   undo: (token: string, sessionToken: string, editId: string) =>
     post<GroupWriteResult>('group-expense-undo', { token, sessionToken, editId }),
+  comment: (token: string, sessionToken: string, expenseId: string, body: string) =>
+    post<{ ok: boolean; commentId: string }>('group-comment', { token, sessionToken, expenseId, body }),
+  /** Attach (or, with `file` null, take off) the screenshot on a payment the guest is in. */
+  paymentProof: (token: string, sessionToken: string, settlementId: string, file: ProofFile | null) =>
+    post<{ ok: boolean; proof: { id: string; url: string } | null }>('group-payment-proof', { token, sessionToken, settlementId, file }),
 };

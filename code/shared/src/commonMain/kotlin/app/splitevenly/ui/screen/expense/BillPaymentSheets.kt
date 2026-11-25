@@ -39,6 +39,7 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.settle.PaymentPreviewUi
+import app.splitevenly.ui.screen.settle.PaymentProofThumb
 import app.splitevenly.ui.screen.settle.PaymentUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.launch
@@ -91,6 +92,8 @@ fun RecordPaymentSheet(
     onRecord: suspend (PaymentEntry) -> String?,
     onEditPayment: (PaymentUi) -> Unit,
     onDismiss: () -> Unit,
+    onOpenProof: (PaymentUi) -> Unit = {},
+    onAddProof: (PaymentUi) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
     val scope = rememberCoroutineScope()
@@ -126,13 +129,22 @@ fun RecordPaymentSheet(
                     fontSize = 14.sp,
                 )
             }
-            if (history.isNotEmpty()) PaymentHistoryCard(history, currencyCode, onEditPayment)
+            if (history.isNotEmpty()) PaymentHistoryCard(history, currencyCode, onEditPayment, onOpenProof, onAddProof)
             if (left > 0) {
                 EvButton(if (saving) "Saving…" else "Record payment", {
                     when {
-                        saving -> Unit
-                        entered <= 0L -> problem = "Enter how much was paid."
-                        entered > left -> problem = "That's more than the ${moneySubunits(left, currencyCode)} left."
+                        saving -> {
+                            Unit
+                        }
+
+                        entered <= 0L -> {
+                            problem = "Enter how much was paid."
+                        }
+
+                        entered > left -> {
+                            problem = "That's more than the ${moneySubunits(left, currencyCode)} left."
+                        }
+
                         else -> {
                             saving = true
                             scope.launch {
@@ -198,6 +210,8 @@ private fun PaymentHistoryCard(
     history: List<PaymentUi>,
     currencyCode: String,
     onEdit: (PaymentUi) -> Unit,
+    onOpenProof: (PaymentUi) -> Unit,
+    onAddProof: (PaymentUi) -> Unit,
 ) {
     val c = EvenlyTheme.colors
     var open by remember { mutableStateOf(false) }
@@ -224,7 +238,7 @@ private fun PaymentHistoryCard(
         }
         if (open) {
             Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
-                history.forEach { p -> HistoryLine(p, currencyCode, onEdit) }
+                history.forEach { p -> HistoryLine(p, currencyCode, onEdit, onOpenProof, onAddProof) }
             }
         }
     }
@@ -235,6 +249,8 @@ private fun HistoryLine(
     p: PaymentUi,
     currencyCode: String,
     onEdit: (PaymentUi) -> Unit,
+    onOpenProof: (PaymentUi) -> Unit,
+    onAddProof: (PaymentUi) -> Unit,
 ) {
     val c = EvenlyTheme.colors
     Row(
@@ -245,6 +261,13 @@ private fun HistoryLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // The payment's screenshot, or a "+" slot for the two people in it (docs/features/payment-proof.md).
+        PaymentProofThumb(
+            url = p.proofUrl,
+            uploadingModel = p.proofUploadingModel,
+            onOpen = { onOpenProof(p) },
+            onAdd = if (p.canEdit) ({ onAddProof(p) }) else null,
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
@@ -363,7 +386,11 @@ fun EditBillPaymentSheet(
             )
             MethodAndDateRow(method, date, today, onMethod = { showMethods = true }, onDate = { showDate = true })
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(horizontal = 14.dp, vertical = 10.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.surface)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 val owner = if (payment.byMe) "Your" else "${payment.payerName}'s"
@@ -374,9 +401,18 @@ fun EditBillPaymentSheet(
             EvButton(if (saving) "Saving…" else "Save", {
                 val p = previewProblem
                 when {
-                    saving -> Unit
-                    entered <= 0L -> problem = "Enter an amount. To take the payment off, use Cancel payment."
-                    p != null -> problem = p
+                    saving -> {
+                        Unit
+                    }
+
+                    entered <= 0L -> {
+                        problem = "Enter an amount. To take the payment off, use Cancel payment."
+                    }
+
+                    p != null -> {
+                        problem = p
+                    }
+
                     else -> {
                         saving = true
                         scope.launch {
@@ -445,7 +481,12 @@ internal fun BalanceChip(
             else -> c.blueTint to c.blueText
         }
     Row(
-        Modifier.clip(RoundedCornerShape(99.dp)).background(bg).clickableClearingFocus(onClick = onClick).padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        Modifier
+            .clip(
+                RoundedCornerShape(99.dp),
+            ).background(bg)
+            .clickableClearingFocus(onClick = onClick)
+            .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(

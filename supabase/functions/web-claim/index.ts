@@ -1305,7 +1305,105 @@ async function actionGroupPay(
       p_expense_id: body.expenseId ?? null, p_actor: session.user_id,
     });
     if (error) return err("BACKEND", 500, error.message);
-    return json({ ok: data.ok, reason: data.reason ?? null, ceilingSubunits: data.ceiling ?? null });
+    return json({
+      ok: data.ok, reason: data.reason ?? null, ceilingSubunits: data.ceiling ?? null,
+      settlementId: data.settlement_id ?? null,
+    });
+  });
+}
+
+const MAX_COMMENT_CHARS = 2000;
+
+/** POST /web-claim/group-comment — `{ token, sessionToken, expenseId, body }`. A guest's comment on one
+ *  expense, written as the guest (`comments.user_id` = the placeholder), exactly the row the app writes. */
+async function actionGroupComment(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; expenseId?: string; body?: string },
+): Promise<Response> {
+  return withGroupWriter(sb, body, async ({ ctx, session }) => {
+    const text = (body.body ?? "").trim();
+    if (!body.expenseId || !text) return err("BAD_REQUEST", 400, "expenseId and body required");
+    if (text.length > MAX_COMMENT_CHARS) return err("BAD_REQUEST", 400, "comment too long");
+    const { data: e } = await sb.from("expenses").select("id").eq("id", body.expenseId).eq("group_id", ctx.group.id)
+      .is("deleted_at", null).maybeSingle();
+    if (!e) return err("NOT_FOUND", 404, "no such expense in this group");
+    const now = Date.now();
+    const id = newId();
+    const { error } = await sb.from("comments").insert({
+      id, expense_id: body.expenseId, group_id: ctx.group.id, user_id: session.user_id, body: text,
+      created_at: now, updated_at: now,
+    });
+    if (error) return err("BACKEND", 500, error.message);
+    return json({ ok: true, commentId: id });
+  });
+}
+
+/** Same bucket and path shape as the app's uploads (`ReceiptUploadManager`): the receipts bucket's
+ *  policies and the group purge's prefix delete already cover `<group>/payments/...`. */
+const PROOF_BUCKET = "receipts";
+const MAX_PROOF_BYTES = 6 * 1024 * 1024;
+const PROOF_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+
+/** POST /web-claim/group-payment-proof — `{ token, sessionToken, settlementId, file?: { data, mimeType } }`.
+ *  Attaches (or, with no `file`, removes) the screenshot on a payment the guest is one of the two people
+ *  in. One live proof per payment chain: a new one soft-deletes the old row, like the app. */
+async function actionGroupPaymentProof(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; settlementId?: string; file?: { data?: string; mimeType?: string } | null },
+): Promise<Response> {
+  return withGroupWriter(sb, body, async ({ ctx, session }) => {
+    if (!body.settlementId) return err("BAD_REQUEST", 400, "settlementId required");
+    const { data: st } = await sb.from("settlements")
+      .select("id, from_user_id, to_user_id, original_settlement_id")
+      .eq("id", body.settlementId).eq("group_id", ctx.group.id).is("deleted_at", null).maybeSingle();
+    if (!st) return err("NOT_FOUND", 404, "no such payment");
+    if (st.from_user_id !== session.user_id && st.to_user_id !== session.user_id) {
+      return err("FORBIDDEN", 403, "only the two people in a payment can add proof to it");
+    }
+    const chainId = (st.original_settlement_id as string | null) ?? (st.id as string);
+    const now = Date.now();
+
+    let bytes: Uint8Array | null = null;
+    let ext = "";
+    if (body.file) {
+      ext = PROOF_TYPES[body.file.mimeType ?? ""] ?? "";
+      if (!ext || !body.file.data) return err("BAD_REQUEST", 400, "a JPEG, PNG or WebP image is required");
+      // 4 base64 chars per 3 bytes: refuse before decoding so a huge body costs nothing.
+      if (body.file.data.length > Math.ceil(MAX_PROOF_BYTES / 3) * 4) return err("BAD_REQUEST", 400, "image too large");
+      try {
+        bytes = Uint8Array.from(atob(body.file.data), (c) => c.charCodeAt(0));
+      } catch {
+        return err("BAD_REQUEST", 400, "image is not base64");
+      }
+    }
+
+    const { data: live } = await sb.from("payment_proofs").select("id, storage_path")
+      .eq("settlement_id", chainId).is("deleted_at", null);
+    let proof: { id: string; url: string } | null = null;
+    if (bytes) {
+      const id = newId();
+      const path = `${ctx.group.id}/payments/${chainId}/${id}.${ext}`;
+      const up = await sb.storage.from(PROOF_BUCKET).upload(path, bytes, { contentType: body.file!.mimeType, upsert: true });
+      if (up.error) return err("BACKEND", 500, up.error.message);
+      const url = `${Deno.env.get("SUPABASE_URL")}/storage/v1/object/public/${PROOF_BUCKET}/${path}`;
+      const { error } = await sb.from("payment_proofs").insert({
+        id, settlement_id: chainId, group_id: ctx.group.id, uploaded_by: session.user_id, storage_path: path, url,
+        mime_type: body.file!.mimeType, size_bytes: bytes.length, created_at: now, updated_at: now,
+      });
+      if (error) return err("BACKEND", 500, error.message);
+      proof = { id, url };
+    }
+    // Retire the old screenshot only once the new one is safely in, so a failed upload never leaves the
+    // payment with none. Soft delete: the tombstone has to reach every phone (data/AGENTS.md Rule 1).
+    const old = (live ?? []).map((r) => r.id as string);
+    if (old.length > 0) {
+      const { error } = await sb.from("payment_proofs").update({ deleted_at: now, updated_at: now })
+        .in("id", old);
+      if (error) return err("BACKEND", 500, error.message);
+      // Best effort, per object (never a prefix): the same cleanup `ActivityRepositoryImpl.deleteReceipt` does.
+      await sb.storage.from(PROOF_BUCKET).remove((live ?? []).map((r) => r.storage_path as string));
+    }
+    return json({ ok: true, proof });
   });
 }
 
@@ -1509,6 +1607,8 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => P
   "invite-claim": actionInviteClaim,
   "group-view": actionGroupView,
   "group-pay": actionGroupPay,
+  "group-comment": actionGroupComment,
+  "group-payment-proof": actionGroupPaymentProof,
   "group-receipt-scan": actionGroupReceiptScan,
   "group-expense-create": actionGroupExpenseCreate,
   "group-expense-edit": actionGroupExpenseEdit,

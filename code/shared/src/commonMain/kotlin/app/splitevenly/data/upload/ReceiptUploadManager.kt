@@ -7,9 +7,11 @@ import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.db.dao.HistoryEventDao
+import app.splitevenly.data.db.dao.PaymentProofDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.dao.ReceiptUploadDao
 import app.splitevenly.data.db.entity.HistoryEventEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
 import app.splitevenly.domain.activity.HistoryEventType
@@ -103,6 +105,8 @@ class ReceiptUploadManager(
     private val connectivity: ConnectivityObserver,
     private val tokens: AccessTokenProvider,
     private val clock: Clock = Clock.System,
+    // Optional so existing tests construct the manager unchanged; production DI always passes it.
+    private val proofDao: PaymentProofDao? = null,
 ) : ReceiptUploadDriver {
     // App-lifetime scope (mirrors SupabaseAuthSession's own scope). Created once; never cancelled.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -116,6 +120,12 @@ class ReceiptUploadManager(
     /** Live pending/failed uploads for an expense, for the in-progress thumbnails + progress rings. */
     fun observe(expenseId: ExpenseId): Flow<List<ReceiptUpload>> =
         uploadDao.observeByExpense(expenseId.value).map { rows -> rows.map { it.toDomain() } }
+
+    /** Live pending/failed payment-proof uploads in a group, keyed by the payment's chain id. */
+    fun observeProofUploads(groupId: GroupId): Flow<Map<String, ReceiptUpload>> =
+        uploadDao.observeProofsByGroup(groupId.value).map { rows ->
+            rows.associate { row -> row.settlementId.orEmpty() to row.toDomain() }
+        }
 
     /** Hook the pipeline into the app lifecycle: recover stranded work, drain once, re-drain on reconnect. */
     private fun bind(scope: CoroutineScope) {
@@ -198,6 +208,43 @@ class ReceiptUploadManager(
                 ),
             )
         }
+        scheduler.schedule()
+        return AppResult.Ok(Unit)
+    }
+
+    /**
+     * Queue [staged] as the screenshot for the payment chain [chainId] and kick the background pipeline.
+     * Only the first file is used: a payment has one proof (docs/features/payment-proof.md); any other
+     * staged copies are discarded. Any upload already queued for this chain is cancelled, so the newest
+     * pick wins even before the earlier one landed.
+     */
+    suspend fun attachProof(
+        chainId: String,
+        groupId: GroupId,
+        staged: List<StagedReceipt>,
+    ): AppResult<Unit> {
+        val proof = staged.firstOrNull() ?: return AppResult.Ok(Unit)
+        discardStaged(staged.drop(1))
+        val uid = auth.currentUserId.value ?: return notSignedIn()
+        uploadDao.all().filter { it.settlementId == chainId }.forEach { cancel(it.id) }
+        val now = clock.nowEpochMillis()
+        uploadDao.upsert(
+            ReceiptUploadEntity(
+                id = proof.id,
+                expenseId = "",
+                settlementId = chainId,
+                groupId = groupId.value,
+                uploadedBy = uid.value,
+                fileName = proof.fileName,
+                mimeType = proof.mimeType,
+                storagePath = "${groupId.value}/payments/$chainId/${proof.id}.${proof.extension}",
+                localPath = proof.localPath,
+                sizeBytes = proof.sizeBytes,
+                status = ReceiptUploadStatus.PENDING.name,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
         scheduler.schedule()
         return AppResult.Ok(Unit)
     }
@@ -300,6 +347,11 @@ class ReceiptUploadManager(
     override suspend fun reportSuccess(id: String) {
         val row = uploadDao.getById(id) ?: return
         val now = clock.nowEpochMillis()
+        val chainId = row.settlementId
+        if (chainId != null && proofDao != null) {
+            publishProof(row, chainId, now)
+            return
+        }
         // Publish the real (synced) receipt row — this is what reaches peers via the sync engine.
         receiptDao.upsert(
             ReceiptEntity(
@@ -332,6 +384,35 @@ class ReceiptUploadManager(
         fileStore.delete(row.localPath)
     }
 
+    /**
+     * A proof's bytes landed: publish the synced `payment_proofs` row, then retire the chain's older proof.
+     * In that order, so a crash in between leaves two proofs (the newest shown) rather than none.
+     */
+    private suspend fun publishProof(
+        row: ReceiptUploadEntity,
+        chainId: String,
+        now: Long,
+    ) {
+        val dao = proofDao ?: return
+        dao.upsert(
+            PaymentProofEntity(
+                id = row.id,
+                settlementId = chainId,
+                groupId = row.groupId,
+                uploadedBy = row.uploadedBy,
+                storagePath = row.storagePath,
+                url = ReceiptUploadEndpoints.publicUrl(row.storagePath),
+                mimeType = row.mimeType,
+                sizeBytes = row.sizeBytes,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        dao.liveForChain(chainId).filter { it.id != row.id }.forEach { dao.softDelete(it.id, now) }
+        uploadDao.delete(row.id)
+        fileStore.delete(row.localPath)
+    }
+
     override suspend fun reportFailure(
         id: String,
         error: String?,
@@ -349,6 +430,7 @@ class ReceiptUploadManager(
             bytesUploaded = bytesUploaded,
             status = ReceiptUploadStatus.fromName(status),
             lastError = lastError,
+            settlementId = settlementId,
         )
 
     private fun notSignedIn(): AppResult<Nothing> = AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()

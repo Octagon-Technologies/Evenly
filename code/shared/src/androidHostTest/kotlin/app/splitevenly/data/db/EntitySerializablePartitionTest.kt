@@ -18,6 +18,7 @@ import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PersonLinkEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
@@ -63,6 +64,7 @@ class EntitySerializablePartitionTest {
             CommentEntity::class to typeOf<CommentEntity>(),
             ExpenseBlockedUserEntity::class to typeOf<ExpenseBlockedUserEntity>(),
             ReceiptEntity::class to typeOf<ReceiptEntity>(),
+            PaymentProofEntity::class to typeOf<PaymentProofEntity>(),
             CategoryEntity::class to typeOf<CategoryEntity>(),
             HistoryEventEntity::class to typeOf<HistoryEventEntity>(),
             ExpenseItemEntity::class to typeOf<ExpenseItemEntity>(),

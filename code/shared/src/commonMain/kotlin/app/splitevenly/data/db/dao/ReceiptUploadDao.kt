@@ -16,6 +16,10 @@ interface ReceiptUploadDao {
     @Query("SELECT * FROM receipt_uploads WHERE expense_id = :expenseId ORDER BY created_at ASC")
     fun observeByExpense(expenseId: String): Flow<List<ReceiptUploadEntity>>
 
+    /** Live pending/failed payment-proof uploads in a group, for the "uploading" state on a payment. */
+    @Query("SELECT * FROM receipt_uploads WHERE group_id = :groupId AND settlement_id IS NOT NULL ORDER BY created_at ASC")
+    fun observeProofsByGroup(groupId: String): Flow<List<ReceiptUploadEntity>>
+
     /** Every outstanding upload — the work-list the background uploader drains. */
     @Query("SELECT * FROM receipt_uploads ORDER BY created_at ASC")
     suspend fun all(): List<ReceiptUploadEntity>

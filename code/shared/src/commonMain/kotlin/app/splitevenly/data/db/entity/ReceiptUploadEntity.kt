@@ -24,49 +24,43 @@ data class ReceiptUploadEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
     val id: String,
-
+    /** The bill a receipt belongs to; empty for a payment proof (then [settlementId] is set). */
     @ColumnInfo(name = "expense_id")
     val expenseId: String,
-
+    /**
+     * Set when this upload is a payment proof (docs/features/payment-proof.md): the payment's chain id. On
+     * success the uploader publishes a `payment_proofs` row instead of a `receipts` row. The bytes, retries
+     * and platform transfer are identical, which is why proofs share this queue rather than a second one.
+     */
+    @ColumnInfo(name = "settlement_id")
+    val settlementId: String? = null,
     @ColumnInfo(name = "group_id")
     val groupId: String,
-
     @ColumnInfo(name = "uploaded_by")
     val uploadedBy: String,
-
     @ColumnInfo(name = "file_name")
     val fileName: String,
-
     @ColumnInfo(name = "mime_type")
     val mimeType: String,
-
     /** Object key inside the receipts bucket, e.g. `<groupId>/<expenseId>/<id>.jpg`. Fixed at enqueue. */
     @ColumnInfo(name = "storage_path")
     val storagePath: String,
-
     /** Absolute path to the app-private copy of the (already compressed) bytes. */
     @ColumnInfo(name = "local_path")
     val localPath: String,
-
     @ColumnInfo(name = "size_bytes")
     val sizeBytes: Long,
-
     @ColumnInfo(name = "bytes_uploaded")
     val bytesUploaded: Long = 0,
-
     /** One of [app.splitevenly.domain.activity.ReceiptUploadStatus]'s names. */
     @ColumnInfo(name = "status")
     val status: String,
-
     @ColumnInfo(name = "retry_count")
     val retryCount: Int = 0,
-
     @ColumnInfo(name = "last_error")
     val lastError: String? = null,
-
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
-
     @ColumnInfo(name = "updated_at")
     val updatedAt: Long,
 )

@@ -38,6 +38,8 @@ data class ReceiptUpload(
     val status: ReceiptUploadStatus,
     /** Why the last attempt failed, for the FAILED thumbnail's detail — null unless [status] is FAILED. */
     val lastError: String? = null,
+    /** Set for a payment proof: the payment's chain id (see `PaymentProofEntity.settlementId`). */
+    val settlementId: String? = null,
 ) {
     val isPdf: Boolean get() = mimeType.contains("pdf", ignoreCase = true)
 

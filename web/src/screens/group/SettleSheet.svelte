@@ -13,6 +13,8 @@
   import { amount, money, parseAmount, symbol } from '../../lib/format.ts';
   import type { GroupStore } from '../../lib/group.svelte.ts';
   import type { Debt } from '../../lib/money/balances.ts';
+  import type { ProofFile } from '../../lib/api.ts';
+  import ProofPicker from '../../components/ProofPicker.svelte';
 
   interface Props {
     store: GroupStore;
@@ -40,6 +42,7 @@
   let picked = $state<Debt | null>(first);
   let text = $state(first ? amount(first.amountSubunits, first.currency) : '');
   let problem = $state<string | null>(null);
+  let proof = $state<ProofFile | null>(null);
   // "They paid me": the guest is the one owed, so the other person is the debtor.
   const received = $derived(!!picked && picked.creditorUserId === store.me);
   const other = $derived(picked ? store.name(received ? picked.debtorUserId : picked.creditorUserId) : '');
@@ -67,7 +70,7 @@
       return;
     }
     const who = other;
-    const res = await store.pay(picked, subunits, forExpense?.id ?? null);
+    const res = await store.pay(picked, subunits, forExpense?.id ?? null, proof);
     if (res) problem = res;
     else ondone(`Recorded. ${who} will see it.`);
   }
@@ -115,6 +118,9 @@
     <p class="helper">
       {received ? `Up to the ${money(picked.amountSubunits, picked.currency)} left. Paid part of it? Enter just what you got.` : `Paying back up to your ${money(picked.amountSubunits, picked.currency)}. Send it however you two usually do.`}
     </p>
+  {/if}
+  {#if picked}
+    <ProofPicker otherName={other} value={proof} onchange={(f) => (proof = f)} />
   {/if}
   {#if problem}<div class="note note--amber" role="alert">{problem}</div>{/if}
   <button type="button" class="btn" aria-busy={store.busy} onclick={save}>

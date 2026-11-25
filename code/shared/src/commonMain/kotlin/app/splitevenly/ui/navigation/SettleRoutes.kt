@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.SettlementId
@@ -62,6 +63,8 @@ fun SettlePersonRoute(
     val coveredTitles by remember(gid) { settlements.observeCoveredExpenseTitles(gid) }.collectAsStateWithLifecycle(emptyMap())
     val scope = rememberCoroutineScope()
     val today = remember { Clock.System.localToday() }
+    val proofs = rememberPaymentProofs(gid, userId)
+    val stagedProof = rememberStagedProof(proofs)
 
     val peer = members.firstOrNull { it.userId == peerId }
     val peerName = peer?.displayName ?: "Someone"
@@ -87,22 +90,25 @@ fun SettlePersonRoute(
         val me = userId ?: return
         if (amount <= 0 || expenseIds.isEmpty()) return
         scope.launch {
-            settlements.applySettlement(
-                NewSettlement(
-                    groupId = gid,
-                    fromUserId = me,
-                    toUserId = peerId,
-                    paymentCurrency = currency,
-                    paymentAmountSubunits = amount,
-                    createdBy = me,
-                    // Scope to exactly what the user ticked, so paying the Uber clears the Uber (not the
-                    // oldest outstanding expense to this peer).
-                    expenseIds = expenseIds.map { ExpenseId(it) },
-                    paymentApp = app?.name,
-                    deepLinkAttempted = app != null,
-                    deepLinkSucceeded = if (app != null) linkConfirmed else null,
-                ),
-            )
+            val recorded =
+                settlements.applySettlement(
+                    NewSettlement(
+                        groupId = gid,
+                        fromUserId = me,
+                        toUserId = peerId,
+                        paymentCurrency = currency,
+                        paymentAmountSubunits = amount,
+                        createdBy = me,
+                        // Scope to exactly what the user ticked, so paying the Uber clears the Uber (not the
+                        // oldest outstanding expense to this peer).
+                        expenseIds = expenseIds.map { ExpenseId(it) },
+                        paymentApp = app?.name,
+                        deepLinkAttempted = app != null,
+                        deepLinkSucceeded = if (app != null) linkConfirmed else null,
+                    ),
+                )
+            // The screenshot uploads only once the payment it belongs to exists.
+            if (recorded is AppResult.Ok) stagedProof.consume()?.let { proofs.attach(recorded.value.chainId, it) }
             onSettled()
         }
     }
@@ -118,7 +124,7 @@ fun SettlePersonRoute(
     val pairPayments =
         allPayments
             .filter { (it.fromUserId == userId && it.toUserId == peerId) || (it.fromUserId == peerId && it.toUserId == userId) }
-            .map { s -> paymentUi(s, userId, s.paymentAmountSubunits, coveredTitles[s.id]?.size ?: 1) { nameOf(it) } }
+            .map { s -> proofs.decorate(paymentUi(s, userId, s.paymentAmountSubunits, coveredTitles[s.id]?.size ?: 1) { nameOf(it) }) }
 
     SettlePersonScreen(
         peerName = peerName,
@@ -137,6 +143,11 @@ fun SettlePersonRoute(
         previewPayment = { id, amount -> paymentPreview(settlements, id, amount, currency, scopeExpenseId = null) },
         onSavePayment = { id, amount -> savePaymentEdit(settlements, id, amount, userId, scopeExpenseId = null) },
         onRemovePayment = { id -> scope.launch { settlements.voidSettlement(SettlementId(id), userId) } },
+        proofModel = stagedProof.model,
+        onPickProof = { scope.launch { proofs.pick()?.let { stagedProof.replace(it, proofs) } } },
+        onRemoveStagedProof = { stagedProof.replace(null, proofs) },
+        onAddProof = { p -> scope.launch { proofs.pickAndAttach(p.chainId) } },
+        onRemoveProof = { p -> p.proofId?.let { id -> scope.launch { proofs.remove(id) } } },
     )
 }
 
@@ -169,6 +180,8 @@ fun SettleSingleRoute(
     // Closing is driven by the sheet's own slide-out: the payment is recorded first, then this flips
     // and [SettleSingleSheet] animates away, calling back when it's actually gone.
     var settled by remember { mutableStateOf(false) }
+    val proofs = rememberPaymentProofs(gid, userId)
+    val stagedProof = rememberStagedProof(proofs)
 
     val ews = detail ?: return // brief blank scrim while the expense loads
     val e = ews.expense
@@ -192,22 +205,24 @@ fun SettleSingleRoute(
             return
         }
         scope.launch {
-            settlements.applySettlement(
-                NewSettlement(
-                    groupId = gid,
-                    fromUserId = me,
-                    toUserId = payerId,
-                    paymentCurrency = e.currency,
-                    paymentAmountSubunits = amount,
-                    createdBy = me,
-                    // Single-expense settle: confine the payment to this expense so a partial pay
-                    // visibly pays *this* expense down (not the oldest one to the payer).
-                    expenseId = eid,
-                    paymentApp = app?.name,
-                    deepLinkAttempted = app != null,
-                    deepLinkSucceeded = if (app != null) linkConfirmed else null,
-                ),
-            )
+            val recorded =
+                settlements.applySettlement(
+                    NewSettlement(
+                        groupId = gid,
+                        fromUserId = me,
+                        toUserId = payerId,
+                        paymentCurrency = e.currency,
+                        paymentAmountSubunits = amount,
+                        createdBy = me,
+                        // Single-expense settle: confine the payment to this expense so a partial pay
+                        // visibly pays *this* expense down (not the oldest one to the payer).
+                        expenseId = eid,
+                        paymentApp = app?.name,
+                        deepLinkAttempted = app != null,
+                        deepLinkSucceeded = if (app != null) linkConfirmed else null,
+                    ),
+                )
+            if (recorded is AppResult.Ok) stagedProof.consume()?.let { proofs.attach(recorded.value.chainId, it) }
             settled = true
         }
     }
@@ -225,5 +240,8 @@ fun SettleSingleRoute(
         },
         onConfirmPaid = { amount, app -> record(amount, app, linkConfirmed = true) },
         onMarkPaid = { amount -> record(amount, app = null, linkConfirmed = false) },
+        proofModel = if (proofs.available) stagedProof.model else null,
+        onPickProof = { scope.launch { proofs.pick()?.let { stagedProof.replace(it, proofs) } } },
+        onRemoveProof = { stagedProof.replace(null, proofs) },
     )
 }

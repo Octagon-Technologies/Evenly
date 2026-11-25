@@ -7,6 +7,7 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.domain.activity.Comment
 import app.splitevenly.domain.activity.HistoryEvent
+import app.splitevenly.domain.activity.PaymentProof
 import app.splitevenly.domain.activity.Receipt
 import kotlinx.coroutines.flow.Flow
 
@@ -17,12 +18,15 @@ import kotlinx.coroutines.flow.Flow
  * Supabase Storage on write (the only artifact that can't live purely in the local cache).
  */
 interface ActivityRepository {
-
     // ── Comments ────────────────────────────────────────────────────────────
     fun observeComments(expenseId: ExpenseId): Flow<List<Comment>>
 
     /** Post [body] as the current user; trims + rejects blank. [groupId] scopes the row for sync/RLS. */
-    suspend fun postComment(expenseId: ExpenseId, groupId: GroupId, body: String): AppResult<Comment>
+    suspend fun postComment(
+        expenseId: ExpenseId,
+        groupId: GroupId,
+        body: String,
+    ): AppResult<Comment>
 
     suspend fun deleteComment(commentId: CommentId): AppResult<Unit>
 
@@ -45,4 +49,10 @@ interface ActivityRepository {
 
     // ── History ─────────────────────────────────────────────────────────────
     fun observeHistory(expenseId: ExpenseId): Flow<List<HistoryEvent>>
+
+    /** A group's live payment proofs, keyed by payment chain id (the newest per chain). */
+    fun observePaymentProofs(groupId: GroupId): Flow<Map<String, PaymentProof>>
+
+    /** Take a payment's screenshot off (soft delete; the Storage object is freed best-effort). */
+    suspend fun removePaymentProof(proofId: String): AppResult<Unit>
 }
