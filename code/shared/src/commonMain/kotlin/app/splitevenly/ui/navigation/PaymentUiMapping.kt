@@ -1,5 +1,8 @@
 package app.splitevenly.ui.navigation
 
+import app.splitevenly.domain.settlement.NewSettlement
+import app.splitevenly.core.time.localNoonEpochMillis
+import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
@@ -8,14 +11,13 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.core.time.shortDateTime
 import app.splitevenly.domain.repository.SettlementRepository
-import app.splitevenly.domain.settlement.PaymentApp
 import app.splitevenly.domain.settlement.PaymentEditRefusal
 import app.splitevenly.domain.settlement.SettlementRecord
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.screen.settle.PaymentPreviewLineUi
 import app.splitevenly.ui.screen.settle.PaymentPreviewUi
 import app.splitevenly.ui.screen.settle.PaymentUi
-import app.splitevenly.ui.screen.settle.appLabel
+import app.splitevenly.ui.screen.expense.paymentMethodLabel
 
 /**
  * A payment row for a payments list. [shownSubunits] is what the row is about (this bill's portion on a
@@ -37,10 +39,13 @@ internal fun paymentUi(
         toMe = record.toUserId == viewer,
         totalSubunits = record.paymentAmountSubunits,
         billCount = billCount,
-        app = record.paymentApp?.let { name -> runCatching { PaymentApp.valueOf(name).appLabel }.getOrDefault(name) },
+        app = paymentMethodLabel(record.paymentApp),
         dateLabel = shortDate(record.settledAt),
         dateTimeLabel = shortDateTime(record.settledAt),
         recordedBy = record.createdBy?.let { if (it == viewer) "you" else nameOf(it) }.orEmpty(),
+        fromUserId = record.fromUserId.value,
+        storedMethod = record.paymentApp,
+        settledAt = record.settledAt,
     )
 
 /** The edit sheet's preview for an entered amount, with the refusal said in plain words. */
@@ -74,9 +79,12 @@ internal suspend fun savePaymentEdit(
     amountSubunits: Long,
     actor: UserId?,
     scopeExpenseId: ExpenseId?,
+    paymentApp: String? = null,
+    settledAt: Long? = null,
 ): String? {
     if (actor == null) return "Sign in to change this payment."
-    return when (val r = settlements.editSettlement(SettlementId(settlementId), amountSubunits, actor, scopeExpenseId)) {
+    val r = settlements.editSettlement(SettlementId(settlementId), amountSubunits, actor, scopeExpenseId, paymentApp, settledAt)
+    return when (r) {
         is AppResult.Ok -> {
             null
         }
@@ -88,6 +96,45 @@ internal suspend fun savePaymentEdit(
                 "That amount is more than what's owed. Try a smaller one."
             }
         }
+    }
+}
+
+/**
+ * Records a payment on one bill, from the person who owed to the person who paid it. Returns the reason
+ * it was refused, or null once it is saved. A payment dated today keeps the real time; an earlier day is
+ * stored at local noon, since only the day was picked.
+ */
+internal suspend fun recordBillPayment(
+    settlements: SettlementRepository,
+    groupId: GroupId,
+    expenseId: ExpenseId,
+    currency: String,
+    from: UserId,
+    to: UserId,
+    actor: UserId?,
+    amountSubunits: Long,
+    method: String?,
+    date: String,
+    today: String,
+): String? {
+    if (actor == null) return "Sign in to record a payment."
+    val r =
+        settlements.applySettlement(
+            NewSettlement(
+                groupId = groupId,
+                fromUserId = from,
+                toUserId = to,
+                paymentCurrency = currency,
+                paymentAmountSubunits = amountSubunits,
+                createdBy = actor,
+                expenseId = expenseId,
+                paymentApp = method,
+                settledAt = if (date == today) null else localNoonEpochMillis(date),
+            ),
+        )
+    return when (r) {
+        is AppResult.Ok -> null
+        is AppResult.Err -> "That's more than what's left. It may have been paid already, so check History."
     }
 }
 

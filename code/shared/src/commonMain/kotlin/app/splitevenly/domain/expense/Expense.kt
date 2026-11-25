@@ -18,7 +18,6 @@ data class Expense(
     val currency: String,
     val expenseDate: String,
     val payerUserId: UserId?,
-    val payerOutsideName: String?,
     val splitMode: String,
     val status: String,
     val notes: String?,
@@ -79,7 +78,6 @@ data class NewExpense(
     val splitMode: String,
     val createdBy: UserId,
     val shares: List<NewShare>,
-    val payerOutsideName: String? = null,
     val notes: String? = null,
     val categoryId: String? = null,
     // Analytics-only: true when the items came from a completed receipt scan, never persisted.
@@ -100,7 +98,6 @@ data class EditExpense(
     val payerUserId: UserId?,
     val splitMode: String,
     val shares: List<NewShare>,
-    val payerOutsideName: String? = null,
     val notes: String? = null,
     val categoryId: String? = null,
     /** Who is performing the edit — recorded on the expense's activity log. Null = unattributed. */

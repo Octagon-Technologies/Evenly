@@ -58,7 +58,6 @@ val dataModule: Module =
         single { get<EvenlyDatabase>().settlementDao() }
         single { get<EvenlyDatabase>().fxRateDao() }
         single { get<EvenlyDatabase>().fxCurrencyDao() }
-        single { get<EvenlyDatabase>().conflictDao() }
         single { get<EvenlyDatabase>().expenseEditConflictDao() }
         single { get<EvenlyDatabase>().commentDao() }
         single { get<EvenlyDatabase>().receiptDao() }
@@ -90,8 +89,6 @@ val dataModule: Module =
         // GroupRepository takes the optional remote gateway so join-by-link resolves never-synced groups (F7).
         single<GroupRepository> {
             GroupRepositoryImpl(
-                get(),
-                get(),
                 get(),
                 get(),
                 get(),

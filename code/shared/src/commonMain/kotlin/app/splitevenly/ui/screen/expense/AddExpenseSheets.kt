@@ -33,6 +33,7 @@ import app.splitevenly.domain.expense.GroupCategory
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.EvAvatar
+import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvModalScaffold
@@ -50,14 +51,17 @@ private val CurrencyChoices = listOf("USD", "EUR", "GBP", "MXN", "CAD", "AUD", "
 
 /** Creates a placeholder member from a typed name (also reachable from inside the payer sheet). */
 @Composable
-internal fun AddParticipantSheet(onAdd: (String) -> Unit, onDismiss: () -> Unit) {
+internal fun AddParticipantSheet(onAdd: (String) -> Unit, onDismiss: () -> Unit, title: String = "Add a participant") {
     val c = EvenlyTheme.colors
     var newName by remember { mutableStateOf("") }
     EvModalScaffold(onDismiss = onDismiss) {
-        Text("Add a participant", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
+        Text(title, color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
         EvField("Name") { EvTextField(newName, { newName = it }, placeholder = "e.g. Bob") }
         Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
             EvButton("Add", { if (newName.isNotBlank()) { onAdd(newName.trim()); onDismiss() } }, enabled = newName.isNotBlank())
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Dismiss)
         }
     }
 }
@@ -155,23 +159,19 @@ internal fun CategorySheet(
 }
 
 /**
- * "Who paid?" — a member, a brand-new placeholder member, or someone outside the group. Picking a member
- * also adds them to the split (they're still removable); an outside payer is never part of it.
+ * "Who paid?" — a member, or a brand-new placeholder member. Picking a member also adds them to the
+ * split (they're still removable). There is no outside payer: an expense nobody in the group has to
+ * repay isn't worth logging.
  */
 @Composable
 internal fun PayerSheet(
     participants: List<AddParticipantUi>,
     effectivePayerId: String,
-    isOutsidePayer: Boolean,
-    outsidePayerName: String?,
     onPickMember: (String) -> Unit,
-    onPickOutside: (String) -> Unit,
     onAddSomeoneNew: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
-    var someoneElse by remember { mutableStateOf(isOutsidePayer) }
-    var outsideDraft by remember { mutableStateOf(outsidePayerName ?: "") }
     EvModalScaffold(onDismiss = onDismiss) {
         Text("Who paid?", color = c.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
         participants.forEach { p ->
@@ -185,7 +185,7 @@ internal fun PayerSheet(
             ) {
                 EvAvatar(p.name, me = p.isMe, size = AvatarSize.Sm)
                 Text(p.name, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                if (!isOutsidePayer && p.userId == effectivePayerId) EvIcon(EvIcons.Check, size = 18.dp, tint = c.blueText)
+                if (p.userId == effectivePayerId) EvIcon(EvIcons.Check, size = 18.dp, tint = c.blueText)
             }
         }
         // Add a brand-new person right here (creates a placeholder member) — a member who paid must
@@ -200,38 +200,6 @@ internal fun PayerSheet(
                     EvIcon(EvIcons.Plus, size = 15.dp, tint = c.blueText)
                 }
                 Text("Add someone new", color = c.blueText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            }
-        }
-        // An outside payer (not a group member, not in the split) — clearer than the old "Someone else",
-        // which testers read as "another member".
-        Box(Modifier.topHairline(c.border)) {
-            Row(
-                Modifier.fillMaxWidth().clickable { someoneElse = true }.padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
-                    EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
-                }
-                Text("Someone outside the group", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                if (isOutsidePayer && !someoneElse) EvIcon(EvIcons.Check, size = 18.dp, tint = c.blueText)
-            }
-        }
-        if (someoneElse) {
-            Box(Modifier.padding(top = 4.dp)) {
-                EvField("Their name") { EvTextField(outsideDraft, { outsideDraft = it }, placeholder = "e.g. the Airbnb host") }
-            }
-            Text(
-                "An outside payer isn't part of the split, everyone owes them their share.",
-                color = c.ink3, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 8.dp),
-            )
-            Box(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                EvButton("Done", {
-                    if (outsideDraft.isNotBlank()) {
-                        onPickOutside(outsideDraft.trim())
-                        onDismiss()
-                    }
-                }, enabled = outsideDraft.isNotBlank())
             }
         }
     }

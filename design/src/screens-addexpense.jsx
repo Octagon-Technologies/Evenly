@@ -38,7 +38,6 @@ function AddExpense({ onBack, onSave, initialSplit = '%' }) {
               <span className="row gap8"><Avatar name="You" me size="sm" /> You</span>
               <Icon name="chevD" size={16} style={{ color: 'var(--ink-3)' }} />
             </button>
-            <div className="sc-tiny sc-muted">Can also be "Someone outside the group"</div>
           </Field>
 
           {/* participants */}

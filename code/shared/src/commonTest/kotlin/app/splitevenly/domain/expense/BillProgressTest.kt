@@ -18,7 +18,6 @@ class BillProgressTest {
             "USD",
             "2026-09-30",
             UserId("a"),
-            null,
             SPLIT_MODE_ITEMIZED,
             "ACTIVE",
             null,

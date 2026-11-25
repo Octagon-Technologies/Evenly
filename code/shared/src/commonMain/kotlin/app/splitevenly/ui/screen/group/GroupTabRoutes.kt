@@ -8,16 +8,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
-import app.splitevenly.core.time.shortDate
 import app.splitevenly.core.time.localToday
+import app.splitevenly.core.time.shortDate
 import app.splitevenly.data.claim.ClaimStatus
 import app.splitevenly.data.claim.IdentityPromptSnooze
 import app.splitevenly.data.claim.PlaceholderClaimCoordinator
@@ -37,11 +38,13 @@ import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.settlement.SettlementRecord
 import app.splitevenly.platform.PlatformShare
 import app.splitevenly.ui.components.moneySubunits
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
 
 /**
  * Maps the current user's bilateral [Debt]s to display rows (one per counterparty + currency),
@@ -230,6 +233,8 @@ fun GroupExpensesRoute(
     val share = koinInject<PlatformShare>()
     val inviteToken = group?.inviteToken
     val inviteLink = inviteToken?.let { InviteLink.url(it) } ?: "Generating link…"
+    // True from the tap until the share sheet is on screen: the row shows progress and ignores repeat taps.
+    var sharingInvite by remember { mutableStateOf(false) }
 
     // ── "Is this you?" ───────────────────────────────────────────────────────────────────────────
     val claims = koinInject<PlaceholderClaimCoordinator>()
@@ -325,9 +330,24 @@ fun GroupExpensesRoute(
         },
         onClearFilter = { store.clear(groupId) },
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString(InviteLink.url(it))) } },
-        onShareInvite = { inviteToken?.let { share.shareText("See what you owe and settle up for ${group?.name ?: "our group"}, no app needed: ${InviteLink.url(it)}", "Evenly: ${group?.name ?: "our group"}") } },
+        onShareInvite = {
+            if (!sharingInvite) {
+                sharingInvite = true
+                scope.launch {
+                    // The token lands with the group's first sync; wait for it instead of dropping the tap.
+                    val token = snapshotFlow { group?.inviteToken }.filterNotNull().first()
+                    // The first iOS share sheet of a launch loads every share extension on the main thread
+                    // (about a second). Two frames first, so "Opening share options…" is on screen for it.
+                    repeat(2) { withFrameNanos { } }
+                    share.shareText(InviteLink.shareMessage(group?.name, token), "Join ${group?.name ?: "our group"} on Evenly") {
+                        sharingInvite = false
+                    }
+                }
+            }
+        },
+        sharingInvite = sharingInvite,
         members = members.toMemberRows(userId),
-        onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
+        onAddMember = { name -> groups.addMemberByName(gid, name, userId) },
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,
         identityNames = identityNames,
@@ -427,18 +447,16 @@ fun GroupBalancesRoute(
     )
 }
 
-/** Conflicts tab content, wired: streams unresolved conflicts; Skip dismisses, Include opens the sheet. */
+/** Conflicts tab content, wired: streams parked edit collisions; each card keeps one side. */
 @Composable
 fun GroupConflictsRoute(
     groupId: String,
     onBack: () -> Unit,
-    onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit,
 ) {
     val groups = koinInject<GroupRepository>()
     val expenses = koinInject<ExpenseRepository>()
     val auth = koinInject<AuthSession>()
     val gid = remember(groupId) { GroupId(groupId) }
-    val conflicts by remember(gid) { groups.observeConflicts(gid) }.collectAsStateWithLifecycle(emptyList())
     val editConflicts by remember(gid) { expenses.observeEditConflicts(gid) }.collectAsStateWithLifecycle(emptyList())
     val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
@@ -448,18 +466,6 @@ fun GroupConflictsRoute(
 
     fun nameOf(id: UserId): String = if (id == userId) "You" else nameByUser[id.value] ?: "Someone"
 
-    val uis =
-        conflicts.map { conf ->
-            ConflictUi(
-                conflictId = conf.id,
-                expenseId = conf.expenseId.value,
-                memberUserId = conf.addedUserId.value,
-                memberName = nameOf(conf.addedUserId),
-                title = conf.expenseTitle,
-                amount = conf.amountSubunits / 100.0,
-                by = nameOf(conf.triggeredByUserId),
-            )
-        }
     val editUis =
         editConflicts.map { ec ->
             val cur = ec.current
@@ -479,7 +485,7 @@ fun GroupConflictsRoute(
 
             fun possessive(name: String) = if (name == "You") "yours" else "$name's"
 
-            fun payerLabel(side: ConflictSide) = side.payerUserId?.let { nameOf(it) } ?: side.payerOutsideName ?: "—"
+            fun payerLabel(side: ConflictSide) = side.payerUserId?.let { nameOf(it) } ?: "—"
 
             // Only surface fields that actually differ between the two versions — that's the decision surface.
             val rows =
@@ -496,7 +502,7 @@ fun GroupConflictsRoute(
                     if (cur.splitMode != rej.splitMode) {
                         add(ConflictRowUi("Split", humanizeSplitMode(cur.splitMode), humanizeSplitMode(rej.splitMode)))
                     }
-                    if (cur.payerUserId != rej.payerUserId || cur.payerOutsideName != rej.payerOutsideName) {
+                    if (cur.payerUserId != rej.payerUserId) {
                         add(ConflictRowUi("Paid by", payerLabel(cur), payerLabel(rej)))
                     }
                     if (cur.title != rej.title) {
@@ -549,61 +555,9 @@ fun GroupConflictsRoute(
             )
         }
     GroupConflictsTab(
-        memberName = conflicts.firstOrNull()?.let { nameOf(it.addedUserId) } ?: "New members",
-        conflicts = uis,
         editConflicts = editUis,
         onBack = onBack,
-        onInclude = { ui -> onIncludeNav(ui.conflictId, ui.expenseId, ui.memberUserId) },
-        onSkip = { ui -> scope.launch { groups.resolveConflict(ui.conflictId, include = false) } },
         onKeepCurrent = { ui -> scope.launch { expenses.resolveEditConflict(ui.conflictId, useRejected = false, resolvedBy = userId) } },
         onUseRejected = { ui -> scope.launch { expenses.resolveEditConflict(ui.conflictId, useRejected = true, resolvedBy = userId) } },
-    )
-}
-
-/** Include-member sheet, wired: loads the conflicted expense + split, resolves the conflict on confirm. */
-@Composable
-fun IncludeMemberRoute(
-    groupId: String,
-    conflictId: String,
-    expenseId: String,
-    memberUserId: String,
-    onDismiss: () -> Unit,
-    onConfirmed: () -> Unit,
-) {
-    val expenses = koinInject<ExpenseRepository>()
-    val groups = koinInject<GroupRepository>()
-    val auth = koinInject<AuthSession>()
-    val eid = remember(expenseId) { ExpenseId(expenseId) }
-    val gid = remember(groupId) { GroupId(groupId) }
-    val detail by remember(eid) { expenses.observeExpense(eid) }.collectAsStateWithLifecycle(null)
-    val members by remember(gid) { groups.observeMembers(gid) }.collectAsStateWithLifecycle(emptyList())
-    val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-    var saving by remember { mutableStateOf(false) }
-
-    val ews = detail ?: return // brief blank scrim while the conflicted expense loads
-    val nameByUser = members.associate { it.userId.value to (it.displayName ?: "Someone") }
-
-    fun nameOf(id: UserId): String = if (id == userId) "You" else nameByUser[id.value] ?: "Someone"
-
-    IncludeMemberSheet(
-        memberName = nameOf(UserId(memberUserId)),
-        expenseTitle = ews.expense.title,
-        expenseAmountSubunits = ews.expense.amountSubunits,
-        currencyCode = ews.expense.currency,
-        currentSplit = ews.shares.map { nameOf(it.userId) to it.owedSubunits },
-        saving = saving,
-        onDismiss = onDismiss,
-        onConfirm = { share ->
-            saving = true
-            scope.launch {
-                if (groups.resolveConflict(conflictId, include = true, newShareSubunits = share) is AppResult.Ok) {
-                    onConfirmed()
-                } else {
-                    saving =
-                        false
-                }
-            }
-        },
     )
 }

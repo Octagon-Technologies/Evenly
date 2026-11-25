@@ -12,8 +12,8 @@ import kotlinx.serialization.Serializable
  *   [GroupHome.tab] arg lets a deep link / notification open a specific tab.
  * - [NewGroup] is a real full-screen destination (back arrow, no scrim) — it used to be a bottom
  *   sheet, but a sheet with no drag affordance and tap-outside-only dismissal read as broken to a
- *   first-time tester. [Join] and [IncludeMember] still render as dialog-style destinations so the
- *   screen behind stays visible under a (now lighter) scrim, but each now carries an explicit close control too — see [EvSheetScaffold]/[EvModalScaffold].
+ *   first-time tester. [Join] still renders as a dialog-style destination so the
+ *   screen behind stays visible under a (now lighter) scrim — see [EvSheetScaffold]/[EvModalScaffold].
  *   The expenses-tab Filter sheet is instead a local overlay inside [GroupExpensesRoute], and the
  *   settle sheets are local overlays inside [ExpenseDetailRoute] / [SettlePersonScreen] (not route
  *   pushes), so the screen underneath stays rendered and neither leaves its back-stack entry.
@@ -72,13 +72,6 @@ sealed interface Route {
     @Serializable data class Search(
         val groupId: String,
     ) : Route
-
-    @Serializable data class IncludeMember(
-        val groupId: String,
-        val conflictId: String,
-        val expenseId: String,
-        val memberUserId: String,
-    ) : Route // sheet
 
     // ── Expense ────────────────────────────────────────────────────────
     @Serializable data class ExpenseDetail(

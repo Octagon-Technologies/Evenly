@@ -24,7 +24,7 @@ above the tab island: overlapping avatars + "4 members" + a "+ Add" pill. Tappin
 **Members sheet** listing everyone (reuse the row rendering from GroupSettingsScreen; admin/left
 chips) with two actions at the top: "Invite with link" (share/copy the group link, same as the
 existing `InviteSheet`) and "Add by name" (the existing add-member/placeholder path,
-`ui/screen/group/IncludeMemberSheet.kt` / settings `showAdd`). The share icon in the top bar can
+`AddMemberSheet` in `ui/screen/group/GroupMembers.kt` / settings `showAdd`). The share icon in the top bar can
 then go — one front door, not two. Show 2–3 layout options in the mock.
 
 **Acceptance criteria.**
@@ -93,3 +93,14 @@ Commits: one per task (`feat(group): …` T2, `refactor(group): …` T9, `refact
   `addMemberByName` (all in `ui/screen/group/GroupMembers.kt`) are shared with Group settings. The Add button
   now validates on tap ("Type their name first") instead of greying out. Checked on the iOS sim (dark): solo
   strip, sheet, add-sheet validation. No member was actually added on the dev account.
+- **Members sheet pages** (2026-11-24, mock `design/brainstorm/add-member-pages.html`): "Add by name" and
+  "Show QR code" are now pages *inside* the Members sheet (`ui/screen/group/MembersSheet.kt`), sliding in with a
+  back arrow; Back returns to Members, a swipe down closes the sheet. `InviteSheet` and `AddMemberSheet` are gone,
+  and so is Group settings' "Add member" row (owner call: declutter settings). The Add new member page: field +
+  Add (the keyboard ✓ does the same), the group listed below with the newest add on top and tinted for 3 s, a green
+  "X has been added to the group" bar above the keyboard for 3 s, and the keyboard stays up for the next name. The
+  red bar covers an empty name, a name already in the group (case and spacing ignored; blocked, not added) and a
+  save that failed on the device. Offline is *not* an error: the add is local-first and syncs later.
+  The iOS share-sheet prewarm was removed: it blocked the main thread for 1.1 s (measured on the sim) right after
+  "Add people" opened, which is what made the next tap feel stuck. The first share of a launch now takes that
+  second itself, behind an "Opening…" label.

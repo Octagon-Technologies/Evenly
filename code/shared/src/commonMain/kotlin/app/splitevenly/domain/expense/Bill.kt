@@ -53,7 +53,6 @@ data class NewBill(
     val items: List<NewBillItem>,
     val extras: BillExtrasInput = BillExtrasInput(),
     val participantUserIds: List<UserId> = emptyList(),
-    val payerOutsideName: String? = null,
     val categoryId: String? = null,
 )
 
@@ -65,7 +64,6 @@ data class EditBill(
     val items: List<EditBillItem>,
     val extras: BillExtrasInput,
     val participantUserIds: List<UserId> = emptyList(),
-    val payerOutsideName: String? = null,
     val editedBy: UserId? = null,
 )
 

@@ -29,25 +29,20 @@ import app.splitevenly.ui.theme.EvenlyTheme
 
 /**
  * "Paid by" for the bill editor, reusing the add-expense editor's `PayerSheet` so both editors offer the
- * same choice (a member, a brand-new placeholder, or someone outside the group). Changing the payer saves
+ * same choice (a member or a brand-new placeholder). Changing the payer saves
  * with everything else and is never confirmed: it corrects a fact about the bill, and settlement
  * allocations stay attached to the shares they were applied to.
- *
- * [payerUserId] is blank when an outside payer holds the bill, which is what [outsidePayerName] carries.
  */
 @Composable
 internal fun BillPaidByRow(
     participants: List<ParticipantChipUi>,
     selected: Set<String>,
     payerUserId: String,
-    outsidePayerName: String?,
     onOpenSheet: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
-    val isOutside = !outsidePayerName.isNullOrBlank()
     val payer = participants.firstOrNull { it.userId == payerUserId }
     val display = when {
-        isOutside -> outsidePayerName
         payer == null -> "Choose"
         payer.isMe -> "You"
         else -> payer.name
@@ -59,7 +54,7 @@ internal fun BillPaidByRow(
                 display,
                 onOpenSheet,
                 leading = {
-                    if (isOutside || payer == null) {
+                    if (payer == null) {
                         Box(Modifier.size(28.dp).clip(RoundedCornerShape(99.dp)).background(c.blueTint), contentAlignment = Alignment.Center) {
                             EvIcon(EvIcons.User, size = 15.dp, tint = c.blueText)
                         }
@@ -86,19 +81,14 @@ internal fun BillPaidByRow(
 internal fun BillPayerSheet(
     participants: List<ParticipantChipUi>,
     payerUserId: String,
-    outsidePayerName: String?,
     onPickMember: (String) -> Unit,
-    onPickOutside: (String) -> Unit,
     onAddSomeoneNew: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     PayerSheet(
         participants = participants.map { AddParticipantUi(it.userId, if (it.isMe) "You" else it.name, it.isMe) },
         effectivePayerId = payerUserId,
-        isOutsidePayer = !outsidePayerName.isNullOrBlank(),
-        outsidePayerName = outsidePayerName,
         onPickMember = onPickMember,
-        onPickOutside = onPickOutside,
         onAddSomeoneNew = onAddSomeoneNew,
         onDismiss = onDismiss,
     )

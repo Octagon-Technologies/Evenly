@@ -30,11 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.fx.CurrencyInfo
 import app.splitevenly.domain.fx.FxCurrencyDefaults
 import app.splitevenly.ui.components.ButtonVariant
@@ -52,7 +50,6 @@ import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
-import app.splitevenly.ui.screen.group.AddMemberSheet
 import app.splitevenly.ui.screen.group.MemberRow
 import app.splitevenly.ui.theme.EvenlyTheme
 
@@ -87,12 +84,9 @@ fun GroupSettingsScreen(
     inviteLink: String = "https://split-evenly.app/j/8Kk2-Tulum",
     storageUsedBytes: Long = 212L * 1024 * 1024,
     onBack: () -> Unit = {},
-    onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
     onRename: (name: String, emoji: String) -> Unit = { _, _ -> },
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
-    /** Replaces the group link. Lives here, not on the group page: it is the fix for a link that went too far. */
-    onResetInvite: () -> Unit = {},
     onRemoveMember: (MemberRowUi) -> Unit = {},
     onReconcile: () -> Unit = {},
     /** Names in this group with no account that the viewer hasn't answered. 0 hides the claim row. */
@@ -112,12 +106,10 @@ fun GroupSettingsScreen(
 ) {
     val c = EvenlyTheme.colors
     val t = EvenlyTheme.text
-    var showAdd by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var showLeave by remember { mutableStateOf(false) }
-    var showResetLink by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<MemberRowUi?>(null) }
 
     Column(Modifier.fillMaxSize().background(c.page).systemBarsPadding()) {
@@ -188,13 +180,6 @@ fun GroupSettingsScreen(
                             small = true,
                         )
                     }
-                    // The group link now lets anyone holding it see the group and add expenses on the web,
-                    // so a link forwarded too far needs a way back (docs/features/web-group-page.md, #7).
-                    Text(
-                        "Reset link",
-                        style = t.caption.copy(color = c.blueText, fontWeight = FontWeight.SemiBold),
-                        modifier = Modifier.clickable { showResetLink = true }.padding(vertical = 4.dp),
-                    )
                 }
             }
 
@@ -213,19 +198,6 @@ fun GroupSettingsScreen(
                 }
                 members.forEachIndexed { i, m ->
                     MemberRow(m, showDivider = i > 0 || unclaimedNameCount > 0, onClick = if (m.isMe) null else ({ removeTarget = m }))
-                }
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .then(if (members.isNotEmpty()) Modifier.topHairline(c.border) else Modifier)
-                            .clickable { showAdd = true }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    EvIcon(EvIcons.Plus, size = 18.dp, tint = c.blueText)
-                    Text("Add member", style = t.itemTitle.copy(color = c.blueText))
                 }
             }
 
@@ -302,10 +274,6 @@ fun GroupSettingsScreen(
         }
     }
 
-    if (showAdd) {
-        AddMemberSheet(onAdd = onAddMember, onDismiss = { showAdd = false })
-    }
-
     if (showCurrencyPicker) {
         EvCurrencyPickerModal(
             title = "Group currency",
@@ -366,25 +334,6 @@ fun GroupSettingsScreen(
                 onLeave()
             },
         )
-    }
-
-    if (showResetLink) {
-        EvModalScaffold(onDismiss = { showResetLink = false }) {
-            Text("Reset the group link?", style = t.sheetTitle, modifier = Modifier.padding(bottom = 8.dp))
-            Text(
-                "The current link stops working. Everyone already in the group stays in, and you'll share the new link with anyone else.",
-                style = t.description,
-            )
-            Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                EvButton("Reset link", {
-                    showResetLink = false
-                    onResetInvite()
-                }, variant = ButtonVariant.Danger)
-            }
-            Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                EvButton("Cancel", { showResetLink = false }, variant = ButtonVariant.Dismiss)
-            }
-        }
     }
 
     removeTarget?.let { target ->

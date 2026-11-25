@@ -145,14 +145,6 @@ interface GroupDao {
     )
     suspend fun unsettledBalanceCount(groupId: String): Int
 
-    /** Rotate a group's invite token (Group settings → "Rotate"). */
-    @Query("UPDATE groups SET invite_token = :token, updated_at = :ts, row_version = row_version + 1 WHERE id = :id")
-    suspend fun updateInviteToken(
-        id: String,
-        token: String,
-        ts: Long,
-    )
-
     // --- Writes ---------------------------------------------------------------------------------
 
     /** Member upsert declared here so [createGroupWithAdmin] can write group + member atomically. */

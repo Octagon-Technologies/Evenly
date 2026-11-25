@@ -14,7 +14,7 @@ actual class PlatformShare(context: Context) {
 
     private val appContext = context.applicationContext
 
-    actual fun shareText(text: String, subject: String?) {
+    actual fun shareText(text: String, subject: String?, onShown: () -> Unit) {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
@@ -24,6 +24,7 @@ actual class PlatformShare(context: Context) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         appContext.startActivity(chooser)
+        onShown()
     }
 
     actual fun shareFile(fileName: String, mimeType: String, content: String, subject: String?) {

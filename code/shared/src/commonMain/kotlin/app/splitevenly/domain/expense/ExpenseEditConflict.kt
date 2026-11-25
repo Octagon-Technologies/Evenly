@@ -31,7 +31,6 @@ data class ConflictSide(
     val amountSubunits: Long,
     val splitMode: String,
     val payerUserId: UserId?,
-    val payerOutsideName: String?,
     /** Active participant → what they owe (subunits). Keyed by user so the two sides diff per person. */
     val shares: Map<UserId, Long>,
 )

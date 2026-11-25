@@ -59,6 +59,11 @@ data class NewSettlement(
      *  confirmed it went through (03 §5.2). [deepLinkSucceeded] is null when no link was attempted. */
     val deepLinkAttempted: Boolean = false,
     val deepLinkSucceeded: Boolean? = null,
+    /**
+     * When the money changed hands, if not now: a payment recorded the day after it happened. Epoch
+     * millis; clamped to now, since a payment can't be dated in the future.
+     */
+    val settledAt: Long? = null,
 )
 
 /**

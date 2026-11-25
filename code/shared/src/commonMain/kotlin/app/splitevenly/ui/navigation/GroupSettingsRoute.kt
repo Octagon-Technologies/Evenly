@@ -20,7 +20,6 @@ import app.splitevenly.domain.group.InviteLink
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.platform.PlatformShare
 import app.splitevenly.platform.SecureStorage
-import app.splitevenly.ui.screen.group.addMemberByName
 import app.splitevenly.ui.screen.group.toMemberRows
 import app.splitevenly.ui.screen.settings.GroupDeleteImpactUi
 import app.splitevenly.ui.screen.settings.GroupSettingsScreen
@@ -126,7 +125,6 @@ fun GroupSettingsRoute(
             }
         },
         onBack = onBack,
-        onAddMember = { name, addToPast -> scope.launch { groups.addMemberByName(gid, name, addToPast, userId) } },
         onRename = { name, emoji ->
             // Only a changed emoji counts as a use; re-saving a name shouldn't evict a recent.
             val emojiChanged = emoji != group?.emoji
@@ -138,10 +136,9 @@ fun GroupSettingsRoute(
         onCopyInvite = { inviteToken?.let { clipboard.setText(AnnotatedString(InviteLink.url(it))) } },
         onShareInvite = {
             inviteToken?.let {
-                share.shareText("See what you owe and settle up for ${group?.name ?: "our group"}, no app needed: ${InviteLink.url(it)}", "Evenly: ${group?.name ?: "our group"}")
+                share.shareText(InviteLink.shareMessage(group?.name, it), "Evenly: ${group?.name ?: "our group"}")
             }
         },
-        onResetInvite = { scope.launch { groups.rotateInviteToken(gid) } },
         onRemoveMember = { row -> scope.launch { groups.removeMember(gid, UserId(row.userId)) } },
         onReconcile = onReconcile,
         unclaimedNameCount = unclaimed.size,

@@ -57,6 +57,9 @@ data class ExpenseEntity(
     @ColumnInfo(name = "payer_user_id")
     val payerUserId: String? = null,
 
+    // Dormant: the "someone outside the group" payer was removed (2026-11-24); no row ever used it. The
+    // column stays because the server has it and dropping a Room column needs a table-rebuild migration.
+    // Nothing writes or reads it.
     @ColumnInfo(name = "payer_outside_name")
     val payerOutsideName: String? = null,
 

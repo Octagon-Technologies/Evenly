@@ -36,7 +36,7 @@ class UnclaimedNamesTest {
     fun setUp() {
         db = inMemoryTestDatabase()
         repo = GroupRepositoryImpl(
-            db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(), db.shareDao(), db.conflictDao(),
+            db.groupDao(), db.memberDao(), db.userDao(), db.expenseDao(),
             db.placeholderMergeDao(), db.placeholderClaimAnswerDao(), clockAt("2026-08-01"),
         )
     }

@@ -27,7 +27,7 @@ data class GroupOverviewUi(
  *
  * `byDay` groups expenses by [Expense.expenseDate] (sum of amounts), labeled via [dayLabel] (reused
  * from the Expenses tab). `byMember` groups by payer, summing amounts, naming via [members] — a null
- * or outside payer rolls up under "Outside". `perPerson` divides the total across the member count
+ * payer rolls up under "Outside". `perPerson` divides the total across the member count
  * (guarded against an empty roster). Balances resolve debtor/creditor names from [members],
  * falling back to "Someone"; the current user is NOT specialized to "You" here.
  */

@@ -1,6 +1,5 @@
 package app.splitevenly.ui.screen.group
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -40,11 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.ExpenseCategory
 import app.splitevenly.ui.components.AvatarSize
-import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvBanner
-import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvContextMenu
 import app.splitevenly.ui.components.EvMenuAction
@@ -53,7 +50,6 @@ import app.splitevenly.ui.components.EvEmptyState
 import app.splitevenly.ui.components.EvFab
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvSegmented
-import app.splitevenly.ui.components.EvSheetScaffold
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
@@ -64,7 +60,6 @@ import app.splitevenly.ui.screen.expense.DeleteBillSheet
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import app.splitevenly.ui.theme.categoryColor
-import io.github.alexzhirkevich.qrose.rememberQrCodePainter
 
 data class ExpenseItemUi(
     val id: String,
@@ -144,9 +139,11 @@ fun GroupExpensesTab(
     onOpenDrafts: () -> Unit = {},
     onCopyInvite: () -> Unit = {},
     onShareInvite: () -> Unit = {},
+    // True from a share tap until the OS share sheet is up; the Members sheet's share row shows progress.
+    sharingInvite: Boolean = false,
     // The roster for the members strip (T2). Empty until the members load, which hides the strip.
     members: List<MemberRowUi> = emptyList(),
-    onAddMember: (name: String, addToPast: Boolean) -> Unit = { _, _ -> },
+    onAddMember: suspend (name: String) -> String? = { null },
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
     // "Is this you?" (identity claim). Rendered here because this is where people actually look; the
@@ -166,9 +163,7 @@ fun GroupExpensesTab(
     val c = EvenlyTheme.colors
     val rowActions = ExpenseRowActions(onOpenExpense, onEditExpense, onDeleteExpense)
     var sub by remember { mutableStateOf("Active") }
-    var showInvite by remember { mutableStateOf(false) }
     var showMembers by remember { mutableStateOf(false) }
-    var showAddMember by remember { mutableStateOf(false) }
     // Default open; the collapse choice sticks for the whole visit (state lives above the section so it
     // survives the bills momentarily emptying and re-appearing).
     var claimsExpanded by remember { mutableStateOf(true) }
@@ -379,110 +374,16 @@ fun GroupExpensesTab(
             // way, so the card is still there to try again.
             claimNoticeText != null -> EvUndoToast(claimNoticeText, onDismissClaimNotice, toastModifier, actionLabel = "Got it")
         }
-        if (showInvite) {
-            InviteSheet(
-                groupName = groupName,
-                inviteLink = inviteLink,
-                onCopy = onCopyInvite,
-                onShare = onShareInvite,
-                onDismiss = { showInvite = false },
-            )
-        }
         if (showMembers) {
             MembersSheet(
                 members = members,
+                groupName = groupName,
+                inviteLink = inviteLink,
+                sharingInvite = sharingInvite,
                 onInviteWithLink = onShareInvite,
-                onShowQr = {
-                    showMembers = false
-                    showInvite = true
-                },
-                onAddByName = {
-                    showMembers = false
-                    showAddMember = true
-                },
+                onCopyInvite = onCopyInvite,
+                onAddMember = onAddMember,
                 onDismiss = { showMembers = false },
-            )
-        }
-        if (showAddMember) {
-            AddMemberSheet(onAdd = onAddMember, onDismiss = { showAddMember = false })
-        }
-    }
-}
-
-/**
- * Invite bottom sheet: the group's join link (as a QR) with Share and Copy.
- * Stateless — the link string and the copy/rotate actions are wired by GroupExpensesRoute; only the
- * transient "copied" affirmation lives here, and it resets whenever the link rotates.
- */
-@Composable
-private fun InviteSheet(
-    groupName: String,
-    inviteLink: String,
-    onCopy: () -> Unit,
-    onShare: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val c = EvenlyTheme.colors
-    var copied by remember(inviteLink) { mutableStateOf(false) }
-    EvSheetScaffold(
-        onDismiss = onDismiss,
-        title = "Invite to group",
-        sub = "Anyone with this link joins $groupName. To split just one bill, share that bill's QR instead.",
-    ) {
-        // Scannable QR of the join link — hand the phone across the table instead of typing a URL.
-        // White plate + dark modules so it scans in both light and dark themes. Hidden until the token
-        // syncs: the test is for a real "/j/<token>" link rather than the "Generating link…" sentinel.
-        // Do NOT reinstate a brand-prefix check here — the rebrand silently falsified exactly that and
-        // the QR stopped rendering, because the guard and the link are built in two different files.
-        if (hasInviteToken(inviteLink)) {
-            Box(Modifier.fillMaxWidth().padding(bottom = 12.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White).padding(14.dp)) {
-                    Image(
-                        painter = rememberQrCodePainter(inviteLink),
-                        contentDescription = "QR code to join $groupName",
-                        modifier = Modifier.size(176.dp),
-                    )
-                }
-            }
-        }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(c.surface)
-                .border(1.dp, c.border, RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            EvIcon(EvIcons.Link, size = 16.dp, tint = c.ink3)
-            Text(
-                inviteLink.removePrefix("https://"),
-                modifier = Modifier.weight(1f),
-                color = c.ink,
-                fontSize = 13.sp,
-                fontFamily = EvenlyTheme.monoFamily,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EvButton(
-                text = "Share link",
-                onClick = onShare,
-                modifier = Modifier.weight(1f),
-                leadingIcon = EvIcons.Share,
-            )
-            EvButton(
-                text = if (copied) "Link copied" else "Copy link",
-                onClick = {
-                    onCopy()
-                    copied = true
-                },
-                modifier = Modifier.weight(1f),
-                variant = ButtonVariant.Secondary,
-                leadingIcon = if (copied) EvIcons.Check else EvIcons.Copy,
             )
         }
     }

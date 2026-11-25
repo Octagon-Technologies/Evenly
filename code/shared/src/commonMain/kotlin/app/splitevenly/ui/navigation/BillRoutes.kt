@@ -264,10 +264,9 @@ fun BillEditRoute(
                 discountSubunits = submit.discountSubunits,
                 otherChargesSubunits = submit.otherChargesSubunits,
             )
-        val outsidePayer = submit.payerOutsideName?.takeIf { it.isNotBlank() }
-        val payer = if (outsidePayer != null) null else submit.payerUserId?.let { UserId(it) }
-        // Neither set means the editor had no "Paid by" row at all, so the bill keeps its payer.
-        val keepPayer = outsidePayer == null && payer == null
+        val payer = submit.payerUserId?.takeIf { it.isNotBlank() }?.let { UserId(it) }
+        // Unset means the editor had no "Paid by" row at all, so the bill keeps its payer.
+        val keepPayer = payer == null
         val current = billId
         val saved: ExpenseId =
             if (current == null) {
@@ -278,8 +277,7 @@ fun BillEditRoute(
                             title = submit.title,
                             currency = currency,
                             expenseDate = submit.expenseDate ?: Clock.System.localToday(),
-                            payerUserId = if (outsidePayer != null) null else (payer ?: me),
-                            payerOutsideName = outsidePayer,
+                            payerUserId = payer ?: me,
                             createdBy = me,
                             items = submit.items.map { NewBillItem(it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                             extras = extras,
@@ -301,7 +299,6 @@ fun BillEditRoute(
                         expenseDate =
                             submit.expenseDate ?: before?.expense?.expenseDate ?: existing?.expense?.expenseDate ?: Clock.System.localToday(),
                         payerUserId = if (keepPayer) (before?.expense?.payerUserId ?: me) else payer,
-                        payerOutsideName = if (keepPayer) before?.expense?.payerOutsideName else outsidePayer,
                         items = submit.items.map { EditBillItem(it.id, it.label.trim(), it.quantity, priceToSubunits(it.totalText)) },
                         extras = extras,
                         participantUserIds = submit.participantIds.map { UserId(it) },
@@ -386,7 +383,6 @@ fun BillEditRoute(
         initialSelectedIds = existing?.participants?.mapTo(HashSet()) { it.userId.value } ?: emptySet(),
         // A new bill is paid by whoever is entering it, which is who is holding the receipt.
         initialPayerId = existing?.expense?.payerUserId?.value ?: userId?.value.orEmpty(),
-        initialOutsidePayerName = existing?.expense?.payerOutsideName,
         claimedItemsByUser = existing?.claimedItemsByUser().orEmpty(),
         onBack = {
             // Only a scan that was actually saved has a result to compare against.

@@ -147,6 +147,7 @@ fun EvSheetSurface(
             modifier
                 .fillMaxWidth()
                 .then(if (ios) Modifier.padding(start = 8.dp, end = 8.dp, bottom = if (docked) 0.dp else 8.dp) else Modifier)
+                .then(if (ios && docked) Modifier.offset(y = IosNavIslandTopGap) else Modifier)
                 .clip(shape)
                 .background(c.page)
                 .then(if (ios) Modifier.border(1.dp, c.border, shape) else Modifier)

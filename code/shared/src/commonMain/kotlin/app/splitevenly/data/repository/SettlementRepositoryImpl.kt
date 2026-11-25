@@ -142,7 +142,7 @@ class SettlementRepositoryImpl(
                 paymentApp = input.paymentApp,
                 deepLinkAttempted = input.deepLinkAttempted,
                 deepLinkSucceeded = input.deepLinkSucceeded,
-                settledAt = now,
+                settledAt = input.settledAt?.coerceAtMost(now) ?: now,
                 notes = input.notes,
                 createdBy = input.createdBy.value,
                 createdAt = now,
@@ -265,6 +265,8 @@ class SettlementRepositoryImpl(
         newAmountSubunits: Long,
         actor: UserId?,
         scopeExpenseId: ExpenseId?,
+        paymentApp: String?,
+        settledAt: Long?,
     ): AppResult<SettlementRecord> {
         if (newAmountSubunits <= 0L) {
             return validationErr("amount", AppError.Validation.Reason.OutOfRange)
@@ -307,7 +309,8 @@ class SettlementRepositoryImpl(
             existing.copy(
                 id = newSettlementId,
                 paymentAmountSubunits = respread.newTotalSubunits,
-                settledAt = now,
+                paymentApp = paymentApp ?: existing.paymentApp,
+                settledAt = settledAt?.coerceAtMost(now) ?: existing.settledAt,
                 createdBy = actorId,
                 createdAt = now,
                 updatedAt = now,

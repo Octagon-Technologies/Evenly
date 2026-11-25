@@ -21,7 +21,6 @@ import app.splitevenly.ui.screen.expense.AddExpenseScreen
 import app.splitevenly.ui.screen.expense.ExpenseDetailScreen
 import app.splitevenly.ui.screen.group.FilterRoute
 import app.splitevenly.ui.screen.group.GroupHomeScreen
-import app.splitevenly.ui.screen.group.IncludeMemberRoute
 import app.splitevenly.ui.screen.group.SearchRoute
 import app.splitevenly.ui.screen.home.HomeFilter
 import app.splitevenly.ui.screen.home.HomeScreen
@@ -153,9 +152,6 @@ fun EvenlyNavHost(
                     onSearch = { navController.navigate(Route.Search(r.groupId)) },
                     onOpenSettings = { navController.navigate(Route.GroupSettings(r.groupId)) },
                     onSettlePeer = { peer -> navController.navigate(Route.SettlePerson(r.groupId, peer)) },
-                    onIncludeNav = { conflictId, expenseId, memberUserId ->
-                        navController.navigate(Route.IncludeMember(r.groupId, conflictId, expenseId, memberUserId))
-                    },
                     onClaimNames = {
                         navController.navigate(Route.Reconcile(r.groupId, source = PlaceholderClaimSources.GROUP_HOME))
                     },
@@ -168,17 +164,6 @@ fun EvenlyNavHost(
                 groupId = r.groupId,
                 onBack = { navController.popBackStack() },
                 onOpenExpense = { navController.navigate(Route.ExpenseDetail(r.groupId, it)) },
-            )
-        }
-        composable<Route.IncludeMember> { entry ->
-            val r = entry.toRoute<Route.IncludeMember>()
-            IncludeMemberRoute(
-                groupId = r.groupId,
-                conflictId = r.conflictId,
-                expenseId = r.expenseId,
-                memberUserId = r.memberUserId,
-                onDismiss = { navController.popBackStack() },
-                onConfirmed = { navController.popBackStack() },
             )
         }
 

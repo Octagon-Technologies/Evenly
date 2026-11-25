@@ -184,7 +184,6 @@ class BillRepositoryImpl(
                 currency = input.currency,
                 expenseDate = input.expenseDate,
                 payerUserId = input.payerUserId?.value,
-                payerOutsideName = input.payerOutsideName,
                 splitMode = SPLIT_MODE_ITEMIZED,
                 taxSubunits = input.extras.taxSubunits,
                 otherChargesSubunits = input.extras.otherChargesSubunits,
@@ -300,8 +299,7 @@ class BillRepositoryImpl(
         val newTitle = input.title.trim()
         val amountChanged = amount != existing.amountSubunits
         val payerChanged =
-            input.payerUserId?.value != existing.payerUserId ||
-                input.payerOutsideName != existing.payerOutsideName
+            input.payerUserId?.value != existing.payerUserId
         // Content diff, not just a count/add/remove heuristic: two offsetting line edits (line A +$5,
         // line B −$5) keep the count AND the bill total unchanged, so a size/amount check misses them and
         // the merge silently reverts the split (P0 #2). Compare each surviving line's (quantity, lineTotal).
@@ -339,7 +337,6 @@ class BillRepositoryImpl(
                 amountSubunits = amount,
                 expenseDate = input.expenseDate,
                 payerUserId = input.payerUserId?.value,
-                payerOutsideName = input.payerOutsideName,
                 taxSubunits = input.extras.taxSubunits,
                 otherChargesSubunits = input.extras.otherChargesSubunits,
                 tipSubunits = input.extras.tipSubunits,

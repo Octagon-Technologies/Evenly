@@ -107,7 +107,7 @@ private fun Expense.toItemUi(
     shares: List<ExpenseShare>,
 ): ExpenseItemUi {
     val payer = when {
-        payerUserId == null -> payerOutsideName ?: "Someone"
+        payerUserId == null -> "Someone"
         payerUserId == currentUserId -> "You"
         else -> nameByUser[payerUserId.value] ?: "Someone"
     }

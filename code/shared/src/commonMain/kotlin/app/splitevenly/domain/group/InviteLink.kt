@@ -14,6 +14,15 @@ object InviteLink {
     fun url(token: String): String = "https://$HOST/j/$token"
 
     /**
+     * The text the group's Share button sends. The link leads so chat apps unfurl it, and the sentence
+     * ends on "No app needed." because that is what gets a friend without Evenly to tap it.
+     */
+    fun shareMessage(
+        groupName: String?,
+        token: String,
+    ): String = "${url(token)}\nSee what you owe and settle up for ${groupName ?: "our group"} on the web. No app needed."
+
+    /**
      * The invite token in [raw], or null when [raw] holds no invite. Finds the link anywhere in the text,
      * so pasting the whole share message works. Accepts the https form (with or without scheme or
      * `www.`), the legacy `splitevenly://j/<token>` deep link, and a bare token.

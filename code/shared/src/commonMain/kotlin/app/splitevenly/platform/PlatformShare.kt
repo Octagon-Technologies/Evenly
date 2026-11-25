@@ -13,8 +13,12 @@ package app.splitevenly.platform
  * Call on the main thread on iOS (it touches `UIApplication`).
  */
 expect class PlatformShare {
-    /** Present the OS share sheet for [text]; [subject] seeds the subject line where a target supports it (email). */
-    fun shareText(text: String, subject: String? = null)
+    /**
+     * Present the OS share sheet for [text]; [subject] seeds the subject line where a target supports it
+     * (email) and titles the iOS link preview. [onShown] fires once the sheet is on screen (or could not be
+     * presented), so a caller can show progress and block repeat taps until then.
+     */
+    fun shareText(text: String, subject: String? = null, onShown: () -> Unit = {})
 
     /**
      * Write [content] to a temporary file named [fileName] and share *the file*, so the receiving app

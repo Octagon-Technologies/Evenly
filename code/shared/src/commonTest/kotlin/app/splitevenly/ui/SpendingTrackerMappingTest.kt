@@ -97,7 +97,6 @@ class SpendingTrackerMappingTest {
         currency = "USD",
         expenseDate = "2026-06-15",
         payerUserId = payer,
-        payerOutsideName = null,
         splitMode = "EXACT",
         status = "ACTIVE",
         notes = null,

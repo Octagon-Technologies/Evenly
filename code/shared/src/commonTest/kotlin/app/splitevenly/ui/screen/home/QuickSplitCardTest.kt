@@ -37,7 +37,6 @@ class QuickSplitCardTest {
             currency = "USD",
             expenseDate = "2026-11-22",
             payerUserId = me,
-            payerOutsideName = null,
             splitMode = "EVEN",
             status = "ACTIVE",
             notes = null,

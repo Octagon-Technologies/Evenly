@@ -103,7 +103,10 @@ ShareCost-era and is fully retired; do not reintroduce it.
   `EvModalScaffold` (owner call, 2026-11-24, `design/brainstorm/close-button-audit.html`). Every bottom
   sheet closes on Back, a tap outside, and a swipe down **anywhere on it** (`rememberSheetSwipe`: a
   scrolling body hands over its pull once at the top). A hand-rolled sheet (`CameraPermissionSheet`) must
-  use the same helper. A centered pop-up that is a confirm or a small form ends with a "Cancel"
+  use the same helper. With the keyboard up, a sheet sits right on it: `imeAndDoneBarPadding` pads only
+  the part of the keyboard that overlaps the container (a group-page sheet already ends above the tab bar).
+  The keyboard "Done" bar (`EvKeyboardDoneBar`) shows only for a keyboard with no return key (number pad,
+  multi-line). A single-line `EvTextField` hides it (`claimsReturnKey`), and its return key does the action. A centered pop-up that is a confirm or a small form ends with a "Cancel"
   (`ButtonVariant.Dismiss`); a picker that applies on tap needs none. Don't add a per-screen ✕.
 
 - **Buttons never cast a shadow** (`design/brainstorm/button-states.html`). Primary is filled blue,
@@ -197,6 +200,18 @@ day before. A receipt's date fills the chip only through `trustedReceiptDate` an
 one by hand. The scan review ends in two buttons, "Assign items" and "Share link" (`BillNext`), which land
 over the bill's details and skip the chooser.
 
+**Payments live on the bill row, not in a section of their own.** Each debtor row ends in a balance chip
+("210 left ›", `BalanceChip`) for the bill's payer on every row and for each person on their own; it opens
+`RecordPaymentSheet`, whose History card is where a payment is edited or cancelled
+(`expense/BillPaymentSheets.kt`). "Edit bill" never edits a payment.
+
+**The Members sheet is a stack of pages, not a stack of sheets** (`screen/group/MembersSheet.kt`,
+`design/brainstorm/add-member-pages.html`). "Add by name" and "Show QR code" slide in inside the same sheet with
+a back arrow; never close the sheet to open another one out of view. Adding by name lives only there (Group
+settings has no add row). The add page keeps the keyboard up after each add and hands focus back to the field,
+because `EvButton` clears focus on every tap. Don't prewarm the iOS share sheet on a likely tap: it blocks the
+main thread for about a second and freezes whatever the person taps next.
+
 **The participant picker scales with group size.** ≤6 members render as inline select-all/deselect toggle
 chips; larger groups collapse to a summary row that opens a searchable member-picker sheet. Same underlying
 selection state either way.
@@ -271,15 +286,15 @@ filmstrip; images pinch-to-zoom and PDFs render natively via the `PdfRasterizer`
 
 **600 lines per file.** New surface goes in a new file.
 
-**Known offenders, quarantined** (counts re-verified 2026-08-25 with `wc -l`; every one of them had
+**Known offenders, quarantined** (counts re-verified 2026-11-22 with `wc -l`; every one of them had
 drifted since the last check, which is the usual way a ceiling stops being one):
 
 | File                                        | Lines |
 | ------------------------------------------- | ----- |
-| `ui/screen/expense/ExpenseDetailScreen.kt`  | 1227  |
-| `ui/navigation/LedgerRoutes.kt`             | 929   |
-| `ui/screen/bill/BillEditScreen.kt`          | 813   |
-| `ui/screen/auth/WelcomeScreen.kt`           | 799   |
+| `ui/screen/bill/BillEditScreen.kt`          | 1238  |
+| `ui/screen/expense/ExpenseDetailScreen.kt`  | 1132  |
+| `ui/navigation/LedgerRoutes.kt`             | 802   |
+| `ui/screen/auth/WelcomeScreen.kt`           | 740   |
 
 **The add-expense editor is split by feature** (2026-08-02, was 1116 lines): `AddExpenseScreen.kt` keeps
 the shell — state, the shared header, the picker sheets. `SplitApproachChooser.kt` is the up-front

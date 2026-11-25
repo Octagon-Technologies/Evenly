@@ -4,7 +4,6 @@ import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.group.ClaimPreview
-import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.GroupDeleteImpact
@@ -156,9 +155,6 @@ interface GroupRepository {
         userId: UserId,
     ): AppResult<Unit>
 
-    /** Issue a fresh invite token, invalidating the old link (Group settings → "Rotate"). */
-    suspend fun rotateInviteToken(groupId: GroupId): AppResult<Group>
-
     /**
      * Claim a placeholder as the real [realUserId] (03 §8 reconcile): reassigns the placeholder's
      * shares + paid expenses onto the real user and removes the placeholder membership. MVP assumes the
@@ -196,28 +192,4 @@ interface GroupRepository {
         placeholderUserId: UserId,
         name: String,
     ): ClaimPreview
-
-    /** Unresolved retroactive-member conflicts, oldest first — drives the Conflicts tab + its badge (03 §8). */
-    fun observeConflicts(groupId: GroupId): Flow<List<Conflict>>
-
-    /**
-     * Add [memberUserId] to every past expense they aren't already in (03 §8.1, "all past"). EVEN
-     * expenses are silently re-split to include them; non-EVEN expenses become [Conflict]s to resolve.
-     * MVP assumes the affected expenses carry no prior settlements (same caveat as edit).
-     */
-    suspend fun addMemberToPastExpenses(
-        groupId: GroupId,
-        memberUserId: UserId,
-        triggeredBy: UserId,
-    ): AppResult<Unit>
-
-    /**
-     * Resolve one conflict (03 §8.4). [include] true → add the member with [newShareSubunits], reducing
-     * the others proportionally so the total is unchanged; false → DISMISS, leaving them out.
-     */
-    suspend fun resolveConflict(
-        conflictId: String,
-        include: Boolean,
-        newShareSubunits: Long? = null,
-    ): AppResult<Unit>
 }

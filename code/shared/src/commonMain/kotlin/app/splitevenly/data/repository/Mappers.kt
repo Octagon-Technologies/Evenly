@@ -7,13 +7,11 @@ import app.splitevenly.core.id.UserId
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.GroupEntity
 import app.splitevenly.data.db.entity.SettlementEntity
-import app.splitevenly.data.db.projection.ConflictWithExpenseRow
 import app.splitevenly.data.db.projection.DeletedGroupRow
 import app.splitevenly.data.db.projection.MemberWithUserRow
 import app.splitevenly.data.db.projection.ShareRow
 import app.splitevenly.domain.expense.Expense
 import app.splitevenly.domain.expense.ExpenseShare
-import app.splitevenly.domain.group.Conflict
 import app.splitevenly.domain.group.DeletedGroup
 import app.splitevenly.domain.group.Group
 import app.splitevenly.domain.group.GroupKind
@@ -90,7 +88,6 @@ internal fun ExpenseEntity.toDomain(): Expense =
         currency = currency,
         expenseDate = expenseDate,
         payerUserId = payerUserId?.let(::UserId),
-        payerOutsideName = payerOutsideName,
         splitMode = splitMode,
         status = status,
         notes = notes,
@@ -109,19 +106,6 @@ internal fun ShareRow.toDomain(): ExpenseShare =
         shareUnits = shareUnits,
         sharePercentage = sharePercentage,
         shareExactSubunits = shareExactSubunits,
-    )
-
-internal fun ConflictWithExpenseRow.toDomain(): Conflict =
-    Conflict(
-        id = id,
-        groupId = GroupId(groupId),
-        expenseId = ExpenseId(expenseId),
-        expenseTitle = expenseTitle,
-        amountSubunits = amountSubunits,
-        currency = currency,
-        addedUserId = UserId(addedUserId),
-        triggeredByUserId = UserId(triggeredByUserId),
-        createdAt = createdAt,
     )
 
 internal fun SettlementEntity.toDomain(): SettlementRecord =

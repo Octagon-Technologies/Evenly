@@ -51,8 +51,6 @@ class GroupDeleteTest {
             db.memberDao(),
             db.userDao(),
             db.expenseDao(),
-            db.shareDao(),
-            db.conflictDao(),
             db.placeholderMergeDao(),
             db.placeholderClaimAnswerDao(),
             clockAt(date),

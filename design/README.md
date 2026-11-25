@@ -59,7 +59,7 @@ does not describe every component or newer route.
 | 7 | Filter (sheet) | `screens-group2.jsx` | `Filter` |
 | 8 | Search overlay | `screens-group2.jsx` | `Search` |
 | 9 | Group · Balances tab | `screens-group.jsx` | `GroupHome(tab=Balances)` |
-| 10 | Conflicts tab + include sheet | `screens-group2.jsx` | `GroupHome(tab=Conflicts)`, `IncludeMember` |
+| 10 | Conflicts tab (edit collisions only; the include sheet was removed 2026-11-24) | `screens-group2.jsx` | `GroupHome(tab=Conflicts)` |
 | 11 | Trip overview tab | `screens-group2.jsx` | `GroupHome(tab=Overview)` |
 | 12 | Expense detail | `screens-expense.jsx` | `ExpenseDetail` |
 | 13 | Add / edit expense | `screens-addexpense.jsx` | `AddExpense` |

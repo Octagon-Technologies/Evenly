@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Add Member Pages</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+:root{
+  --page:#F4F6FB; --paper:#FFFFFF; --ink:#141A2E; --ink2:#5A6378; --ink3:#8A92A6; --line:#E3E7F0;
+  --blue:#3762E3; --blueText:#2B52C9; --blueTint:#EAF0FF; --frame:#1B2133;
+  --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --body:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --page:#0B0E16; --paper:#141927; --ink:#EEF1F8; --ink2:#A9B1C4; --ink3:#7C859A; --line:#262D40; --blueText:#8FAAFF; --blueTint:#1A2440;
+}}
+:root[data-theme="dark"]{
+  --page:#0B0E16; --paper:#141927; --ink:#EEF1F8; --ink2:#A9B1C4; --ink3:#7C859A; --line:#262D40; --blueText:#8FAAFF; --blueTint:#1A2440;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--body);line-height:1.5}
+main{max-width:1120px;margin:0 auto;padding:40px 16px 80px}
+h1{font-family:var(--display);font-size:34px;margin:0 0 8px}
+h2{font-family:var(--display);font-size:22px;margin:48px 0 6px}
+p.lede{color:var(--ink2);max-width:760px;margin:0 0 20px}
+.note{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:16px 20px;margin:16px 0;max-width:760px}
+.note ul{margin:6px 0 0;padding-left:20px}.note li{margin:4px 0}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:28px;margin-top:18px}
+.col h3{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:0 0 10px}
+.col p{color:var(--ink2);font-size:14px;margin:10px 0 0;max-width:300px}
+.tag{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;margin-left:6px;vertical-align:1px}
+.tag.rec{background:#E6F6EE;color:#1E8A55}
+
+/* phone: always light, it's the app in light mode */
+.phone{width:100%;max-width:290px;aspect-ratio:402/874;border:6px solid var(--frame);border-radius:34px;background:#fff;position:relative;overflow:hidden;font-size:12px;color:#141A2E}
+.bg{position:absolute;inset:0;padding:40px 12px 0;background:#fff}
+.topbar{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;padding-bottom:8px}
+.topbar .ic{margin-left:auto;color:#5A6378;letter-spacing:8px}
+.strip{background:#EAF0FF;border-radius:12px;padding:10px;display:flex;align-items:center;gap:8px;font-weight:600}
+.strip .pill{margin-left:auto;background:#3762E3;color:#fff;border-radius:99px;padding:5px 10px;font-size:11px}
+.sheet{position:absolute;left:4px;right:4px;background:#fff;border:1px solid #E3E7F0;border-radius:24px;padding:6px 12px 12px;box-shadow:0 -6px 24px rgba(20,26,46,.08);overflow:hidden}
+.grab{width:32px;height:4px;border-radius:3px;background:#C9CFDC;margin:2px auto 8px}
+.shead{display:grid;grid-template-columns:28px 1fr 28px;align-items:center;margin-bottom:10px}
+.shead b{font-size:14px;text-align:center}
+.back{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#2B52C9;font-size:16px;font-weight:700}
+.addcard{background:#EAF0FF;border-radius:16px;padding:6px}
+.addhead{display:flex;align-items:center;gap:8px;color:#2B52C9;font-weight:700;padding:6px 8px}
+.addhead span:last-child{margin-left:auto}
+.opts{background:#fff;border-radius:12px}
+.opt{display:flex;align-items:center;gap:9px;padding:9px 10px;border-top:1px solid #E3E7F0}
+.opt:first-child{border-top:0}
+.oi{width:26px;height:26px;border-radius:50%;background:#EAF0FF;color:#2B52C9;display:grid;place-items:center;font-size:12px}
+.opt div{flex:1}.opt b{display:block;font-size:12px}.opt small{color:#5A6378;font-size:10.5px}
+.opt .chev{color:#8A92A6}
+.opt.hit{background:#F4F7FF}
+.roster{border:1px solid #E3E7F0;border-radius:12px;margin-top:10px}
+.mem{display:flex;align-items:center;gap:9px;padding:9px 10px;border-top:1px solid #E3E7F0;font-weight:600}
+.mem:first-child{border-top:0}
+.av{width:24px;height:24px;border-radius:50%;background:#EAF0FF;color:#2B52C9;display:grid;place-items:center;font-size:10px;font-weight:700}
+.av.me{background:#3762E3;color:#fff}
+.mem small{margin-left:auto;color:#8A92A6;font-weight:500}
+.mem .t{background:#F1F3F8;border-radius:99px;padding:1px 7px;font-size:10px;color:#5A6378;font-weight:600}
+.mem.new{background:#EEF8F2;animation:none}
+.fieldrow{display:flex;gap:8px;align-items:center}
+.field{flex:1;border:2px solid #3762E3;border-radius:10px;padding:9px 10px;font-size:13px}
+.field.typed::after{content:"|";color:#3762E3;margin-left:1px}
+.field .ph{color:#8A92A6}
+.addbtn{background:#3762E3;color:#fff;border-radius:99px;padding:9px 14px;font-weight:700}
+.label{color:#5A6378;font-size:11px;font-weight:600;margin:12px 2px 6px}
+.snack{position:absolute;left:12px;right:12px;border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;font-weight:600;font-size:11.5px;box-shadow:0 4px 14px rgba(20,26,46,.14)}
+.snack.ok{background:#1E8A55;color:#fff}
+.snack.err{background:#C0392B;color:#fff}
+.snack .x{margin-left:auto;opacity:.85;font-weight:700}
+.kb{position:absolute;left:0;right:0;bottom:0;height:37%;background:#D5D8DF;border-radius:0 0 28px 28px;padding:8px 4px}
+.kb .r{display:flex;gap:4px;justify-content:center;margin-bottom:6px}
+.kb .k{background:#fff;border-radius:5px;height:24px;flex:0 0 8.6%}
+.kb .k.w{flex:0 0 14%;background:#BCC1CB}
+.kb .k.sp{flex:1}
+.kb .k.go{flex:0 0 24%;background:#0A84FF;color:#fff;display:grid;place-items:center;font-weight:700}
+.qr{width:150px;height:150px;margin:6px auto 8px;border-radius:14px;border:1px solid #E3E7F0;display:grid;place-items:center;
+  background:repeating-linear-gradient(90deg,#141A2E 0 6px,#fff 6px 12px),#fff;background-blend-mode:normal;position:relative}
+.qr::before{content:"";position:absolute;inset:10px;background:
+  linear-gradient(#141A2E 0 0) 0 0/34px 34px no-repeat,linear-gradient(#141A2E 0 0) 100% 0/34px 34px no-repeat,linear-gradient(#141A2E 0 0) 0 100%/34px 34px no-repeat,
+  repeating-conic-gradient(#141A2E 0 25%,#fff 0 50%) 0 0/18px 18px;opacity:.92;border-radius:4px}
+.center{text-align:center;color:#5A6378;font-size:11px}
+.slide{position:absolute;top:38%;left:50%;transform:translateX(-50%);font-size:10px;color:#8A92A6}
+</style>
+</head>
+<body>
+<main>
+<h1>Add a member, inside one sheet</h1>
+<p class="lede">The Members sheet becomes a small stack of pages. "Add by name" and "Show QR code" each slide in from the right, inside the same sheet, with a back arrow at the top left. Back slides you to Members. "Share invite link" still opens the system share sheet, as it does today.</p>
+
+<h2>1 · Members, the first page</h2>
+<p class="lede">Same as today, except "Add by name" no longer opens a field in place. It has a chevron because it now leads to a page.</p>
+<div class="row">
+  <div class="col"><h3>Members</h3>
+    <div class="phone"><div class="bg">
+      <div class="topbar">← 🚗 Emoji test <span class="ic">⌕ ⇪ ⚙</span></div>
+      <div class="strip"><span class="av me">C</span>Just you<span class="pill">+ Add people</span></div>
+    </div>
+    <div class="sheet" style="bottom:4px;top:30%">
+      <div class="grab"></div><div class="shead"><span></span><b>Members</b><span></span></div>
+      <div class="addcard">
+        <div class="addhead"><span>＋</span><span>Add people</span><span>⌃</span></div>
+        <div class="opts">
+          <div class="opt"><span class="oi">⇪</span><div><b>Share invite link</b><small>Send it by text or chat</small></div><span class="chev">›</span></div>
+          <div class="opt"><span class="oi">▦</span><div><b>Show QR code</b><small>For someone next to you</small></div><span class="chev">›</span></div>
+          <div class="opt hit"><span class="oi">✎</span><div><b>Add by name</b><small>They can claim it later</small></div><span class="chev">›</span></div>
+        </div>
+      </div>
+      <div class="roster"><div class="mem"><span class="av me">C</span>Claude <span class="t">You</span> <span class="t">Admin</span></div></div>
+    </div></div>
+    <p>Tapping "Add by name" slides the next page in from the right. The sheet keeps its place on screen, so nothing closes and reopens.</p>
+  </div>
+</div>
+
+<h2>2 · Add new member page</h2>
+<p class="lede">The field is focused as the page arrives, so the keyboard comes up with it. The sheet sits right on the keyboard. The roster is below the field, so each name shows up there as you add it.</p>
+<div class="row">
+  <div class="col"><h3>Arrives, ready to type</h3>
+    <div class="phone"><div class="bg">
+      <div class="topbar">← 🚗 Emoji test <span class="ic">⌕ ⇪ ⚙</span></div>
+    </div>
+    <div class="sheet" style="top:9%;bottom:37%">
+      <div class="grab"></div><div class="shead"><span class="back">←</span><b>Add new member</b><span></span></div>
+      <div class="fieldrow"><div class="field"><span class="ph">Their name</span></div><span class="addbtn">Add</span></div>
+      <div class="label">IN THIS GROUP</div>
+      <div class="roster"><div class="mem"><span class="av me">C</span>Claude <span class="t">You</span></div></div>
+    </div>
+    <div class="kb"><div class="r"><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i></div><div class="r"><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i></div><div class="r"><i class="k w"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k w"></i></div><div class="r"><i class="k w"></i><i class="k w"></i><i class="k sp"></i><i class="k go">✓</i></div></div>
+    </div>
+    <p>The "Add" button and the keyboard's ✓ do the same thing. No Done bar.</p>
+  </div>
+
+  <div class="col"><h3>Added <span class="tag rec">green snackbar</span></h3>
+    <div class="phone"><div class="bg">
+      <div class="topbar">← 🚗 Emoji test <span class="ic">⌕ ⇪ ⚙</span></div>
+    </div>
+    <div class="sheet" style="top:9%;bottom:37%">
+      <div class="grab"></div><div class="shead"><span class="back">←</span><b>Add new member</b><span></span></div>
+      <div class="fieldrow"><div class="field"><span class="ph">Their name</span></div><span class="addbtn">Add</span></div>
+      <div class="label">IN THIS GROUP</div>
+      <div class="roster">
+        <div class="mem new"><span class="av">T</span>Tyler<small>Just added</small></div>
+        <div class="mem"><span class="av me">C</span>Claude <span class="t">You</span></div>
+      </div>
+    </div>
+    <div class="snack ok" style="bottom:calc(37% + 8px)">✓ Tyler has been added to the group</div>
+    <div class="kb"><div class="r"><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i></div><div class="r"><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i></div><div class="r"><i class="k w"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k w"></i></div><div class="r"><i class="k w"></i><i class="k w"></i><i class="k sp"></i><i class="k go">✓</i></div></div>
+    </div>
+    <p>The snackbar sits inside the sheet, just above the keyboard, and fades after 3 seconds. The field clears and the keyboard stays up for the next name. The new row is tinted green for those same 3 seconds.</p>
+  </div>
+
+  <div class="col"><h3>Didn't save</h3>
+    <div class="phone"><div class="bg">
+      <div class="topbar">← 🚗 Emoji test <span class="ic">⌕ ⇪ ⚙</span></div>
+    </div>
+    <div class="sheet" style="top:9%;bottom:37%">
+      <div class="grab"></div><div class="shead"><span class="back">←</span><b>Add new member</b><span></span></div>
+      <div class="fieldrow"><div class="field typed">Tyler</div><span class="addbtn">Add</span></div>
+      <div class="label">IN THIS GROUP</div>
+      <div class="roster"><div class="mem"><span class="av me">C</span>Claude <span class="t">You</span></div></div>
+    </div>
+    <div class="snack err" style="bottom:calc(37% + 8px)">Couldn't add Tyler. Try again.<span class="x">Retry</span></div>
+    <div class="kb"><div class="r"><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i></div><div class="r"><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i></div><div class="r"><i class="k w"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k"></i><i class="k w"></i></div><div class="r"><i class="k w"></i><i class="k w"></i><i class="k sp"></i><i class="k go">✓</i></div></div>
+    </div>
+    <p>Same spot, in red. The name stays in the field so nothing is retyped. The same bar covers an empty field ("Type their name first") and a name already in the group ("Tyler is already in this group"), which is refused, not added.</p>
+  </div>
+</div>
+
+<div class="note"><b>One thing to know about errors.</b> Adding someone saves on the phone first and reaches the server later, so being offline is <i>not</i> an error. Tyler is added straight away and syncs when the connection is back. The red bar is only for a save that really failed on the device (rare) or an empty name. Showing "no connection" on a save that actually worked would make people add the same person twice, which is exactly what the green bar is meant to prevent.</div>
+
+<div class="note"><b>Decided (2026-11-24).</b>
+  <ul>
+    <li>After an add, the field clears and the keyboard stays up for the next name.</li>
+    <li>A name already in the group (ignoring case and spaces) is blocked with the red bar.</li>
+    <li>The newest person shows at the top of this page's list, tinted green for 3 seconds.</li>
+    <li>Group settings' "Add member" pop-up is removed. Adding by name lives only on this page.</li>
+  </ul>
+</div>
+
+<h2>3 · QR code, inside the same sheet</h2>
+<p class="lede">This is possible: it is the same sliding page as Add by name, so the QR never closes the Members sheet or opens a second sheet over it. The page keeps Members' height, so the sheet doesn't jump.</p>
+<div class="row">
+  <div class="col"><h3>Show QR code page</h3>
+    <div class="phone"><div class="bg">
+      <div class="topbar">← 🚗 Emoji test <span class="ic">⌕ ⇪ ⚙</span></div>
+      <div class="strip"><span class="av me">C</span>Just you<span class="pill">+ Add people</span></div>
+    </div>
+    <div class="sheet" style="bottom:4px;top:30%">
+      <div class="grab"></div><div class="shead"><span class="back">←</span><b>Scan to join</b><span></span></div>
+      <div class="qr"></div>
+      <div class="center">Point their camera here to join Emoji test</div>
+      <div class="center" style="margin-top:10px;color:#2B52C9;font-weight:700">Copy link</div>
+    </div></div>
+    <p>Back (top left, Android Back, or the iOS edge swipe) returns to Members. A swipe down still closes the whole sheet.</p>
+  </div>
+  <div class="col"><h3>How the pages move</h3>
+    <div class="note" style="margin:0">
+      <ul>
+        <li>Members → a page: slides in from the right, Members slides out to the left.</li>
+        <li>Back: the reverse.</li>
+        <li>The sheet frame, grabber and the page behind stay still the whole time.</li>
+        <li>Add new member grows taller than Members (the keyboard takes the bottom). QR stays at Members' height.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</main>
+</body>
+</html>
