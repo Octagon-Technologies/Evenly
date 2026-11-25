@@ -22,17 +22,17 @@ import app.splitevenly.domain.repository.PeopleRepository
 import app.splitevenly.domain.repository.ProfileRepository
 import app.splitevenly.ui.screen.people.KnownPersonUi
 import app.splitevenly.ui.screen.people.LinkNamesScreen
-import app.splitevenly.ui.screen.people.knownPeopleFor
 import app.splitevenly.ui.screen.people.PeopleListScreen
 import app.splitevenly.ui.screen.people.PersonScreen
 import app.splitevenly.ui.screen.people.RecordPaymentSheet
+import app.splitevenly.ui.screen.people.knownPeopleFor
+import app.splitevenly.ui.theme.EvenlyTheme
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import app.splitevenly.ui.theme.EvenlyTheme
 import org.koin.compose.koinInject
 
 /** The signed-in viewer's People summary, or null while there is no user or the first pull hasn't landed. */

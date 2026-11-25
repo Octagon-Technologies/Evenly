@@ -150,8 +150,8 @@ fun IdentityChecklistButton(
 ) {
     when (selected.size) {
         0 -> EvButton("None of these are me", onNoneOfThese, modifier, variant = ButtonVariant.Tonal)
-        1 -> EvButton("Confirm ${selected.single().name}", onConfirm, modifier, variant = ButtonVariant.PrimarySolid)
-        else -> EvButton("Confirm ${selected.size} names", onConfirm, modifier, variant = ButtonVariant.PrimarySolid)
+        1 -> EvButton("Confirm ${selected.single().name}", onConfirm, modifier, variant = ButtonVariant.Primary)
+        else -> EvButton("Confirm ${selected.size} names", onConfirm, modifier, variant = ButtonVariant.Primary)
     }
 }
 
@@ -205,7 +205,7 @@ fun IdentityClaimConfirmSheet(
                         else -> "Yes, these are me"
                     },
                     onConfirm,
-                    variant = ButtonVariant.PrimarySolid,
+                    variant = ButtonVariant.Primary,
                 )
                 EvButton("Go back", onCancel, Modifier.align(Alignment.CenterHorizontally), variant = ButtonVariant.Text)
             }

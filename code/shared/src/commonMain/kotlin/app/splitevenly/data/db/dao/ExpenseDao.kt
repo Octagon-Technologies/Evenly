@@ -4,17 +4,9 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
-import app.splitevenly.data.db.entity.ConflictEntity
 import app.splitevenly.data.db.entity.ExpenseEntity
 import app.splitevenly.data.db.entity.ShareEntity
 import kotlinx.coroutines.flow.Flow
-
-/** One expense's re-split inside a retroactive-member sweep. See [ExpenseDao.applyRetroactiveMember]. */
-data class RetroactiveResplit(
-    val expense: ExpenseEntity,
-    val shares: List<ShareEntity>,
-    val removedShareIds: List<String>,
-)
 
 /** DAO for `expenses` (02 §3.7). Owns the expense+shares write transactions (02 §7.5). */
 @Dao
@@ -28,7 +20,7 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE id = :id")
     suspend fun getById(id: String): ExpenseEntity?
 
-    /** All non-deleted expenses in a group, one-shot — the input to a retroactive-member sweep (03 §8.1). */
+    /** All non-deleted expenses in a group, one-shot. */
     @Query("SELECT * FROM expenses WHERE group_id = :groupId AND deleted_at IS NULL ORDER BY expense_date ASC, id ASC")
     suspend fun getActiveByGroup(groupId: String): List<ExpenseEntity>
 
@@ -135,37 +127,6 @@ interface ExpenseDao {
         softDeleteLocalSharesNotIn(expense.id, serverShares.map { it.id }, now)
         upsertShares(serverShares)
         return true
-    }
-
-    /** Conflict upsert declared here so [applyRetroactiveMember] can write the whole sweep atomically. */
-    @Upsert
-    suspend fun upsertConflicts(conflicts: List<ConflictEntity>)
-
-    /**
-     * Apply a whole retroactive-member sweep (03 §8.1) in ONE transaction: every EVEN expense re-split to
-     * include the new member, and a conflict card raised for every expense whose split is not ours to
-     * re-derive (finding R12).
-     *
-     * It was a per-expense loop, each write individually atomic and the loop as a whole not, run from a
-     * navigation-scoped coroutine. Leaving group settings after eight of twenty expenses left the group's
-     * history split at an arbitrary point: both halves internally consistent, both pushing cleanly,
-     * nothing looking broken and nothing ever re-running it, because the only trigger is adding a member
-     * who is now already there. Bounded by the group's expense count, so one transaction is affordable.
-     *
-     * The caller computes every row first; this only writes them.
-     */
-    @Transaction
-    suspend fun applyRetroactiveMember(
-        resplits: List<RetroactiveResplit>,
-        conflicts: List<ConflictEntity>,
-        ts: Long,
-    ) {
-        for (r in resplits) {
-            upsert(r.expense)
-            if (r.removedShareIds.isNotEmpty()) softDeleteSharesByIds(r.removedShareIds, ts)
-            upsertShares(r.shares)
-        }
-        if (conflicts.isNotEmpty()) upsertConflicts(conflicts)
     }
 
     /**

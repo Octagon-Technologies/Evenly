@@ -126,7 +126,12 @@ data class PeopleSummary(
 }
 
 /** Case and spacing never make two names different. */
-fun normalizeName(name: String): String = name.trim().lowercase().split(Regex("\\s+")).joinToString(" ")
+fun normalizeName(name: String): String =
+    name
+        .trim()
+        .lowercase()
+        .split(Regex("\\s+"))
+        .joinToString(" ")
 
 private class UnionFind {
     private val parent = mutableMapOf<String, String>()
@@ -140,7 +145,10 @@ private class UnionFind {
         }
     }
 
-    fun union(a: String, b: String) {
+    fun union(
+        a: String,
+        b: String,
+    ) {
         val ra = find(a)
         val rb = find(b)
         if (ra != rb) parent[rb] = ra
@@ -200,11 +208,22 @@ fun buildPeople(
         members.remove(rb)
         members[root] = merged
     }
-    val notSame = links.filter { it.kind == LinkKind.NOT_SAME }.flatMap { listOf(it.userId to it.personId, it.personId to it.userId) }.toSet()
+    val notSame =
+        links
+            .filter { it.kind == LinkKind.NOT_SAME }
+            .flatMap {
+                listOf(
+                    it.userId to it.personId,
+                    it.personId to it.userId,
+                )
+            }.toSet()
     val anchorVotes = sameLinks.groupingBy { it.personId }.eachCount()
 
     // Per-name, per-group, per-currency directions.
-    data class Key(val groupId: String, val currency: String)
+    data class Key(
+        val groupId: String,
+        val currency: String,
+    )
     val owedToMe = mutableMapOf<String, MutableMap<Key, Long>>()
     val iOwe = mutableMapOf<String, MutableMap<Key, Long>>()
     val everOwedMe = mutableSetOf<String>()
@@ -232,7 +251,10 @@ fun buildPeople(
         return out
     }
 
-    fun candidate(id: String, groupId: String): LinkCandidate {
+    fun candidate(
+        id: String,
+        groupId: String,
+    ): LinkCandidate {
         val meta = groupMeta[groupId]
         return LinkCandidate(
             userId = id,
@@ -339,7 +361,10 @@ fun buildPeople(
     }
 
     val people = components.map(::buildPerson)
-    val owing = people.filter { it.owesYou }.sortedWith(compareByDescending<Person> { it.totals.values.maxOrNull() ?: 0L }.thenBy { it.name })
+    val owing =
+        people.filter { it.owesYou }.sortedWith(
+            compareByDescending<Person> { it.totals.values.maxOrNull() ?: 0L }.thenBy { it.name },
+        )
     val settled = people.filter { !it.owesYou && it.memberIds.any { id -> id in everOwedMe } }.sortedBy { it.name }
     return PeopleSummary(owing, settled, people.sortedBy { it.name.lowercase() })
 }

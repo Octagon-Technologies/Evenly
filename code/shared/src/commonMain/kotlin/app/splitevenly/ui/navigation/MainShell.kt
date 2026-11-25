@@ -4,7 +4,10 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,13 +15,11 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.navigationBars
 import app.splitevenly.ui.components.BottomNavItem
 import app.splitevenly.ui.components.EvBottomNav
 import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.icon.EvIcons
+import app.splitevenly.ui.screen.home.HomeFilter
 import app.splitevenly.ui.theme.EvMotion
 import app.splitevenly.ui.theme.EvenlyTheme
 
@@ -54,9 +55,7 @@ fun MainShell(
     onNewGroup: () -> Unit = {},
     onJoin: () -> Unit = {},
     onSplitBill: () -> Unit = {},
-    onOpenHistory: () -> Unit = {},
-    onOpenArchived: () -> Unit = {},
-    onOpenRecentlyDeleted: () -> Unit = {},
+    onOpenPutAway: (filter: HomeFilter, showDeleted: Boolean) -> Unit = { _, _ -> },
     onSignedOut: () -> Unit = {},
     onSignIn: () -> Unit = {},
     onEditPaymentApps: () -> Unit = {},
@@ -86,9 +85,7 @@ fun MainShell(
                             onNewGroup = onNewGroup,
                             onJoin = onJoin,
                             onSplitBill = onSplitBill,
-                            onOpenHistory = onOpenHistory,
-                            onOpenArchived = onOpenArchived,
-                            onOpenRecentlyDeleted = onOpenRecentlyDeleted,
+                            onOpenPutAway = onOpenPutAway,
                             onOpenSettings = {
                                 backTo = RootTab.Groups
                                 tab = RootTab.Settings

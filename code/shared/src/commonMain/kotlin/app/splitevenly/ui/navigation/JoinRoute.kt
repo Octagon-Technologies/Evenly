@@ -23,13 +23,15 @@ import app.splitevenly.ui.screen.group.identityAnswer
 import app.splitevenly.ui.screen.group.submit
 import app.splitevenly.ui.screen.group.toUi
 import app.splitevenly.ui.screen.home.JoinGroupSheet
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /**
- * Join-by-invite, wired: resolves the token to a group preview, asks "Are any of these you?" when the
+ * Join-by-invite, wired: opens the group straight away when you are already a member, otherwise resolves
+ * the token to a group preview, asks "Are any of these you?" when the
  * group has names with no account, then joins via [GroupRepository.joinByToken].
  *
  * **The names step is required, not skippable** (owner call, 2026-10-03). Testers given a "Later" read
@@ -56,8 +58,17 @@ fun JoinRoute(
     val userId by auth.currentUserId.collectAsStateWithLifecycle()
     var group by remember(token) { mutableStateOf<Group?>(null) }
     var resolved by remember(token) { mutableStateOf(false) }
-    LaunchedEffect(token) {
-        group = groups.findGroupByToken(token)
+    // Already in the group (the usual case for a link that bounced through the website back into the
+    // app): skip the preview and the names step and open it. Checked before `resolved` flips, so the
+    // Join button never flashes for someone who has nothing to join.
+    LaunchedEffect(token, userId) {
+        val me = userId ?: return@LaunchedEffect
+        val found = groups.findGroupByToken(token)
+        if (found != null && groups.observeMembers(found.id).first().any { it.userId == me }) {
+            onOpenGroup(found.id.value)
+            return@LaunchedEffect
+        }
+        group = found
         resolved = true
     }
     val g = group

@@ -57,7 +57,18 @@ class PeopleRepositoryImpl(
                 roster = roster.map { RosterEntry(it.groupId, it.groupName, it.groupEmoji, it.userId, it.displayName, it.isPlaceholder) },
                 links =
                     links.map {
-                        NameLink(it.id, it.userId, it.personId, if (it.kind == PersonLinkEntity.KIND_NOT_SAME) LinkKind.NOT_SAME else LinkKind.SAME)
+                        NameLink(
+                            it.id,
+                            it.userId,
+                            it.personId,
+                            if (it.kind ==
+                                PersonLinkEntity.KIND_NOT_SAME
+                            ) {
+                                LinkKind.NOT_SAME
+                            } else {
+                                LinkKind.SAME
+                            },
+                        )
                     },
             )
         }

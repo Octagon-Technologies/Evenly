@@ -21,26 +21,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.ui.components.BannerVariant
 import app.splitevenly.ui.components.ButtonVariant
-import app.splitevenly.ui.components.EvAmountText
 import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvCard
 import app.splitevenly.ui.components.EvIconButton
 import app.splitevenly.ui.components.EvTopBar
-import app.splitevenly.ui.components.money
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.theme.EvenlyTheme
-
-/** One unresolved conflict row. Carries the ids the route needs to resolve / open the include sheet. */
-data class ConflictUi(
-    val conflictId: String,
-    val expenseId: String,
-    val memberUserId: String,
-    val memberName: String,
-    val title: String,
-    val amount: Double,
-    val by: String,
-)
 
 /**
  * One parked edit-collision: two people edited the same expense from the same base version. The card
@@ -70,62 +57,20 @@ data class ConflictRowUi(val label: String, val currentText: String, val rejecte
 /** The viewing user's own share on each side; [changed] drives the highlight. */
 data class ConflictCompareUi(val currentText: String, val rejectedText: String, val changed: Boolean)
 
-/** 10 · Group · Conflicts tab (design/src/screens-group2.jsx). */
+/** 10 · Group · Conflicts tab (design/src/screens-group2.jsx): edit collisions waiting on a pick. */
 @Composable
 fun GroupConflictsTab(
-    memberName: String = "Tyler",
-    conflicts: List<ConflictUi> = DemoConflicts,
-    editConflicts: List<EditConflictUi> = emptyList(),
+    editConflicts: List<EditConflictUi> = DemoEditConflicts,
     onBack: () -> Unit = {},
-    onInclude: (ConflictUi) -> Unit = {},
-    onSkip: (ConflictUi) -> Unit = {},
     onKeepCurrent: (EditConflictUi) -> Unit = {},
     onUseRejected: (EditConflictUi) -> Unit = {},
 ) {
     val c = EvenlyTheme.colors
-    val hasEdits = editConflicts.isNotEmpty()
-    val hasJoins = conflicts.isNotEmpty()
-    // The header adapts to what's actually pending — an edit collision is a different situation from a
-    // late-joining member, and the old copy ("… joined after these expenses") mislabelled edit conflicts.
-    val subtitle = when {
-        hasEdits && hasJoins -> "A few items need your decision"
-        hasEdits -> "Two people edited the same expense"
-        else -> "$memberName joined after these expenses"
-    }
-    val bannerText = when {
-        hasEdits && hasJoins -> "Resolve each item below."
-        hasEdits -> "Pick which version to keep."
-        else -> "Decide who shares these costs."
-    }
     Column(Modifier.fillMaxSize().background(c.page)) {
-        EvTopBar("Review", subtitle = subtitle, navIcon = { EvIconButton(EvIcons.Back, onBack) })
-        EvBanner(bannerText, variant = BannerVariant.Amber, leadingIcon = EvIcons.Alert)
+        EvTopBar("Review", subtitle = "Two people edited the same expense", navIcon = { EvIconButton(EvIcons.Back, onBack) })
+        EvBanner("Pick which version to keep.", variant = BannerVariant.Amber, leadingIcon = EvIcons.Alert)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Edit-collisions first: two people edited the same expense offline. Pick a side; never auto-merge.
-            if (hasEdits) {
-                Text("Edited at the same time", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
             editConflicts.forEach { item -> EditConflictCard(item, onKeepCurrent, onUseRejected) }
-            if (hasEdits && hasJoins) {
-                Text("New members joined", color = c.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
-            conflicts.forEach { item ->
-                EvCard(padded = true) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column {
-                                Text(item.title, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Added by ${item.by}", color = c.ink2, fontSize = 12.sp)
-                            }
-                            EvAmountText(money(item.amount))
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            EvButton("Include ${item.memberName}", { onInclude(item) }, leadingIcon = EvIcons.Plus, modifier = Modifier.weight(1f))
-                            EvButton("Skip ${item.memberName}", { onSkip(item) }, variant = ButtonVariant.Text)
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -179,11 +124,6 @@ private fun EditConflictCard(
     }
 }
 
-private val DemoConflicts = listOf(
-    ConflictUi("c1", "e1", "tyler", "Tyler", "Dinner at La Negra", 96.0, "Andrew"),
-    ConflictUi("c2", "e2", "tyler", "Tyler", "Cenote day trip", 72.0, "Bob"),
-)
-
 private val DemoEditConflicts = listOf(
     EditConflictUi(
         conflictId = "ec1",
@@ -205,5 +145,5 @@ private val DemoEditConflicts = listOf(
 @Preview
 @Composable
 private fun GroupConflictsPreview() {
-    EvenlyTheme { GroupConflictsTab(editConflicts = DemoEditConflicts) }
+    EvenlyTheme { GroupConflictsTab() }
 }

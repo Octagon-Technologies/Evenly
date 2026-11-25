@@ -57,11 +57,9 @@ During onboarding, the user picks one or more preferred payment apps (Zelle, Cas
 
 Why it matters: the "no middleman, no KYC, no bank link" promise is the inverse of the most painful thing about the dominant competitor and is the single most concrete trust signal we offer.
 
-**Mid-trip member addition with conflict resolution and auto-refunds**  |  Importance: 9/10  |  Confidence: High
+**Mid-trip member addition**  |  Importance: 9/10  |  Confidence: High
 
-When a member is added, the adder chooses between "add to all past expenses" or "future only." Under "all past," equal-split expenses are silently recomputed to include the new member; uneven splits (by share or by exact amount) land in a Conflicts tab where any group member can either modify the split to include the new member or dismiss them from that specific expense. If a re-split changes the share of someone who has already settled, Evenly auto-generates a refund from the original payer to the over-settler, linked to the original expense and labeled as an auto-refund. Removing a member reverses these auto-refunds. Unresolved conflicts do not block any group action; instead, Evenly surfaces a periodic reminder to the group admin. Default cadence is weekly; the admin can adjust it to daily or every three days. When opening a conflict to add the new member, the system does not pre-fill a suggested share; the resolver enters the new member's share manually.
-
-Why it matters: no current app handles retroactive member adds without forcing users to redo expenses manually; this is the source of multiple "I had to rebuild the whole trip" complaints.
+A member added mid-trip joins from that point on. Past expenses are never re-split to include them: anyone who shared a cost is put on it when it is logged, so a later add is a new person, not a missed one. (An "add to all past expenses" option with a Conflicts tab for uneven splits was built and removed on 2026-11-24 because it complicated adding someone for a case that does not happen.)
 
 **Per-expense conversation threads with resolve**  |  Importance: 8/10  |  Confidence: Medium
 

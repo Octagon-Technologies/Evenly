@@ -76,7 +76,7 @@ internal fun DeleteBillSheet(
                     }
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         EvButton("Delete bill", onConfirm, variant = ButtonVariant.Danger, leadingIcon = EvIcons.Trash)
-                        EvButton("Cancel", onDismiss, variant = ButtonVariant.Secondary)
+                        EvButton("Cancel", onDismiss, variant = ButtonVariant.Dismiss)
                     }
                 }
             }
@@ -84,7 +84,7 @@ internal fun DeleteBillSheet(
     }
 }
 
-private object WindowOrigin : PopupPositionProvider {
+internal object WindowOrigin : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
         windowSize: IntSize,

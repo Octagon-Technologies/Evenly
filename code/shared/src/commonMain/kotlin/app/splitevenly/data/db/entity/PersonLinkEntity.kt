@@ -23,30 +23,22 @@ data class PersonLinkEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
     val id: String,
-
     @ColumnInfo(name = "owner_user_id")
     val ownerUserId: String,
-
     /** The name being attached. Always a placeholder for a SAME link. */
     @ColumnInfo(name = "user_id")
     val userId: String,
-
     /** The name it is attached to: a placeholder or a real account. */
     @ColumnInfo(name = "person_id")
     val personId: String,
-
     @ColumnInfo(name = "kind")
     val kind: String = KIND_SAME,
-
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
-
     @ColumnInfo(name = "updated_at")
     val updatedAt: Long,
-
     @ColumnInfo(name = "row_version")
     val rowVersion: Long = 1,
-
     @ColumnInfo(name = "deleted_at")
     val deletedAt: Long? = null,
 ) {

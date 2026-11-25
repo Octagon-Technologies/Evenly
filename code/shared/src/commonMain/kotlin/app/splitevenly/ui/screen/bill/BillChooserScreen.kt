@@ -242,7 +242,7 @@ private fun ModeCard(
             Text(title, color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
         Text(body, color = c.ink2, fontSize = 13.sp, lineHeight = 18.sp)
-        EvButton(action, onClick, variant = if (primary) ButtonVariant.PrimarySolid else ButtonVariant.Tonal)
+        EvButton(action, onClick, variant = if (primary) ButtonVariant.Primary else ButtonVariant.Tonal)
     }
 }
 

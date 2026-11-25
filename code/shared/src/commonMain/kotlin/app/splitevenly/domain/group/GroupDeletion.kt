@@ -46,6 +46,8 @@ data class DeletedGroup(
     /** Null when the deleter's `users` row has not synced to this device yet. */
     val deletedByName: String?,
     val memberCount: Int,
+    /** A one-time bill, so Put away can file it under the One-time tab. */
+    val isQuick: Boolean = false,
 )
 
 /**

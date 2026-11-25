@@ -55,14 +55,14 @@ import app.splitevenly.ui.screen.auth.PendingDeletionScreen
 import app.splitevenly.ui.screen.auth.SignInScreen
 import app.splitevenly.ui.screen.auth.WelcomeScreen
 import app.splitevenly.ui.screen.group.GroupDeletedScreen
-import app.splitevenly.ui.screen.home.ArchivedScreen
 import app.splitevenly.ui.screen.home.DeletedGroupCardUi
+import app.splitevenly.ui.screen.home.HomeFilter
 import app.splitevenly.ui.screen.home.HomeScreen
 import app.splitevenly.ui.screen.home.HomeUiState
 import app.splitevenly.ui.screen.home.HomeViewModel
 import app.splitevenly.ui.screen.home.JoinByLinkSheet
 import app.splitevenly.ui.screen.home.NewGroupSheet
-import app.splitevenly.ui.screen.home.RecentlyDeletedScreen
+import app.splitevenly.ui.screen.settings.GroupDeleteImpactUi
 import app.splitevenly.ui.screen.settings.PaymentHandlesScreen
 import app.splitevenly.ui.screen.settings.ProfileScreen
 import app.splitevenly.ui.screen.settle.appLabel
@@ -329,9 +329,7 @@ fun HomeRoute(
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
     onSplitBill: () -> Unit = {},
-    onOpenHistory: () -> Unit = {},
-    onOpenArchived: () -> Unit,
-    onOpenRecentlyDeleted: () -> Unit = {},
+    onOpenPutAway: (filter: HomeFilter, showDeleted: Boolean) -> Unit,
     onOpenSettings: () -> Unit = {},
     onEditExpense: (groupId: String, expenseId: String, itemized: Boolean) -> Unit = { _, _, _ -> },
 ) {
@@ -363,100 +361,31 @@ fun HomeRoute(
         onNewGroup = onNewGroup,
         onJoin = onJoin,
         onSplitBill = onSplitBill,
-        onOpenHistory = onOpenHistory,
-        onOpenArchived = onOpenArchived,
-        onOpenRecentlyDeleted = onOpenRecentlyDeleted,
+        onOpenPutAway = onOpenPutAway,
         deletedAlert = deletedAlertText(deletedGroups, meId, seenAt),
         onOpenSettings = onOpenSettings,
         onRetry = vm::retry,
         onEditQuickSplit = onEditExpense,
         onDeleteQuickSplit = { id -> meId?.let { me -> scope.launch { groups.deleteGroup(GroupId(id), me) } } },
-    )
-}
-
-/** Archived groups, wired: reuses the Home rollup (so member counts are real) and unarchives in place. */
-@Composable
-fun ArchivedRoute(onBack: () -> Unit) {
-    val vm = koinViewModel<HomeViewModel>()
-    val groups = koinInject<GroupRepository>()
-    val auth = koinInject<AuthSession>()
-    val scope = rememberCoroutineScope()
-    val state by vm.state.collectAsStateWithLifecycle()
-    val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    val archived = (state as? HomeUiState.Content)?.archived ?: emptyList()
-    ArchivedScreen(
-        onBack = onBack,
-        groups = archived,
-        onUnarchive = { id -> userId?.let { me -> scope.launch { groups.setArchived(GroupId(id), me, archived = false) } } },
-    )
-}
-
-/**
- * Recently deleted, wired. Reads the tombstones directly rather than through [HomeViewModel] (which
- * only carries a count) and resolves "Deleted by ..." against the signed-in user here, since the
- * screen is DI-free and cannot tell whose id it is holding.
- */
-@Composable
-fun RecentlyDeletedRoute(onBack: () -> Unit) {
-    val groups = koinInject<GroupRepository>()
-    val auth = koinInject<AuthSession>()
-    val scope = rememberCoroutineScope()
-    val userId by auth.currentUserId.collectAsStateWithLifecycle()
-    val deleted by remember(userId) {
-        userId?.let { groups.observeDeletedGroups(it) } ?: flowOf(emptyList())
-    }.collectAsStateWithLifecycle(emptyList())
-    var restoredMessage by remember { mutableStateOf<String?>(null) }
-    val now = Clock.System.nowEpochMillis()
-
-    // Opening this screen IS the acknowledgement, so it clears Home's banner. Keyed on the newest
-    // stamp rather than written once, so a delete that lands while the screen is open also counts as
-    // seen. Worst case the marker is missed and the banner shows once more, the cheap way to fail.
-    val storage = koinInject<SecureStorage>()
-    val newestDelete = deleted.maxOfOrNull { it.deletedAt } ?: 0L
-    LaunchedEffect(newestDelete) {
-        if (newestDelete > 0L) storage.putString(DELETES_SEEN_KEY, newestDelete.toString())
-    }
-
-    RecentlyDeletedScreen(
-        onBack = onBack,
-        groups =
-            deleted.map { g ->
-                val daysLeft = RecentlyDeleted.daysLeft(g.deletedAt, now)
-                DeletedGroupCardUi(
-                    id = g.id.value,
-                    emoji = g.emoji,
-                    name = g.name,
-                    deletedByLabel =
-                        when {
-                            g.deletedBy != null && g.deletedBy == userId -> "Deleted by you"
-
-                            // A name the roster has not synced yet, or a deleter who has since been anonymized
-                            // by account deletion. "Deleted" alone is honest; inventing "a member" is not.
-                            g.deletedByName.isNullOrBlank() -> "Deleted"
-
-                            else -> "Deleted by ${g.deletedByName}"
-                        },
-                    daysLeft = daysLeft,
-                    urgent = daysLeft <= URGENT_DAYS_LEFT,
-                )
-            },
-        onRestore = { id ->
-            val me = userId ?: return@RecentlyDeletedScreen
-            val name = deleted.firstOrNull { it.id.value == id }?.name
-            scope.launch {
-                restoredMessage =
-                    when (groups.restoreGroup(GroupId(id), me)) {
-                        is AppResult.Ok -> "${name ?: "The group"} is back for everyone"
-                        is AppResult.Err -> "Couldn't restore that group. Please try again."
-                    }
-            }
+        onArchive = { id -> meId?.let { me -> scope.launch { groups.setArchived(GroupId(id), me, archived = true) } } },
+        onUnarchive = { id -> meId?.let { me -> scope.launch { groups.setArchived(GroupId(id), me, archived = false) } } },
+        onLeaveGroup = { id -> meId?.let { me -> scope.launch { groups.leaveGroup(GroupId(id), me) } } },
+        onDeleteGroup = { id -> meId?.let { me -> scope.launch { groups.deleteGroup(GroupId(id), me) } } },
+        onRestoreGroup = { id -> meId?.let { me -> scope.launch { groups.restoreGroup(GroupId(id), me) } } },
+        loadDeleteImpact = { id ->
+            val impact = groups.deleteImpact(GroupId(id))
+            GroupDeleteImpactUi(
+                memberCount = impact.memberCount,
+                expenseCount = impact.expenseCount,
+                receiptCount = impact.receiptCount,
+                unsettledCount = impact.unsettledCount,
+            )
         },
-        restoredMessage = restoredMessage,
     )
 }
 
 /** The last week, where the countdown earns its color. */
-private const val URGENT_DAYS_LEFT = 7
+internal const val URGENT_DAYS_LEFT = 7
 
 /**
  * Newest group-deletion this device has been shown, as epoch millis. Device-local in [SecureStorage],
@@ -466,7 +395,7 @@ private const val URGENT_DAYS_LEFT = 7
  * The tradeoff is the same too, and it is the right way round here: a second device tells you again
  * that your group was deleted. That is a repeat of news worth hearing, not a nag.
  */
-private const val DELETES_SEEN_KEY = "groups_deleted_seen_at"
+internal const val DELETES_SEEN_KEY = "groups_deleted_seen_at"
 
 /**
  * "Andrew deleted Tulum Trip." — the in-app stand-in for a push that cannot be sent yet.
@@ -625,9 +554,7 @@ fun HomeGateRoute(
     onNewGroup: () -> Unit,
     onJoin: () -> Unit,
     onSplitBill: () -> Unit,
-    onOpenHistory: () -> Unit,
-    onOpenArchived: () -> Unit,
-    onOpenRecentlyDeleted: () -> Unit,
+    onOpenPutAway: (filter: HomeFilter, showDeleted: Boolean) -> Unit,
     onSignedOut: () -> Unit,
     onSignIn: () -> Unit,
     onEditPaymentApps: () -> Unit,
@@ -662,9 +589,7 @@ fun HomeGateRoute(
                 onNewGroup = onNewGroup,
                 onJoin = onJoin,
                 onSplitBill = onSplitBill,
-                onOpenHistory = onOpenHistory,
-                onOpenArchived = onOpenArchived,
-                onOpenRecentlyDeleted = onOpenRecentlyDeleted,
+                onOpenPutAway = onOpenPutAway,
                 onSignedOut = onSignedOut,
                 onSignIn = onSignIn,
                 onEditPaymentApps = onEditPaymentApps,

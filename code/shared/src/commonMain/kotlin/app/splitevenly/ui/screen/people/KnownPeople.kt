@@ -77,7 +77,14 @@ fun KnownPeopleList(
                 EvAvatar(k.name, size = AvatarSize.Sm)
                 Column(Modifier.weight(1f)) {
                     Text(k.name, style = t.itemTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (k.where.isNotEmpty()) Text(k.where, style = t.caption.copy(color = c.ink3), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (k.where.isNotEmpty()) {
+                        Text(
+                            k.where,
+                            style = t.caption.copy(color = c.ink3),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Text("Add", style = t.buttonSmall.copy(color = c.blueText))
             }

@@ -1722,6 +1722,23 @@ create table if not exists public.web_sessions (
 );
 create index if not exists web_sessions_group_idx on public.web_sessions (group_id);
 create index if not exists web_sessions_user_idx on public.web_sessions (user_id);
+
+-- Web guests scan too (2026-11-23, the group page's "Scan a receipt"). A guest is a placeholder with no
+-- auth.users row, so their scans carry `web_session_id` instead of `user_id`; exactly one is set. Only the
+-- service role writes guest rows (through web-claim -> extract-receipt), so the RLS policy is unchanged.
+alter table public.receipt_scan_log alter column user_id drop not null;
+alter table public.receipt_scan_log add column if not exists web_session_id text references public.web_sessions(id) on delete cascade;
+do $$
+begin
+  alter table public.receipt_scan_log drop constraint if exists receipt_scan_log_one_principal;
+  alter table public.receipt_scan_log add constraint receipt_scan_log_one_principal
+    check ((user_id is null) <> (web_session_id is null));
+end $$;
+create index if not exists receipt_scan_log_web_session_idx on public.receipt_scan_log (web_session_id, created_at)
+  where web_session_id is not null;
+create index if not exists receipt_scan_log_group_guest_idx on public.receipt_scan_log (group_id, created_at)
+  where web_session_id is not null;
+
 alter table public.web_sessions enable row level security;
 -- Deliberately no policies: anon and authenticated get zero access, matching spec §5.1.
 
@@ -3982,6 +3999,9 @@ revoke all on function public._web_even_split(bigint, text[]) from public, anon,
 -- .writeSettlement). Gross, never netted: the payment pays down what [p_from] owes [p_to] in
 -- [p_currency], oldest bill first, and can never be more than that. [p_expense_id] scopes it to one bill
 -- ("Pay Mary back for Groceries"), like the app's per-expense settle sheet. A refusal is a result.
+-- [p_actor] is who recorded it: the payer ("I paid Joe") or, for "Bob paid me $20", the person paid. It
+-- is `created_by`, which is how `notify_settlement_inserted` knows to tell the OTHER side. Null = p_from.
+drop function if exists public.record_web_group_payment(text, text, text, text, bigint, text, bigint, text);
 create or replace function public.record_web_group_payment(
   p_group_id text,
   p_from text,
@@ -3990,7 +4010,8 @@ create or replace function public.record_web_group_payment(
   p_amount bigint,
   p_payment_app text,
   p_now bigint,
-  p_expense_id text default null
+  p_expense_id text default null,
+  p_actor text default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -4002,6 +4023,7 @@ declare
   v_id text := gen_random_uuid()::text;
   r record;
   v_apply bigint;
+  v_actor text := coalesce(p_actor, p_from);
 begin
   if p_from = p_to or not public._web_active_member(p_group_id, p_from) or not public._web_active_member(p_group_id, p_to) then
     return jsonb_build_object('ok', false, 'reason', 'NOT_OWED', 'ceiling', 0);
@@ -4027,7 +4049,7 @@ begin
 
   insert into public.settlements (id, group_id, from_user_id, to_user_id, payment_currency,
     payment_amount_subunits, payment_app, deep_link_attempted, settled_at, created_by, created_at, updated_at)
-  values (v_id, p_group_id, p_from, p_to, p_currency, p_amount, p_payment_app, false, p_now, p_from, p_now, p_now);
+  values (v_id, p_group_id, p_from, p_to, p_currency, p_amount, p_payment_app, false, p_now, v_actor, p_now, p_now);
 
   v_left := p_amount;
   for r in select * from _web_pay_out order by ord loop
@@ -4037,13 +4059,13 @@ begin
       applied_currency, created_at)
     values (gen_random_uuid()::text, v_id, p_group_id, r.share_id, v_apply, p_currency, p_now);
     insert into public.expense_history (id, expense_id, group_id, actor_user_id, type, detail, created_at)
-    values (gen_random_uuid()::text, r.expense_id, p_group_id, p_from, 'SETTLED', 'amt:' || v_apply, p_now);
+    values (gen_random_uuid()::text, r.expense_id, p_group_id, v_actor, 'SETTLED', 'amt:' || v_apply, p_now);
     v_left := v_left - v_apply;
   end loop;
   return jsonb_build_object('ok', true, 'settlement_id', v_id);
 end;
 $$;
-revoke all on function public.record_web_group_payment(text, text, text, text, bigint, text, bigint, text) from public, anon, authenticated;
+revoke all on function public.record_web_group_payment(text, text, text, text, bigint, text, bigint, text, text) from public, anon, authenticated;
 
 -- A guest adding someone else's name while creating an expense ("Bob was there too"). The §2.4 rule from
 -- `create_web_placeholder`, under the same lock key, minus the session: Bob gets no browser identity, he
@@ -4126,6 +4148,9 @@ revoke all on function public._web_desired_shares(text, bigint, text, jsonb) fro
 -- there (`bill_participants`) and NO shares: an itemized bill's shares are a derived materialization the
 -- app re-derives on every pull (`rematerializeGroups`), and people claim their lines on the bill's link.
 -- The insert fires `expenses_push_notify`, so the group hears about it like any app-added expense.
+-- [p_extras] (itemized only, from a scanned receipt): `{tax, tip, gratuity, discount, other}` in subunits,
+-- written to the expense's own columns so they split proportionally, exactly as on an app-made bill.
+drop function if exists public.create_web_expense(text, text, text, text, bigint, text, text, text, text, jsonb, jsonb, text, bigint);
 create or replace function public.create_web_expense(
   p_group_id text,
   p_actor text,
@@ -4139,7 +4164,8 @@ create or replace function public.create_web_expense(
   p_people jsonb,
   p_items jsonb,
   p_category_id text,
-  p_now bigint
+  p_now bigint,
+  p_extras jsonb default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -4150,6 +4176,11 @@ declare
   v_amount bigint := p_amount;
   i record;
   v_sort int := 0;
+  v_tax bigint := 0;
+  v_tip bigint := 0;
+  v_gratuity bigint := 0;
+  v_discount bigint := 0;
+  v_other bigint := 0;
 begin
   if not public._web_active_member(p_group_id, p_actor) or not public._web_active_member(p_group_id, p_payer) then
     raise exception 'web expense: payer and author must be in the group';
@@ -4162,6 +4193,17 @@ begin
     if jsonb_array_length(coalesce(p_items, '[]'::jsonb)) = 0 then raise exception 'web expense: add at least one line'; end if;
     if jsonb_array_length(p_items) > 200 then raise exception 'web expense: too many lines'; end if;
     select sum((x->>'line_total')::bigint) into v_amount from jsonb_array_elements(p_items) x;
+    if p_extras is not null then
+      v_tax := coalesce((p_extras->>'tax')::bigint, 0);
+      v_tip := coalesce((p_extras->>'tip')::bigint, 0);
+      v_gratuity := coalesce((p_extras->>'gratuity')::bigint, 0);
+      v_discount := coalesce((p_extras->>'discount')::bigint, 0);
+      v_other := coalesce((p_extras->>'other')::bigint, 0);
+      if least(v_tax, v_tip, v_gratuity, v_discount, v_other) < 0 then
+        raise exception 'web expense: tax, tip and discount cannot be negative';
+      end if;
+      v_amount := v_amount + v_tax + v_tip + v_gratuity + v_other - v_discount;
+    end if;
     if exists (select 1 from jsonb_array_elements(p_items) x
                where coalesce((x->>'line_total')::bigint, -1) < 0 or coalesce((x->>'quantity')::int, 0) < 1
                   or btrim(coalesce(x->>'label', '')) = '') then
@@ -4172,9 +4214,11 @@ begin
 
   insert into public.expenses (id, group_id, title, amount_subunits, currency, expense_date, payer_user_id,
     split_mode, category_id, created_by, created_at, updated_at, title_updated_at, date_updated_at,
-    category_updated_at, split_version, split_updated_by)
+    category_updated_at, split_version, split_updated_by,
+    tax_subunits, tip_subunits, gratuity_subunits, discount_subunits, other_charges_subunits)
   values (p_expense_id, p_group_id, v_title, v_amount, p_currency, p_date, p_payer,
-    p_split_mode, p_category_id, p_actor, p_now, p_now, p_now, p_now, p_now, 1, p_actor);
+    p_split_mode, p_category_id, p_actor, p_now, p_now, p_now, p_now, p_now, 1, p_actor,
+    v_tax, v_tip, v_gratuity, v_discount, v_other);
 
   if p_split_mode = 'ITEMIZED' then
     for i in select x from jsonb_array_elements(p_items) x loop
@@ -4202,7 +4246,7 @@ begin
   return jsonb_build_object('ok', true, 'expense_id', p_expense_id, 'amount_subunits', v_amount);
 end;
 $$;
-revoke all on function public.create_web_expense(text, text, text, text, bigint, text, text, text, text, jsonb, jsonb, text, bigint) from public, anon, authenticated;
+revoke all on function public.create_web_expense(text, text, text, text, bigint, text, text, text, text, jsonb, jsonb, text, bigint, jsonb) from public, anon, authenticated;
 
 -- The change log behind a guest's expense edit, and what Undo restores. Not synced: the app sees the
 -- edit as an ordinary `EDITED` history row plus the new split. RLS on, zero policies (service key only).

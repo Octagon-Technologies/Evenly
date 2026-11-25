@@ -192,32 +192,6 @@ fun rememberIsQuickSplit(groupId: String): Boolean {
     return remember(groupId) { groups.observeGroup(GroupId(groupId)) }.collectAsStateWithLifecycle(null).value?.isQuick == true
 }
 
-/** Quick splits settled more than a day ago (mockup 6). Tapping one opens it as from Home. */
-@Composable
-fun QuickSplitHistoryRoute(
-    onBack: () -> Unit,
-    onOpen: (groupId: String, expenseId: String?) -> Unit,
-) {
-    val vm = koinViewModel<HomeViewModel>()
-    val state by vm.state.collectAsStateWithLifecycle()
-    val history = (state as? HomeUiState.Content)?.history.orEmpty()
-    Column(Modifier.fillMaxSize().background(EvenlyTheme.colors.page).systemBarsPadding()) {
-        EvTopBar(title = "History", subtitle = "Settled bills", navIcon = { EvIconButton(EvIcons.Back, onClick = onBack) })
-        if (history.isEmpty()) {
-            EvEmptyState(title = "Nothing here yet", text = "Bills everyone has paid move here a day after they're settled.")
-        } else {
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                history.forEach { g ->
-                    EvCard(fill = true, bordered = true) { QuickSplitRow(g, onClick = { onOpen(g.id, g.quick?.expenseId) }) }
-                }
-            }
-        }
-    }
-}
-
 /**
  * Opens a quick-split link the app was launched with: resolve the bill token to its group, then join it
  * through the ordinary invite screen, where the friend picks their typed-in name (A3). A dead link, or

@@ -571,10 +571,13 @@ export function installMockTransport(): void {
 
       case 'group-pay': {
         const me = state.me ?? 'u-purity';
+        // "They paid me" (fromUserId) flips who owes whom; the guest is always one side.
+        const from = body.fromUserId ? String(body.fromUserId) : me;
+        const to = body.fromUserId ? me : body.toUserId;
         let left = Number(body.amountSubunits);
         const open = groupState.expenses
-          .filter((e) => e.payerUserId === body.toUserId && (!body.expenseId || e.id === body.expenseId))
-          .flatMap((e) => e.shares.filter((s) => s.userId === me && s.owedSubunits - s.paid > 0))
+          .filter((e) => e.payerUserId === to && (!body.expenseId || e.id === body.expenseId))
+          .flatMap((e) => e.shares.filter((s) => s.userId === from && s.owedSubunits - s.paid > 0))
           .reverse();
         const ceiling = open.reduce((t, s) => t + s.owedSubunits - s.paid, 0);
         if (left > ceiling) return { ok: false, reason: 'ABOVE_CEILING', ceilingSubunits: ceiling };
@@ -586,11 +589,31 @@ export function installMockTransport(): void {
         return { ok: true, reason: null };
       }
 
+      case 'group-receipt-scan':
+        // A fixed read, so the scan button can be walked through without a paid model call.
+        return body.mode === 'summary'
+          ? { configured: true, summary: { merchant_name: 'Lula Cafe', short_title: 'Lula Cafe', total_subunits: 6420, currency: 'USD' } }
+          : {
+              configured: true,
+              verified: true,
+              receipt: {
+                currency: 'USD', merchant_name: 'Lula Cafe', tax_subunits: 412, gratuity_subunits: 0, tip_subunits: 900,
+                discount_subunits: 0, other_charges_subunits: 0,
+                items: [
+                  { label: 'Pasta', quantity: 1, line_total_subunits: 2200 },
+                  { label: 'Burger', quantity: 1, line_total_subunits: 1800 },
+                  { label: 'Iced tea', quantity: 2, line_total_subunits: 1108 },
+                ],
+              },
+            };
+
       case 'group-expense-create': {
         const me = state.me ?? 'u-purity';
         const people = peopleIds(body.people as never);
         const items = (body.items as Array<{ lineTotalSubunits: number }> | undefined) ?? [];
-        const amount = body.splitMode === 'ITEMIZED' ? items.reduce((t, i) => t + i.lineTotalSubunits, 0) : Number(body.amountSubunits);
+        const x = body.extras as { tax: number; tip: number; gratuity: number; discount: number; other: number } | undefined;
+        const extra = x ? x.tax + x.tip + x.gratuity + x.other - x.discount : 0;
+        const amount = body.splitMode === 'ITEMIZED' ? items.reduce((t, i) => t + i.lineTotalSubunits, 0) + extra : Number(body.amountSubunits);
         const id = `gx-${Date.now()}`;
         groupState.expenses.unshift({
           id, title: String(body.title), date: String(body.date), createdAt: Date.now(), amountSubunits: amount, currency: 'USD',

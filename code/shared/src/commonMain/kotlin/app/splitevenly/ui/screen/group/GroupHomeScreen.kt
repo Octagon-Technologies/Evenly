@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +20,7 @@ import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
 import app.splitevenly.ui.components.BottomNavItem
 import app.splitevenly.ui.components.EvBottomNav
+import app.splitevenly.ui.components.LocalSheetDockedAboveNav
 import app.splitevenly.ui.components.StatusBarScrim
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.navigation.GroupDeletedRoute
@@ -50,7 +52,6 @@ fun GroupHomeScreen(
     onSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onSettlePeer: (String) -> Unit = {},
-    onIncludeNav: (conflictId: String, expenseId: String, memberUserId: String) -> Unit = { _, _, _ -> },
     /** "See all N" on the identity card, and the settings row, both open the full-screen list. */
     onClaimNames: () -> Unit = {},
 ) {
@@ -65,10 +66,9 @@ fun GroupHomeScreen(
     val group by remember(groupId) {
         groups.observeGroupIncludingDeleted(GroupId(groupId))
     }.collectAsStateWithLifecycle(null)
-    val conflicts by remember(groupId) { groups.observeConflicts(GroupId(groupId)) }.collectAsStateWithLifecycle(emptyList())
     val editConflicts by remember(groupId) { expenses.observeEditConflicts(GroupId(groupId)) }.collectAsStateWithLifecycle(emptyList())
     // Both kinds of conflict surface in the one Conflicts tab: retroactive-member *and* edit-collisions.
-    val conflictCount = conflicts.size + editConflicts.size
+    val conflictCount = editConflicts.size
     // If the conflicts clear while the tab is open, fall back to Expenses so we don't show a blank tab.
     if (conflictCount == 0 && tab == GroupTab.Conflicts) tab = GroupTab.Expenses
 
@@ -90,32 +90,34 @@ fun GroupHomeScreen(
     Column(Modifier.fillMaxSize().background(c.page)) {
         StatusBarScrim(c.page)
         Box(Modifier.weight(1f)) {
-            Crossfade(targetState = tab, animationSpec = EvMotion.standard()) { current ->
-                when (current) {
-                    GroupTab.Expenses -> {
-                        GroupExpensesRoute(
-                            groupId,
-                            onBack,
-                            onOpenSettings,
-                            onAdd,
-                            onOpenExpense,
-                            onOpenBill,
-                            onSearch,
-                            onClaimNames,
-                            onEditExpense = { onEditExpense(it.id, it.itemized) },
-                        )
-                    }
+            CompositionLocalProvider(LocalSheetDockedAboveNav provides true) {
+                Crossfade(targetState = tab, animationSpec = EvMotion.standard()) { current ->
+                    when (current) {
+                        GroupTab.Expenses -> {
+                            GroupExpensesRoute(
+                                groupId,
+                                onBack,
+                                onOpenSettings,
+                                onAdd,
+                                onOpenExpense,
+                                onOpenBill,
+                                onSearch,
+                                onClaimNames,
+                                onEditExpense = { onEditExpense(it.id, it.itemized) },
+                            )
+                        }
 
-                    GroupTab.Balances -> {
-                        GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
-                    }
+                        GroupTab.Balances -> {
+                            GroupBalancesRoute(groupId, onBack = onBack, onSettleNav = onSettlePeer)
+                        }
 
-                    GroupTab.Conflicts -> {
-                        GroupConflictsRoute(groupId = groupId, onBack = onBack, onIncludeNav = onIncludeNav)
-                    }
+                        GroupTab.Conflicts -> {
+                            GroupConflictsRoute(groupId = groupId, onBack = onBack)
+                        }
 
-                    GroupTab.Overview -> {
-                        OverviewRoute(groupId, onBack = onBack)
+                        GroupTab.Overview -> {
+                            OverviewRoute(groupId, onBack = onBack)
+                        }
                     }
                 }
             }

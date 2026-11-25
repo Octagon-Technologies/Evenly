@@ -89,6 +89,15 @@ begin
   if (res->>'ok')::boolean or (res->>'ceiling')::bigint <> 234 then raise exception 'scoped ceiling: %', res; end if;
   res := public.record_web_group_payment(g, alice, alice, 'USD', 1, null, now_ms);
   if (res->>'ok')::boolean then raise exception 'paid myself'; end if;
+  -- "Alice paid me $1.00 of Taxi", recorded by Joe (the person paid): partial, scoped, and attributed to
+  -- Joe, so the push goes to Alice rather than back to the person who typed it.
+  res := public.record_web_group_payment(g, alice, joe, 'USD', 100, null, now_ms, e2, joe);
+  if not (res->>'ok')::boolean then raise exception 'received: %', res; end if;
+  if (select created_by from public.settlements where id = res->>'settlement_id') <> joe then
+    raise exception 'received: created_by is not the recorder';
+  end if;
+  select public._share_remaining(id) into v from public.shares where expense_id = e2 and user_id = alice;
+  if v <> 134 then raise exception 'received: e2 remaining % not 134', v; end if;
 
   -- 5. Edit: a stale base is refused and changes nothing.
   res := public.apply_web_expense_edit(e1, g, bob, 99, null, 1200, null, null, null, now_ms + 1);

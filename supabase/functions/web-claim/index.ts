@@ -1282,26 +1282,70 @@ async function actionGroupView(sb: SupabaseClient, body: { token?: string; sessi
   });
 }
 
-/** POST /web-claim/group-pay — `{ token, sessionToken, toUserId, currency, amountSubunits, app?, expenseId? }`.
- *  With `expenseId` the payment pays down that one bill only. */
+/** POST /web-claim/group-pay — `{ token, sessionToken, toUserId | fromUserId, currency, amountSubunits, app?, expenseId? }`.
+ *  `toUserId` is "I paid them"; `fromUserId` is "they paid me", recorded by the person paid (a partial
+ *  payment on a bill the guest paid for). Exactly one, and the guest is always one side: a guest never
+ *  records a payment between two other people. With `expenseId` the payment pays down that one bill only. */
 async function actionGroupPay(
   sb: SupabaseClient,
   body: {
-    token?: string; sessionToken?: string; toUserId?: string; currency?: string; amountSubunits?: number;
-    app?: string | null; expenseId?: string | null;
+    token?: string; sessionToken?: string; toUserId?: string; fromUserId?: string; currency?: string;
+    amountSubunits?: number; app?: string | null; expenseId?: string | null;
   },
 ): Promise<Response> {
   return withGroupWriter(sb, body, async ({ ctx, session }) => {
-    if (!body.toUserId || !body.currency || !Number.isInteger(body.amountSubunits)) {
-      return err("BAD_REQUEST", 400, "toUserId, currency and amountSubunits required");
+    if (!body.toUserId === !body.fromUserId || !body.currency || !Number.isInteger(body.amountSubunits)) {
+      return err("BAD_REQUEST", 400, "one of toUserId or fromUserId, plus currency and amountSubunits, required");
     }
+    const from = body.fromUserId ?? session.user_id;
+    const to = body.toUserId ?? session.user_id;
     const { data, error } = await sb.rpc("record_web_group_payment", {
-      p_group_id: ctx.group.id, p_from: session.user_id, p_to: body.toUserId, p_currency: body.currency,
+      p_group_id: ctx.group.id, p_from: from, p_to: to, p_currency: body.currency,
       p_amount: body.amountSubunits, p_payment_app: body.app ?? null, p_now: Date.now(),
-      p_expense_id: body.expenseId ?? null,
+      p_expense_id: body.expenseId ?? null, p_actor: session.user_id,
     });
     if (error) return err("BACKEND", 500, error.message);
     return json({ ok: data.ok, reason: data.reason ?? null, ceilingSubunits: data.ceiling ?? null });
+  });
+}
+
+const SCAN_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"]);
+const MAX_SCAN_PAGES = 4;
+/** Base64 characters across all pages: about 9 MB of image, well above a downscaled phone photo. */
+const MAX_SCAN_BASE64 = 12_000_000;
+
+/** POST /web-claim/group-receipt-scan — `{ token, sessionToken, files: [{ data, mediaType }], mode? }`.
+ *  The web group page's "Scan a receipt", for both kinds of expense: `mode: "summary"` reads the total for
+ *  an even or exact split, no mode reads the lines for an itemized one. This only proves who the guest is;
+ *  `extract-receipt` does the paid work and owns the guest scan limits, under the service role. */
+async function actionGroupReceiptScan(
+  sb: SupabaseClient,
+  body: { token?: string; sessionToken?: string; files?: Array<{ data?: unknown; mediaType?: unknown }>; mode?: unknown },
+): Promise<Response> {
+  return withGroupWriter(sb, body, async ({ ctx, session }) => {
+    const files = Array.isArray(body.files) ? body.files : [];
+    if (files.length === 0 || files.length > MAX_SCAN_PAGES) return err("BAD_REQUEST", 400, "1 to 4 pages");
+    let size = 0;
+    for (const f of files) {
+      if (typeof f.data !== "string" || typeof f.mediaType !== "string" || !SCAN_MEDIA_TYPES.has(f.mediaType)) {
+        return err("BAD_REQUEST", 400, "each page needs data and an image or PDF mediaType");
+      }
+      size += f.data.length;
+    }
+    if (size > MAX_SCAN_BASE64) return err("BAD_REQUEST", 400, "receipt too large");
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/extract-receipt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, apikey: key },
+      body: JSON.stringify({
+        files: files.map((f) => ({ data: f.data, mediaType: f.mediaType })),
+        groupId: ctx.group.id,
+        mode: body.mode === "summary" ? "summary" : undefined,
+        webGuest: { sessionId: session.id, userId: session.user_id },
+      }),
+    });
+    const out = await res.json().catch(() => ({ error: "scan failed" }));
+    return json(out, res.status);
   });
 }
 
@@ -1355,6 +1399,8 @@ async function actionGroupExpenseCreate(
     token?: string; sessionToken?: string; title?: string; amountSubunits?: number; currency?: string; date?: string;
     payerUserId?: string; splitMode?: string; people?: PersonIn[];
     items?: Array<{ label?: string; quantity?: number; lineTotalSubunits?: number }>; categoryId?: string | null;
+    /** Itemized only, from a scanned receipt: subunits, each split proportionally like an app-made bill. */
+    extras?: { tax?: number; tip?: number; gratuity?: number; discount?: number; other?: number } | null;
   },
 ): Promise<Response> {
   return withGroupWriter(sb, body, async ({ ctx, session }) => {
@@ -1378,6 +1424,7 @@ async function actionGroupExpenseCreate(
       p_items: (body.items ?? []).map((i) => ({ label: i.label ?? "", quantity: i.quantity ?? 0, line_total: i.lineTotalSubunits ?? -1 })),
       p_category_id: body.categoryId ?? null,
       p_now: Date.now(),
+      p_extras: body.splitMode === "ITEMIZED" && body.extras ? body.extras : null,
     });
     if (error) return rpcRefusal(error);
     let billToken: string | null = null;
@@ -1462,6 +1509,7 @@ const ACTIONS: Record<string, (sb: SupabaseClient, body: any, req: Request) => P
   "invite-claim": actionInviteClaim,
   "group-view": actionGroupView,
   "group-pay": actionGroupPay,
+  "group-receipt-scan": actionGroupReceiptScan,
   "group-expense-create": actionGroupExpenseCreate,
   "group-expense-edit": actionGroupExpenseEdit,
   "group-expense-undo": actionGroupExpenseUndo,

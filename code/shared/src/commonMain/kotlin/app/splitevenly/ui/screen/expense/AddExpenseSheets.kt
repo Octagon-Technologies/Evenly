@@ -33,6 +33,7 @@ import app.splitevenly.domain.expense.GroupCategory
 import app.splitevenly.platform.PickSource
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.EvAvatar
+import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.EvButton
 import app.splitevenly.ui.components.EvField
 import app.splitevenly.ui.components.EvModalScaffold
@@ -58,6 +59,9 @@ internal fun AddParticipantSheet(onAdd: (String) -> Unit, onDismiss: () -> Unit,
         EvField("Name") { EvTextField(newName, { newName = it }, placeholder = "e.g. Bob") }
         Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
             EvButton("Add", { if (newName.isNotBlank()) { onAdd(newName.trim()); onDismiss() } }, enabled = newName.isNotBlank())
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            EvButton("Cancel", onDismiss, variant = ButtonVariant.Dismiss)
         }
     }
 }

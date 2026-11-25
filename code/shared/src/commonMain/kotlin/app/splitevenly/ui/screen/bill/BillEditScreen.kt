@@ -809,6 +809,9 @@ fun BillEditScreen(
                         }
                     }, enabled = newName.isNotBlank())
                 }
+                Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                    EvButton("Cancel", closeAdd, variant = ButtonVariant.Dismiss)
+                }
             }
         }
 

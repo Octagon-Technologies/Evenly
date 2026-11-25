@@ -209,7 +209,7 @@ fun ReceiptViewerScreen(
                         variant = ButtonVariant.Danger,
                         leadingIcon = EvIcons.Trash,
                     )
-                    EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Secondary)
+                    EvButton("Cancel", { confirmDelete = false }, variant = ButtonVariant.Dismiss)
                 }
             }
         }

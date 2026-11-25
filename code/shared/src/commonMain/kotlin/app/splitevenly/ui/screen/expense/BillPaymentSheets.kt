@@ -142,7 +142,7 @@ fun RecordPaymentSheet(
                             }
                         }
                     }
-                }, variant = ButtonVariant.PrimarySolid)
+                }, variant = ButtonVariant.Primary)
             }
         }
     }
@@ -386,7 +386,7 @@ fun EditBillPaymentSheet(
                         }
                     }
                 }
-            }, variant = ButtonVariant.PrimarySolid)
+            }, variant = ButtonVariant.Primary)
             if (confirmCancel) {
                 EvButton("Tap again to cancel this payment", {
                     onCancelPayment()

@@ -15,7 +15,10 @@ import {
   type GroupView,
   type GroupWriteResult,
   type NewExpense,
+  type ScanReceipt,
+  type ScanSummary,
 } from './api.ts';
+import { toScanPage } from './receiptImage.ts';
 import { buildBilateralBalances, myDebts, type Debt, type OpenShare } from './money/balances.ts';
 import { capture } from './analytics.ts';
 
@@ -115,9 +118,12 @@ export class GroupStore {
   /** "I paid Joe", across bills or for one ([expenseId]). Returns null when it landed, or what to tell the guest. */
   async pay(debt: Debt, amountSubunits: number, expenseId: string | null = null): Promise<string | null> {
     return this.#write(async () => {
-      const res = await groupApi.pay(this.token, this.sessionToken, debt.creditorUserId, debt.currency, amountSubunits, expenseId);
+      // A debt owed TO the guest is "they paid me": the guest records money they received.
+      const received = debt.creditorUserId === this.me;
+      const party = received ? { fromUserId: debt.debtorUserId } : { toUserId: debt.creditorUserId };
+      const res = await groupApi.pay(this.token, this.sessionToken, party, debt.currency, amountSubunits, expenseId);
       if (!res.ok) return refusal(res);
-      capture('group_web_paid', {});
+      capture(received ? 'group_web_payment_received' : 'group_web_paid', {});
       return null;
     });
   }
@@ -151,6 +157,38 @@ export class GroupStore {
     });
   }
 
+  /**
+   * Reads a receipt for the add-expense form. Nothing is saved: the form fills in and the guest checks it.
+   * Every way it can fail ends in a sentence that says to type it in, so a scan is never a dead end.
+   */
+  async scan(
+    files: File[],
+    mode: 'summary' | null,
+  ): Promise<{ summary?: ScanSummary; receipt?: ScanReceipt; verified?: boolean; problem?: string }> {
+    this.busy = true;
+    try {
+      const pages = (await Promise.all(files.slice(0, 4).map(toScanPage))).filter((p) => p !== null);
+      if (pages.length === 0) return { problem: "That file isn't a photo or a PDF. Try another, or type it in." };
+      const res = await groupApi.scan(this.token, this.sessionToken, pages, mode);
+      capture('group_web_receipt_scanned', { mode: mode ?? 'items', pages: pages.length });
+      if (res.configured === false) return { problem: "Receipt scanning isn't available right now. Type it in instead." };
+      if (res.noReceipt || (!res.summary && !res.receipt)) {
+        return { problem: "Couldn't find a receipt in that. Try a clearer photo, or type it in." };
+      }
+      return { summary: res.summary, receipt: res.receipt, verified: res.verified };
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 429) {
+        return { problem: "That's a lot of scans for now. Try again later, or type it in." };
+      }
+      if (e instanceof ApiError && e.code === 'NETWORK') {
+        return { problem: "That didn't go through. Check your connection and try again." };
+      }
+      return { problem: "Couldn't read that one. Try a clearer photo, or type it in." };
+    } finally {
+      this.busy = false;
+    }
+  }
+
   async #write(run: () => Promise<string | null>): Promise<string | null> {
     this.busy = true;
     try {
@@ -179,9 +217,9 @@ export class GroupStore {
 function refusal(res: GroupWriteResult): string {
   switch (res.reason) {
     case 'ABOVE_CEILING':
-      return 'That is more than you owe them.';
+      return "That's more than is still owed.";
     case 'NOT_OWED':
-      return "You don't owe them anything right now.";
+      return 'Nothing is owed between you two right now.';
     case 'STALE':
       return 'Someone changed this while you were editing. These are the latest numbers.';
     case 'CHANGED_SINCE':

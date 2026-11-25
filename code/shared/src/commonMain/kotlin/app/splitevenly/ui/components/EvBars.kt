@@ -137,6 +137,9 @@ fun StatusBarScrim(color: Color = EvenlyTheme.colors.page) {
     Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(color))
 }
 
+/** Clear space above the iOS nav island; a sheet docked above the nav overlaps it to sit on the island. */
+internal val IosNavIslandTopGap = 8.dp
+
 /**
  * `.sc-bnav` — bottom navigation; per-item numeric badge (conflicts). Used both inside a group and at
  * the app root (Groups/Settings). Renders a **platform-idiomatic** variant: on Android the edge-to-edge
@@ -230,7 +233,7 @@ private fun IosFloatingNav(
         modifier
             .fillMaxWidth()
             .then(if (navBarInset) Modifier.navigationBarsPadding() else Modifier)
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 12.dp, end = 12.dp, top = IosNavIslandTopGap, bottom = 8.dp),
     ) {
         Row(
             Modifier

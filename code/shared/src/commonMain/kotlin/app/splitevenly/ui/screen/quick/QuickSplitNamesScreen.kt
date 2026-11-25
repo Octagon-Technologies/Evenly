@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -52,7 +53,7 @@ private const val MAX_NAME_LENGTH = 40
 
 /**
  * Step 1 of a quick split: just names (mockup 3). Return adds the name and keeps the keyboard up for the
- * next one; the creator is always in. Names are all we need, because on the link each person taps
+ * next one, and on an empty field closes the keyboard; the creator is always in. Names are all we need, because on the link each person taps
  * their own name and claims it.
  *
  * People come before the bill (the mockup has them second) because the bill step is the full expense
@@ -74,6 +75,7 @@ fun QuickSplitNamesScreen(
     var draft by remember { mutableStateOf("") }
     var hint by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     // Focus only once the push has settled (the entry turns RESUMED). The first focus after launch starts the
     // iOS keyboard, which holds the main thread for about a second; focusing on first composition held back the
     // screen's first frame by that much, so the tap on "Split a one-time bill" looked dead for ~1.5s.
@@ -151,7 +153,8 @@ fun QuickSplitNamesScreen(
                         modifier = Modifier.clickable(role = Role.Button) { commit() }.padding(horizontal = 8.dp, vertical = 6.dp),
                     )
                 },
-                onDone = { commit() },
+                // Return adds the name and keeps the keyboard up for the next one; on an empty field it closes it.
+                onDone = { if (draft.isBlank()) focusManager.clearFocus() else commit() },
             )
             (hint ?: error)?.let { Text(it, color = c.owe, fontSize = 13.sp) }
         }
