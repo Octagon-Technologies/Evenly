@@ -27,11 +27,13 @@ import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.domain.repository.PeopleRepository
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
+import app.splitevenly.ui.screen.people.KnownPersonUi
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvenlyTheme
 
@@ -62,6 +64,23 @@ internal suspend fun GroupRepository.addMemberByName(
     name: String,
     me: UserId?,
 ): String? = (addPlaceholder(groupId, name, createdBy = me) as? AppResult.Ok)?.value?.userId?.value
+
+/**
+ * Adds someone the viewer already knows from other groups: a placeholder under their name, linked to that
+ * person so the People tab counts them as one (docs/features/people-tab.md, "People you know"). Returns the
+ * new member id, or null when the save failed.
+ */
+internal suspend fun GroupRepository.addKnownPerson(
+    groupId: GroupId,
+    person: KnownPersonUi,
+    me: UserId?,
+    people: PeopleRepository,
+): String? {
+    val added = addPlaceholder(groupId, person.name, createdBy = me)
+    if (added !is AppResult.Ok) return null
+    if (me != null) people.link(me, listOf(added.value.userId.value), person.key)
+    return added.value.userId.value
+}
 
 /** Members strip copy: "Just you" when solo, else "N members". */
 internal fun membersStripLabel(count: Int): String = if (count <= 1) "Just you" else "$count members"

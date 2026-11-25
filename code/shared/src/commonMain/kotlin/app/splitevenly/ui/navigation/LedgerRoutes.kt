@@ -1,11 +1,5 @@
 package app.splitevenly.ui.navigation
 
-import app.splitevenly.domain.expense.expenseDateChipLabel
-import app.splitevenly.core.time.localNoonEpochMillis
-import app.splitevenly.core.time.localIsoDate
-import app.splitevenly.platform.SecureStorage
-import app.splitevenly.ui.screen.bill.BillNext
-import app.splitevenly.domain.expense.trustedReceiptDate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -23,12 +17,12 @@ import app.splitevenly.core.id.ReceiptId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
 import app.splitevenly.core.time.localHour
-import app.splitevenly.core.time.nowEpochMillis
+import app.splitevenly.core.time.localIsoDate
+import app.splitevenly.core.time.localNoonEpochMillis
 import app.splitevenly.core.time.localToday
+import app.splitevenly.core.time.nowEpochMillis
 import app.splitevenly.data.upload.ReceiptUploadManager
 import app.splitevenly.data.upload.StagedReceipt
-import app.splitevenly.domain.activity.HistoryEvent
-import app.splitevenly.domain.activity.HistoryEventType
 import app.splitevenly.domain.activity.ReceiptUploadStatus
 import app.splitevenly.domain.auth.AuthSession
 import app.splitevenly.domain.expense.BillExtrasInput
@@ -40,6 +34,8 @@ import app.splitevenly.domain.expense.NewExpense
 import app.splitevenly.domain.expense.NewShare
 import app.splitevenly.domain.expense.SPLIT_MODE_ITEMIZED
 import app.splitevenly.domain.expense.TipSplitMode
+import app.splitevenly.domain.expense.expenseDateChipLabel
+import app.splitevenly.domain.expense.trustedReceiptDate
 import app.splitevenly.domain.receipt.ReceiptDraft
 import app.splitevenly.domain.receipt.ReceiptOcr
 import app.splitevenly.domain.receipt.ReceiptOcrFile
@@ -60,7 +56,8 @@ import app.splitevenly.platform.PdfRasterizer
 import app.splitevenly.platform.PickKind
 import app.splitevenly.platform.PickSource
 import app.splitevenly.platform.PickedFile
-import app.splitevenly.ui.components.moneySubunits
+import app.splitevenly.platform.SecureStorage
+import app.splitevenly.ui.screen.bill.BillNext
 import app.splitevenly.ui.screen.bill.EditBillState
 import app.splitevenly.ui.screen.bill.ScanErrorKind
 import app.splitevenly.ui.screen.bill.ScanPageUi
@@ -77,14 +74,11 @@ import app.splitevenly.ui.screen.expense.DetailShareUi
 import app.splitevenly.ui.screen.expense.ExpenseDetailScreen
 import app.splitevenly.ui.screen.expense.ExpenseDetailState
 import app.splitevenly.ui.screen.expense.HistoryUi
-import app.splitevenly.ui.screen.expense.PickedReceiptUi
 import app.splitevenly.ui.screen.expense.ReceiptUi
 import app.splitevenly.ui.screen.expense.ReceiptUploadUi
 import app.splitevenly.ui.screen.expense.SplitApproach
 import app.splitevenly.ui.screen.expense.SplitMode
 import app.splitevenly.ui.screen.expense.format2dp
-import app.splitevenly.ui.screen.group.GroupHomeScreen
-import app.splitevenly.ui.screen.group.buildGroupExpenses
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
@@ -758,8 +752,17 @@ fun ExpenseDetailRoute(
                 "This bill has no payer yet. Pick who paid in Edit bill."
             } else {
                 recordBillPayment(
-                    settlements, gid, eid, e.currency, from = UserId(debtor), to = payer, actor = userId,
-                    amountSubunits = entry.amountSubunits, method = entry.method, date = entry.date, today = today,
+                    settlements,
+                    gid,
+                    eid,
+                    e.currency,
+                    from = UserId(debtor),
+                    to = payer,
+                    actor = userId,
+                    amountSubunits = entry.amountSubunits,
+                    method = entry.method,
+                    date = entry.date,
+                    today = today,
                 ).also { refused ->
                     if (refused == null && entry.method != null) {
                         lastMethod = entry.method
@@ -773,7 +776,11 @@ fun ExpenseDetailRoute(
             val old = payments.firstOrNull { it.record.id.value == id }?.record
             val dateChanged = old == null || localIsoDate(old.settledAt) != entry.date
             savePaymentEdit(
-                settlements, id, entry.amountSubunits, userId, scopeExpenseId = eid,
+                settlements,
+                id,
+                entry.amountSubunits,
+                userId,
+                scopeExpenseId = eid,
                 paymentApp = entry.method,
                 settledAt = if (dateChanged) localNoonEpochMillis(entry.date) else null,
             )

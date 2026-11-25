@@ -1,8 +1,8 @@
 package app.splitevenly.ui.screen.group
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,25 +38,26 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.splitevenly.domain.expense.ExpenseCategory
+import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ChipVariant
 import app.splitevenly.ui.components.EvAvatar
 import app.splitevenly.ui.components.EvBanner
 import app.splitevenly.ui.components.EvChip
 import app.splitevenly.ui.components.EvContextMenu
-import app.splitevenly.ui.components.EvMenuAction
 import app.splitevenly.ui.components.EvDot
 import app.splitevenly.ui.components.EvEmptyState
 import app.splitevenly.ui.components.EvFab
 import app.splitevenly.ui.components.EvIconButton
+import app.splitevenly.ui.components.EvMenuAction
 import app.splitevenly.ui.components.EvSegmented
 import app.splitevenly.ui.components.EvTopBar
 import app.splitevenly.ui.components.EvUndoToast
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
-import app.splitevenly.platform.isIOS
 import app.splitevenly.ui.screen.expense.DELETE_BILL_BODY
 import app.splitevenly.ui.screen.expense.DeleteBillSheet
+import app.splitevenly.ui.screen.people.KnownPersonUi
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvenlyTheme
 import app.splitevenly.ui.theme.categoryColor
@@ -144,6 +145,9 @@ fun GroupExpensesTab(
     // The roster for the members strip (T2). Empty until the members load, which hides the strip.
     members: List<MemberRowUi> = emptyList(),
     onAddMember: suspend (name: String) -> String? = { null },
+    // "People you know" (docs/features/people-tab.md): someone from your other groups, added and linked.
+    knownPeople: List<KnownPersonUi> = emptyList(),
+    onAddKnown: suspend (KnownPersonUi) -> String? = { null },
     unresolvedBills: List<UnresolvedBillUi> = emptyList(),
     onOpenBill: (String) -> Unit = {},
     // "Is this you?" (identity claim). Rendered here because this is where people actually look; the
@@ -383,6 +387,8 @@ fun GroupExpensesTab(
                 onInviteWithLink = onShareInvite,
                 onCopyInvite = onCopyInvite,
                 onAddMember = onAddMember,
+                knownPeople = knownPeople,
+                onAddKnown = onAddKnown,
                 onDismiss = { showMembers = false },
             )
         }
@@ -474,8 +480,18 @@ private fun ExpenseRowCard(
     Row(
         modifier
             .fillMaxWidth()
-            .then(if (it.involved) Modifier.drawBehind { drawRect(stripColor, size = Size(InvolvedStripWidth.toPx(), size.height)) } else Modifier)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .then(
+                if (it.involved) {
+                    Modifier.drawBehind {
+                        drawRect(
+                            stripColor,
+                            size = Size(InvolvedStripWidth.toPx(), size.height),
+                        )
+                    }
+                } else {
+                    Modifier
+                },
+            ).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

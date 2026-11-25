@@ -34,17 +34,19 @@ import app.splitevenly.domain.group.Member
 import app.splitevenly.domain.repository.BillRepository
 import app.splitevenly.domain.repository.ExpenseRepository
 import app.splitevenly.domain.repository.GroupRepository
+import app.splitevenly.domain.repository.PeopleRepository
 import app.splitevenly.domain.repository.SettlementRepository
 import app.splitevenly.domain.settlement.SettlementRecord
 import app.splitevenly.platform.PlatformShare
 import app.splitevenly.ui.components.moneySubunits
-import kotlin.time.Clock
-import kotlin.time.ExperimentalTime
+import app.splitevenly.ui.navigation.rememberKnownPeople
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 /**
  * Maps the current user's bilateral [Debt]s to display rows (one per counterparty + currency),
@@ -189,6 +191,7 @@ fun GroupExpensesRoute(
 ) {
     val expenses = koinInject<ExpenseRepository>()
     val groups = koinInject<GroupRepository>()
+    val people = koinInject<PeopleRepository>()
     val bills = koinInject<BillRepository>()
     val auth = koinInject<AuthSession>()
     var showFilter by remember { mutableStateOf(false) }
@@ -348,6 +351,8 @@ fun GroupExpensesRoute(
         sharingInvite = sharingInvite,
         members = members.toMemberRows(userId),
         onAddMember = { name -> groups.addMemberByName(gid, name, userId) },
+        knownPeople = rememberKnownPeople(gid.value),
+        onAddKnown = { k -> groups.addKnownPerson(gid, k, userId, people) },
         unresolvedBills = unresolvedUi,
         onOpenBill = onOpenBill,
         identityNames = identityNames,

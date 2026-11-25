@@ -69,6 +69,9 @@ import app.splitevenly.ui.components.EvTextField
 import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.topHairline
+import app.splitevenly.ui.screen.people.KnownPeopleList
+import app.splitevenly.ui.screen.people.KnownPersonUi
+import app.splitevenly.ui.screen.people.matchKnown
 import app.splitevenly.ui.screen.settings.MemberRowUi
 import app.splitevenly.ui.theme.EvMotion
 import app.splitevenly.ui.theme.EvenlyTheme
@@ -102,6 +105,8 @@ internal fun MembersSheet(
     onCopyInvite: () -> Unit,
     onAddMember: suspend (name: String) -> String?,
     onDismiss: () -> Unit,
+    knownPeople: List<KnownPersonUi> = emptyList(),
+    onAddKnown: suspend (KnownPersonUi) -> String? = { null },
 ) {
     var page by remember { mutableStateOf(MembersPage.Members) }
     // Hoisted so coming back from a page finds the card as it was left, not collapsed again.
@@ -123,7 +128,7 @@ internal fun MembersSheet(
             label = "membersPage",
         ) { current ->
             when (current) {
-                MembersPage.Members ->
+                MembersPage.Members -> {
                     MembersPageBody(
                         members = members,
                         addOpen = addOpen,
@@ -134,10 +139,13 @@ internal fun MembersSheet(
                         onAddByName = { page = MembersPage.AddByName },
                         modifier = Modifier.onSizeChanged { membersHeightPx = it.height },
                     )
+                }
 
-                MembersPage.AddByName -> AddByNamePage(members, onAddMember, onBack = back)
+                MembersPage.AddByName -> {
+                    AddByNamePage(members, knownPeople, onAddMember, onAddKnown, onBack = back)
+                }
 
-                MembersPage.Qr ->
+                MembersPage.Qr -> {
                     InviteQrPage(
                         groupName = groupName,
                         inviteLink = inviteLink,
@@ -148,6 +156,7 @@ internal fun MembersSheet(
                         // Same height as Members, so opening the QR doesn't make the sheet jump.
                         modifier = Modifier.heightIn(min = with(density) { membersHeightPx.toDp() }),
                     )
+                }
             }
         }
     }
@@ -296,7 +305,11 @@ private fun AddPeopleOption(
 }
 
 /** One message in the add page's bar. [seq] restarts the 3-second timer when the same text repeats. */
-private data class AddBar(val text: String, val ok: Boolean, val seq: Int)
+private data class AddBar(
+    val text: String,
+    val ok: Boolean,
+    val seq: Int,
+)
 
 /** Case- and spacing-blind form of a name, for the "already in this group" check. */
 private fun normalizedName(name: String): String = name.trim().replace(Regex("\\s+"), " ").lowercase()
@@ -313,7 +326,9 @@ private fun normalizedName(name: String): String = name.trim().replace(Regex("\\
 @Composable
 private fun AddByNamePage(
     members: List<MemberRowUi>,
+    known: List<KnownPersonUi>,
     onAddMember: suspend (name: String) -> String?,
+    onAddKnown: suspend (KnownPersonUi) -> String?,
     onBack: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
@@ -342,22 +357,35 @@ private fun AddByNamePage(
 
     // Every outcome hands focus back to the field: the Add button, like every EvButton, drops focus on tap,
     // and the keyboard is meant to stay up for the next name or the fix.
-    fun show(text: String, ok: Boolean) {
+    fun show(
+        text: String,
+        ok: Boolean,
+    ) {
         seq += 1
         bar = AddBar(text, ok, seq)
         focus.requestFocus()
     }
 
-    fun submit() {
+    // One path for a typed name and a picked "person you know": same duplicate rule, same bars.
+    fun add(
+        typed: String,
+        save: suspend () -> String?,
+    ) {
         if (saving) return
-        val trimmed = name.trim().replace(Regex("\\s+"), " ")
+        val trimmed = typed.trim().replace(Regex("\\s+"), " ")
         when {
-            trimmed.isEmpty() -> show("Type their name first", ok = false)
-            members.any { normalizedName(it.name) == normalizedName(trimmed) } -> show("$trimmed is already in this group", ok = false)
+            trimmed.isEmpty() -> {
+                show("Type their name first", ok = false)
+            }
+
+            members.any { normalizedName(it.name) == normalizedName(trimmed) } -> {
+                show("$trimmed is already in this group", ok = false)
+            }
+
             else -> {
                 saving = true
                 scope.launch {
-                    val id = onAddMember(trimmed)
+                    val id = save()
                     saving = false
                     if (id != null) {
                         name = ""
@@ -371,6 +399,8 @@ private fun AddByNamePage(
             }
         }
     }
+
+    fun submit() = add(name) { onAddMember(name.trim().replace(Regex("\\s+"), " ")) }
 
     val ordered = addedIds.mapNotNull { id -> members.find { it.userId == id } } + members.filter { it.userId !in addedIds }
     Box {
@@ -387,6 +417,7 @@ private fun AddByNamePage(
                 )
                 EvButton("Add", ::submit, small = true, fillMaxWidth = false)
             }
+            KnownPeopleList(matchKnown(known, name)) { k -> add(k.name) { onAddKnown(k) } }
             Text(
                 "In this group",
                 Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp),

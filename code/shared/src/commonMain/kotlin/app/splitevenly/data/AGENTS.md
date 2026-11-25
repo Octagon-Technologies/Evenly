@@ -71,6 +71,11 @@ edits is safe: `keepNewer` keeps the newer local copy. Sign-out reports *why* a 
 matching the list), and `SyncedTablesTest` pins `SignOutWipeDao.WIPED_TABLES` against it. Four hand-kept
 copies is what it was, and two had already drifted. **Adding a table to `push` means adding it here.**
 
+**Not every synced table is group-scoped.** `person_links` (People tab name links) is pulled by
+`owner_user_id` rather than `group_id`, so it lands only in `pull`'s main branch (an account with no groups
+has nothing to link). It still goes in `SYNCED_TABLES`, the sign-out wipe, and `EntitySerializablePartitionTest`
+like any other wire mirror.
+
 ## The client's own clock is not trusted either
 
 `Clock.nowEpochMillis()` — the one function every `*_at` write goes through — passes its reading through

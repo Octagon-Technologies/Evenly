@@ -560,6 +560,7 @@ fun HomeGateRoute(
     onEditPaymentApps: () -> Unit,
     onSendFeedback: () -> Unit,
     onEditExpense: (groupId: String, expenseId: String, itemized: Boolean) -> Unit = { _, _, _ -> },
+    onOpenPerson: (String) -> Unit = {},
 ) {
     val auth = koinInject<AuthSession>()
     val gate = koinViewModel<HomeGateViewModel>()
@@ -594,6 +595,7 @@ fun HomeGateRoute(
                 onEditPaymentApps = onEditPaymentApps,
                 onSendFeedback = onSendFeedback,
                 onEditExpense = onEditExpense,
+                onOpenPerson = onOpenPerson,
             )
         }
     }

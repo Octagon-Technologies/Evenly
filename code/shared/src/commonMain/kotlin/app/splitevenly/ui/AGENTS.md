@@ -43,9 +43,11 @@ enum nav-arg to crash the Native NavHost.
 **A type-safe nav `Route` arg that is an enum crashes the NavHost on Kotlin/Native.** Use `String` — the tab
 arg does. This is the single most repeated iOS-only crash in this repo.
 
-`MainShell` is the root bottom nav: **Groups** + **Settings**, where Settings *is* `ProfileScreen`. Opening a
-group is a full-screen push *over* the shell. There is **no standalone `Route.Profile`** — reach the profile
-via the Settings tab, not a Home avatar.
+`MainShell` holds three root tabs: **Groups**, **People** (`docs/features/people-tab.md`) and **Settings**,
+where Settings *is* `ProfileScreen`. Only Groups and People are on the bottom nav; the avatar in each of
+their top rows opens Settings, and Settings' back returns to whichever of the two opened it. While the nav
+shows, the content box consumes the navigation-bar inset so Home's bottom pill doesn't double-pad. Opening
+a group is a full-screen push *over* the shell. There is **no standalone `Route.Profile`**.
 
 **A quick split never shows a group screen** (docs/features/one-time-splits.md). It is a hidden one-bill
 group (`Group.isQuick`); `Route.GroupHome` is wrapped in `QuickSplitGuard`, which sends every door that names

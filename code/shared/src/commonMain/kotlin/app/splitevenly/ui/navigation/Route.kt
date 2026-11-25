@@ -136,6 +136,15 @@ sealed interface Route {
         val expenseId: String,
     ) : Route
 
+    // ── People tab (docs/features/people-tab.md) ───────────────────────
+    @Serializable data class Person(
+        val personKey: String,
+    ) : Route
+
+    @Serializable data class LinkNames(
+        val personKey: String,
+    ) : Route
+
     // ── Settle ─────────────────────────────────────────────────────────
     @Serializable data class SettlePerson(
         val groupId: String,
