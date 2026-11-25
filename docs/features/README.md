@@ -29,4 +29,5 @@ Precedence is unchanged: the nearest `AGENTS.md` > root `AGENTS.md` > `design/` 
 | Web group page (no app needed) | Live (server + site), merged | [web-group-page.md](web-group-page.md) |
 | Bill dates + payments on the bill | In progress | [bill-dates-and-payments.md](bill-dates-and-payments.md) |
 | People tab (who owes you, across groups) | In progress | [people-tab.md](people-tab.md) |
+| Unified balances + cross-group name claims | Brief agreed, not started | [unified-balances-and-cross-group-claims.md](unified-balances-and-cross-group-claims.md) |
 | Payment proof + web bill parity | In progress | [payment-proof.md](payment-proof.md) |
