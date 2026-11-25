@@ -90,22 +90,23 @@ fun SettlePersonRoute(
         val me = userId ?: return
         if (amount <= 0 || expenseIds.isEmpty()) return
         scope.launch {
-            val recorded = settlements.applySettlement(
-                NewSettlement(
-                    groupId = gid,
-                    fromUserId = me,
-                    toUserId = peerId,
-                    paymentCurrency = currency,
-                    paymentAmountSubunits = amount,
-                    createdBy = me,
-                    // Scope to exactly what the user ticked, so paying the Uber clears the Uber (not the
-                    // oldest outstanding expense to this peer).
-                    expenseIds = expenseIds.map { ExpenseId(it) },
-                    paymentApp = app?.name,
-                    deepLinkAttempted = app != null,
-                    deepLinkSucceeded = if (app != null) linkConfirmed else null,
-                ),
-            )
+            val recorded =
+                settlements.applySettlement(
+                    NewSettlement(
+                        groupId = gid,
+                        fromUserId = me,
+                        toUserId = peerId,
+                        paymentCurrency = currency,
+                        paymentAmountSubunits = amount,
+                        createdBy = me,
+                        // Scope to exactly what the user ticked, so paying the Uber clears the Uber (not the
+                        // oldest outstanding expense to this peer).
+                        expenseIds = expenseIds.map { ExpenseId(it) },
+                        paymentApp = app?.name,
+                        deepLinkAttempted = app != null,
+                        deepLinkSucceeded = if (app != null) linkConfirmed else null,
+                    ),
+                )
             // The screenshot uploads only once the payment it belongs to exists.
             if (recorded is AppResult.Ok) stagedProof.consume()?.let { proofs.attach(recorded.value.chainId, it) }
             onSettled()
@@ -204,22 +205,23 @@ fun SettleSingleRoute(
             return
         }
         scope.launch {
-            val recorded = settlements.applySettlement(
-                NewSettlement(
-                    groupId = gid,
-                    fromUserId = me,
-                    toUserId = payerId,
-                    paymentCurrency = e.currency,
-                    paymentAmountSubunits = amount,
-                    createdBy = me,
-                    // Single-expense settle: confine the payment to this expense so a partial pay
-                    // visibly pays *this* expense down (not the oldest one to the payer).
-                    expenseId = eid,
-                    paymentApp = app?.name,
-                    deepLinkAttempted = app != null,
-                    deepLinkSucceeded = if (app != null) linkConfirmed else null,
-                ),
-            )
+            val recorded =
+                settlements.applySettlement(
+                    NewSettlement(
+                        groupId = gid,
+                        fromUserId = me,
+                        toUserId = payerId,
+                        paymentCurrency = e.currency,
+                        paymentAmountSubunits = amount,
+                        createdBy = me,
+                        // Single-expense settle: confine the payment to this expense so a partial pay
+                        // visibly pays *this* expense down (not the oldest one to the payer).
+                        expenseId = eid,
+                        paymentApp = app?.name,
+                        deepLinkAttempted = app != null,
+                        deepLinkSucceeded = if (app != null) linkConfirmed else null,
+                    ),
+                )
             if (recorded is AppResult.Ok) stagedProof.consume()?.let { proofs.attach(recorded.value.chainId, it) }
             settled = true
         }

@@ -48,17 +48,13 @@
   }
 </script>
 
-<Sheet title="Who actually paid?" {onclose}>
-  <div class="h2">Who actually paid?</div>
-  <p class="sub" style="margin-bottom:13px">
-    {store.bill?.payer.name ?? 'Nobody'} is down as the payer. Change it if that's wrong.
-  </p>
+<Sheet title="Who actually paid?" sub="{store.bill?.payer.name ?? 'Nobody'} is down as the payer. Change it if that's wrong." {onclose}>
 
   <div class="card">
     {#each store.peopleOnBill as person (person.userId)}
       {@const isMe = person.userId === store.identity?.userId}
       <div class="prow" class:prow--mine={isMe}>
-        <span class="chip"><Avatar name={person.name} /></span>
+        <Avatar name={person.name} me={isMe} size="sm" />
         <div class="grow">
           <div class="lbl">
             {person.name}{#if isMe}<b style="color:var(--blue);font-weight:650">&nbsp;· you</b>{/if}

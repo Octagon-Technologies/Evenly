@@ -20,10 +20,10 @@ import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PersonLinkEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
-import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity
 import app.splitevenly.data.db.entity.SettlementAllocationEntity

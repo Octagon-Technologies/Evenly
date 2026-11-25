@@ -27,7 +27,10 @@ interface PaymentProofDao {
 
     /** Soft-delete (the Storage object is removed separately by the repository). */
     @Query("UPDATE payment_proofs SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 WHERE id = :id")
-    suspend fun softDelete(id: String, now: Long)
+    suspend fun softDelete(
+        id: String,
+        now: Long,
+    )
 
     /** Every local row — the push side of sync. */
     @Query("SELECT * FROM payment_proofs")

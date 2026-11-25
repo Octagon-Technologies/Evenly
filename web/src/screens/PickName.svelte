@@ -11,6 +11,7 @@
    */
   import BillHeader from '../components/BillHeader.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
+  import Avatar from '../components/Avatar.svelte';
   import { money, shortDate } from '../lib/format.ts';
   import type { ClaimStore } from '../lib/store.svelte.ts';
 
@@ -45,6 +46,7 @@
     <div class="card">
       {#each store.candidates as candidate (candidate.userId)}
         <div class="row">
+          <Avatar name={candidate.name} size="md" />
           <div class="grow">
             <div class="lbl">{candidate.name}</div>
             {#if candidate.evidence.length > 0}

@@ -82,7 +82,11 @@ class ReceiptUploadDaoTest {
     fun observeProofsByGroup_onlyProofRows() =
         runTest {
             dao.upsert(row(ReceiptUploadStatus.PENDING))
-            dao.upsert(row(ReceiptUploadStatus.PENDING).copy(id = "p1", expenseId = "", settlementId = "s1", storagePath = "g1/payments/s1/p1.jpg"))
+            dao.upsert(
+                row(
+                    ReceiptUploadStatus.PENDING,
+                ).copy(id = "p1", expenseId = "", settlementId = "s1", storagePath = "g1/payments/s1/p1.jpg"),
+            )
 
             val proofs = dao.observeProofsByGroup("g1").first()
 

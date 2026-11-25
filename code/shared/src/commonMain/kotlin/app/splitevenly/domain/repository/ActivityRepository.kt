@@ -18,12 +18,15 @@ import kotlinx.coroutines.flow.Flow
  * Supabase Storage on write (the only artifact that can't live purely in the local cache).
  */
 interface ActivityRepository {
-
     // ── Comments ────────────────────────────────────────────────────────────
     fun observeComments(expenseId: ExpenseId): Flow<List<Comment>>
 
     /** Post [body] as the current user; trims + rejects blank. [groupId] scopes the row for sync/RLS. */
-    suspend fun postComment(expenseId: ExpenseId, groupId: GroupId, body: String): AppResult<Comment>
+    suspend fun postComment(
+        expenseId: ExpenseId,
+        groupId: GroupId,
+        body: String,
+    ): AppResult<Comment>
 
     suspend fun deleteComment(commentId: CommentId): AppResult<Unit>
 

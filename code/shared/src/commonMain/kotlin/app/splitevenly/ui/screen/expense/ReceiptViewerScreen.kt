@@ -172,17 +172,19 @@ fun ReceiptViewerScreen(
         }
 
         // Filmstrip. A single captioned item (a payment screenshot) has nothing to jump between.
-        if (receipts.size > 1 || caption == null) LazyRow(
-            Modifier.fillMaxWidth().background(Color(0x40000000)),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            itemsIndexed(receipts) { i, r ->
-                FilmstripThumb(
-                    receipt = r,
-                    selected = i == pagerState.currentPage,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(i) } },
-                )
+        if (receipts.size > 1 || caption == null) {
+            LazyRow(
+                Modifier.fillMaxWidth().background(Color(0x40000000)),
+                contentPadding = PaddingValues(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(receipts) { i, r ->
+                    FilmstripThumb(
+                        receipt = r,
+                        selected = i == pagerState.currentPage,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(i) } },
+                    )
+                }
             }
         }
     }
@@ -205,7 +207,13 @@ fun ReceiptViewerScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Delete this $noun?", color = c.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        if (noun == "receipt") "This removes the receipt from the bill for everyone." else "This removes the $noun for everyone.",
+                        if (noun ==
+                            "receipt"
+                        ) {
+                            "This removes the receipt from the bill for everyone."
+                        } else {
+                            "This removes the $noun for everyone."
+                        },
                         color = c.ink2,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,

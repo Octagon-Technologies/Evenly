@@ -2322,6 +2322,58 @@ $$;
 revoke all on function public.create_web_bill_link(text, text, bigint, bigint) from public, anon;
 grant execute on function public.create_web_bill_link(text, text, bigint, bigint) to authenticated;
 
+-- The app mints the token itself so the share screen can show the link before any round trip
+-- (WebBillLinkRepository.instantUrl). Same guard and same "an existing live link wins" rule as
+-- create_web_bill_link; the caller adopts whatever token comes back. A separate name, not a defaulted
+-- fifth argument, because an overload with a default makes every existing 4-argument call ambiguous.
+create or replace function public.create_web_bill_link_with_token(
+  p_expense_id text,
+  p_actor text,
+  p_now bigint,
+  p_token text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_group_id text := public.web_bill_link_guard(p_expense_id, p_actor);
+  v_id text := gen_random_uuid()::text;
+  v_existing public.web_bill_links%rowtype;
+begin
+  if p_token is null or p_token !~ '^[0-9A-Za-z]{22,64}$' then
+    raise exception 'invalid link token' using errcode = '22023';
+  end if;
+
+  perform 1 from public.expenses where id = p_expense_id for update;
+
+  select * into v_existing from public.web_bill_links
+    where expense_id = p_expense_id
+      and revoked_at is null
+      and (expires_at is null or expires_at > p_now)
+      and token is not null
+    order by created_at desc
+    limit 1
+    for update;
+
+  if v_existing.id is not null then
+    return jsonb_build_object('id', v_existing.id, 'token', v_existing.token, 'expires_at', v_existing.expires_at);
+  end if;
+
+  insert into public.web_bill_links (
+    id, expense_id, group_id, token_hash, token, created_by, created_at, expires_at, updated_at
+  ) values (
+    v_id, p_expense_id, v_group_id,
+    encode(sha256(convert_to(p_token, 'utf8')), 'hex'),
+    p_token, p_actor, p_now, null, p_now
+  );
+
+  return jsonb_build_object('id', v_id, 'token', p_token, 'expires_at', null);
+end;
+$$;
+revoke all on function public.create_web_bill_link_with_token(text, text, bigint, text) from public, anon;
+grant execute on function public.create_web_bill_link_with_token(text, text, bigint, text) to authenticated;
+
 -- Compatibility RPC for older clients. Bill links no longer expire, so this validates membership but
 -- never changes the permanent link or its expiry.
 create or replace function public.extend_web_bill_link(

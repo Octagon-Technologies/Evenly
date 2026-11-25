@@ -9,7 +9,8 @@
    */
   import { untrack } from 'svelte';
   import Sheet from '../../components/Sheet.svelte';
-  import { amount, money, parseAmount } from '../../lib/format.ts';
+  import Avatar from '../../components/Avatar.svelte';
+  import { amount, money, parseAmount, symbol } from '../../lib/format.ts';
   import type { GroupStore } from '../../lib/group.svelte.ts';
   import type { Debt } from '../../lib/money/balances.ts';
   import type { ProofFile } from '../../lib/api.ts';
@@ -21,14 +22,22 @@
     ondone: (message: string) => void;
     /** One expense instead of the whole balance: the debt is that bill's remainder, either direction. */
     forExpense?: { id: string; title: string; debt: Debt };
+    /** One person's whole balance, from their card on the Balances tab. Either direction. */
+    forDebt?: Debt;
   }
 
-  const { store, onclose, ondone, forExpense }: Props = $props();
+  const { store, onclose, ondone, forExpense, forDebt }: Props = $props();
 
-  const debts = $derived(forExpense ? [forExpense.debt] : store.debts.iOwe);
+  const debts = $derived(forExpense ? [forExpense.debt] : forDebt ? [forDebt] : store.debts.iOwe);
   // Seeded once when the sheet opens: with one person owed, they are already picked.
   const first = untrack(() =>
-    forExpense ? forExpense.debt : store.debts.iOwe.length === 1 ? store.debts.iOwe[0] : null,
+    forExpense
+      ? forExpense.debt
+      : forDebt
+        ? forDebt
+        : store.debts.iOwe.length === 1
+          ? store.debts.iOwe[0]
+          : null,
   );
   let picked = $state<Debt | null>(first);
   let text = $state(first ? amount(first.amountSubunits, first.currency) : '');
@@ -67,42 +76,57 @@
   }
 </script>
 
-<Sheet title={received ? 'Record a payment' : 'Pay back'} {onclose}>
-  {#if picked && debts.length === 1 && received}
-    <div class="h2">What did {other} pay you{forExpense ? ` for ${forExpense.title}` : ''}?</div>
-  {:else if picked && debts.length === 1}
-    <div class="h2">Pay {other} back{forExpense ? ` for ${forExpense.title}` : ''}</div>
-  {:else}
-    <div class="h2">Who did you pay?</div>
-    <div class="chips" style="margin-bottom:12px">
+<!-- SettleSingleSheet (ui/screen/settle/SettleSingleSheet.kt): Lg avatar, "Pay X", Amount, the action. -->
+<Sheet title={received ? 'Record a payment' : 'Settle up'} {onclose}>
+  {#if picked}
+    <div class="who">
+      <Avatar name={other} size="lg" />
+      <div class="who-t">{received ? `${other} paid you` : `Pay ${other}`}</div>
+      <div class="who-s">
+        {#if received}
+          <b class="mono">{money(picked.amountSubunits, picked.currency)}</b> left{forExpense ? ` on ${forExpense.title}` : ''}
+        {:else}
+          You owe <b class="mono">{money(picked.amountSubunits, picked.currency)}</b>{forExpense ? ` for ${forExpense.title}` : ''}
+        {/if}
+      </div>
+    </div>
+  {/if}
+  {#if debts.length > 1}
+    <span class="flbl">Who did you pay?</span>
+    <div class="chips" style="margin:0 0 16px">
       {#each debts as d (d.creditorUserId + d.currency)}
         <button type="button" class="chip chip--pick" class:chip--picked={picked === d} onclick={() => pick(d)}>
-          {store.name(d.creditorUserId)} · {money(d.amountSubunits, d.currency)}
+          <Avatar name={store.name(d.creditorUserId)} />{store.name(d.creditorUserId)}
         </button>
       {/each}
     </div>
   {/if}
-  <div class="sub" style="margin-bottom:14px">
-    {#if received}
-      {money(picked?.amountSubunits ?? 0, picked?.currency ?? 'USD')} is left. Paid part of it? Enter just what you got.
-    {:else}
-      Send it however you two usually do, then record it here so everyone's numbers update.
-    {/if}
-  </div>
   {#if picked}
-    <div class="field">
-      <div class="flbl">Amount</div>
-      <input class="inp mono" type="text" inputmode="decimal" aria-label={received ? `What ${other} paid you` : 'What you paid'} bind:value={text} />
+    <label class="flbl" for="settle-amount">Amount</label>
+    <div class="amtin">
+      <span class="mono amtin-s">{symbol(picked.currency)}</span>
+      <input
+        id="settle-amount"
+        class="mono"
+        type="text"
+        inputmode="decimal"
+        placeholder="0.00"
+        aria-label={received ? `What ${other} paid you` : 'What you paid'}
+        bind:value={text}
+      />
     </div>
+    <p class="helper">
+      {received ? `Up to the ${money(picked.amountSubunits, picked.currency)} left. Paid part of it? Enter just what you got.` : `Paying back up to your ${money(picked.amountSubunits, picked.currency)}. Send it however you two usually do.`}
+    </p>
   {/if}
   {#if picked}
     <ProofPicker otherName={other} value={proof} onchange={(f) => (proof = f)} />
   {/if}
   {#if problem}<div class="note note--amber" role="alert">{problem}</div>{/if}
-  <button type="button" class="btn" disabled={store.busy} onclick={save}>
+  <button type="button" class="btn" aria-busy={store.busy} onclick={save}>
     {picked ? (received ? `${other} paid me` : `I paid ${other}`) : 'Record payment'}
   </button>
-  <p class="sub center" style="margin-top:10px">
+  <p class="helper center" style="margin-top:10px">
     {#if received}
       {other} gets a notification if they use the app.
     {:else}
@@ -110,3 +134,62 @@
     {/if}
   </p>
 </Sheet>
+
+<style>
+  .who {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .who-t {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .who-s {
+    font-size: 13px;
+    color: var(--ink-2);
+    margin-top: -8px;
+  }
+  .who-s b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  /* EvAmountInput: 60px, 12px corners, symbol prefix, mono semibold. */
+  .amtin {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 60px;
+    padding: 0 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+  }
+  .amtin:focus-within {
+    border-color: var(--blue);
+    box-shadow: inset 0 0 0 1px var(--blue);
+  }
+  .amtin-s {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--ink-3);
+  }
+  .amtin input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--ink);
+    background: none;
+  }
+  .helper {
+    font-size: 12px;
+    color: var(--ink-2);
+    margin: 6px 0 16px;
+    line-height: 1.45;
+  }
+</style>

@@ -1,6 +1,5 @@
 package app.splitevenly.ui.screen.expense
 
-import app.splitevenly.core.time.localIsoDate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,6 +46,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.splitevenly.core.time.localIsoDate
 import app.splitevenly.ui.components.AvatarSize
 import app.splitevenly.ui.components.ButtonVariant
 import app.splitevenly.ui.components.ChipVariant
@@ -372,7 +372,10 @@ fun ExpenseDetailScreen(
                                         Box(Modifier.width(1.dp).height(108.dp).background(c.border))
                                     }
                                     proofPayments.forEach { p ->
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                                        ) {
                                             PaymentProofThumb(
                                                 url = p.proofUrl,
                                                 uploadingModel = p.proofUploadingModel,
@@ -497,7 +500,13 @@ fun ExpenseDetailScreen(
                                                     )
                                                     // Someone's payment here has a screenshot: one glance says whose.
                                                     if (s.hasProof) {
-                                                        EvIcon(EvIcons.Paperclip, "Has a payment screenshot", Modifier.padding(top = 2.dp), size = 15.dp, tint = c.blueText)
+                                                        EvIcon(
+                                                            EvIcons.Paperclip,
+                                                            "Has a payment screenshot",
+                                                            Modifier.padding(top = 2.dp),
+                                                            size = 15.dp,
+                                                            tint = c.blueText,
+                                                        )
                                                     }
                                                     val balance =
                                                         when {
@@ -1201,4 +1210,3 @@ private fun ExpenseDetailPreview() {
 private fun ExpenseDetailPreviewDarkMode() {
     EvenlyTheme(darkTheme = true) { ExpenseDetailScreen() }
 }
-

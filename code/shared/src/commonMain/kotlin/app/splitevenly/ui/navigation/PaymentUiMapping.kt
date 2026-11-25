@@ -1,23 +1,23 @@
 package app.splitevenly.ui.navigation
 
-import app.splitevenly.domain.settlement.NewSettlement
-import app.splitevenly.core.time.localNoonEpochMillis
-import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.error.AppError
 import app.splitevenly.core.error.AppResult
 import app.splitevenly.core.id.ExpenseId
+import app.splitevenly.core.id.GroupId
 import app.splitevenly.core.id.SettlementId
 import app.splitevenly.core.id.UserId
+import app.splitevenly.core.time.localNoonEpochMillis
 import app.splitevenly.core.time.shortDate
 import app.splitevenly.core.time.shortDateTime
 import app.splitevenly.domain.repository.SettlementRepository
+import app.splitevenly.domain.settlement.NewSettlement
 import app.splitevenly.domain.settlement.PaymentEditRefusal
 import app.splitevenly.domain.settlement.SettlementRecord
 import app.splitevenly.ui.components.moneySubunits
+import app.splitevenly.ui.screen.expense.paymentMethodLabel
 import app.splitevenly.ui.screen.settle.PaymentPreviewLineUi
 import app.splitevenly.ui.screen.settle.PaymentPreviewUi
 import app.splitevenly.ui.screen.settle.PaymentUi
-import app.splitevenly.ui.screen.expense.paymentMethodLabel
 
 /**
  * A payment row for a payments list. [shownSubunits] is what the row is about (this bill's portion on a

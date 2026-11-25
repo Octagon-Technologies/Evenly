@@ -51,25 +51,29 @@ class ActivityRepositoryImpl(
     private val clock: Clock = Clock.System,
     private val proofDao: PaymentProofDao? = null,
 ) : ActivityRepository {
-
     // ── Comments ────────────────────────────────────────────────────────────
     override fun observeComments(expenseId: ExpenseId): Flow<List<Comment>> =
         commentDao.observeByExpense(expenseId.value).map { rows -> rows.map { it.toDomain() } }
 
-    override suspend fun postComment(expenseId: ExpenseId, groupId: GroupId, body: String): AppResult<Comment> {
+    override suspend fun postComment(
+        expenseId: ExpenseId,
+        groupId: GroupId,
+        body: String,
+    ): AppResult<Comment> {
         val text = body.trim()
         if (text.isEmpty()) return AppError.Validation(mapOf("body" to AppError.Validation.Reason.Required)).asErr()
         val uid = auth.currentUserId.value ?: return notSignedIn()
         val now = clock.nowEpochMillis()
-        val entity = CommentEntity(
-            id = newId(),
-            expenseId = expenseId.value,
-            groupId = groupId.value,
-            userId = uid.value,
-            body = text,
-            createdAt = now,
-            updatedAt = now,
-        )
+        val entity =
+            CommentEntity(
+                id = newId(),
+                expenseId = expenseId.value,
+                groupId = groupId.value,
+                userId = uid.value,
+                body = text,
+                createdAt = now,
+                updatedAt = now,
+            )
         commentDao.upsert(entity)
         recordHistory(expenseId.value, groupId.value, HistoryEventType.COMMENTED, uid.value, null, now)
         return entity.toDomain().asOk()
@@ -91,8 +95,9 @@ class ActivityRepositoryImpl(
         mimeType: String,
         bytes: ByteArray,
     ): AppResult<Receipt> {
-        val storage = receiptStorage
-            ?: return AppError.Network(AppError.Network.Kind.Offline).asErr()
+        val storage =
+            receiptStorage
+                ?: return AppError.Network(AppError.Network.Kind.Offline).asErr()
         val uid = auth.currentUserId.value ?: return notSignedIn()
         if (bytes.isEmpty()) return AppError.Validation(mapOf("file" to AppError.Validation.Reason.Malformed)).asErr()
 
@@ -100,22 +105,24 @@ class ActivityRepositoryImpl(
         val receiptId = newId()
         // Object key groups objects by group/expense so a future per-group storage policy is trivial.
         val path = "${groupId.value}/${expenseId.value}/$receiptId.${extensionForMime(mimeType)}"
-        val url = when (val uploaded = storage.upload(path, bytes, mimeType)) {
-            is AppResult.Ok -> uploaded.value
-            is AppResult.Err -> return uploaded
-        }
-        val entity = ReceiptEntity(
-            id = receiptId,
-            expenseId = expenseId.value,
-            groupId = groupId.value,
-            uploadedBy = uid.value,
-            storagePath = path,
-            url = url,
-            mimeType = mimeType,
-            sizeBytes = bytes.size.toLong(),
-            createdAt = now,
-            updatedAt = now,
-        )
+        val url =
+            when (val uploaded = storage.upload(path, bytes, mimeType)) {
+                is AppResult.Ok -> uploaded.value
+                is AppResult.Err -> return uploaded
+            }
+        val entity =
+            ReceiptEntity(
+                id = receiptId,
+                expenseId = expenseId.value,
+                groupId = groupId.value,
+                uploadedBy = uid.value,
+                storagePath = path,
+                url = url,
+                mimeType = mimeType,
+                sizeBytes = bytes.size.toLong(),
+                createdAt = now,
+                updatedAt = now,
+            )
         receiptDao.upsert(entity)
         recordHistory(expenseId.value, groupId.value, HistoryEventType.RECEIPT_ADDED, uid.value, null, now)
         return entity.toDomain().asOk()
@@ -169,12 +176,10 @@ class ActivityRepositoryImpl(
         )
     }
 
-    private fun notSignedIn(): AppResult<Nothing> =
-        AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
+    private fun notSignedIn(): AppResult<Nothing> = AppError.Validation(mapOf("user" to AppError.Validation.Reason.Required)).asErr()
 }
 
-private fun CommentEntity.toDomain(): Comment =
-    Comment(CommentId(id), ExpenseId(expenseId), UserId(userId), body, createdAt)
+private fun CommentEntity.toDomain(): Comment = Comment(CommentId(id), ExpenseId(expenseId), UserId(userId), body, createdAt)
 
 private fun ReceiptEntity.toDomain(): Receipt =
     Receipt(ReceiptId(id), ExpenseId(expenseId), UserId(uploadedBy), storagePath, url, mimeType, sizeBytes, createdAt)

@@ -353,6 +353,9 @@ fun ShareBillLinkRoute(
     var linkState by remember { mutableStateOf(WebBillLinkState.None) }
     var busy by remember { mutableStateOf(true) }
     var notice by remember { mutableStateOf<String?>(null) }
+    // Shown before any round trip so Copy and Share work at once; the server's answer replaces it.
+    var instantUrl by remember(eid) { mutableStateOf<String?>(null) }
+    LaunchedEffect(eid) { instantUrl = links.instantUrl(eid) }
 
     val me = userId
     LaunchedEffect(eid, me) {
@@ -398,7 +401,7 @@ fun ShareBillLinkRoute(
     // Shared and encoded with its scheme: QR scanners search a bare `split-evenly.app/...` instead of
     // opening it, and messaging apps don't always turn it into a tappable link.
     val url =
-        linkState.url
+        (linkState.url ?: instantUrl?.takeIf { linkState.revokedAt == null })
             ?.let { if (quick) quickSplitUrl(it) else it }
             ?.let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
     val shareMessage =
@@ -416,6 +419,7 @@ fun ShareBillLinkRoute(
         ShareBillLinkState(
             billTitle = view.expense.title,
             url = url,
+            qrReady = linkState.url != null,
             exists = linkState.exists,
             revoked = linkState.revokedAt != null,
             busy = busy,

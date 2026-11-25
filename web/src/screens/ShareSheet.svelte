@@ -14,6 +14,7 @@
    */
   import Sheet from '../components/Sheet.svelte';
   import Avatar from '../components/Avatar.svelte';
+  import Icon from '../components/Icon.svelte';
   import { money } from '../lib/format.ts';
   import type { LineView } from '../lib/lines.ts';
   import type { ClaimStore } from '../lib/store.svelte.ts';
@@ -94,13 +95,12 @@
   }
 </script>
 
-<Sheet title="Who had the {line.label}" {onclose}>
-  <div class="h2">Who had the {line.label} with you?</div>
-  <p class="sub" style="margin-bottom:13px">Tap anyone already here.</p>
+<!-- PeoplePickerSheet / BillAssignCard chips: participant pills, Add person last. -->
+<Sheet title={line.label} sub="Who had it with you? Tap anyone already here." {onclose}>
 
   <div class="chips" style="gap:7px">
     <span class="chip chip--pick chip--picked">
-      <Avatar name={store.identity?.name ?? 'You'} />You
+      <Avatar name={store.identity?.name ?? 'You'} me />You
     </span>
     {#each others as person (person.userId)}
       <button
@@ -119,12 +119,12 @@
         class="chip chip--pick chip--picked"
         onclick={() => (newNames = newNames.filter((n) => n !== name))}
       >
-        <Avatar {name} />{name} ✕
+        <Avatar {name} />{name}
       </button>
     {/each}
     {#if !typingName}
-      <button type="button" class="chip chip--pick chip--add" onclick={() => (typingName = true)}>
-        ＋ Someone else
+      <button type="button" class="chip chip--pick" onclick={() => (typingName = true)}>
+        <span style="color:var(--blue);display:flex;padding-left:4px"><Icon name="plus" size={15} /></span>Add person
       </button>
     {/if}
   </div>

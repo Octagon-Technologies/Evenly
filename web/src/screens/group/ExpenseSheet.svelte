@@ -1,13 +1,18 @@
 <script lang="ts">
   /**
-   * One expense, opened from the group page: who paid, who owes what, its change log with Undo, and
+   * `ExpenseDetailScreen` (ui/screen/expense/ExpenseDetailScreen.kt) for a guest: a pushed screen with
+   * the hero card (amount, "total expense", your status, who paid, Edit), the split list and the change
+   * log. One expense, opened from the group page: who paid, who owes what, its change log with Undo, and
    * Edit. An itemized bill is changed line by line on its own claim page, so it links there instead.
    *
    * Edits apply at once and anyone in the group may undo them, the same rule as a bill line
    * (web/AGENTS.md): there is no approval queue to wait on.
    */
-  import Sheet from '../../components/Sheet.svelte';
+  import Screen from '../../components/Screen.svelte';
+  import Avatar from '../../components/Avatar.svelte';
+  import Icon from '../../components/Icon.svelte';
   import { money, shortDate } from '../../lib/format.ts';
+  import { category } from '../../lib/category.ts';
   import type { GroupStore } from '../../lib/group.svelte.ts';
   import type { ExpenseState, GroupExpense, GroupPayment } from '../../lib/api.ts';
   import type { Debt } from '../../lib/money/balances.ts';
@@ -174,142 +179,188 @@
     }}
   />
 {:else}
-  <Sheet title={expense.title} {onclose}>
-    <div class="h2">{expense.title}</div>
-    <div class="sub">
-      {money(expense.amountSubunits, expense.currency)} · {store.name(expense.payerUserId)} paid · {shortDate(expense.date)}
+  {@const stake = store.stake(expense)}
+  {@const iPaid = expense.payerUserId === store.me}
+  {@const payerName = iPaid ? (store.view?.me.name ?? 'You') : store.name(expense.payerUserId)}
+  {@const cat = category(expense.categoryId)}
+  <Screen title={expense.title} onback={onclose}>
+    <div class="evcard evcard--pad">
+      <div class="hero-top">
+        <div>
+          <div class="mono hero-amt">{money(expense.amountSubunits, expense.currency)}</div>
+          <div class="hero-k">total expense</div>
+        </div>
+        {#if expense.categoryId}
+          <span class="tag tag--blue tag--lg" style="color:{cat.color}"><Icon name={cat.icon} size={16} /></span>
+        {/if}
+      </div>
+      <!-- PersonalStatusBand: where the guest stands on this one bill. -->
+      {#if stake}
+        <div class="band" class:band--owed={stake.owedToMe}>
+          {stake.owedToMe ? "You're owed" : 'You owe'}
+          <b class="mono">{money(stake.subunits, expense.currency)}</b>
+          {stake.owedToMe ? 'on this bill' : `to ${store.name(expense.payerUserId)}`}
+        </div>
+      {:else if store.settled(expense)}
+        <div class="band band--owed"><Icon name="check" size={16} />All paid up</div>
+      {/if}
+      <div class="divider"></div>
+      <div class="payer">
+        <Avatar name={payerName} me={iPaid} size="sm" />
+        <span class="grow"><b>{iPaid ? 'You' : payerName}</b>{iPaid ? ' paid this' : ' paid'}</span>
+        <span class="payer-d">{shortDate(expense.date)}</span>
+      </div>
+      {#if editable}
+        <button type="button" class="btn btn--ghost" style="margin-top:14px" onclick={() => (editing = true)}>
+          <Icon name="edit" size={18} />Edit expense
+        </button>
+      {/if}
     </div>
 
     {#if expense.splitMode === 'ITEMIZED'}
-      <div class="note note--blue" style="margin-top:14px">
-        Split by items: each person pays for what they had.
-        {#if token}
-          <a class="link" href={`/b/${token}`}>Open the bill</a> to see the items{expense.iClaimed ? ' or change yours' : ' and pick yours'}.
-        {:else}
-          You weren't listed on it, so there's nothing for you to claim.
-        {/if}
-      </div>
+      {#if token}
+        <a class="btn btn--tonal" style="margin-top:12px;text-decoration:none" href={`/b/${token}`}>
+          <Icon name="receipt" size={18} />{expense.iClaimed ? 'Change your items' : 'Pick your items'}
+        </a>
+      {:else}
+        <p class="sub" style="margin-top:12px">Split by items. You weren't listed on it, so there's nothing for you to pick.</p>
+      {/if}
     {/if}
 
     {#if expense.shares.length > 0}
-      <div class="card" style="margin-top:14px">
+      <div class="sec" style="margin-top:20px">{expense.splitMode === 'ITEMIZED' ? 'Split by items' : 'Split'}</div>
+      <div class="evcard">
         {#each expense.shares as s (s.userId)}
-          <div class="row" style="align-items:center">
-            <span class="grow lbl">
-              {store.name(s.userId)}
-              {#if provedPayers.has(s.userId)}<span class="clip" title="Has a payment screenshot" aria-label="Has a payment screenshot">📎</span>{/if}
-            </span>
-            <span class="mono amt">{money(s.owedSubunits, expense.currency)}</span>
-            {#if s.userId !== expense.payerUserId}
-              <span class="meta" style="margin:0;min-width:64px;text-align:right">
-                {s.remainingSubunits <= 0 ? 'paid back' : `${money(s.remainingSubunits, expense.currency)} left`}
-              </span>
-              {#if canReceive && s.remainingSubunits > 0}
-                <button type="button" class="link" style="margin-left:10px" onclick={() => receiveFrom(s.userId, s.remainingSubunits)}>
-                  Got paid
-                </button>
+          {@const me = s.userId === store.me}
+          {@const isPayer = s.userId === expense.payerUserId}
+          {@const name = me ? (store.view?.me.name ?? 'You') : store.name(s.userId)}
+          {@const paidPart = s.owedSubunits > 0 ? Math.min(1, Math.max(0, (s.owedSubunits - s.remainingSubunits) / s.owedSubunits)) : 1}
+          <div class="srow hair" class:srow--me={me}>
+            <Avatar {name} {me} size="sm" />
+            <div class="grow">
+              <div class="sname">
+                <b>{me ? 'You' : name}</b>{#if me}<span class="mine">&nbsp;· your share</span>{/if}
+                {#if provedPayers.has(s.userId)}<span class="clip" title="Has a payment screenshot" aria-label="Has a payment screenshot">📎</span>{/if}
+              </div>
+              {#if isPayer}
+                <div class="sk">Paid the bill</div>
+              {:else if s.remainingSubunits <= 0}
+                <div class="sk" style="color:var(--green)">Settled</div>
+              {:else}
+                <div class="prog-s"><i style="width:{paidPart * 100}%"></i></div>
+                <div class="sk">{money(s.remainingSubunits, expense.currency)} left</div>
               {/if}
-            {:else}
-              <span class="meta" style="margin:0;min-width:64px;text-align:right">paid</span>
-            {/if}
+            </div>
+            <div class="sv">
+              <span class="mono" class:mine={me}>{money(s.owedSubunits, expense.currency)}</span>
+              {#if !isPayer && canReceive && s.remainingSubunits > 0}
+                <button type="button" class="link sv-a" onclick={() => receiveFrom(s.userId, s.remainingSubunits)}>Got paid</button>
+              {:else}
+                <span class="sk">{isPayer ? (me ? 'your share' : 'their share') : 'share'}</span>
+              {/if}
+            </div>
           </div>
         {/each}
       </div>
     {/if}
 
+    {#if owe && !store.view?.readOnly}
+      <button type="button" class="btn" style="margin-top:16px" onclick={() => (paying = true)}>
+        Pay {store.name(owe.creditorUserId)} back {money(owe.amountSubunits, owe.currency)}
+      </button>
+    {/if}
+
     {#if receipts.length > 0 || pdfReceipts.length > 0 || proofs.length > 0}
-      <div class="flbl" style="margin-top:6px">
-        {receipts.length + pdfReceipts.length > 0 && proofs.length > 0 ? 'Receipt & payments' : proofs.length > 0 ? 'Payment screenshots' : 'Receipt'}
-      </div>
-      <div class="strip">
-        {#each receipts as r (r.id)}
-          <button type="button" class="shot" onclick={() => (viewing = { url: r.url!, title: 'Receipt' })}>
-            <img src={r.url} alt="Receipt" />
-            <span>Receipt</span>
-          </button>
-        {/each}
-        {#each pdfReceipts as r (r.id)}
-          <a class="shot shot--file" href={r.url} target="_blank" rel="noopener noreferrer"><b>PDF</b><span>Receipt</span></a>
-        {/each}
-        {#if receipts.length + pdfReceipts.length > 0 && proofs.length > 0}<span class="strip__rule" aria-hidden="true"></span>{/if}
-        {#each proofs as x (x.payment.id)}
-          <button type="button" class="shot" onclick={() => openProof(x.payment)}>
-            <img src={x.payment.proof!.url} alt="Payment screenshot" />
-            <span>{store.name(x.payment.fromUserId)} · {money(x.here, expense.currency)}</span>
-          </button>
-        {/each}
+      <!-- The app's "Receipt" card: thumbnails in a row, payment screenshots after a rule. -->
+      <div class="evcard evcard--pad" style="margin-top:16px">
+        <div class="cardt">
+          {receipts.length + pdfReceipts.length > 0 && proofs.length > 0 ? 'Receipt & payments' : proofs.length > 0 ? 'Payment screenshots' : 'Receipt'}
+        </div>
+        <div class="strip">
+          {#each receipts as r (r.id)}
+            <button type="button" class="shot" onclick={() => (viewing = { url: r.url!, title: 'Receipt' })}>
+              <img src={r.url} alt="Receipt" />
+              <span>Receipt</span>
+            </button>
+          {/each}
+          {#each pdfReceipts as r (r.id)}
+            <a class="shot shot--file" href={r.url} target="_blank" rel="noopener noreferrer"><b>PDF</b><span>Receipt</span></a>
+          {/each}
+          {#if receipts.length + pdfReceipts.length > 0 && proofs.length > 0}<span class="strip__rule" aria-hidden="true"></span>{/if}
+          {#each proofs as x (x.payment.id)}
+            <button type="button" class="shot" onclick={() => openProof(x.payment)}>
+              <img src={x.payment.proof!.url} alt="Payment screenshot" />
+              <span>{store.name(x.payment.fromUserId)} · {money(x.here, expense.currency)}</span>
+            </button>
+          {/each}
+        </div>
       </div>
     {/if}
 
     {#if paymentsHere.length > 0}
-      <div class="flbl" style="margin-top:6px">Payments</div>
-      <div class="card">
+      <div class="sec" style="margin-top:20px">Payments</div>
+      <div class="evcard">
         {#each paymentsHere as x (x.payment.id)}
           {@const p = x.payment}
-          <div class="row" style="align-items:center;gap:10px">
+          <div class="prow hair">
             {#if p.proof?.url}
               <button type="button" class="pthumb" aria-label="See the payment screenshot" onclick={() => openProof(p)}>
                 <img src={p.proof.url} alt="" />
               </button>
             {:else if store.inPayment(p)}
-              <button type="button" class="pthumb pthumb--add" aria-label="Add a screenshot" disabled={store.busy} onclick={() => addProof(p)}>＋</button>
+              <button type="button" class="pthumb pthumb--add" aria-label="Add a screenshot" disabled={store.busy} onclick={() => addProof(p)}>
+                <Icon name="plus" size={16} />
+              </button>
             {/if}
             <span class="grow">
-              <span class="lbl">{paymentTitle(p)}</span>
-              <span class="meta" style="display:block;margin:0">
+              <span class="pt">{paymentTitle(p)}</span>
+              <span class="sk" style="display:block">
                 {[appLabel(p.paymentApp), day(p.settledAt), !p.proof?.url && store.inPayment(p) ? 'No screenshot' : null].filter(Boolean).join(' · ')}
               </span>
             </span>
-            <span class="mono amt">{money(x.here, expense.currency)}</span>
+            <span class="mono pa">{money(x.here, expense.currency)}</span>
           </div>
         {/each}
       </div>
     {/if}
 
-    <div class="flbl" style="margin-top:6px">Comments</div>
-    <div class="card">
+    <div class="sec" style="margin-top:20px">Comments</div>
+    <div class="evcard evcard--pad">
       {#each expense.comments ?? [] as c (c.id)}
         <div class="cmt" class:cmt--me={c.userId === store.me}>
           <b>{store.name(c.userId)}</b>
           <span class="cmt__body">{c.body}</span>
-          <span class="meta" style="margin:0">{time(c.createdAt)}</span>
+          <span class="sk">{time(c.createdAt)}</span>
         </div>
       {:else}
-        <p class="meta" style="margin:2px 2px 10px">No comments yet.</p>
+        <p class="sk" style="margin:0 0 12px">No comments yet.</p>
       {/each}
       {#if !store.view?.readOnly}
         <form class="cmt__form" onsubmit={(e) => { e.preventDefault(); void send(); }}>
           <input class="inp" type="text" placeholder="Add a comment" aria-label="Add a comment" maxlength="2000" bind:value={draft} />
-          <button type="submit" class="link" disabled={store.busy || !draft.trim()}>Send</button>
+          <button type="submit" class="btn btn--sm btn--tonal" style="width:auto" disabled={store.busy || !draft.trim()}>Send</button>
         </form>
       {/if}
     </div>
 
     {#if edits.length > 0}
-      <div class="flbl" style="margin-top:6px">Changes</div>
-      {#each edits as x (x.id)}
-        <div class="sx" class:sx--undone={x.undone}>
-          <div class="grow">
-            <div>{store.name(x.actorUserId)} {describe(x.before, x.after)}</div>
-            <div class="meta">{time(x.createdAt)}{x.undone ? ' · undone' : ''}</div>
+      <div class="sec" style="margin-top:20px">Activity</div>
+      <div class="evcard">
+        {#each edits as x (x.id)}
+          <div class="sx hair" class:sx--undone={x.undone}>
+            <div class="grow">
+              <div><b>{store.name(x.actorUserId)}</b> {describe(x.before, x.after)}</div>
+              <div class="sk">{time(x.createdAt)}{x.undone ? ' · undone' : ''}</div>
+            </div>
+            {#if !x.undone && !store.view?.readOnly}
+              <button type="button" class="link" disabled={store.busy} onclick={() => undo(x.id)}>Undo</button>
+            {/if}
           </div>
-          {#if !x.undone && !store.view?.readOnly}
-            <button type="button" class="link" disabled={store.busy} onclick={() => undo(x.id)}>Undo</button>
-          {/if}
-        </div>
-      {/each}
+        {/each}
+      </div>
     {/if}
 
-    {#if problem}<div class="note note--amber" role="alert">{problem}</div>{/if}
-    <div class="spacer"></div>
-    {#if owe && !store.view?.readOnly}
-      <button type="button" class="btn" style="margin-bottom:10px" onclick={() => (paying = true)}>
-        Pay {store.name(owe.creditorUserId)} back {money(owe.amountSubunits, owe.currency)}
-      </button>
-    {/if}
-    {#if editable}
-      <button type="button" class="btn btn--ghost" onclick={() => (editing = true)}>Edit expense</button>
-    {/if}
+    {#if problem}<div class="note note--amber" role="alert" style="margin-top:12px">{problem}</div>{/if}
     <input
       bind:this={fileInput}
       type="file"
@@ -320,7 +371,7 @@
         (e.currentTarget as HTMLInputElement).value = '';
       }}
     />
-  </Sheet>
+  </Screen>
   {#if viewing}
     {@const v = viewing}
     <ImageViewer
@@ -339,11 +390,15 @@
     font-size: 12px;
     margin-left: 4px;
   }
+  .cardt {
+    font-size: 15px;
+    font-weight: 600;
+  }
   .strip {
     display: flex;
-    gap: 10px;
+    gap: 12px;
     overflow-x: auto;
-    padding: 2px 0 12px;
+    padding-top: 10px;
     align-items: flex-start;
   }
   .strip__rule {
@@ -361,7 +416,7 @@
     border: 0;
     padding: 0;
     font: inherit;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--ink-2);
     cursor: pointer;
     flex: none;
@@ -381,9 +436,24 @@
     place-items: center;
     color: var(--ink-3);
   }
+  .prow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .pt {
+    display: block;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .pa {
+    font-size: 15px;
+    font-weight: 600;
+  }
   .pthumb {
-    width: 30px;
-    height: 40px;
+    width: 32px;
+    height: 42px;
     border-radius: 7px;
     border: 1px solid var(--border);
     padding: 0;
@@ -391,6 +461,8 @@
     background: var(--surface);
     cursor: pointer;
     flex: none;
+    display: grid;
+    place-items: center;
   }
   .pthumb img {
     width: 100%;
@@ -400,24 +472,24 @@
   .pthumb--add {
     border: 1.3px dashed var(--blue);
     color: var(--blue);
-    font-size: 15px;
     background: none;
   }
   .cmt {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 8px 10px;
+    padding: 10px 12px;
     margin-bottom: 8px;
     border-radius: 12px;
     background: var(--surface);
-    font-size: 13.5px;
+    font-size: 14px;
   }
   .cmt--me {
     background: var(--blue-tint);
   }
   .cmt b {
-    font-size: 12.5px;
+    font-size: 13px;
+    font-weight: 600;
   }
   .cmt__body {
     white-space: pre-wrap;
@@ -431,13 +503,117 @@
   .cmt__form .inp {
     flex: 1;
   }
+  .hero-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  /* EvenlyTheme.amounts.hero: 40px mono semibold. */
+  .hero-amt {
+    font-size: 40px;
+    font-weight: 600;
+    letter-spacing: -1px;
+    line-height: 1.1;
+  }
+  .hero-k {
+    font-size: 12px;
+    color: var(--ink-2);
+    margin-top: 2px;
+  }
+  .tag--lg {
+    height: 34px;
+    padding: 0 10px;
+  }
+  .band {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--blue-tint);
+    color: var(--blue);
+    font-size: 14px;
+  }
+  .band b {
+    font-weight: 600;
+  }
+  .band--owed {
+    background: var(--green-tint);
+    color: var(--green);
+  }
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 14px 0;
+  }
+  .payer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .payer-d {
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .srow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+  .srow--me {
+    background: var(--selection-tint);
+  }
+  .sname {
+    font-size: 15px;
+  }
+  .sname b {
+    font-weight: 600;
+  }
+  .mine {
+    color: var(--blue);
+    font-weight: 600;
+  }
+  .sk {
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-top: 2px;
+  }
+  .prog-s {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--blue-tint-2);
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .prog-s i {
+    display: block;
+    height: 100%;
+    background: var(--blue);
+  }
+  .sv {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .sv-a {
+    font-size: 13px;
+    margin-top: 2px;
+    min-height: 24px;
+  }
   .sx {
     display: flex;
     gap: 10px;
     align-items: center;
-    font-size: 13.5px;
-    padding: 10px 0;
-    border-top: 1px solid var(--border);
+    font-size: 14px;
+    padding: 12px 16px;
+  }
+  .sx b {
+    font-weight: 600;
   }
   .sx--undone {
     color: var(--ink-3);

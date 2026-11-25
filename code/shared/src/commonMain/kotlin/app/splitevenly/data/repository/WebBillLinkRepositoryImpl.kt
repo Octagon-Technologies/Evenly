@@ -14,6 +14,8 @@ import app.splitevenly.platform.SecureStorage
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /**
  * [WebBillLinkRepository] over the `security definer` link RPCs.
@@ -33,15 +35,27 @@ class WebBillLinkRepositoryImpl(
 
     private fun tokenKey(expenseId: ExpenseId) = "$TOKEN_KEY_PREFIX${expenseId.value}"
 
+    private fun pendingKey(expenseId: ExpenseId) = "$PENDING_KEY_PREFIX${expenseId.value}"
+
+    override suspend fun instantUrl(expenseId: ExpenseId): String {
+        val token =
+            storage.getString(tokenKey(expenseId))
+                ?: storage.getString(pendingKey(expenseId))
+                ?: mintLinkToken().also { storage.putString(pendingKey(expenseId), it) }
+        return billClaimUrl(token)
+    }
+
     override suspend fun status(expenseId: ExpenseId, actor: UserId): AppResult<WebBillLinkState> =
         call { gw -> gw.status(expenseId.value, actor.value).toState(expenseId) }
 
     override suspend fun create(expenseId: ExpenseId, actor: UserId): AppResult<WebBillLinkState> =
         call { gw ->
-            val created = gw.create(expenseId.value, actor.value, clock.nowEpochMillis())
+            val proposed = storage.getString(pendingKey(expenseId))
+            val created = gw.create(expenseId.value, actor.value, clock.nowEpochMillis(), proposed)
             // Store BEFORE reporting success. A crash between the two would leave a live link this device
             // can never render, which is exactly the state the token cache exists to prevent.
             storage.putString(tokenKey(expenseId), created.token)
+            storage.remove(pendingKey(expenseId))
             gw.status(expenseId.value, actor.value).toState(expenseId)
         }
 
@@ -51,6 +65,7 @@ class WebBillLinkRepositoryImpl(
             // Drop the plaintext too: a revoked token is worthless, and keeping it around only invites a
             // stale QR being shown at the next dinner.
             storage.remove(tokenKey(expenseId))
+            storage.remove(pendingKey(expenseId))
             gw.status(expenseId.value, actor.value).toState(expenseId)
         }
 
@@ -83,5 +98,18 @@ class WebBillLinkRepositoryImpl(
 
     private companion object {
         const val TOKEN_KEY_PREFIX = "web_bill_token_"
+        const val PENDING_KEY_PREFIX = "web_bill_pending_token_"
     }
+}
+
+private const val BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+/**
+ * A 32-char base62 bearer token from two random UUIDs (the platform CSPRNG). `byte % 62` is slightly
+ * biased; 32 characters still carry well over the 128 bits the server's own tokens have.
+ */
+@OptIn(ExperimentalUuidApi::class)
+internal fun mintLinkToken(): String {
+    val bytes = Uuid.random().toByteArray() + Uuid.random().toByteArray()
+    return buildString(bytes.size) { bytes.forEach { append(BASE62[(it.toInt() and 0xFF) % 62]) } }
 }

@@ -27,37 +27,26 @@ data class PaymentProofEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
     val id: String,
-
     @ColumnInfo(name = "settlement_id")
     val settlementId: String,
-
     @ColumnInfo(name = "group_id")
     val groupId: String,
-
     @ColumnInfo(name = "uploaded_by")
     val uploadedBy: String,
-
     @ColumnInfo(name = "storage_path")
     val storagePath: String,
-
     @ColumnInfo(name = "url")
     val url: String? = null,
-
     @ColumnInfo(name = "mime_type")
     val mimeType: String,
-
     @ColumnInfo(name = "size_bytes")
     val sizeBytes: Long,
-
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
-
     @ColumnInfo(name = "updated_at")
     val updatedAt: Long,
-
     @ColumnInfo(name = "deleted_at")
     val deletedAt: Long? = null,
-
     @ColumnInfo(name = "row_version")
     val rowVersion: Long = 1,
 )

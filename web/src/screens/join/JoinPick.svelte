@@ -7,6 +7,7 @@
    * holders (spec §4.4), so nobody can join as Andrew.
    */
   import ErrorBanner from '../../components/ErrorBanner.svelte';
+  import Avatar from '../../components/Avatar.svelte';
   import { money, shortDate } from '../../lib/format.ts';
   import type { JoinStore } from '../../lib/join.svelte.ts';
 
@@ -39,6 +40,7 @@
     <div class="card">
       {#each store.candidates as candidate (candidate.userId)}
         <div class="row">
+          <Avatar name={candidate.name} size="md" />
           <div class="grow">
             <div class="lbl">{candidate.name}</div>
             {#if candidate.evidence.length > 0}

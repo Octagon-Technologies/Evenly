@@ -1,7 +1,6 @@
 package app.splitevenly.ui.screen.settle
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
@@ -36,7 +37,6 @@ import app.splitevenly.ui.components.icon.EvIcon
 import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
-import androidx.compose.ui.draw.clip
 import app.splitevenly.ui.screen.expense.ReceiptViewerScreen
 import app.splitevenly.ui.screen.expense.ViewerReceipt
 import app.splitevenly.ui.screen.expense.format2dp
@@ -415,7 +415,13 @@ private fun PaymentProofRow(
             )
         }
         if (payment.proofUrl != null && payment.canEdit) {
-            Text("Replace", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onAdd))
+            Text(
+                "Replace",
+                color = c.blueText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable(onClick = onAdd),
+            )
         }
     }
 }
@@ -438,9 +444,10 @@ fun PaymentProofViewer(
         onDeleteReceipt = onRemove?.let { remove -> { _ -> remove() } },
         title = "Payment screenshot",
         caption = listOfNotNull("${payment.title} ${moneySubunits(payment.totalSubunits, currencyCode)}", payment.app).joinToString(" · "),
-        captionDetail = listOfNotNull(payment.dateLabel.ifBlank { null }, payment.recordedBy.ifBlank { null }?.let { "recorded by $it" })
-            .joinToString(" · ")
-            .ifBlank { null },
+        captionDetail =
+            listOfNotNull(payment.dateLabel.ifBlank { null }, payment.recordedBy.ifBlank { null }?.let { "recorded by $it" })
+                .joinToString(" · ")
+                .ifBlank { null },
         noun = "screenshot",
     )
 }

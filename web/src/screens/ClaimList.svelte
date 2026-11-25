@@ -7,9 +7,10 @@
    * here than in the app, because this screen is claim-first — and giving in to it means Jane can
    * never find the chicken Mary already claimed, can never join it, and the split is silently wrong.
    *
-   * **The affordance is a chip in the people row** (§2.6), never a button in the price column, so the
-   * amount column never moves and the card scans as one clean column of money. **No prose in the
-   * claim list** — chips only. `N left` is a chip, not a sentence, and is not tappable.
+   * **The lines are the app's assign cards** (decided 2026-11-24, replacing §2.6's chip rows): a
+   * numbered mark, the name, who has it ("2 of 4 servings", "You + Purity"), the price, and a chevron.
+   * Tapping a card opens it in place, one at a time, with the line's actions. Guests and app users
+   * should recognise the same screen. The amount column still never moves.
    */
   import BillHeader from '../components/BillHeader.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -28,6 +29,47 @@
   let sharing = $state<LineView | null>(null);
   let adding = $state(false);
   let hint = $state<string | null>(null);
+  // One card open at a time, like the app. Opens on the first line nobody holds yet.
+  let openId = $state<string | null>(null);
+  let opened = false;
+  $effect(() => {
+    if (opened || store.lines.length === 0) return;
+    opened = true;
+    openId = (store.lines.find((l) => l.assigned === 0) ?? store.lines[0]).itemId;
+  });
+
+  /** The card's second line, the same wording as the app's `assigneeLine`. */
+  function assigneeLine(line: LineView): string {
+    const names = [...new Set(line.chips.map((c) => (c.isMe ? 'You' : c.name)))];
+    if (line.status === 'OVERCLAIMED') return 'More claimed than ordered';
+    if (line.quantity > 1 && line.left > 0) return `${line.assigned} of ${line.quantity} servings`;
+    if (names.length === 0) return 'No one yet';
+    if (names.length <= 3) return names.join(' + ');
+    return `${names[0]} + ${names.length - 1} others`;
+  }
+
+  function toggle(line: LineView) {
+    openId = openId === line.itemId ? null : line.itemId;
+  }
+
+  /** The most servings I can hold solo: what I have plus what nobody has yet. */
+  function maxMine(line: LineView): number {
+    return line.myUnits + line.left;
+  }
+
+  async function setMine(line: LineView, n: number) {
+    hint = null;
+    await store.setClaim(line.itemId, Math.max(0, Math.min(n, maxMine(line))));
+  }
+
+  /** "I had this" on a single plate moves on to the next line nobody holds, as the app's cards do. */
+  async function claimAndAdvance(line: LineView) {
+    await setMine(line, 1);
+    if (store.error) return;
+    const at = store.lines.findIndex((l) => l.itemId === line.itemId);
+    const next = store.lines.slice(at + 1).find((l) => l.assigned === 0);
+    if (next) openId = next.itemId;
+  }
 
   /** A sheet is a real modal: the page behind it must not be tabbable or readable underneath. */
   const sheetOpen = $derived(joining !== null || sharing !== null || adding);
@@ -59,7 +101,7 @@
   function finish() {
     if (store.myTotalSubunits === 0) {
       // Never a silent dead end (root AGENTS.md §7): the button stays live and says what's missing.
-      hint = "You haven't claimed anything yet. Tap ＋ I had this on what you ate, or say you had nothing.";
+      hint = "You haven't claimed anything yet. Tap an item you had, then I had this.";
       return;
     }
     void store.setDone(true);
@@ -87,51 +129,98 @@
       <ErrorBanner message={store.error} onretry={() => store.refresh()} />
     {/if}
 
-    <div class="card" style="margin-top:14px">
-      {#each store.lines as line (line.itemId)}
-        <div class="row" class:row--mine={line.mine}>
-          <span class="qty">{line.quantity}</span>
-          <div class="grow">
-            <!-- The label is the wide tap target that opens the line's sheet (§2.6). The chips beside
-                 it are their own buttons, so nothing interactive is nested inside anything else. -->
-            <button
-              type="button"
-              class="linebtn"
-              aria-label="{line.label} — who had this?"
-              onclick={() => (sharing = line)}
+    <div class="k-sec">
+      <span>Items</span>
+      <span class="mono">{store.lines.length}</span>
+    </div>
+    <div class="cards">
+      {#each store.lines as line, i (line.itemId)}
+        {@const open = openId === line.itemId}
+        <div class="acard" class:acard--open={open} class:acard--mine={line.mine}>
+          <button
+            type="button"
+            class="ahead"
+            aria-expanded={open}
+            aria-label="{line.label}, {assigneeLine(line)}"
+            onclick={() => toggle(line)}
+          >
+            <span class="mark" class:mark--on={line.mine}>
+              {#if line.mine}
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"
+                  ><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg
+                >
+              {:else}
+                {i + 1}
+              {/if}
+            </span>
+            <span class="grow">
+              <span class="albl">{line.label}</span>
+              <span class="asub" class:asub--warn={line.status === 'OVERCLAIMED'}>{assigneeLine(line)}</span>
+            </span>
+            {#if line.quantity > 1}<span class="qchip">×{line.quantity}</span>{/if}
+            <span class="aamt mono">{money(line.lineTotalSubunits, store.currency)}</span>
+            <svg class="chev" class:chev--up={open} viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"
+              ><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg
             >
-              <span class="lbl">{line.label}</span>
-            </button>
-            <div class="chips">
-              {#each line.chips as chip (chip.userId + (chip.portionId ?? ''))}
-                {#if chip.isMe}
-                  <button type="button" class="chip chip--me" onclick={() => (sharing = line)}>
-                    <Avatar name={store.identity?.name ?? 'You'} />You
-                  </button>
-                {:else}
-                  <span class="chip"><Avatar name={chip.name} />{chip.name}</span>
-                {/if}
-              {/each}
+          </button>
 
-              {#if line.action === 'claim'}
-                <button type="button" class="chip chip--claim" onclick={() => claimOne(line)}>
-                  ＋ I had this
-                </button>
+          {#if open}
+            <div class="abody">
+              {#if line.quantity > 1}
+                <div class="k">How many did you have?</div>
+                <div class="stepper">
+                  <button
+                    type="button"
+                    class="stp"
+                    aria-label="One fewer"
+                    disabled={store.busy || line.myUnits === 0}
+                    onclick={() => setMine(line, line.myUnits - 1)}>−</button
+                  >
+                  <span class="stv"
+                    ><span><b class="mono">{line.myUnits}</b> of {line.quantity}</span>
+                    <small>{money(Math.round(line.lineTotalSubunits / line.quantity), store.currency)} each</small></span
+                  >
+                  <button
+                    type="button"
+                    class="stp stp--plus"
+                    aria-label="One more"
+                    disabled={store.busy}
+                    onclick={() =>
+                      line.myUnits < maxMine(line)
+                        ? setMine(line, line.myUnits + 1)
+                        : (hint = `All ${line.quantity} ${line.label} are taken. If you shared one, tap Shared one.`)}
+                    >＋</button
+                  >
+                </div>
+              {:else if line.action === 'claim'}
+                <button type="button" class="btn" aria-busy={store.busy} onclick={() => claimAndAdvance(line)}>I had this</button>
               {:else if line.action === 'add-me'}
-                <button type="button" class="chip chip--join" onclick={() => (joining = line)}>
-                  ＋ Add me
-                </button>
+                <button type="button" class="btn" onclick={() => (joining = line)}>I shared this too</button>
               {/if}
 
-              {#if line.left > 0 && line.assigned > 0}
-                <span class="chip chip--ghost">{line.left} left</span>
+              {#if line.chips.length > 0}
+                <div class="k">Who has it</div>
+                <div class="chips">
+                  {#each line.chips as chip (chip.userId + (chip.portionId ?? ''))}
+                    <span class="chip" class:chip--me={chip.isMe}
+                      ><Avatar name={chip.isMe ? (store.identity?.name ?? 'You') : chip.name} />{chip.isMe ? 'You' : chip.name}</span
+                    >
+                  {/each}
+                </div>
               {/if}
-              {#if line.status === 'OVERCLAIMED'}
-                <span class="chip chip--ghost">more claimed than ordered</span>
-              {/if}
+
+              <div class="arow">
+                {#if line.myShareSubunits > 0}
+                  <span class="k">Your part <b class="mono">{money(line.myShareSubunits, store.currency)}</b></span>
+                {:else}
+                  <span></span>
+                {/if}
+                <button type="button" class="link" onclick={() => (sharing = line)}>
+                  {line.quantity > 1 ? 'Shared one' : line.mine ? 'Shared it? Change' : 'Shared it with someone'}
+                </button>
+              </div>
             </div>
-          </div>
-          <div class="amt mono">{amount(line.lineTotalSubunits, store.currency)}</div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -210,16 +299,159 @@
 {/if}
 
 <style>
-  .linebtn {
-    display: block;
+  .k-sec {
+    display: flex;
+    justify-content: space-between;
+    margin: 18px 2px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  /* The app's AccordionCard: 13px radius, hairline border, blue 1.5px border while open. */
+  .acard {
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background: var(--page);
+  }
+  .acard--open {
+    border: 1.5px solid var(--blue);
+  }
+  .ahead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     width: 100%;
-    text-align: left;
+    padding: 16px 14px;
     background: none;
     border: none;
-    padding: 0;
     font: inherit;
     color: inherit;
+    text-align: left;
     cursor: pointer;
+  }
+  .grow {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .albl {
+    font-size: 15.5px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .asub {
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .asub--warn {
+    color: var(--amber);
+  }
+  .mark {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-strong);
+    display: grid;
+    place-items: center;
+    font: 600 12px var(--mono);
+    color: var(--ink-2);
+  }
+  .mark--on {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  /* Same chip as the app's receipt review: quantity in white on blue so it never reads as small print. */
+  .qchip {
+    flex: none;
+    min-width: 28px;
+    padding: 3px 8px;
+    border-radius: var(--r-pill);
+    background: var(--blue);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .aamt {
+    flex: none;
+    font-size: 15px;
+    color: var(--ink);
+  }
+  .chev {
+    flex: none;
+    color: var(--ink);
+    transition: transform 0.15s;
+  }
+  .chev--up {
+    transform: rotate(180deg);
+  }
+  .abody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 14px 14px;
+  }
+  .abody .k {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .abody .btn {
+    margin: 0;
+  }
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border-radius: var(--r-sm);
+    padding: 8px;
+  }
+  .stp {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--page);
+    font-size: 20px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .stp--plus {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .stp:disabled {
+    opacity: 0.4;
+  }
+  .stv {
+    flex: 1;
+    text-align: center;
+    font-size: 15px;
+    display: flex;
+    flex-direction: column;
+  }
+  .stv small {
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .arow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
 
   .changes {

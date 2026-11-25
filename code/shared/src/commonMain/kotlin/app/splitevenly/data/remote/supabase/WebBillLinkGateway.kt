@@ -1,6 +1,7 @@
 package app.splitevenly.data.remote.supabase
 
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.exception.PostgrestRestException
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.SerialName
@@ -12,6 +13,15 @@ private data class LinkActionParams(
     @SerialName("p_expense_id") val pExpenseId: String,
     @SerialName("p_actor") val pActor: String,
     @SerialName("p_now") val pNow: Long,
+)
+
+/** `create_web_bill_link_with_token`: the same as [LinkActionParams] plus the token this device minted. */
+@Serializable
+private data class LinkCreateWithTokenParams(
+    @SerialName("p_expense_id") val pExpenseId: String,
+    @SerialName("p_actor") val pActor: String,
+    @SerialName("p_now") val pNow: Long,
+    @SerialName("p_token") val pToken: String,
 )
 
 /** `web_bill_link_status` takes no clock — it reports stamps rather than making one. */
@@ -63,7 +73,12 @@ data class WebBillLinkStatusDto(
  */
 interface WebBillLinkGateway {
     suspend fun status(expenseId: String, actor: String): WebBillLinkStatusDto
-    suspend fun create(expenseId: String, actor: String, now: Long): WebBillLinkCreated
+    /**
+     * Returns the bill's live token, or registers one. [token] is the token this device already showed the
+     * payer; the server keeps it unless another member's link was live first, so callers must adopt the
+     * returned token rather than assume theirs won.
+     */
+    suspend fun create(expenseId: String, actor: String, now: Long, token: String? = null): WebBillLinkCreated
     suspend fun revoke(expenseId: String, actor: String, now: Long): WebBillLinkAck
 }
 
@@ -75,9 +90,21 @@ class SupabaseWebBillLinkGateway(
         .rpc("web_bill_link_status", LinkStatusParams(expenseId, actor))
         .decodeAs<WebBillLinkStatusDto>()
 
-    override suspend fun create(expenseId: String, actor: String, now: Long): WebBillLinkCreated = client.postgrest
-        .rpc("create_web_bill_link", LinkActionParams(expenseId, actor, now))
-        .decodeAs<WebBillLinkCreated>()
+    override suspend fun create(expenseId: String, actor: String, now: Long, token: String?): WebBillLinkCreated {
+        if (token != null) {
+            try {
+                return client.postgrest
+                    .rpc("create_web_bill_link_with_token", LinkCreateWithTokenParams(expenseId, actor, now, token))
+                    .decodeAs<WebBillLinkCreated>()
+            } catch (e: PostgrestRestException) {
+                // PGRST202: a server without the function yet. Mint server-side; the caller adopts that token.
+                if (e.code != "PGRST202") throw e
+            }
+        }
+        return client.postgrest
+            .rpc("create_web_bill_link", LinkActionParams(expenseId, actor, now))
+            .decodeAs<WebBillLinkCreated>()
+    }
 
     override suspend fun revoke(expenseId: String, actor: String, now: Long): WebBillLinkAck = client.postgrest
         .rpc("revoke_web_bill_link", LinkActionParams(expenseId, actor, now))

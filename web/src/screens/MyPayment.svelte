@@ -102,7 +102,7 @@
       <button type="button" class="link" onclick={cancel}>Cancel</button>
     </div>
   {:else}
-    <button type="button" class="btn btn--ghost" onclick={startRecording}>I paid {payerName}</button>
+    <button type="button" class="btn" onclick={startRecording}>I paid {payerName}</button>
   {/if}
 {/if}
 

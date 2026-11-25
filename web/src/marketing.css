@@ -665,9 +665,8 @@ a.site-badge { display: inline-flex; line-height: 0; }
    `app.css` + `ClaimList.svelte`. The claim affordance is a dashed-blue chip in the people row and
    never a button in the price column (see this directory's AGENTS.md, spec §2.6).
    Tokens are scoped to `.site-wl-ui` so the page system can never leak into a screenshot, and the
-   screenshot's values can never leak back out. The font stack matches `app.css` exactly, including
-   its fallback: IBM Plex Sans is declared but not shipped, so the real claim flow renders in
-   system-ui and so must a picture of it. */
+   screenshot's values can never leak back out. The font stack matches `app.css` exactly; `app.css`
+   ships IBM Plex, so the picture renders in the same face as the real claim flow. */
 .site-wl-ui {
   --site-wl-srf: #f6f8fb; --site-wl-bd: #e6eaf0; --site-wl-bd2: #d6dce6;
   --site-wl-i: #0b1220; --site-wl-i2: #5b6577; --site-wl-i3: #9aa3b2;

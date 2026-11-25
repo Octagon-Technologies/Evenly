@@ -24,12 +24,12 @@ import app.splitevenly.data.db.dao.HistoryEventDao
 import app.splitevenly.data.db.dao.ItemClaimDao
 import app.splitevenly.data.db.dao.ItemShareDao
 import app.splitevenly.data.db.dao.MemberDao
+import app.splitevenly.data.db.dao.PaymentProofDao
 import app.splitevenly.data.db.dao.PendingItemEditDao
 import app.splitevenly.data.db.dao.PeopleDao
 import app.splitevenly.data.db.dao.PersonLinkDao
 import app.splitevenly.data.db.dao.PlaceholderClaimAnswerDao
 import app.splitevenly.data.db.dao.PlaceholderMergeDao
-import app.splitevenly.data.db.dao.PaymentProofDao
 import app.splitevenly.data.db.dao.ReceiptDao
 import app.splitevenly.data.db.dao.ReceiptUploadDao
 import app.splitevenly.data.db.dao.RowSyncStateDao
@@ -56,10 +56,10 @@ import app.splitevenly.data.db.entity.HistoryEventEntity
 import app.splitevenly.data.db.entity.ItemClaimEntity
 import app.splitevenly.data.db.entity.ItemShareEntity
 import app.splitevenly.data.db.entity.MemberEntity
+import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.PendingItemEditEntity
 import app.splitevenly.data.db.entity.PersonLinkEntity
 import app.splitevenly.data.db.entity.PlaceholderClaimAnswerEntity
-import app.splitevenly.data.db.entity.PaymentProofEntity
 import app.splitevenly.data.db.entity.ReceiptEntity
 import app.splitevenly.data.db.entity.ReceiptUploadEntity
 import app.splitevenly.data.db.entity.RowSyncStateEntity

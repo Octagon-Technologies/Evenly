@@ -663,7 +663,12 @@ fun ExpenseDetailRoute(
     val unclaimedSubunits = if (isItemized) (e.amountSubunits - ews.shares.sumOf { it.owedSubunits }).coerceAtLeast(0L) else 0L
     val paymentUi = payments.map { p -> proofs.decorate(paymentUi(p.record, userId, p.appliedHereSubunits, p.billCount) { nameOf(it) }) }
     // Whose payments on this bill carry a screenshot, for the paperclip on their row.
-    val provedPayers = payments.zip(paymentUi).filter { (_, ui) -> ui.hasProof }.map { (p, _) -> p.record.fromUserId }.toSet()
+    val provedPayers =
+        payments
+            .zip(paymentUi)
+            .filter { (_, ui) -> ui.hasProof }
+            .map { (p, _) -> p.record.fromUserId }
+            .toSet()
     val rows =
         ews.shares.map { s ->
             DetailShareUi(

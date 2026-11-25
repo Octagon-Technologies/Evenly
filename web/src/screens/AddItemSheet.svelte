@@ -50,9 +50,7 @@
   }
 </script>
 
-<Sheet title="Add what's missing" {onclose}>
-  <div class="h2">Add what's missing</div>
-  <p class="sub" style="margin-bottom:13px">The scan missed it? Add it and claim it.</p>
+<Sheet title="Add what's missing" sub="The scan missed it? Add it and claim it." {onclose}>
 
   <div class="field">
     <label class="flbl" for="add-label">What was it?</label>

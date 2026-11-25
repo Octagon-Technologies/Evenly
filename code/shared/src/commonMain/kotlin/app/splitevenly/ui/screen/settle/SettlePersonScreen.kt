@@ -154,7 +154,13 @@ fun SettlePersonScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text("Nothing to settle with $peerName.", color = c.ink2, fontSize = 14.sp)
-                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it }, onOpenProof = { viewingProof = it }, onAddProof = onAddProof)
+                    PaymentListSection(
+                        payments,
+                        currencyCode,
+                        onOpen = { actionPayment = it },
+                        onOpenProof = { viewingProof = it },
+                        onAddProof = onAddProof,
+                    )
                 }
             } else {
                 Column(
@@ -242,7 +248,13 @@ fun SettlePersonScreen(
                         )
                     }
                     PaymentProofTile(peerName, proofModel, onPick = onPickProof, onRemove = onRemoveStagedProof)
-                    PaymentListSection(payments, currencyCode, onOpen = { actionPayment = it }, onOpenProof = { viewingProof = it }, onAddProof = onAddProof)
+                    PaymentListSection(
+                        payments,
+                        currencyCode,
+                        onOpen = { actionPayment = it },
+                        onOpenProof = { viewingProof = it },
+                        onAddProof = onAddProof,
+                    )
                 }
             }
 

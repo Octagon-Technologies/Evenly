@@ -47,15 +47,13 @@
   }
 </script>
 
-<Sheet title="Join {line.label}" {onclose}>
-  <div class="h2">{line.label} · <span class="mono">{money(line.lineTotalSubunits, store.currency)}</span></div>
-  <p class="sub" style="margin-bottom:13px">
-    {#if holders.length === 1}
-      {holders[0].name} claimed this one alone. Joining splits it between you.
-    {:else}
-      {holders.length} people are on this one. Joining splits it between all of you.
-    {/if}
-  </p>
+<Sheet
+  title="{line.label} · {money(line.lineTotalSubunits, store.currency)}"
+  sub={holders.length === 1
+    ? `${holders[0].name} claimed this one alone. Joining splits it between you.`
+    : `${holders.length} people are on this one. Joining splits it between all of you.`}
+  {onclose}
+>
 
   <div class="card">
     {#each holders as holder (holder.userId + (holder.portionId ?? ''))}
@@ -67,7 +65,7 @@
             <span class="mono">{money(afterEach, store.currency)}</span>
           </div>
         </div>
-        <span class="chip"><Avatar name={holder.name} /></span>
+        <Avatar name={holder.name} size="sm" />
       </div>
     {/each}
     <div class="row row--mine row--center">
@@ -75,7 +73,7 @@
         <div class="lbl">You</div>
         <div class="meta">You'll pay <span class="mono">{money(afterEach, store.currency)}</span></div>
       </div>
-      <span class="chip chip--me"><Avatar name={store.identity?.name ?? 'You'} /></span>
+      <Avatar name={store.identity?.name ?? 'You'} me size="sm" />
     </div>
   </div>
 

@@ -133,9 +133,18 @@ fun RecordPaymentSheet(
             if (left > 0) {
                 EvButton(if (saving) "Saving…" else "Record payment", {
                     when {
-                        saving -> Unit
-                        entered <= 0L -> problem = "Enter how much was paid."
-                        entered > left -> problem = "That's more than the ${moneySubunits(left, currencyCode)} left."
+                        saving -> {
+                            Unit
+                        }
+
+                        entered <= 0L -> {
+                            problem = "Enter how much was paid."
+                        }
+
+                        entered > left -> {
+                            problem = "That's more than the ${moneySubunits(left, currencyCode)} left."
+                        }
+
                         else -> {
                             saving = true
                             scope.launch {
@@ -377,7 +386,11 @@ fun EditBillPaymentSheet(
             )
             MethodAndDateRow(method, date, today, onMethod = { showMethods = true }, onDate = { showDate = true })
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(horizontal = 14.dp, vertical = 10.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.surface)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 val owner = if (payment.byMe) "Your" else "${payment.payerName}'s"
@@ -388,9 +401,18 @@ fun EditBillPaymentSheet(
             EvButton(if (saving) "Saving…" else "Save", {
                 val p = previewProblem
                 when {
-                    saving -> Unit
-                    entered <= 0L -> problem = "Enter an amount. To take the payment off, use Cancel payment."
-                    p != null -> problem = p
+                    saving -> {
+                        Unit
+                    }
+
+                    entered <= 0L -> {
+                        problem = "Enter an amount. To take the payment off, use Cancel payment."
+                    }
+
+                    p != null -> {
+                        problem = p
+                    }
+
                     else -> {
                         saving = true
                         scope.launch {
@@ -459,7 +481,12 @@ internal fun BalanceChip(
             else -> c.blueTint to c.blueText
         }
     Row(
-        Modifier.clip(RoundedCornerShape(99.dp)).background(bg).clickableClearingFocus(onClick = onClick).padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        Modifier
+            .clip(
+                RoundedCornerShape(99.dp),
+            ).background(bg)
+            .clickableClearingFocus(onClick = onClick)
+            .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
