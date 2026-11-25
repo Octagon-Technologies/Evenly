@@ -112,4 +112,4 @@ box when the payment covers a single group.
   field as you type, not the add-expense participant sheet or the bill flow. Group settings no longer adds
   members (2026-11-24).
 - A cross-group payment is N ordinary payments; undoing it means removing each one in its group.
-- `DB version 35` will collide with `feat/payment-proof` if that branch also bumps; renumber at merge.
+- DB version: People took 35; `feat/payment-proof` was renumbered to 36 when it merged.

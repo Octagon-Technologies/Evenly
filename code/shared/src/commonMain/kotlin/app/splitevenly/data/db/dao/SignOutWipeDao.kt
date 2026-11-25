@@ -46,6 +46,7 @@ interface SignOutWipeDao {
         clearComments()
         clearExpenseBlockedUsers()
         clearReceipts()
+        clearPaymentProofs()
         clearExpenseHistory()
         clearCategories()
         clearExpenseItems()
@@ -109,6 +110,9 @@ interface SignOutWipeDao {
 
     @Query("DELETE FROM receipts")
     suspend fun clearReceipts()
+
+    @Query("DELETE FROM payment_proofs")
+    suspend fun clearPaymentProofs()
 
     @Query("DELETE FROM expense_history")
     suspend fun clearExpenseHistory()
@@ -176,6 +180,7 @@ internal val WIPED_TABLES: List<String> =
         "comments",
         "expense_blocked_users",
         "receipts",
+        "payment_proofs",
         "expense_history",
         "categories",
         "expense_items",

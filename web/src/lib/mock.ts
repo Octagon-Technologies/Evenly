@@ -206,7 +206,44 @@ const groupState = {
       shares: evenShares(4960, ['u-andrew', 'u-purity', 'u-mo', 'u-kim']), participantIds: [], lineCount: 0 },
   ] as MockExpense[],
   edits: [] as Array<{ id: string; expenseId: string; actorUserId: string; before: unknown; after: unknown; createdAt: number; undone: boolean; snapshot: MockExpense }>,
+  payments: [] as Array<{
+    id: string; fromUserId: string; toUserId: string; amountSubunits: number; currency: string; settledAt: number;
+    paymentApp: string | null; createdBy: string; chainId: string; applied: Array<{ expenseId: string; subunits: number }>;
+    proof: { id: string; url: string; uploadedBy: string } | null;
+  }>,
+  comments: {} as Record<string, Array<{ id: string; userId: string; body: string; createdAt: number }>>,
+  receipts: {} as Record<string, Array<{ id: string; url: string; mimeType: string }>>,
 };
+
+/** Stand-ins for a phone screenshot and a receipt photo, so the walkthrough has real images to open. */
+function mockImage(label: string, sub: string, tint: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="420"><rect width="300" height="420" fill="#f6f8fb"/>`
+    + `<circle cx="150" cy="140" r="34" fill="${tint}"/><text x="150" y="152" font-size="34" text-anchor="middle" fill="#fff">✓</text>`
+    + `<text x="150" y="230" font-size="30" font-family="sans-serif" font-weight="700" text-anchor="middle" fill="#0b1220">${label}</text>`
+    + `<text x="150" y="262" font-size="15" font-family="sans-serif" text-anchor="middle" fill="#5b6577">${sub}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+// The Airport Uber: Purity paid her share back with a screenshot; Mo paid without one.
+{
+  const uber = groupState.expenses.find((e) => e.id === 'gx-uber')!;
+  for (const [who, app, proof] of [['u-purity', 'ZELLE', true], ['u-mo', 'VENMO', false]] as const) {
+    const share = uber.shares.find((sh) => sh.userId === who)!;
+    share.paid = share.owedSubunits;
+    const id = `gp-${who}`;
+    groupState.payments.push({
+      id, fromUserId: who, toUserId: 'u-andrew', amountSubunits: share.owedSubunits, currency: 'USD',
+      settledAt: Date.parse('2026-11-19T15:00:00'), paymentApp: app, createdBy: who, chainId: id,
+      applied: [{ expenseId: 'gx-uber', subunits: share.owedSubunits }],
+      proof: proof ? { id: `pf-${who}`, url: mockImage('$12.40', 'Sent to Andrew', '#16a34a'), uploadedBy: who } : null,
+    });
+  }
+  groupState.receipts['gx-uber'] = [{ id: 'rc-uber', url: mockImage('$49.60', 'Uber receipt', '#0b1220'), mimeType: 'image/svg+xml' }];
+  groupState.comments['gx-uber'] = [
+    { id: 'cm-1', userId: 'u-andrew', body: 'Surge pricing, sorry', createdAt: Date.parse('2026-11-18T22:10:00') },
+    { id: 'cm-2', userId: 'u-purity', body: 'Sent on Zelle, screenshot is attached', createdAt: Date.parse('2026-11-19T15:02:00') },
+  ];
+}
 
 function snapshotOf(e: MockExpense) {
   return {
@@ -224,10 +261,11 @@ function groupView(me: string) {
     members: Object.entries(NAMES).map(([userId, name]) => ({ userId, name, isPlaceholder: userId !== 'u-andrew' })),
     expenses: groupState.expenses.map((e) => ({
       ...e, payerOutsideName: null, categoryId: null, iClaimed: false, iAmDone: false,
+      receipts: groupState.receipts[e.id] ?? [], comments: groupState.comments[e.id] ?? [],
       shares: e.shares.map((s) => ({ userId: s.userId, owedSubunits: s.owedSubunits, exactSubunits: s.exactSubunits,
         remainingSubunits: s.userId === e.payerUserId ? 0 : s.owedSubunits - s.paid })),
     })),
-    payments: [],
+    payments: [...groupState.payments].sort((a, b) => b.settledAt - a.settledAt),
     edits: groupState.edits.map(({ snapshot: _s, ...rest }) => rest),
   };
 }
@@ -581,12 +619,35 @@ export function installMockTransport(): void {
           .reverse();
         const ceiling = open.reduce((t, s) => t + s.owedSubunits - s.paid, 0);
         if (left > ceiling) return { ok: false, reason: 'ABOVE_CEILING', ceilingSubunits: ceiling };
+        const applied: Array<{ expenseId: string; subunits: number }> = [];
         for (const s of open) {
           const apply = Math.min(left, s.owedSubunits - s.paid);
           s.paid += apply;
           left -= apply;
+          const e = groupState.expenses.find((x) => x.shares.includes(s))!;
+          if (apply > 0) applied.push({ expenseId: e.id, subunits: apply });
         }
-        return { ok: true, reason: null };
+        const id = `gp-${Date.now()}`;
+        groupState.payments.push({
+          id, fromUserId: me, toUserId: String(body.toUserId), amountSubunits: Number(body.amountSubunits), currency: 'USD',
+          settledAt: Date.now(), paymentApp: null, createdBy: me, chainId: id, applied, proof: null,
+        });
+        return { ok: true, reason: null, settlementId: id };
+      }
+
+      case 'group-comment': {
+        const list = (groupState.comments[String(body.expenseId)] ??= []);
+        const id = `cm-${Date.now()}`;
+        list.push({ id, userId: state.me ?? 'u-purity', body: String(body.body), createdAt: Date.now() });
+        return { ok: true, commentId: id };
+      }
+
+      case 'group-payment-proof': {
+        const p = groupState.payments.find((x) => x.id === body.settlementId);
+        if (!p) fail('NOT_FOUND', 404);
+        const file = body.file as { data: string; mimeType: string } | null;
+        p!.proof = file ? { id: `pf-${Date.now()}`, url: `data:${file.mimeType};base64,${file.data}`, uploadedBy: state.me ?? 'u-purity' } : null;
+        return { ok: true, proof: p!.proof };
       }
 
       case 'group-receipt-scan':

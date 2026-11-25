@@ -22,6 +22,11 @@ received on it. Still out of scope: group settings, other people's profiles, off
 the older spec text. That constraint does not extend to `src/marketing/`, which has its own approved
 mockup (the "Finy-inspired" home/privacy/terms artifact).
 
+**The group page's bill sheet mirrors the app's bill screen** (`docs/features/payment-proof.md`): receipt
+photos, payment screenshots ("Receipt & payments"), the payments on that bill, and comments, all from
+`web_group_snapshot`. Guests post comments and add a screenshot to a payment they are in through
+`group-comment` / `group-payment-proof`; adding a *receipt* photo stays app-only.
+
 **The 3px left strip on a group-page row means "you are on this expense"** (payer, a share, or listed on
 the bill), the same mark as the app's `InvolvedStripWidth`. Nothing on the page explains it, on purpose.
 

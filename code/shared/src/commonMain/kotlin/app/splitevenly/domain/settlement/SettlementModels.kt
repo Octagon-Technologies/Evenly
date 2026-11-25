@@ -23,7 +23,12 @@ data class SettlementRecord(
     val paymentApp: String? = null,
     /** Who recorded this payment (the actor) — shown when reviewing a possible double payment. */
     val createdBy: UserId? = null,
-)
+    /** The first payment of this one's edit chain; null when it was never edited. */
+    val originalSettlementId: SettlementId? = null,
+) {
+    /** The id a payment proof hangs off: stable across edits, which void and replace the row. */
+    val chainId: String get() = (originalSettlementId ?: id).value
+}
 
 /**
  * Input to [app.splitevenly.domain.repository.SettlementRepository.applySettlement]

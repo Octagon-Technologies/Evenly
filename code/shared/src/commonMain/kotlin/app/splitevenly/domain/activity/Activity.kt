@@ -47,3 +47,15 @@ data class HistoryEvent(
     val detail: String?,
     val createdAt: Long,
 )
+
+/**
+ * The screenshot attached to a payment (docs/features/payment-proof.md). [chainId] is the payment's
+ * `original_settlement_id ?? id`, so it matches every version of an edited payment.
+ */
+data class PaymentProof(
+    val id: String,
+    val chainId: String,
+    val uploadedBy: UserId,
+    val url: String?,
+    val createdAt: Long,
+)

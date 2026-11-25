@@ -46,6 +46,7 @@ internal fun paymentUi(
         fromUserId = record.fromUserId.value,
         storedMethod = record.paymentApp,
         settledAt = record.settledAt,
+        chainId = record.chainId,
     )
 
 /** The edit sheet's preview for an entered amount, with the refusal said in plain words. */
