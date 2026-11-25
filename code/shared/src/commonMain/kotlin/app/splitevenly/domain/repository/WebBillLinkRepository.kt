@@ -20,6 +20,16 @@ interface WebBillLinkRepository {
     /** The current link plus per-person web-session activity. Poll this while the payer is watching. */
     suspend fun status(expenseId: ExpenseId, actor: UserId): AppResult<WebBillLinkState>
 
+    /**
+     * The link to show before any round trip: the confirmed token if this device has one, otherwise a token
+     * minted here and kept until [create] registers it. Local only, so it never fails.
+     *
+     * This is the one deliberate exception to "no optimistic links": the payer asked for the link to be
+     * ready the moment the share screen opens. A guest who opens it in the seconds before the bill reaches
+     * the server sees "link not found"; the QR, which people scan on the spot, still waits for [create].
+     */
+    suspend fun instantUrl(expenseId: ExpenseId): String
+
     /** Return the existing permanent token, or mint one if this bill has no active link. */
     suspend fun create(expenseId: ExpenseId, actor: UserId): AppResult<WebBillLinkState>
 

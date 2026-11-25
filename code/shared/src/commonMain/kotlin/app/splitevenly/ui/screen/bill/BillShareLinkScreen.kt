@@ -62,6 +62,8 @@ data class ShareBillLinkState(
     val billTitle: String,
     /** `split-evenly.app/b/<token>`, or null until the route recovers the permanent token. */
     val url: String?,
+    /** False while [url] is this device's own token and the server has not confirmed it yet. */
+    val qrReady: Boolean = true,
     val exists: Boolean,
     val revoked: Boolean,
     val busy: Boolean = false,
@@ -137,14 +139,21 @@ fun BillShareLinkScreen(
                 )
             }
 
+            // The link is usable before the QR: Copy and Share never wait on the server.
+            val linkUsable = state.url != null && !state.revoked && (state.live || !state.qrReady)
             when {
-                state.url != null && state.live -> {
+                state.url != null && state.live && state.qrReady -> {
                     QrPlate(state.url)
                     LinkRow(state.url, onCopyLink)
                 }
 
+                state.url != null && state.busy && !state.qrReady -> {
+                    QrLoadingPlate(linkReady = true)
+                    LinkRow(state.url, onCopyLink)
+                }
+
                 state.busy -> {
-                    QrLoadingPlate()
+                    QrLoadingPlate(linkReady = false)
                 }
 
                 state.revoked -> {
@@ -160,16 +169,14 @@ fun BillShareLinkScreen(
 
             // Every branch keeps a live primary action. A greyed-out control with no explanation is the
             // dead end AGENTS.md §7 forbids; creation starts automatically and this is the retry path.
-            if (!state.busy) {
-                if (state.url != null && state.live) {
-                    EvButton("Share the link", onShare, leadingIcon = EvIcons.Share)
-                } else {
-                    EvButton(
-                        text = if (state.revoked || state.exists) "Create a new QR" else "Try again",
-                        onClick = onCreate,
-                        leadingIcon = EvIcons.Qr,
-                    )
-                }
+            if (linkUsable && (state.busy || state.live)) {
+                EvButton("Share the link", onShare, leadingIcon = EvIcons.Share)
+            } else if (!state.busy) {
+                EvButton(
+                    text = if (state.revoked || state.exists) "Create a new QR" else "Try again",
+                    onClick = onCreate,
+                    leadingIcon = EvIcons.Qr,
+                )
             }
 
 //            EvButton(
@@ -202,7 +209,7 @@ fun BillShareLinkScreen(
 }
 
 @Composable
-private fun QrLoadingPlate() {
+private fun QrLoadingPlate(linkReady: Boolean) {
     val c = EvenlyTheme.colors
     val transition = rememberInfiniteTransition(label = "qr-loading")
     val offset by transition.animateFloat(
@@ -223,20 +230,22 @@ private fun QrLoadingPlate() {
         }
     }
     Text(
-        "Creating your bill QR…",
+        if (linkReady) "Your link is ready. The QR is on its way." else "Creating your bill QR…",
         color = c.blueText,
         fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.fillMaxWidth(),
         textAlign = TextAlign.Center,
     )
-    Text(
-        "This may take a moment",
-        color = c.ink3,
-        fontSize = 11.sp,
-        modifier = Modifier.fillMaxWidth(),
-        textAlign = TextAlign.Center,
-    )
+    if (!linkReady) {
+        Text(
+            "This may take a moment",
+            color = c.ink3,
+            fontSize = 11.sp,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+    }
 }
 
 /** White plate + dark modules so it scans in both themes, and so a phone camera sees real contrast. */
