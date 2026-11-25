@@ -6,14 +6,38 @@ real person in the group, no app, no account, no password) and, as of 2026-08-04
 (`src/marketing/` — home, privacy, terms) that lives at the same domain. `src/lib/router.ts`'s
 `resolveRoute` is what decides which one a given URL gets.
 
+## The web is the app in a browser (decided 2026-11-24)
+
+**Every screen that exists in both places copies the app**: layout, components, wording, spacing, type and
+tokens. The owner's rule is "a guest and an app user should recognise the same screen". When a web screen and
+its app counterpart disagree, the app wins, and so does the app over `design/web-claim-mockup.html` and the
+older `WEB_CLAIM_SPEC.md` visual rules (§2.6 "chips only" is superseded). Only behaviour the web cannot have
+differs: no account screens, no offline, no push. The app-to-web screen map and the last gap audit live in
+`docs/features/web-app-parity-audit.md`; update it when a screen changes on either side.
+
+- **Port from the Compose source, not from memory.** Each web component names the Kotlin file it mirrors
+  (`ui/screen/...`). Sizes are dp → px one to one; the app's type ramp is in `ui/theme/Type.kt`, radii in
+  `Shape.kt`, colours in `Color.kt` (light scheme). `app.css`'s `:root` tokens are those values; the blue is
+  `#2563EB` like the app's `EvBlue`. `#3762E3` is the launch/logo blue only, not a UI token.
+- **IBM Plex Sans and Plex Mono are shipped** (`public/fonts/`, Latin subsets of the app's own TTFs). Money
+  is always Plex Mono, as in the app. A fallback to the system font is a parity bug, not a style choice.
+- **Mobile first, iPhone first.** Most guests open the link on an iPhone: base (393px), Pro (402px) or Pro
+  Max (440px). Build and check every screen at those three widths, plus 375px as the floor. Nothing may
+  scroll sideways. Tap targets are at least 44px. Desktop and iPad get a better layout later; until then the
+  480px centred column stays.
+- **Sheets are the app's iOS sheets** (`components/Sheet.svelte` ← `EvSheetSurface`): a floating card inset
+  8px, 32px corners, a 36×5 handle, a centred 17px title, content, then the full-width primary button. No
+  close ✕ (the app dropped it). Where the app pushes a screen instead (expense detail, add/edit expense),
+  the web uses `components/Screen.svelte` with the app's top bar.
+
 **The bill page (`/b/`) is still one bill, one job.** Spec §9 holds for the claim screens: one bill's
 lines, its claims and its payments, until the link is revoked or the bill is deleted. If you are adding a
 second *claim* screen that is not in `design/web-claim-mockup.html`, stop and re-read it.
 
 **The group page (`/j/` after "who are you?") is the deliberate exception**, decided 2026-11-23
 (`docs/features/web-group-page.md`, mockup `design/web-group-page-mockup.html`): one person has the app,
-everyone else uses the link. A guest sees every expense in the group (All is the default, Mine one tap
-away), their bilateral balances, a "Waiting on you" card for itemized bills that list them, and can
+everyone else uses the link. A guest sees the app's group screen: an Expenses tab (Active / All / Settled, as the
+app) and a Balances tab on a bottom bar, their bilateral balances, a "Needs your pick" section for itemized bills that list them, and can
 settle up, edit an EVEN/EXACT expense (applies at once, logged, anyone may undo) and add an expense
 (even, exact, or typed items). As of 2026-11-23 adding can also start from a receipt photo
 (`group-receipt-scan`, which proxies to `extract-receipt` under the service role with guest-only limits:
@@ -141,15 +165,16 @@ section exists to prevent.
 - **A claimed line is never hidden** (§2.5). Every line is always visible whatever its state; a
   claimed line changes what it *offers* you, never whether it exists. Filtering to "what's left"
   makes a shared plate unjoinable and silently wrong.
-- **The claim affordance is a chip in the people row** (§2.6), never a button in the price column,
-  and there is no prose in the claim list — chips only.
+- **The claim list is the app's assign cards** (decided 2026-11-24, superseding §2.6's chip rows): a
+  numbered mark, name, "who has it" line, a blue `×N` chip, price, chevron; one card open at a time with
+  "I had this" or a servings stepper. Guests and app users should recognise the same screen. Keep the
+  price column fixed and never move the claim action into it.
 - **An item edit is announced; joining a claim is not** (§2.7). Both apply instantly. An edit moves
   the bill total and therefore everyone's money, so it lands in the change log under the item card and
   the payer is told in the app; joining moves two people's with both at the table, so nothing is said.
   These look inconsistent and are not. Do not harmonise them, and **do not re-add an approval gate** —
   `store.editLine` applies, `store.undoChange` takes it back, and **anyone on the bill may undo**.
-- **The change log is a section below the lines, never prose inside them.** "No prose in the claim
-  list" (§2.6) is about the rows themselves: chips only. The log renders on the minority of bills where
+- **The change log is a section below the lines, never prose inside the cards.** The log renders on the minority of bills where
   anyone edited anything, and an undone entry stays legible rather than vanishing.
 - **An `ADD` also claims the new line for whoever added it.** The sheet says "Add it and claim it", and
   someone typing in the dessert they ate has already told us they ate it.

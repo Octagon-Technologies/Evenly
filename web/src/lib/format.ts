@@ -22,14 +22,26 @@ export function money(subunits: number, currency: string): string {
   const digits = minorUnits(currency);
   const value = subunits / 10 ** digits;
   try {
+    // narrowSymbol: "$23.40" as the app prints it, not the "US$23.40" some locales give.
     return new Intl.NumberFormat(undefined, {
       style: 'currency',
       currency: currency || 'USD',
+      currencyDisplay: 'narrowSymbol',
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
     }).format(value);
   } catch {
     return `${value.toFixed(digits)} ${currency ?? ''}`.trim();
+  }
+}
+
+/** The currency's own symbol ("$", "KSh", "€"), for an amount field's prefix. */
+export function symbol(currency: string): string {
+  try {
+    const parts = new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD', currencyDisplay: 'narrowSymbol' }).formatToParts(0);
+    return parts.find((p) => p.type === 'currency')?.value ?? currency;
+  } catch {
+    return currency;
   }
 }
 
@@ -55,9 +67,14 @@ export function shortDate(iso: string): string {
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(d);
 }
 
-/** The initial in an avatar chip. Grapheme-safe enough for the names people actually type. */
+/** Avatar initials, the app's `initialsOf`: first letter of up to two words ("Andrew Chelimo" → "AC"). */
 export function initial(name: string): string {
-  return [...(name ?? '').trim()][0]?.toUpperCase() ?? '?';
+  const parts = (name ?? '').trim().split(' ').filter(Boolean);
+  if (parts.length === 0) return '?';
+  return parts
+    .slice(0, 2)
+    .map((p) => ([...p][0] ?? '').toUpperCase())
+    .join('');
 }
 
 /** How each payment app spells its own name — the DB stores a lowercase key, people read a brand. */

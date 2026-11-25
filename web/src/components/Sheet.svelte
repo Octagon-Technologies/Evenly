@@ -1,6 +1,8 @@
 <script lang="ts">
   /**
-   * The bottom sheet the mockup draws: scrim, grab handle, content.
+   * `EvSheetSurface` (ui/components/EvContainers.kt), iOS branch: a floating card with a drag handle,
+   * a centred title row and an optional centred sub line. No close button, as in the app: tap outside,
+   * Escape, or the sheet's own Done.
    *
    * A sheet here always sits between a guest and someone else's money, so it is a real dialog —
    * labelled, focus-trapped at the edges, dismissible with Escape and by tapping the scrim. Getting
@@ -10,11 +12,14 @@
 
   interface Props {
     title: string;
+    sub?: string;
+    /** False when the content draws its own heading (a hero amount, say). */
+    showTitle?: boolean;
     onclose: () => void;
     children: Snippet;
   }
 
-  const { title, onclose, children }: Props = $props();
+  const { title, sub, showTitle = true, onclose, children }: Props = $props();
 
   let panel = $state<HTMLDivElement | null>(null);
 
@@ -49,6 +54,8 @@
     bind:this={panel}
   >
     <div class="grab"></div>
+    {#if showTitle}<div class="sheet-title">{title}</div>{/if}
+    {#if sub}<p class="sheet-sub">{sub}</p>{/if}
     {@render children()}
   </div>
 </div>
