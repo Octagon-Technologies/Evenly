@@ -6,12 +6,18 @@
  * path gets the "no token" screen instead of a request that could only ever fail.
  */
 
-/** `/j/:token` is the group invite link (a UUID-shaped token), not a bill. Matched by shape like the bill one. */
-const JOIN_PATH = /^\/j\/([0-9A-Za-z-]{16,64})\/?$/;
+/**
+ * `/j/:token` is the group invite link (a UUID-shaped token), not a bill. Matched by shape like the bill one.
+ *
+ * Anything after the token is ignored rather than rejected: some share targets fold the whole share
+ * message into the URL (`/j/<token>%0ASee%20what%20you%20owe…`), and an exact match sent those guests
+ * to the waitlist instead of their group.
+ */
+const JOIN_PATH = /^\/j\/([0-9A-Za-z-]{16,64})(?=$|\/|%|\s)/;
 
 // `/s/` is a quick split's link: the same bill token, on the one path the app claims as an app link
 // (docs/features/one-time-splits.md, A3). On the web the two are identical.
-const BILL_PATH = /^\/[bs]\/([0-9A-Za-z]{16,64})\/?$/;
+const BILL_PATH = /^\/[bs]\/([0-9A-Za-z]{16,64})(?=$|\/|%|\s)/;
 
 export function billTokenFromLocation(loc: { pathname: string; search: string } = window.location): string | null {
   const match = BILL_PATH.exec(loc.pathname);
