@@ -498,20 +498,12 @@ fun BillEditScreen(
 
                 // The bill's receipt pages sit under its name: what was scanned, then what it became.
                 if (allReceipts.isNotEmpty()) {
-                    val itemCount = items.count { it.isComplete() }
                     PickedReceiptStrip(
                         receipts = allReceipts,
                         label = if (allReceipts.size == 1) "Receipt" else "Receipt pages",
-                        caption =
-                            if (itemCount ==
-                                0
-                            ) {
-                                null
-                            } else if (itemCount == 1) {
-                                "1 item on this bill."
-                            } else {
-                                "$itemCount items on this bill."
-                            },
+                        caption = "Tap to compare with the items",
+                        singleTitle = "Receipt attached",
+                        savedCaption = "Tap to compare with the items",
                         onAddClick = null,
                         onRemoveReceipt = { onRemoveBillReceipt(allReceipts[it]) },
                         onOpenReceipt = { viewerIndex = it },

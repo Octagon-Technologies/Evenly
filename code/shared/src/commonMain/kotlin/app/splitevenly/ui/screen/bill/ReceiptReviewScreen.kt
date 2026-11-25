@@ -1,7 +1,6 @@
 package app.splitevenly.ui.screen.bill
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,8 +9,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ import app.splitevenly.ui.components.icon.EvIcons
 import app.splitevenly.ui.components.moneySubunits
 import app.splitevenly.ui.components.topHairline
 import app.splitevenly.ui.screen.expense.PickedReceiptUi
+import app.splitevenly.ui.screen.expense.ReceiptAttachedTile
 import app.splitevenly.ui.screen.expense.TitleWithDateRow
 import app.splitevenly.ui.theme.EvenlyTheme
 
@@ -115,7 +117,7 @@ fun ReceiptReviewScreen(
                     UnverifiedReceiptNotice(onDismiss = { state.showUnverifiedNotice = false })
                 }
                 if (attachedReceipts.isNotEmpty()) {
-                    ReceiptTile(attachedReceipts.size, onClick = { onOpenReceipt(0) })
+                    ReceiptAttachedTile(attachedReceipts, onClick = { onOpenReceipt(0) })
                 }
 
                 Column {
@@ -143,27 +145,7 @@ fun ReceiptReviewScreen(
                     }
                 }
 
-                EvCard {
-                    Row(
-                        Modifier.fillMaxWidth().clickable { editing = -1 }.padding(horizontal = 14.dp, vertical = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            "Tax and tip",
-                            color = c.ink,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        val extras = state.totalSubunits - state.subtotalSubunits
-                        if (extras != 0L) {
-                            Text(moneySubunits(extras, currencyCode), color = c.ink2, fontSize = 13.sp, fontFamily = EvenlyTheme.monoFamily)
-                        }
-                        Text("Edit", color = c.blueText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        EvIcon(EvIcons.ChevR, size = 14.dp, tint = c.ink3)
-                    }
-                }
+                ChargesBreakdownCard(state, currencyCode, onEdit = { editing = -1 })
 
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Receipt total", color = c.ink2, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -249,46 +231,56 @@ fun ReceiptReviewScreen(
     }
 }
 
+/**
+ * The receipt's charges on the screen itself, not behind Edit: a lone "Tax and tip $73.60" on a $252
+ * subtotal reads as a mistake until you see it is tax plus an 18% gratuity. Zero lines are left out.
+ */
 @Composable
-private fun ReceiptTile(
-    pages: Int,
-    onClick: () -> Unit,
+private fun ChargesBreakdownCard(
+    state: ItemizedBillState,
+    currencyCode: String,
+    onEdit: () -> Unit,
 ) {
     val c = EvenlyTheme.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(c.surface)
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(c.page)
-                .border(1.dp, c.border, RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center,
-        ) { EvIcon(EvIcons.Receipt, size = 18.dp, tint = c.ink2) }
-        Column(Modifier.weight(1f)) {
-            Text(
-                if (pages ==
-                    1
-                ) {
-                    "Receipt attached"
-                } else {
-                    "$pages receipt pages attached"
-                },
-                color = c.ink,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text("Tap to compare with the items", color = c.ink3, fontSize = 12.sp)
+    val lines =
+        listOf(
+            "Tax" to priceToSubunits(state.taxText),
+            "Gratuity" to priceToSubunits(state.gratuityText),
+            "Other charges" to priceToSubunits(state.otherChargesText),
+            "Tip" to priceToSubunits(state.tipText),
+            "Discount" to -priceToSubunits(state.discountText),
+        ).filter { it.second != 0L }
+    EvCard {
+        Column(Modifier.fillMaxWidth().clickable(onClick = onEdit).padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Tax and tip", color = c.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text("Edit", color = c.blueText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink)
+            }
+            Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChargeLine("Subtotal", moneySubunits(state.subtotalSubunits, currencyCode))
+                if (lines.isEmpty()) {
+                    Text("No tax, tip or fees added", color = c.ink3, fontSize = 13.sp)
+                }
+                lines.forEach { (label, amount) ->
+                    val text = moneySubunits(kotlin.math.abs(amount), currencyCode)
+                    ChargeLine(label, if (amount < 0) "−$text" else text, discount = amount < 0)
+                }
+            }
         }
-        EvIcon(EvIcons.ChevR, size = 16.dp, tint = c.ink3)
+    }
+}
+
+@Composable
+private fun ChargeLine(
+    label: String,
+    amount: String,
+    discount: Boolean = false,
+) {
+    val c = EvenlyTheme.colors
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = c.ink2, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(amount, color = if (discount) c.settled else c.ink, fontSize = 14.sp, fontFamily = EvenlyTheme.monoFamily)
     }
 }
 
@@ -306,9 +298,9 @@ private fun ReviewItemRow(
             .fillMaxWidth()
             .then(if (first) Modifier else Modifier.topHairline(c.border))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp, vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             if (blank) "Unnamed item" else item.label,
@@ -319,14 +311,31 @@ private fun ReviewItemRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (item.quantity > 1) Text("×${item.quantity}", color = c.ink3, fontSize = 12.5.sp, fontFamily = EvenlyTheme.monoFamily)
+        // A filled chip, not grey text: "×4" next to "$96.00" was the easiest number on the screen to miss.
+        if (item.quantity > 1) QuantityChip(item.quantity)
         Text(
             moneySubunits(priceToSubunits(item.totalText), currencyCode),
             color = c.ink,
             fontSize = 14.sp,
             fontFamily = EvenlyTheme.monoFamily,
         )
-        EvIcon(EvIcons.ChevR, size = 14.dp, tint = c.ink3)
+        EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink)
+    }
+}
+
+@Composable
+private fun QuantityChip(quantity: Int) {
+    val c = EvenlyTheme.colors
+    Box(
+        Modifier
+            .heightIn(min = 26.dp)
+            .widthIn(min = 26.dp)
+            .clip(CircleShape)
+            .background(c.blue)
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("×$quantity", color = c.onAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

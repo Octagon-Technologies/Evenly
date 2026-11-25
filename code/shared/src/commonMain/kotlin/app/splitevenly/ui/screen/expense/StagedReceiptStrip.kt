@@ -70,6 +70,8 @@ fun PickedReceiptStrip(
     onAddClick: (() -> Unit)?,
     onRemoveReceipt: (Int) -> UndoRemoval,
     onOpenReceipt: (Int) -> Unit,
+    singleTitle: String? = null,
+    savedCaption: String = "Saved",
 ) {
     val c = EvenlyTheme.colors
     // The last removal, its row position, and how to undo it. One at a time; a new one ends the last.
@@ -101,8 +103,8 @@ fun PickedReceiptStrip(
                 val i = index++
                 ReceiptRow(
                     receipt = r,
-                    title = receiptTitle(r, i, receipts.size),
-                    caption = if (r.remoteUrl != null) "Saved" else caption,
+                    title = if (receipts.size == 1 && singleTitle != null) singleTitle else receiptTitle(r, i, receipts.size),
+                    caption = if (r.remoteUrl != null) savedCaption else caption,
                     onOpen = { onOpenReceipt(i) },
                     onRemove = if (r.removable) {
                         { removed = Triple(r, i, onRemoveReceipt(i)) }
@@ -130,6 +132,59 @@ fun PickedReceiptStrip(
     }
 }
 
+/**
+ * "Receipt attached" with the first page's real thumbnail, for the screens where the receipt is there to
+ * be compared against the items rather than managed. An icon in this slot told you a receipt existed
+ * but not which one.
+ */
+@Composable
+fun ReceiptAttachedTile(
+    receipts: List<PickedReceiptUi>,
+    onClick: () -> Unit,
+) {
+    val c = EvenlyTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(c.surface).border(1.dp, c.border, shape)
+            .clickable(onClick = onClick).padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ReceiptThumbnail(receipts.first())
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (receipts.size == 1) "Receipt attached" else "${receipts.size} receipt pages attached",
+                color = c.ink,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text("Tap to compare with the items", color = c.ink3, fontSize = 13.sp)
+        }
+        EvIcon(EvIcons.ChevR, size = 18.dp, tint = c.ink)
+    }
+}
+
+@Composable
+private fun ReceiptThumbnail(receipt: PickedReceiptUi) {
+    val c = EvenlyTheme.colors
+    val thumb = RoundedCornerShape(7.dp)
+    Box(
+        Modifier.size(width = 44.dp, height = 56.dp).clip(thumb).background(c.blueTint).border(1.dp, c.border, thumb),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (receipt.model == null) {
+            EvIcon(if (receipt.isPdf) EvIcons.Receipt else EvIcons.Image, size = 20.dp, tint = c.blueText)
+        } else {
+            AsyncImage(
+                model = receipt.model,
+                contentDescription = "Receipt",
+                modifier = Modifier.fillMaxSize().clip(thumb),
+                contentScale = ContentScale.Crop,
+            )
+        }
+    }
+}
+
 private fun receiptTitle(r: PickedReceiptUi, index: Int, count: Int): String =
     when {
         count > 1 -> "Page ${index + 1}"
@@ -153,22 +208,7 @@ private fun ReceiptRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        val thumb = RoundedCornerShape(7.dp)
-        Box(
-            Modifier.size(width = 44.dp, height = 56.dp).clip(thumb).background(c.blueTint).border(1.dp, c.border, thumb),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (receipt.model == null) {
-                EvIcon(if (receipt.isPdf) EvIcons.Receipt else EvIcons.Image, size = 20.dp, tint = c.blueText)
-            } else {
-                AsyncImage(
-                    model = receipt.model,
-                    contentDescription = "Receipt",
-                    modifier = Modifier.fillMaxSize().clip(thumb),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-        }
+        ReceiptThumbnail(receipt)
         Column(Modifier.weight(1f)) {
             Text(title, color = c.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             if (caption != null) Text(caption, color = c.ink3, fontSize = 12.sp)
