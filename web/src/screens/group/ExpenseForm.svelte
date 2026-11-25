@@ -1,8 +1,9 @@
 <script lang="ts">
   /**
    * Add an expense, or edit one, from the web group page. Split evenly, by exact amounts, or (adding
-   * only) by typed-in items that each person then claims on the bill's own page. No receipt scan here:
-   * OCR is a per-call cost and this page is a public link (docs/features/web-group-page.md non-goals).
+   * only) by items that each person then claims on the bill's own page. Adding can start from a receipt
+   * photo: evenly/exact reads the total, by-items reads the lines plus tax and tip. The scan only fills
+   * the form; nothing is saved until the guest taps Add (docs/features/web-group-page.md).
    *
    * Save stays live and says what is missing on tap; nothing is greyed out without a reason (AGENTS.md §7).
    */
@@ -66,6 +67,54 @@
   let lines = $state<Line[]>([{ label: '', qty: '1', price: '' }]);
   let newName = $state('');
   let problem = $state<string | null>(null);
+  /** From an itemized scan: split in proportion to what each person had, like an app-made bill. */
+  let extras = $state<{ tax: number; tip: number; gratuity: number; discount: number; other: number } | null>(null);
+  let scanNote = $state<string | null>(null);
+  let fileInput = $state<HTMLInputElement | null>(null);
+
+  const extrasTotal = $derived(extras ? extras.tax + extras.tip + extras.gratuity + extras.other - extras.discount : 0);
+  const extrasLabel = $derived.by(() => {
+    if (!extras) return '';
+    const parts: string[] = [];
+    if (extras.tax) parts.push(`tax ${money(extras.tax, currency)}`);
+    if (extras.tip + extras.gratuity) parts.push(`tip ${money(extras.tip + extras.gratuity, currency)}`);
+    if (extras.other) parts.push(`fees ${money(extras.other, currency)}`);
+    if (extras.discount) parts.push(`discount -${money(extras.discount, currency)}`);
+    return parts.join(', ');
+  });
+
+  async function scanPicked(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    if (files.length === 0) return;
+    scanNote = null;
+    problem = null;
+    const res = await store.scan(files, mode === 'ITEMIZED' ? null : 'summary');
+    if (res.problem) {
+      problem = res.problem;
+      return;
+    }
+    const read = res.receipt ?? res.summary;
+    const readCurrency = res.receipt?.currency ?? res.summary?.currency ?? null;
+    if (readCurrency && readCurrency !== currency) {
+      problem = `That receipt is in ${readCurrency} and this group uses ${currency}. Type the ${currency} amount in.`;
+      return;
+    }
+    if (!title.trim()) title = (res.summary?.short_title ?? read?.merchant_name ?? '').slice(0, 80);
+    if (res.receipt) {
+      const r = res.receipt;
+      lines = r.items.map((i) => ({ label: i.label, qty: String(i.quantity), price: amount(i.line_total_subunits, currency) }));
+      const x = { tax: r.tax_subunits, tip: r.tip_subunits, gratuity: r.gratuity_subunits, discount: r.discount_subunits, other: r.other_charges_subunits };
+      extras = x.tax + x.tip + x.gratuity + x.discount + x.other > 0 ? x : null;
+      scanNote = res.verified ? 'Filled in from the receipt. Give it a quick check.' : "Filled in from the receipt, but the lines don't add up to its total. Check them against it.";
+    } else if (res.summary && res.summary.total_subunits > 0) {
+      amountText = amount(res.summary.total_subunits, currency);
+      scanNote = 'Filled in from the receipt. Give it a quick check.';
+    } else {
+      problem = "Couldn't read the total on that one. Type it in.";
+    }
+  }
 
   const chosen = $derived(people.filter((p) => p.on));
   const itemsTotal = $derived(
@@ -124,6 +173,7 @@
     if (problem) return;
 
     if (!editing) {
+      const withExtras = mode === 'ITEMIZED' && extras;
       const res = await store.create({
         title: title.trim(),
         amountSubunits: total ?? 0,
@@ -136,6 +186,7 @@
           mode === 'ITEMIZED'
             ? lines.map((l) => ({ label: l.label.trim(), quantity: Number(l.qty), lineTotalSubunits: parseAmount(l.price, currency) ?? 0 }))
             : undefined,
+        extras: withExtras ? extras ?? undefined : undefined,
       });
       if (res.problem) problem = res.problem;
       else onsaved(mode === 'ITEMIZED' ? 'Added. Now pick what you had.' : 'Added. Everyone will see it.', res.billToken);
@@ -171,6 +222,14 @@
 <Sheet title={editing ? 'Edit expense' : 'Add expense'} {onclose}>
   <div class="h2" style="margin-bottom:14px">{editing ? 'Edit expense' : 'Add an expense'}</div>
 
+  {#if !editing}
+    <input bind:this={fileInput} class="xf-file" type="file" accept="image/*,application/pdf" multiple onchange={scanPicked} />
+    <button type="button" class="btn btn--ghost xf-scan" disabled={store.busy} onclick={() => fileInput?.click()}>
+      {store.busy ? 'Reading the receipt…' : mode === 'ITEMIZED' ? 'Scan a receipt for the items' : 'Scan a receipt'}
+    </button>
+    {#if scanNote}<div class="note note--blue" style="margin-bottom:12px">{scanNote}</div>{/if}
+  {/if}
+
   <div class="field">
     <label class="flbl" for="xf-title">What for</label>
     <input id="xf-title" class="inp" type="text" maxlength="80" placeholder="Dinner, Uber, groceries…" bind:value={title} />
@@ -198,7 +257,13 @@
         </div>
       {/each}
       <button type="button" class="link" onclick={() => lines.push({ label: '', qty: '1', price: '' })}>+ Add item</button>
-      <div class="sub">Total {money(itemsTotal, currency)}. Everyone picks what they had on the bill's page.</div>
+      {#if extras}
+        <div class="sub">
+          Plus {extrasLabel}, split by what each person had.
+          <button type="button" class="link" onclick={() => (extras = null)}>Leave these off</button>
+        </div>
+      {/if}
+      <div class="sub">Total {money(itemsTotal + extrasTotal, currency)}. Everyone picks what they had on the bill's page.</div>
     </div>
   {:else}
     <div class="field">
@@ -241,6 +306,12 @@
 </Sheet>
 
 <style>
+  .xf-file {
+    display: none;
+  }
+  .xf-scan {
+    margin-bottom: 12px;
+  }
   .xf-seg {
     display: flex;
     background: var(--surface);

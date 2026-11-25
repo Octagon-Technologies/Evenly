@@ -10,6 +10,7 @@
   import { money, shortDate } from '../../lib/format.ts';
   import type { GroupStore } from '../../lib/group.svelte.ts';
   import type { ExpenseState, GroupExpense } from '../../lib/api.ts';
+  import type { Debt } from '../../lib/money/balances.ts';
   import ExpenseForm from './ExpenseForm.svelte';
   import SettleSheet from './SettleSheet.svelte';
 
@@ -24,6 +25,8 @@
 
   let editing = $state(false);
   let paying = $state(false);
+  /** Set when the guest paid this bill and is recording what one person paid them back. */
+  let receiving = $state<Debt | null>(null);
   // What the guest still owes on this one bill, as a debt to its payer: the per-expense pay-back path.
   const owe = $derived.by(() => {
     const stake = store.stake(expense);
@@ -31,6 +34,12 @@
     return { debtorUserId: store.me, creditorUserId: expense.payerUserId, currency: expense.currency, amountSubunits: stake.subunits };
   });
   let problem = $state<string | null>(null);
+
+  // Only the payer records money coming back in, and only from someone who still owes on this bill.
+  const canReceive = $derived(!store.view?.readOnly && expense.payerUserId === store.me);
+  function receiveFrom(userId: string, remainingSubunits: number) {
+    receiving = { debtorUserId: userId, creditorUserId: store.me, currency: expense.currency, amountSubunits: remainingSubunits };
+  }
 
   const editable = $derived(!store.view?.readOnly && (expense.splitMode === 'EVEN' || expense.splitMode === 'EXACT'));
   const edits = $derived(store.editsFor(expense.id));
@@ -74,6 +83,16 @@
       onsaved(m);
     }}
   />
+{:else if receiving}
+  <SettleSheet
+    {store}
+    forExpense={{ id: expense.id, title: expense.title, debt: receiving }}
+    onclose={() => (receiving = null)}
+    ondone={(m) => {
+      receiving = null;
+      onsaved(m);
+    }}
+  />
 {:else if editing}
   <ExpenseForm
     {store}
@@ -112,6 +131,11 @@
               <span class="meta" style="margin:0;min-width:64px;text-align:right">
                 {s.remainingSubunits <= 0 ? 'paid back' : `${money(s.remainingSubunits, expense.currency)} left`}
               </span>
+              {#if canReceive && s.remainingSubunits > 0}
+                <button type="button" class="link" style="margin-left:10px" onclick={() => receiveFrom(s.userId, s.remainingSubunits)}>
+                  Got paid
+                </button>
+              {/if}
             {:else}
               <span class="meta" style="margin:0;min-width:64px;text-align:right">paid</span>
             {/if}
